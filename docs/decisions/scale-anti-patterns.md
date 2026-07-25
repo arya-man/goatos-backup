@@ -41,6 +41,14 @@ none of them is support-only, backup-only, or park-head-only. Their week-offs
 must come from HRMS/timetable seed data and reduce the available operator pool
 for that business date before animal-cap splitting runs.
 
+Owner-attribution drift is the adjacent failure. A CPT operator-drive seed that
+has `cpt-operator-roster.json` must still write reviewed shed ownership for
+every active physical shed: Darshan as the reviewed manager/default drive owner
+and Sagar as backup. Completed accepted drive history, including a fully done
+Gandhi ET+TT row, must still resolve to Darshan in shed summaries instead of
+falling through to `Operators unassigned` merely because no open drive row
+remains.
+
 Adult vaccination date drift is also a seed-scale anti-pattern. Adult
 `entry_date` / `post_arrival` must not create private due windows, singleton
 drives, or shed/partition fragments. Adult timing comes from accepted

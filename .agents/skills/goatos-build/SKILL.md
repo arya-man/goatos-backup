@@ -37,6 +37,12 @@ Run it with `make seed-vaccination-cpt-operator-drive` — that target materiali
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
 command and the executable shape agree. Do not hand-run the individual binaries.
+The materialized CPT bundle must include reviewed shed-manager rows for every
+active Channapatna physical shed. Darshan Talwar is the manager/default drive
+owner and Sagar Mahoor is the reviewed backup; `seed-shed-positions` must run
+even when `cpt-operator-roster.json` is present. A completed accepted-history
+shed, such as Gandhi ET+TT, still resolves to Darshan in shed summaries rather
+than showing `Operators unassigned`.
 The director and the CEO/CXO grants come from the committed
 `cpt-operator-roster.json` (`directors[]`, `leadership_full_access`), which
 `backend/cmd/seed-roster-real` now genuinely consumes; a director is seeded with

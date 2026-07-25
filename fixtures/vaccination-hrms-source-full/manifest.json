@@ -184,6 +184,11 @@
       "date": "2026-07-25",
       "change": "CPT operator-roster contract gained verifier-only email-password grants; Jyothi jyothipvg12345@gmail.com is seeded as verifier with no vaccination execution seat, shift row, or animal capacity.",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle has no cpt-operator-roster.json, so the verifier grant lane is inactive for it and all raw animal/vaccination/HRMS hashes and counts stay unchanged. CPT-only operator-drive packets with verifiers[] must consume the block as auth_pending_email_grants only; verifiers never affect drive packing capacity."
+    },
+    {
+      "date": "2026-07-25",
+      "change": "CPT operator-drive materialization now writes reviewed shed-manager mapping rows for every active CPT physical shed from cpt-operator-roster.json: Darshan Talwar is the default shed/drive owner and Sagar Mahoor is the reviewed backup. seed-vaccination-source-full always runs seed-shed-positions, and the CPT helper runs it in strict only-sheds-with-goats mode so no active source shed can remain ownerless. Shed-summary reads also resolve accepted completed drive history through the default operator when no open drive-assignment row remains.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and keeps the generic timetable/shed-manager model. The validator keeps physical-shed aggregation for the full fixture while preserving exact physical shed names for operator-roster CPT bundles, so Gandhi completed-history rows and Godel/Mandela active rows cannot regress to Operators unassigned after a reviewed CPT seed."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
