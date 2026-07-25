@@ -1270,7 +1270,7 @@ class SubmitViewModel @Inject constructor(
         fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
-            "submitted", "needs_review", "accepted", "closed", "completed" -> true
+            "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
             else -> false
         }
 

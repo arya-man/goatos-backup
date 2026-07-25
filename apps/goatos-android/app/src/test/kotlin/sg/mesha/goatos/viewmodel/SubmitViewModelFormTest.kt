@@ -1078,6 +1078,58 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `verified shed completion renders acknowledged state`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-verified-proof",
+            sopVersionId = "sop-shed-verified-proof",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-verified",
+            state = "accepted",
+            rowVersion = 3,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val verifiedSummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-verified-proof",
+            shedName = "Verified Shed",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 2,
+            handledCount = 2,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 2)),
+            submitEnabled = false,
+            blockingReason = null,
+            submitState = "verified",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = verifiedSummary),
+            sync,
+            task.taskId,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.ACKED, viewModel.state.value.syncState)
+        assertNull("verified shed record must not reopen the final submit form", viewModel.state.value.formRunner)
+        assertFalse(viewModel.state.value.canSubmit)
+        assertNull(sync.lastRequest)
+    }
+
+    @Test
     fun `local synced shed proof updates completion summary before backend refresh catches up`() = runTest(dispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-shed-local-proof",
