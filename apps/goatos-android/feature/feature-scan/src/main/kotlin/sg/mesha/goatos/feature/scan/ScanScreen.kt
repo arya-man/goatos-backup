@@ -118,6 +118,7 @@ data class RosterRow(
     val scannedAtLabel: String? = null,
     val goatId: String = "",
     val obligationId: String = "",
+    val proofRequired: Boolean = true,
     val proofClipCount: Int = 0,
     val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
 )
@@ -204,6 +205,10 @@ data class ScanUiState(
     // and supports CaptureProof (replace) / RetryProof so the operator can resolve it, including
     // animals below the visible scroll window.
     val proofActionNeeded: List<RosterRow> = emptyList(),
+    // Transient "already scanned" strip: set on a re-scan of an already-DONE tag, rendered below
+    // the tap-hint card, cleared on the next accepted scan. Non-null shows the strip; it never
+    // stacks — only ONE feed row per tag exists (see [ScanFeedEntry]/[ScanViewModel.prependFeed]).
+    val duplicateNotice: String? = null,
     val readerConnection: ScanReaderConnection? = null,
     val shedId: String? = null,
     val taskId: String? = null,
@@ -296,6 +301,9 @@ fun ScanScreen(
                 if (state.scanEnabled) {
                     item { TapHint(state.tapHint) }
                 }
+                state.duplicateNotice?.let { notice ->
+                    item { DuplicateNoticeStrip(notice) }
+                }
                 state.error?.let { err ->
                     item { NotDueBanner(err) }
                 }
@@ -339,9 +347,7 @@ fun ScanScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                if (state.feed.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
-                    item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth(), rows = 2) }
-                } else if (state.feed.isEmpty()) {
+                if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
                     // Feed events can repeat the same tag/label/status when an operator rescans.
@@ -600,6 +606,27 @@ private fun TapHint(text: String) {
                 modifier = Modifier.padding(top = 3.dp),
             )
         }
+    }
+}
+
+/** Transient strip for a re-scan of an already-DONE tag. Shown once directly under the
+ *  "Scan RFID tag now" card instead of stacking a duplicate row in the feed — see
+ *  [ScanUiState.duplicateNotice]. Uses the same warning tone as [ScanFeedTone.DUPLICATE]. */
+@Composable
+private fun DuplicateNoticeStrip(notice: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(ScanTokens.warningX)
+            .border(1.dp, ScanTokens.warning, RoundedCornerShape(11.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        StatusGlyph(ScanStatus.DONE, tone = ScanFeedTone.DUPLICATE)
+        Spacer(Modifier.width(10.dp))
+        Text(notice, color = ScanTokens.warning, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -995,8 +1022,20 @@ fun ScanListSheet(
                     state = rosterListState,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
-                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row ->
+                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder.
+                    // The key MUST be unique per ROW, not per goat: a multi-vaccine drive (e.g. ET+TT · PPR)
+                    // puts the SAME goatId on two rows, so keying by goatId first threw
+                    // "Key <uuid> was already used" in LazyColumn measure and popped the screen
+                    // (Crashlytics IllegalArgumentException). obligationId is unique per obligation/row;
+                    // fall back to a composite that still separates two vaccines of the same goat.
+                    items(
+                        filtered,
+                        key = { row ->
+                            row.obligationId.takeIf { it.isNotBlank() }
+                                ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
+                        },
+                        contentType = { "scan_row" },
+                    ) { row ->
                         ScanListRow(row, captureEnabled, onEvent)
                     }
                     if (isLoadingMore && query.isBlank()) {
@@ -1078,7 +1117,7 @@ private fun ScanListRow(
                 }
             }
         }
-        if (row.status == ScanStatus.DONE) {
+        if (row.status == ScanStatus.DONE && row.proofRequired) {
             Spacer(Modifier.height(6.dp))
             ProofActions(row = row, captureEnabled = captureEnabled, onEvent = onEvent)
         }

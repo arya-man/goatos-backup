@@ -99,6 +99,7 @@ type ExecutionRow struct {
 	ProofStatus        ProofStatus        `json:"proofStatus"`
 	VerificationStatus VerificationStatus `json:"verificationStatus"`
 	NextAction         string             `json:"nextAction"`
+	PrimaryActionKey   string             `json:"primaryActionKey"`
 	ObligationID       *string            `json:"obligationId,omitempty"`
 	BatchID            *string            `json:"batchId,omitempty"`
 	SOPTaskID          *string            `json:"sopTaskId,omitempty"`
@@ -108,11 +109,50 @@ type ExecutionRow struct {
 }
 
 type ExecutionResponse struct {
-	Source     string               `json:"source"`
-	Rows       []ExecutionRow       `json:"rows"`
-	TotalCount int64                `json:"totalCount"`
-	NextCursor *string              `json:"nextCursor,omitempty"`
-	Freshness  *ProjectionFreshness `json:"freshness,omitempty"`
+	Source     string         `json:"source"`
+	Rows       []ExecutionRow `json:"rows"`
+	TotalCount int64          `json:"totalCount"`
+	NextCursor *string        `json:"nextCursor,omitempty"`
+	// ViewerReadOnly marks this as a leadership OVERSIGHT read (park-scoped, all sheds):
+	// the caller is not an assigned operator, so the client shows the shed list but must
+	// NOT let them open a shed into the operator scan/execute loop. Operators get false.
+	ViewerReadOnly bool                 `json:"viewerReadOnly"`
+	Freshness      *ProjectionFreshness `json:"freshness,omitempty"`
+	CarrySummary   *CarrySummary        `json:"carrySummary,omitempty"`
+	FilterOptions  *ExecutionFilters    `json:"filterOptions,omitempty"`
+}
+
+type ExecutionFilters struct {
+	Parks []ParkOption `json:"parks,omitempty"`
+}
+
+// VaccineCarryLine is internal aggregation from repo layer (date + vaccine + counts).
+type VaccineCarryLine struct {
+	Date           string // ISO date YYYY-MM-DD
+	VaccineLabel   string
+	RemainingDoses int64 // count(DISTINCT goat_id) WHERE status IN (scheduled,due,in_progress)
+	TotalDoses     int64 // count(DISTINCT goat_id)
+}
+
+// VaccineCarrySummary is per-vaccine breakdown in one day's response.
+type VaccineCarrySummary struct {
+	VaccineLabel   string `json:"vaccineLabel"`
+	RemainingDoses int64  `json:"remainingDoses"`
+	TotalDoses     int64  `json:"totalDoses"`
+}
+
+// CarryDay is one business day's carry summary (date + per-vaccine breakdown + totals).
+type CarryDay struct {
+	Date             string                `json:"date"` // ISO date YYYY-MM-DD
+	VaccineBreakdown []VaccineCarrySummary `json:"vaccineBreakdown"`
+	TotalRemaining   int64                 `json:"totalRemaining"` // total remaining for day
+}
+
+// CarrySummary is page-independent daily carry aggregation (full date range, not paginated).
+// projection-review: membership=all obligations for (tenant, operator, date) scope;
+// grain=eff_date + protocol_name; parity=sum distinct goats with status IN (scheduled,due,in_progress)
+type CarrySummary struct {
+	CarryByDay []CarryDay `json:"carryByDay"` // ordered by date
 }
 
 type DriveSummary struct {
@@ -155,6 +195,7 @@ type ExecutionQuery struct {
 	// workforce member before returning assigned operator work. Admin reads leave
 	// it empty and keep the broader park/tenant visibility.
 	OperatorScopeActorID string
+	AuthorizedParkIDs    []string
 	WorkState            *WorkState
 	Severity             *Severity
 	Cursor               *ExecutionCursor
@@ -162,6 +203,7 @@ type ExecutionQuery struct {
 	DueBefore            time.Time
 	HistoricalAsOf       bool
 	OpenOnly             bool
+	IncludeFilterOptions bool
 	Limit                int
 }
 
@@ -393,6 +435,8 @@ type ExecutionProjection struct {
 	CompletionAccepted   int
 	CompletionRejected   int
 	CompletionReversed   int
+	ScannedCount         int
+	ProofSubmittedCount  int
 	BatchStatus          *string
 	TaskState            *string
 	OperatorName         *string

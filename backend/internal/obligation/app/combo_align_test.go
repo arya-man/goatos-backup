@@ -63,9 +63,9 @@ func (f *fakeComboAlignRepo) ListPlannedComboBatchesKeyset(_ context.Context, _ 
 	return []domain.ComboDriveBatch{}, nil
 }
 
-func (f *fakeComboAlignRepo) UpdateBatchPlannedDate(_ context.Context, _, batchID string, plannedDate time.Time) error {
+func (f *fakeComboAlignRepo) UpdateBatchPlannedDate(_ context.Context, _, batchID string, plannedDate time.Time) (string, error) {
 	f.updates = append(f.updates, comboPlannedDateUpdate{BatchID: batchID, PlannedDate: plannedDate})
-	return nil
+	return "", nil
 }
 
 func (f *fakeComboAlignRepo) CountDriveCellsForParkDate(_ context.Context, _, parkID string, date time.Time) (int32, error) {

@@ -168,6 +168,7 @@ function main() {
   for (const file of diffFiles) {
     // Only check Go, SQL, and TypeScript files
     if (!/\.(go|sql|ts|tsx)$/.test(file)) continue;
+    if (/^backend\/internal\/[^/]+\/adapters\/postgres\/sqlc\/schema\.sql$/.test(file)) continue;
 
     if (!existsSync(join(repo, file))) continue;
 

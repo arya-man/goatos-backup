@@ -437,7 +437,7 @@ batch_events AS (
     queue_meta.queue_summary AS source_label,
     'batch'::text AS source_target_type,
     grouped.batch_id AS source_target_id,
-    'PC drive team'::text AS assignee_label,
+    COALESCE(NULLIF(grouped.operator_names, ''), 'PC drive team')::text AS assignee_label,
     'pc_vaccinator'::text AS executor_role,
     'PC verifier'::text AS verifier_label,
     'not_scheduled'::text AS reminder_state,
@@ -531,12 +531,18 @@ batch_events AS (
           CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
         ) IS NOT NULL
       ) AS shed_labels,
-      GREATEST(ob.estimated_targets, 1)::int AS target_count,
+      -- Cross-surface parity: count DISTINCT animals (like the single-shed drive path at
+      -- count(DISTINCT oi.target_id) above and the operator drive schedule), NOT
+      -- ob.estimated_targets. estimated_targets is an obligation-ROW estimate (e.g. 200 animals x
+      -- 2 dose rows = 400), so rendering it as the drive's "doses" over-counted the calendar vs the
+      -- operator schedule (see docs/decisions/scale-anti-patterns.md -> cross-surface count parity).
+      GREATEST(count(DISTINCT oi.target_id), 1)::int AS target_count,
       pd.protocol_id,
       pv.protocol_version_id,
       ob.sop_task_id,
       ob.reserved_quantity,
       ob.planned_quantity,
+      max(assignment_scope.operator_names) AS operator_names,
       count(DISTINCT pr.rule_id)::int AS queue_count,
       array_agg(
         DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
@@ -583,9 +589,12 @@ batch_events AS (
     LEFT JOIN LATERAL (
       SELECT
         vda.planned_date,
-        array_remove(array_agg(DISTINCT assignment_rule.rule_id), NULL)::uuid[] AS rule_ids
+        array_remove(array_agg(DISTINCT assignment_rule.rule_id), NULL)::uuid[] AS rule_ids,
+        string_agg(DISTINCT NULLIF(wm.display_name, ''), ', ') AS operator_names
       FROM vaccination_drive_assignments vda
       LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assignment_rule(rule_id) ON true
+      LEFT JOIN workforce_members wm
+        ON wm.workforce_member_id = vda.operator_id
       WHERE vda.tenant_id = ob.tenant_id
         AND vda.batch_id = ob.batch_id
         AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
@@ -633,7 +642,6 @@ batch_events AS (
       CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
       CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END,
       CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END,
-      GREATEST(ob.estimated_targets, 1)::int,
       pd.protocol_id,
       pv.protocol_version_id,
       ob.sop_task_id,
@@ -692,6 +700,7 @@ park_drive_groups AS (
       AND (due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
     ) AS has_overdue,
     jsonb_agg(event_id ORDER BY event_id) AS source_event_ids,
+    string_agg(DISTINCT NULLIF(assignee_label, 'PC drive team'), ', ') AS operator_names,
     count(DISTINCT shed_id) FILTER (WHERE shed_id IS NOT NULL)::int AS shed_count,
     NULLIF(min(shed_id::text) FILTER (WHERE shed_id IS NOT NULL), '')::uuid AS primary_shed_id,
     min(shed_name) FILTER (WHERE shed_name IS NOT NULL) AS primary_shed_name
@@ -1078,7 +1087,7 @@ park_drive_events AS (
     'Park/day vaccination drive projection'::text AS source_label,
     CASE WHEN grouped.drive_count = 1 THEN grouped.single_source_target_type ELSE 'park_drive'::text END AS source_target_type,
     CASE WHEN grouped.drive_count = 1 THEN grouped.single_source_target_id ELSE COALESCE(grouped.park_id, $1::uuid) END AS source_target_id,
-    'PC drive team'::text AS assignee_label,
+    COALESCE(NULLIF(grouped.operator_names, ''), 'PC drive team')::text AS assignee_label,
     'pc_vaccinator'::text AS executor_role,
     'PC verifier'::text AS verifier_label,
     'not_scheduled'::text AS reminder_state,
@@ -1139,7 +1148,7 @@ park_drive_events AS (
         'deferred_count', obl_summary.deferred_count,
         'total_animals', obl_summary.total_animals,
         'completed_animals', obl_summary.completed_animals,
-        'owner_label', 'PC'
+        'owner_label', COALESCE(NULLIF(grouped.operator_names, ''), 'PC')
       ) ELSE NULL END
     ) AS detail
   FROM park_drive_groups grouped
@@ -1381,6 +1390,13 @@ sop_events AS (
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
     AND st.state IN ('assigned', 'in_progress', 'submitted', 'needs_review', 'rework_requested', 'rejected')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM obligation_batches ob
+      WHERE ob.tenant_id = st.tenant_id
+        AND ob.sop_task_id = st.task_id
+        AND ob.status NOT IN ('superseded', 'canceled')
+    )
   ORDER BY st.task_id, st.due_at
 ),
 config_due AS (

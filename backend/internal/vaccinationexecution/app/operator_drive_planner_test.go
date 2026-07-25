@@ -19,9 +19,9 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 		}},
 		WorkBlocks: []DriveWorkBlock{
 			{ID: "gandhi-1", Park: "CPT", RawShed: "Gandhi 1", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 31, Bundle: "Goat: ET+TT Booster + Goat Pox"},
-			{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 41, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 58, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
+			{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 60, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 - Part 3", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 - Part 4", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 - Part 4", Animals: 32, Bundle: "Goat: ET+TT Booster + Goat Pox"},
@@ -31,7 +31,7 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 - Part 7", Animals: 13, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 - Part 8", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
 			{ID: "old-yashoda-1", Park: "CPT", RawShed: "Old Yashoda 1", Animals: 8, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 2, Bundle: "Goat: ET+TT Booster + PPR"},
+			{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 3, Bundle: "Goat: ET+TT Booster + PPR"},
 		},
 	})
 	if err != nil {
@@ -43,19 +43,19 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 	if len(plan.Days) != 1 {
 		t.Fatalf("days = %d, want 1", len(plan.Days))
 	}
-	if got := plan.Days[0].Assigned; got != 321 {
-		t.Fatalf("assigned animals = %d, want 321", got)
+	if got := plan.Days[0].Assigned; got != 324 {
+		t.Fatalf("assigned animals = %d, want 324", got)
 	}
 
 	totals := totalsByOperator(plan.Days[0])
-	if totals["Amit Kumar"] != 114 || totals["Darshan Talwar"] != 118 || totals["Sagar Mahoor"] != 89 {
-		t.Fatalf("operator totals = %#v, want Amit 114 Darshan 118 Sagar 89", totals)
+	if totals["Amit Kumar"] != 114 || totals["Darshan Talwar"] != 120 || totals["Sagar Mahoor"] != 90 {
+		t.Fatalf("operator totals = %#v, want Amit 114 Darshan 120 Sagar 90", totals)
 	}
 	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Gandhi", 114)
-	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 1", 118)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 1", 120)
 	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Godel 2", 32)
 	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Mandela 2", 47)
-	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Old Yashoda", 10)
+	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Old Yashoda", 11)
 }
 
 func TestOperatorDrivePlannerSpillsToNextDateWithThatDatesAvailability(t *testing.T) {
@@ -101,10 +101,85 @@ func TestOperatorDrivePlannerSpillsToNextDateWithThatDatesAvailability(t *testin
 	}
 }
 
+func TestOperatorDrivePlannerCarriesWholePartitionPastResidualCapacity(t *testing.T) {
+	planner := OperatorDrivePlanner{}
+	plan, err := planner.Plan(DrivePlanRequest{
+		StartDate:             date(2026, 8, 8),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
+			{
+				Date:      date(2026, 8, 8),
+				Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 1, Available: true}},
+			},
+			{
+				Date:      date(2026, 8, 9),
+				Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}},
+			},
+		},
+		WorkBlocks: []DriveWorkBlock{{
+			ID:             "godel-1-part-1",
+			Park:           "CPT",
+			PhysicalShed:   "Godel 1",
+			Partition:      "Part 1",
+			Animals:        3,
+			DueDate:        date(2026, 8, 8),
+			LatestSafeDate: date(2026, 8, 15),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if plan.Days[0].Assigned != 0 || plan.Days[1].Assigned != 3 {
+		t.Fatalf("assigned by day = %d/%d, want 0/3 so the partition moves whole", plan.Days[0].Assigned, plan.Days[1].Assigned)
+	}
+	if len(plan.Days[0].Assignments) != 0 {
+		t.Fatalf("first day assignments = %#v, want none instead of residual-cap split", plan.Days[0].Assignments)
+	}
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1", 3)
+}
+
+func TestOperatorDrivePlannerLatestSafeCarriesWholePartitionPastResidualCapacity(t *testing.T) {
+	planner := OperatorDrivePlanner{}
+	plan, err := planner.Plan(DrivePlanRequest{
+		StartDate:             date(2026, 8, 8),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
+			{
+				Date:      date(2026, 8, 8),
+				Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 1, Available: true}},
+			},
+			{
+				Date:      date(2026, 8, 9),
+				Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}},
+			},
+		},
+		WorkBlocks: []DriveWorkBlock{{
+			ID:             "godel-1-part-1",
+			Park:           "CPT",
+			PhysicalShed:   "Godel 1",
+			Partition:      "Part 1",
+			Animals:        3,
+			DueDate:        date(2026, 8, 8),
+			LatestSafeDate: date(2026, 8, 8),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if plan.Days[0].Assigned != 0 || plan.Days[1].Assigned != 3 {
+		t.Fatalf("assigned by day = %d/%d, want 0/3 so latest-safe never cuts the partition", plan.Days[0].Assigned, plan.Days[1].Assigned)
+	}
+	if len(plan.Days[0].Assignments) != 0 {
+		t.Fatalf("first day assignments = %#v, want none instead of latest-safe residual split", plan.Days[0].Assignments)
+	}
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1", 3)
+}
+
 func TestOperatorDrivePlannerCountsMultiVaccineAnimalOnce(t *testing.T) {
 	planner := OperatorDrivePlanner{}
 	plan, err := planner.Plan(DrivePlanRequest{
-		StartDate: date(2026, 7, 23),
+		StartDate:             date(2026, 7, 23),
+		ConfiguredOperatorCap: 50,
 		Availability: []DriveDateAvailability{{
 			Date:      date(2026, 7, 23),
 			Operators: []DriveOperator{{ID: "amit", Name: "Amit Kumar", Cap: 1, Available: true}},
@@ -179,70 +254,64 @@ func TestOperatorDrivePlannerSplitsOversizedPartitionAcrossOperatorsAndDays(t *t
 	}
 }
 
-func TestOperatorDrivePlannerPrioritizesLatestSafeDateAndFlagsBreach(t *testing.T) {
+func TestOperatorDrivePlannerOnlySplitsPartitionLargerThanConfiguredCap(t *testing.T) {
 	planner := OperatorDrivePlanner{}
 	plan, err := planner.Plan(DrivePlanRequest{
-		StartDate: date(2026, 7, 23),
-		Availability: []DriveDateAvailability{{
-			Date: date(2026, 7, 23),
-			Operators: []DriveOperator{{
-				ID: "amit", Name: "Amit Kumar", Cap: 50, Available: true,
-			}},
-		}},
-		WorkBlocks: []DriveWorkBlock{
+		StartDate:             date(2026, 7, 23),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
 			{
-				ID:             "later-safe",
-				Park:           "CPT",
-				RawShed:        "Godel 1 - Part 1",
-				Animals:        50,
-				Bundle:         "ET+TT Booster + PPR",
-				DueDate:        date(2026, 7, 23),
-				LatestSafeDate: date(2026, 7, 30),
+				Date: date(2026, 7, 23),
+				Operators: []DriveOperator{
+					{ID: "amit", Name: "Amit Kumar", Cap: 200, Available: true},
+				},
 			},
 			{
-				ID:             "crossing-buffer",
-				Park:           "CPT",
-				RawShed:        "Gandhi 1",
-				Animals:        50,
-				Bundle:         "ET+TT Booster + PPR",
-				DueDate:        date(2026, 7, 21),
-				LatestSafeDate: date(2026, 7, 23),
-			},
-			{
-				ID:             "breach",
-				Park:           "CPT",
-				RawShed:        "Gandhi 2",
-				Animals:        25,
-				Bundle:         "ET+TT Booster + Goat Pox",
-				DueDate:        date(2026, 7, 21),
-				LatestSafeDate: date(2026, 7, 23),
+				Date: date(2026, 7, 24),
+				Operators: []DriveOperator{
+					{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true},
+				},
 			},
 		},
+		WorkBlocks: []DriveWorkBlock{{
+			ID:        "oversized",
+			Park:      "CPT",
+			RawShed:   "Mandela 2 - Part X",
+			Animals:   205,
+			GoatIDs:   numberedGoatIDs(205),
+			DueDate:   date(2026, 7, 23),
+			Bundle:    "ET+TT Booster + Goat Pox",
+			Partition: "Part X",
+		}},
 	})
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
-	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Gandhi", 75)
-	if plan.Days[0].Assigned != 75 {
-		t.Fatalf("assigned animals = %d, want 75 over-cap latest-safe animals", plan.Days[0].Assigned)
+	if len(plan.Unassigned) != 0 {
+		t.Fatalf("unassigned = %#v, want oversized partition split across days", plan.Unassigned)
 	}
-	if len(plan.Unassigned) != 1 || plan.Unassigned[0].ID != "later-safe" {
-		t.Fatalf("unassigned blocks = %#v, want only later-safe work left for a future date", plan.Unassigned)
+	if plan.Days[0].Assigned != 200 || plan.Days[1].Assigned != 5 {
+		t.Fatalf("assigned by day = %d/%d, want 200/5 for the only legal split case", plan.Days[0].Assigned, plan.Days[1].Assigned)
 	}
-	if len(plan.Warnings) != 0 {
-		t.Fatalf("warnings = %#v, want no unresolved breach after over-cap latest-safe assignment", plan.Warnings)
-	}
-	foundOverCap := false
+	foundForcedSplit := false
 	for _, assignment := range plan.Days[0].Assignments {
 		for _, warning := range assignment.Warnings {
-			if warning == "over_cap_required_latest_safe" {
-				foundOverCap = true
+			if warning == "forced_partition_split" {
+				foundForcedSplit = true
 			}
 		}
 	}
-	if !foundOverCap {
-		t.Fatalf("latest-safe over-cap assignment warning missing: %#v", plan.Days[0].Assignments)
+	if !foundForcedSplit {
+		t.Fatalf("oversized partition split warning missing: %#v", plan.Days[0].Assignments)
 	}
+}
+
+func numberedGoatIDs(count int) []string {
+	out := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		out = append(out, "goat-"+time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC).Format("150405"))
+	}
+	return out
 }
 
 func totalsByOperator(day DrivePlanDay) map[string]int {

@@ -238,7 +238,9 @@ fun SubmitScreen(
     modifier: Modifier = Modifier,
 ) {
     val proofFields = state.formRunner?.fields.orEmpty().filter { it.kind == FieldKindUi.VIDEO_PROOF }
-    val recordingFields = state.formRunner?.fields.orEmpty().filterNot { it.kind == FieldKindUi.VIDEO_PROOF }
+    val recordingFields = state.formRunner?.fields.orEmpty()
+        .filterNot { it.kind == FieldKindUi.VIDEO_PROOF }
+        .filterNot { state.shedCompletionSummary != null && it.kind == FieldKindUi.GOAT_SCAN }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -344,17 +346,19 @@ fun SubmitScreen(
                         )
                     }
                 }
-                runner.blockedReason?.let { reason ->
-                    item {
-                        Text(
-                            text = reason,
-                            color = T.warn,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
+                runner.blockedReason
+                    ?.takeUnless { it.trim() == state.blockingReason?.trim() }
+                    ?.let { reason ->
+                        item {
+                            Text(
+                                text = reason,
+                                color = T.warn,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
                     }
-                }
             }
             if (state.groups.isNotEmpty() && state.dueSectionLabel.isNotBlank()) {
                 item {
@@ -379,6 +383,10 @@ fun SubmitScreen(
 
 @Composable
 private fun SubmitHeader(state: SubmitUiState) {
+    val title = when (state.syncState) {
+        SyncState.ACKED -> stringResource(R.string.submit_record_submitted_title)
+        else -> state.title.ifBlank { stringResource(R.string.submit_record_title) }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -393,7 +401,7 @@ private fun SubmitHeader(state: SubmitUiState) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            state.title.ifBlank { stringResource(R.string.submit_record_title) },
+            title,
             color = T.ink,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
@@ -573,6 +581,11 @@ private fun ProofSummary(state: SubmitUiState) {
 @Composable
 private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
     val needsRetry = state.syncState == SyncState.CONFLICT || state.syncState == SyncState.DEAD_LETTER
+    val submitLabel = when (state.syncState) {
+        SyncState.ACKED -> stringResource(R.string.submit_submitted_label)
+        SyncState.QUEUED, SyncState.SYNCING -> stringResource(R.string.submit_submitting_label)
+        else -> state.submitLabel
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -593,7 +606,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
                 disabledContentColor = T.faint,
             ),
         ) {
-            Text(state.submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
         if (needsRetry) {
             Spacer(Modifier.height(10.dp))

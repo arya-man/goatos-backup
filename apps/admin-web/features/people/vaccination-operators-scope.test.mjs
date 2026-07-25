@@ -15,7 +15,7 @@ import { loadVaccinationOperatorsScreen } from "./vaccination-operators-scope.ts
 const PARK_A = "20000000-0000-4000-8000-00000000000a";
 const PARK_B = "20000000-0000-4000-8000-00000000000b";
 
-function fakeApi({ config, ambiguousParks }) {
+function fakeApi({ config, ambiguousParks, capThrows }) {
   const calls = { configParkIds: [], positionScopeIds: [] };
   return {
     calls,
@@ -31,7 +31,8 @@ function fakeApi({ config, ambiguousParks }) {
       return { data: { items: [{ position_id: "p1", workforce_member_id: "w1", is_backup_slot: false }] } };
     },
     async getVaccinationCapacityConfig() {
-      return { data: { maxPerDay: 200 } };
+      if (capThrows) throw new Error("capacity config unavailable");
+      return { data: { maxPerDay: 200, maxShotsPerAnimalPerDrive: null, rowVersion: 3 } };
     },
     async listStaffLeave() {
       return { data: { items: [] } };
@@ -73,4 +74,19 @@ test("(c) after a park is chosen every downstream read is scoped to it", async (
   assert.equal(result.parkId, PARK_B);
   assert.deepEqual(api.calls.configParkIds, [PARK_B]);
   assert.deepEqual(api.calls.positionScopeIds, [PARK_B], "the roster (and the KPI/preview/dropdown it feeds) must be park-scoped");
+});
+
+test("a failed capacity-config load surfaces an error and does NOT fake 200/rowVersion-0", async () => {
+  const api = fakeApi({ config: CONFIG, capThrows: true });
+  const result = await loadVaccinationOperatorsScreen(api);
+  assert.equal(result.state, "ready", "the roster still renders; only cap editing is gated");
+  assert.ok(result.capConfigError, "capConfigError must be set when the capacity config fails to load");
+  assert.match(result.capConfigError, /capacity config/i);
+});
+
+test("a successful capacity-config load leaves capConfigError null and passes the real rowVersion", async () => {
+  const api = fakeApi({ config: CONFIG });
+  const result = await loadVaccinationOperatorsScreen(api);
+  assert.equal(result.capConfigError, null);
+  assert.equal(result.capRowVersion, 3, "the real backend rowVersion must flow through, not a fabricated 0");
 });

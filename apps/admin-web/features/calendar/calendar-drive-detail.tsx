@@ -9,7 +9,7 @@ import { fmtDate as fmtIstDate } from "@/lib/format";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "@/features/counts";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
@@ -126,7 +126,7 @@ export async function VaccinationDriveDetail({
   }
 
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveCoveragePct(coverage.completed, coverage.total);
+  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
   const chips = driveStatusChips(summary);
   const ringRadius = 29;
   const ringCircumference = 2 * Math.PI * ringRadius;

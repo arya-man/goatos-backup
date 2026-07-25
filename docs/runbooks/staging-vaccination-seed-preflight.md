@@ -23,6 +23,20 @@ postflight gates in:
 docs/runbooks/staging-vaccination-clean-slate.md
 ```
 
+## Seed Closeout Query Timeout
+
+Before STG seed closeout, set and print:
+
+```bash
+GOATOS_PG_QUERY_TIMEOUT=60s
+```
+
+This must be scoped to seed/closeout only. STG Cloud SQL seed closeout needs a
+larger per-query timeout than the normal runtime defaults (`15s` API / `30s`
+worker); do not raise the API/runtime query timeouts to make closeout pass. See
+`docs/runbooks/staging-vaccination-clean-slate.md` → "STG Seed Closeout
+Timeouts".
+
 ## Source Of Record
 
 - Use `Vaccination_DB_-V2` / `Demo DB` as the vaccination seed source. Demo DB
@@ -144,9 +158,12 @@ docs/runbooks/staging-vaccination-clean-slate.md
 - Accepted history wins over missing scheduling anchors. A completed source
   dose must not become a deferred missing-DOB/missing-entry-date obligation.
 - Missing scheduling anchors are checked by trigger, not globally. `birth_age`
-  rules require DOB, `post_arrival` rules require entry date, and
-  `after_previous_completion` rules require accepted completion evidence. A
-  rule must not create normal active work when its own anchor is missing.
+  rules require DOB and `after_previous_completion` rules require accepted
+  completion evidence. Adult vaccination initial work must not use
+  `post_arrival` or `entry_date` as a due-date anchor: adult blank-history
+  animals join the configured adult campaign/catch-up cohort, packed by whole
+  physical shed/partition. Adult entry_date is never a vaccination due-date
+  anchor.
 - Sidebar counts must be backend-computed, never seeded constants. After seed,
   `Action Center`, `Preventive Care (PC)`, and `Vaccination` badges must be
   reconciled to the same grouped open-work query used by the page list. A number

@@ -183,7 +183,7 @@ is live and must wait 4 weeks after PPR.
 4. Blue Tongue + Blue Tongue booster where due by sheep path
 5. FMD + HS
 
-**Important:** Adults do **not** replay the full kid age matrix. They enter via `post_arrival` triggers off `entry_date`. A prior dose can shift/suppress that work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
+**Important:** Adults do **not** replay the full kid age matrix, and adult entry_date is never a vaccination due-date anchor. Adult campaign work is grouped by the physical shed/partition for the same vaccine/rule; if trusted same-vaccine history exists, booster/repeat timing anchors from that last vaccination date, otherwise the animal travels with the partition campaign start. A later adult entry date must not create a one-animal campaign fragment. Strict DOB/age-window timing remains for kids and young animals through the configured kid schedule window, roughly 16-20 weeks. A prior dose can shift/suppress adult work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
 
 ---
 
@@ -240,7 +240,7 @@ vaccines on the next safe date.
 4. **For each matching dose row:**
    - Compute anchor date:
      - `birth_age` → approx_dob + offset
-     - `post_arrival` → entry_date + offset (adults)
+     - `manual_campaign` → adult campaign/catch-up cohort date; adult entry_date is not a vaccination due anchor
      - `after_previous_completion` → defer to SM-7
    - If trusted prior completion exists → next due from last completion, not DOB
    - Apply warming hold: if `days_since_warming_entry < 7` → status = `deferred`, reason = `warming_hold`
@@ -324,7 +324,7 @@ dimensions; they are not the maximum grouping boundary.
 | Pregnancy ≤3 months | Allow scheduled doses |
 | Pregnancy 4–5 months | Defer; do not mark missed |
 | Post-delivery +2 weeks | Catch-up deferred doses |
-| Procured adult | `post_arrival` path, not kid matrix |
+| Procured adult | adult campaign/catch-up path, not kid matrix and not entry_date/post_arrival due anchoring |
 | Kid ≤16 weeks | Full kid matrix mandatory |
 | Source vaccination at procurement | Trusted history suppresses duplicate primaries; still respect warming hold after farm arrival |
 | Trusted vs untrusted history | Trusted → advance schedule; untrusted → catch-up review / manual campaign |
@@ -362,7 +362,7 @@ Algorithm: when primary series complete → spawn `calendar` or `every_n_days` r
 
 | Capability | Status |
 | --- | --- |
-| Per-goat obligation generation (SM-1) | **Built** — birth_age, post_arrival, eligibility, defer states |
+| Per-goat obligation generation (SM-1) | **Built** — birth_age, manual campaign/catch-up, eligibility, defer states |
 | Booster chaining (SM-7) | **Built** — `after_previous_completion` + `min_gap_days` |
 | Shed batching (SM-4) | **Partial** — groups due obligations by shed; not yet full conflict graph |
 | Source-approved vaccine matrix in config | **Gap** — labels exist; full matrix rows not all approved/published |
@@ -371,7 +371,7 @@ Algorithm: when primary series complete → spawn `calendar` or `every_n_days` r
 | Approved kid schedule | **Built** — standard path only; mother-not-vaccinated / unknown-mother branch ignored |
 | Warming 7-day hold | **Gap** — needs warming entry date + defer rule |
 | Pregnancy month 4–5 block + post-delivery catch-up | **Gap** — needs reproductive phase rules beyond generic defer |
-| Procurement intake path (ET+TT+PPR → 3wk ET+TT dose 2; 4wk pox) | **Built** — adult `post_arrival` course rows are represented in the matrix; ET+TT repeat waits for dose 2/course completion |
+| Procurement intake path (ET+TT+PPR → 3wk ET+TT dose 2; 4wk pox) | **Built** — adult initial course rows are campaign/catch-up rows; adult entry_date is never the vaccination due anchor; ET+TT repeat waits for dose 2/course completion |
 | V2 optimized drive planner | **Spec only** (TRD §6) — not production-complete |
 
 ---

@@ -44,6 +44,8 @@ type CompletionHistoryItem struct {
 	Status              string
 	Doses               int32
 	RouteSite           string
+	DoseCode            string
+	VaccineLabel        string
 	AdverseReaction     bool
 	WithdrawalUntilDate *time.Time
 }
@@ -180,6 +182,7 @@ type EligibleGoat struct {
 	ReproductiveStatus   string
 	ShedID               string
 	ParkID               string
+	PartitionLabel       string
 	Sex                  string
 	Breed                string
 	Stage                string

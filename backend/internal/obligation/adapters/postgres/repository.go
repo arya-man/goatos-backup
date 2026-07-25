@@ -114,16 +114,18 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
-	// Resolve the operator capacity of BOTH candidate landing dates (the original date for a
-	// restore/clear, the new date for a move) BEFORE opening the write transaction, so the re-plan
-	// never needs a second pooled connection while holding this transaction open.
-	originalCapacity, err := r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, original)
+	// Resolve candidate landing-date capacity BEFORE opening the write transaction, so the re-plan
+	// never needs a second pooled connection while holding this transaction open. Date moves get a
+	// short forward horizon: a moved vaccination drive starts on the requested date, then repacks
+	// remaining sheds/partitions onto the next executable operator-days instead of cramming every
+	// animal onto the first date.
+	originalCapacity, err := r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, original, original)
 	if err != nil {
 		return nil, err
 	}
 	nextCapacity := originalCapacity
 	if !next.Equal(original) {
-		nextCapacity, err = r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, next)
+		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, 13))
 		if err != nil {
 			return nil, err
 		}
@@ -1493,6 +1495,9 @@ WHERE ob.tenant_id = $1
   AND ob.batch_id = $2::uuid`, tenant, oldBatchID, obligationID, targetID, reason); err != nil {
 			return "", false, fmt.Errorf("obligation: repair batch after key cancel: %w", err)
 		}
+	}
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, []string{obligationID}); err != nil {
+		return "", false, err
 	}
 
 	eventKey := obligationID + ":canceled:" + reason
@@ -2924,17 +2929,21 @@ LIMIT $` + strconv.Itoa(argIdx)
 	return out, nil
 }
 
-// UpdateBatchPlannedDate moves a planned batch to a harmonized combo drive date.
-func (r *Repository) UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) error {
+// UpdateBatchPlannedDate moves a planned batch to a harmonized combo drive date. When the target
+// date already holds a compatible planned batch, the source batch's obligations are MERGED into that
+// target batch instead (mergeUnfinalizedBatchIntoPlannedDate) and the target batch id is returned so
+// the caller (AlignComboDrives) can rebuild the target's drive-assignment rows over its now-larger
+// attached obligation set (BUG-041). A plain same-batch date move returns "" -- no rebuild needed.
+func (r *Repository) UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) (string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return fmt.Errorf("obligation: tenant id: %w", err)
+		return "", fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	batch, err := pgconv.UUID(batchID)
 	if err != nil {
-		return fmt.Errorf("obligation: batch id: %w", err)
+		return "", fmt.Errorf("obligation: batch id: %w", err)
 	}
 	tag, err := r.pool.Exec(ctx, `
 UPDATE obligation_batches
@@ -2947,27 +2956,39 @@ WHERE tenant_id = $1
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			if mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate); mergeErr == nil {
-				return nil
+			targetBatchID, mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate)
+			if mergeErr == nil {
+				return targetBatchID, nil
 			}
 		}
-		return fmt.Errorf("obligation: update batch planned date: %w", err)
+		return "", fmt.Errorf("obligation: update batch planned date: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
-	return nil
+	return "", nil
 }
 
-func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) error {
+// mergeUnfinalizedBatchIntoPlannedDate moves the source batch's obligations into the compatible
+// planned target batch on plannedDate, supersedes the source batch, and DELETES the source batch's
+// stale vaccination_drive_assignments (which cascade-deletes their member rows, so the moved
+// obligations are free of the members UNIQUE(tenant_id, obligation_id) constraint before the caller
+// rebinds them). It returns the target batch id so the caller can rebuild the target's
+// drive-assignment rows over the merged (old target + moved source) obligation set -- WITHOUT this
+// rebuild the target's rows only know its original obligations, leaving the moved goats' (shed,
+// vaccine-lane) with no covering cell and therefore no operator drive lane (BUG-041). Both source
+// and target batch rows are locked FOR UPDATE inside this transaction so two concurrent aligns cannot
+// both rebuild from half-old state.
+func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) (string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("obligation: begin merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: begin merge aligned batch: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var moved int64
 	var retired bool
+	var targetBatchID string
 	err = tx.QueryRow(ctx, `
 WITH source AS (
     SELECT *
@@ -3032,19 +3053,129 @@ retired AS (
       AND b.batch_id = $2
       AND EXISTS (SELECT 1 FROM target)
     RETURNING 1
+),
+-- The source batch is now superseded; its drive-assignment rows are stale (they describe obligations
+-- that just moved to the target) and their member rows would still pin the moved obligations under
+-- members UNIQUE(tenant_id, obligation_id), blocking the target rebind. Delete them here (member rows
+-- cascade). scale-guard:ignore: single superseded batch, bounded by its own row set.
+source_assignments_deleted AS (
+    DELETE FROM vaccination_drive_assignments v
+    WHERE v.tenant_id = $1
+      AND v.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
 )
-SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired)`,
-		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired)
+SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired), (SELECT batch_id::text FROM target)`,
+		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired, &targetBatchID)
 	if err != nil {
-		return fmt.Errorf("obligation: merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: merge aligned batch: %w", err)
 	}
 	if !retired {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("obligation: commit merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: commit merge aligned batch: %w", err)
 	}
-	return nil
+	return targetBatchID, nil
+}
+
+// DriveRebuildInputsForBatch returns everything the app-layer planner needs to rebuild one batch's
+// drive-assignment rows from its FULL current attached obligation set (BUG-041): the park scope, the
+// batch planned_date, and one domain.UnbatchedDue per non-canceled goat obligation attached to the
+// batch, carrying the SAME per-goat shed label the sweep read path builds (shed name + goat_shed_
+// partitions partition) so a rebuilt cell keys identically to an originally-planned cell. ok is false
+// when the batch is not a rebuildable target -- not found, not planned, or already operationally
+// committed (a SOP task or stock reservation): those must never be rebuilt (item 7).
+func (r *Repository) DriveRebuildInputsForBatch(ctx context.Context, tenantID, batchID string) (parkID string, plannedDate time.Time, conductedBy *string, rows []domain.UnbatchedDue, ok bool, err error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: batch id: %w", err)
+	}
+	var scopeType, scopeID string
+	var planned pgtype.Date
+	var conducted pgtype.UUID
+	scanErr := r.pool.QueryRow(ctx, `
+SELECT scope_type, scope_id::text, planned_date, conducted_by
+FROM obligation_batches
+WHERE tenant_id = $1
+  AND batch_id = $2
+  AND status = 'planned'
+  AND sop_task_id IS NULL
+  AND NOT (context ? 'stock_reservation')`, tenant, batch).Scan(&scopeType, &scopeID, &planned, &conducted)
+	if errors.Is(scanErr, pgx.ErrNoRows) {
+		return "", time.Time{}, nil, nil, false, nil
+	}
+	if scanErr != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: read rebuild batch: %w", scanErr)
+	}
+	if !planned.Valid {
+		return "", time.Time{}, nil, nil, false, nil
+	}
+	if pd := pgconv.DateValue(planned); pd != nil {
+		plannedDate = *pd
+	}
+	if conducted.Valid {
+		c := pgconv.UUIDString(conducted)
+		if c != "" {
+			conductedBy = &c
+		}
+	}
+
+	// scale-guard:ignore: one batch's own attached obligation set, bounded by the batch.
+	qrows, err := r.pool.Query(ctx, `
+SELECT oi.obligation_id::text,
+       oi.rule_id::text,
+       oi.scope_type,
+       oi.scope_id::text,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
+       oi.target_id::text,
+       oi.due_at
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+LEFT JOIN locations shed
+  ON shed.tenant_id = oi.tenant_id
+ AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = shed.location_id
+WHERE oi.tenant_id = $1
+  AND oi.batch_id = $2
+  AND oi.target_type = 'goat'
+  AND oi.status <> 'canceled'
+ORDER BY oi.obligation_id`, tenant, batch)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: read rebuild obligations: %w", err)
+	}
+	defer qrows.Close()
+	for qrows.Next() {
+		var u domain.UnbatchedDue
+		if err := qrows.Scan(&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.TargetID, &u.DueAt); err != nil {
+			return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: scan rebuild obligation: %w", err)
+		}
+		rows = append(rows, u)
+	}
+	if err := qrows.Err(); err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: rebuild obligation rows: %w", err)
+	}
+	if scopeType == "park" {
+		parkID = scopeID
+	} else if len(rows) > 0 {
+		parkID = rows[0].ParkID
+	}
+	return parkID, plannedDate, conductedBy, rows, true, nil
 }
 
 // AttachObligationsToBatch attaches still-unbatched obligations to a batch (returns count attached).
@@ -3872,8 +4003,13 @@ matched AS (
    AND vda.animal_count > 0
    -- The animal's own partition when it is known; legacy animals without a partition row stay
    -- eligible for every partition of their shed rather than silently never being removed.
+   -- Partition-label canonicalization (BUG-029 follow-up): the assignment stores the display form
+   -- ("Part 1") and goat_shed_partitions the normalized form ("1"); a raw equality never matched for
+   -- numeric-partition sheds, so a Gandhi-style goat exit failed to decrement its own assignment row.
+   -- Strip a leading "part " on both sides so exit/death decrements the correct partition arm.
    AND (NOT EXISTS (SELECT 1 FROM goat_partition)
-        OR vda.partition_label = (SELECT partition_label FROM goat_partition))
+        OR regexp_replace(lower(btrim(vda.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim((SELECT partition_label FROM goat_partition))), '^part[[:space:]]+', ''))
    -- The vaccine dimension: either the row plans one of the rules just canceled for this animal,
    -- or the row predates vaccine_rule_ids (legacy '{}') and cannot be discriminated by vaccine.
    AND (vda.vaccine_rule_ids && r.rule_ids OR cardinality(vda.vaccine_rule_ids) = 0)
@@ -3930,6 +4066,88 @@ WHERE tenant_id = $1
   AND assignment_id = ANY($2::uuid[])
   AND animal_count = 0`, tenant, touchedAssignmentIDs); err != nil {
 		return fmt.Errorf("obligation: delete emptied drive assignments: %w", err)
+	}
+	return nil
+}
+
+// pruneDetachedDriveMembershipTx removes vaccination_drive_assignment_members rows for obligations
+// that were just canceled/missed/reaped by ANY of the non-exit terminal paths (single-key cancel,
+// bulk missed sweep, stranded in_progress reap), then reconciles animal_count/total_doses on every
+// assignment row those deletes touched, and deletes any assignment row the prune emptied. Same
+// pattern as removeGoatFromDriveAssignmentsTx's exact path, but keyed on obligation_ids rather than a
+// single goat, and driven from the REMAINING member rows rather than a subtracted delta -- so a goat
+// still covered by another surviving obligation in the same assignment is never miscounted. Set-based,
+// no per-goat loop; a no-op for empty input.
+//
+// GRAIN: vaccination_drive_assignment_members is UNIQUE (tenant_id, obligation_id) -- the exact
+// per-goat-per-rule membership ledger the scheduler writes. Deleting by obligation_id can therefore
+// never remove a row belonging to a different, still-open obligation for the same goat in the same
+// assignment. The recompute reads the REMAINING member rows (joined to obligation_instances for the
+// dose-key rule_id, matching the DISTINCT (target, rule) semantics removeGoatFromDriveAssignmentsTx
+// already uses) rather than subtracting a delta, so it can never drift from the exact ledger.
+func pruneDetachedDriveMembershipTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, obligationIDs []string) error {
+	if len(obligationIDs) == 0 {
+		return nil
+	}
+	affected := make([]string, 0, len(obligationIDs))
+	rows, err := tx.Query(ctx, `
+DELETE FROM vaccination_drive_assignment_members
+WHERE tenant_id = $1
+  AND obligation_id = ANY($2::uuid[])
+RETURNING assignment_id::text`, tenant, obligationIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: delete detached drive assignment members: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("obligation: scan detached member assignment id: %w", scanErr)
+		}
+		affected = append(affected, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("obligation: detached member rows: %w", err)
+	}
+	rows.Close()
+	if len(affected) == 0 {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members rows REMAINING after the delete above, scoped to the assignment_ids RETURNED by that delete -- producer-unique=(assignment_id, obligation_id) [members PK] and (tenant_id, obligation_id) [members UQ, one row per obligation]; consumer-match=(tenant_id, assignment_id) on the same PK vaccination_drive_assignments exposes; group_key=assignment_id (one recompute per touched row, never batch_id -- a batch legitimately holds many assignment rows); join_cardinality=members->assignment is many-to-ONE (members.assignment_id FKs the assignment PK) and members->obligation_instances is many-to-ONE (members.obligation_id FKs the obligation PK), so animal_count=count(DISTINCT remaining.goat_id) and total_doses=count(DISTINCT remaining.(goat_id,rule_id)) over the rows still attached to that one assignment_id are exact, not an inferred bucket -- a goat kept in the assignment by a second still-open obligation is never dropped because its member row was never deleted; pagination=n/a (single transactional write bounded by the obligation_ids just canceled/missed/reaped); scope=the assignment row's own park/shed/partition/operator/date, unchanged.
+UPDATE vaccination_drive_assignments vda
+SET animal_count = COALESCE((
+      SELECT count(DISTINCT m.goat_id)
+      FROM vaccination_drive_assignment_members m
+      WHERE m.tenant_id = $1
+        AND m.assignment_id = vda.assignment_id
+    ), 0),
+    total_doses = COALESCE((
+      SELECT count(DISTINCT (m.goat_id, oi.rule_id))
+      FROM vaccination_drive_assignment_members m
+      JOIN obligation_instances oi
+        ON oi.tenant_id = m.tenant_id
+       AND oi.obligation_id = m.obligation_id
+      WHERE m.tenant_id = $1
+        AND m.assignment_id = vda.assignment_id
+    ), 0),
+    updated_at = now()
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = ANY($2::uuid[])`, tenant, affected); err != nil {
+		return fmt.Errorf("obligation: reconcile drive assignment counts after prune: %w", err)
+	}
+
+	// GRAIN: assignment_id is the row identity here too (see removeGoatFromDriveAssignmentsTx's same
+	// note) -- only rows this prune's own recompute drove to animal_count = 0 are ever in scope,
+	// because `affected` is exactly the RETURNING set of the member delete above.
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1
+  AND assignment_id = ANY($2::uuid[])
+  AND animal_count = 0`, tenant, affected); err != nil {
+		return fmt.Errorf("obligation: delete emptied drive assignments after prune: %w", err)
 	}
 	return nil
 }
@@ -5235,6 +5453,9 @@ WHERE ob.tenant_id = $1
 			return 0, fmt.Errorf("obligation: update missed batch repair: %w", err)
 		}
 	}
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+		return 0, err
+	}
 
 	qtx := r.queries.WithTx(tx)
 	payload, _ := json.Marshal(map[string]string{"event": "missed"})
@@ -5350,6 +5571,10 @@ RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(reapBefore), limit
 		return fmt.Errorf("obligation: reap in_progress rows: %w", err)
 	}
 	rows.Close()
+
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+		return err
+	}
 
 	// Emit missed events and audit for each reaped obligation
 	if len(ids) > 0 {
@@ -5613,6 +5838,16 @@ FROM unnest($3::text[]) AS ids(id)`, tenant, obligationMissedBatchRepairAction, 
 			return 0, fmt.Errorf("obligation: bulk missed batch repair audit: %w", err)
 		}
 	}
+	// Detaching these missed obligations from their batch (batch_id = NULL above) leaves their
+	// vaccination_drive_assignment_members rows behind, so a repaired-missed goat would still be
+	// counted on an operator's drive sheet and against drive capacity. Prune those member rows and
+	// reconcile the affected assignments' animal_count/total_doses from the remaining members (the
+	// same set-based cleanup the cancel/missed/reap paths use), inside this same transaction.
+	if len(ids) > 0 {
+		if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit missed batch repair: %w", err)
 	}
@@ -5642,6 +5877,11 @@ func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string
 	}
 	out := make([]domain.OpenObligation, 0, len(rows))
 	for _, row := range rows {
+		var scheduledFor *time.Time
+		if row.ScheduledFor.Valid {
+			value := row.ScheduledFor.Time
+			scheduledFor = &value
+		}
 		out = append(out, domain.OpenObligation{
 			ObligationID:      row.ObligationID,
 			ProtocolVersionID: row.ProtocolVersionID,
@@ -5650,6 +5890,10 @@ func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string
 			ScopeType:         row.ScopeType,
 			ScopeID:           row.ScopeID,
 			DueAt:             row.DueAt.Time,
+			ClinicalDueAt:     row.ClinicalDueAt.Time,
+			ScheduledFor:      scheduledFor,
+			DoseCode:          row.DoseCode,
+			VaccineLabel:      row.VaccineLabel,
 			Status:            row.Status,
 			Sequence:          row.Sequence,
 		})

@@ -2,7 +2,7 @@
 
 Status: committed seed source for local/dev rehearsal before staging.
 
-Business start date: `2026-07-23`.
+Business/as-of date: `2026-07-24`.
 
 This packet preserves the exact CPT source files supplied for the operator-cap
 vaccination drive rehearsal and adds a small machine-readable roster that states
@@ -17,10 +17,10 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT-Adult-vaccination.json` | Supplied CPT vaccination history/source rows. |
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
 | `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, CEO/CXO grants, and the N=1 Darshan-default drive assignment. |
-| `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
+| `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, Darshan Sunday fallback, and N=2 capacity sanity. PPR is excluded from this seed packet for now. |
 | `materialize-source.mjs` | Deterministic transform: raw source + roster contract -> the normalized seed bundle the validator and seed commands actually read. Output goes outside `fixtures/` (gitignored `build/`) because it carries reviewed runtime staff names. |
 | `check-expected-drive-schedules.mjs` | DB-proving gate run by `tools/dev/seed-closeout.sh`; fails the closeout when seeded rows violate `expected-drive-schedules.json`. |
-| `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, all vaccine-family reporting, exact ET+TT/PPR final schedule, SQL proof queries, and automatic failure cases. |
+| `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, vaccine-family reporting with PPR excluded from seeding, exact ET+TT final schedule, SQL proof queries, and automatic failure cases. |
 
 The `Adult` filename is a source label only. The seed must still use the
 published Goat OS vaccination rule engine for kids, adults, boosters, sick/ICU,
@@ -37,9 +37,10 @@ files happen to be named adult.
 - Default drive assignment: `active_operators_per_day=1`, Darshan first, Sagar
   fallback when Darshan is unavailable, Amit retained as secondary fallback.
 - Dose count is display/workload only; it is not the scheduling cap.
-- Drive start date for open work: `2026-07-23`.
-- No open drive work may be materialized on `2026-07-22` or earlier during a
-  fresh `2026-07-23` seed.
+- Drive start date for open work: `2026-07-24`.
+- No open drive work may be materialized on `2026-07-23` or earlier during a
+  fresh `2026-07-24` seed, except completed-history rows already recorded for
+  `2026-07-24`.
 
 ## People To Seed
 
@@ -54,6 +55,15 @@ All three operators are equal HRMS field operators. Do not remove Amit, do not
 seed Amit as support, do not seed Sagar as support-only, and do not infer
 park-head ownership from old HRMS labels. Their timetable removes them from
 availability only on their week-off or an explicit dated leave row.
+
+All three operators also need their own Android login after the database seed is
+done. Use each `operators[].email_hint` value in `cpt-operator-roster.json` as
+that operator's Firebase/Auth email-password identity. Do not create one common
+operator login, do not reuse one shared password, and do not ask operators to use
+CEO/CXO accounts for field execution. The provisioning step must generate a
+different temporary password per operator or send an individual password-reset
+flow. Do not commit real passwords into git; seed evidence should prove the
+account exists and Android bootstrap works for Amit, Darshan, and Sagar.
 
 For the discussed vaccination-drive scenario, `default_operator_assignment`
 sets `active_operators_per_day=1` and `default_operator_code=
@@ -106,6 +116,11 @@ given whole partitions where possible.
 
 ## Expected Fresh-Seed Shape
 
+The vaccination shed board must show the resolved drive operator for both
+planned drive rows and accepted completed drive history. The `2026-07-24`
+completed Gandhi/Channapatna ET+TT history belongs to Darshan through the CPT
+default drive assignment; it must not render `Operators unassigned`.
+
 ## Local Reseed Instruction For This Scenario
 
 Read `LOCAL_DB_RESEED_VALIDATION.md` first. That file is the exhaustive local DB
@@ -128,6 +143,10 @@ operator per business date.
 Required seed contract:
 
 - keep Amit Kumar, Darshan Talwar, and Sagar Mahoor as vaccination operators;
+- provision separate Android email-password login identities for Amit, Darshan,
+  and Sagar from `operators[].email_hint`;
+- use unique temporary passwords or individual reset links for those operator
+  identities; never a shared password and never committed plaintext passwords;
 - keep Chandrakant as director/monitoring only;
 - keep the five founder/CXO tenant grants;
 - set per-operator animal cap to 200 unique animals/day;
@@ -139,9 +158,23 @@ Required seed contract:
 - use shift labels only to identify fallback coverage.
 
 For the final validation plan, schedule ET+TT only from `2026-07-24`. Do not
-pair PPR with ET+TT on `2026-07-24`; move PPR to `2026-08-07`, exactly 14 days
-later. With `active_operators_per_day=1`, the scheduled drive cap is 200 unique
-animals per day even when more operators are available in HRMS.
+seed, schedule, or defer PPR drive work from this CPT packet for now. This is a
+seed-packet rule only; it does not change the global vaccination protocol matrix.
+With `active_operators_per_day=1`, the scheduled drive cap is 200 unique animals
+per day even when more operators are available in HRMS.
+
+Adult entry_date is never a vaccination due-date anchor. Adult blank-history
+animals join the adult campaign/catch-up cohort by physical shed/partition;
+adult same-vaccine accepted history anchors booster/revac timing; kids/young
+animals keep strict DOB/birth-age timing. Any Blue Tongue, Goat Pox, Sheep Pox,
+FMD, or HS adult drive row created merely from adult entry_date/post_arrival is
+invalid seed output.
+
+The only exception in this packet is the explicit `seed_catchup_overrides` row:
+Darshan may carry 210 ET+TT animals on `2026-07-25` because 114 ET+TT animals
+were already completed on `2026-07-24`. This is seed/proof fixture behavior, not
+production cap behavior. No later drive may use 210 unless the fixture declares
+another explicit seed catch-up override.
 
 The `weekly_capacity_examples` rows are raw HRMS availability examples:
 `total_capacity_animals = available_operators.length * 200`. They are not the
@@ -153,8 +186,10 @@ start on `2026-07-23`, not `2026-07-22`. For the final `2026-07-24` validation
 drive, the planner must use only the single assigned operator for that business
 date, while still keeping all three operators in HRMS availability.
 
-The source packet contains 324 animal rows. The planner may schedule fewer open
-animals on a given date depending on accepted history, booster eligibility,
+The source packet contains 324 animal rows. The updated vaccination source marks
+114 ET+TT booster rows completed on `2026-07-24`, so the final ET+TT validation
+lane schedules the remaining 210 animals only. The planner may schedule fewer
+open animals on a given date depending on accepted history, booster eligibility,
 combo-spacing rules, clinical exclusions, and date overrides, but it must never
 drop adult ET+TT booster obligations or quietly move safe-window breaches beyond
 their latest safe date.
@@ -164,25 +199,23 @@ The updated goat source has no active health defers: health status counts are
 explicit healthy status; neither may be seeded as `recovering`,
 `under_treatment`, or any other vaccination defer.
 
-For the maintainer-discussed validation scenario where the UI moves PPR two
-weeks after the first ET+TT drive, the expected day-grained schedule is
-machine-readable in `expected-drive-schedules.json`. The headline numbers are:
+For the maintainer-discussed ET+TT-only validation scenario, the expected
+day-grained schedule is machine-readable in `expected-drive-schedules.json`.
+The headline numbers are:
 
 | Scenario | Date | Operator | Vaccines | Animals | Doses |
 |---|---|---|---|---:|---:|
-| Final ET+TT day 1 | 2026-07-24 Fri | Darshan Talwar | ET+TT | 200 | 200 |
-| Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 124 | 124 |
-| Final PPR day 1 | 2026-08-07 Fri | Darshan Talwar | PPR | 200 | 200 |
-| Final PPR day 2 | 2026-08-08 Sat | Darshan Talwar | PPR | 124 | 124 |
+| Final ET+TT catch-up | 2026-07-25 Sat | Darshan Talwar | ET+TT | 210 | 210 |
 
 Darshan is available on both Friday and Saturday; his weekly off is Sunday.
-If ET+TT and PPR are left on the same `2026-07-24` date for a cap sanity check,
-the first day is still capped at 200 animals, even though it carries 400 doses.
+Any PPR drive row from this seed packet is invalid for now. Any non-ET+TT adult
+drive row that exists only because adult entry_date was treated as post_arrival
+is also invalid.
 
 ## Seed/Verify Checklist For Local Or Dev
 
 1. Start from the latest `main` commit containing this packet.
-2. Use `2026-07-23` as the backend business date / `AS_OF` for this rehearsal.
+2. Use `2026-07-24` as the backend business date / `AS_OF` for this rehearsal.
 3. Run the CPT-specific seed command that consumes this packet:
    `make seed-vaccination-cpt-operator-drive`. It materializes the normalized
    bundle from these raw files, refuses to run from a non-`origin/main` checkout,
@@ -190,10 +223,14 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
 4. Run the DB-free source audit before any DB write.
 5. Seed the five CEO/CXO pending email grants with `role=ceo_internal`.
 6. Seed only the three CPT vaccination operators plus Chandrakant as director.
-7. Seed operator cap `200` as animals/operator/day.
-8. Generate obligations through the vaccination rule engine, not from hardcoded
+7. After DB seed, provision Firebase/Auth email-password users for Amit,
+   Darshan, and Sagar from `cpt-operator-roster.json` `email_hint` values. Each
+   operator must receive a different temporary password or an individual reset
+   flow, and Android login/bootstrap must be smoke-tested per operator.
+8. Seed operator cap `200` as animals/operator/day.
+9. Generate obligations through the vaccination rule engine, not from hardcoded
    frontend tables.
-9. Run the operator drive planner and verify:
+10. Run the operator drive planner and verify:
    - no CBE/Coimbatore source rows exist;
    - open drive dates are `2026-07-23` or later;
    - all three operators exist in HRMS;
@@ -204,15 +241,83 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
    - physical sheds are grouped while partitions remain visible in assignments;
    - all 324 animals are considered against vaccination rules, with zero
      source-health exclusions from this packet;
-   - ET+TT adult booster, PPR, Blue Tongue, HS, FMD, kid/adult rules, combo
+   - ET+TT booster source history has 114 completed rows and 210 remaining due
+     rows for the final validation drive;
+   - ET+TT adult booster, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.
+   - no adult initial `*_adult_*` protocol rule has `trigger_type=post_arrival`;
+   - no Blue Tongue, Goat Pox, Sheep Pox, FMD, or HS adult drive is
+     auto-scheduled merely because adult entry_date exists;
    - the DB schedule for the discussed scenarios matches
      `expected-drive-schedules.json`; any mismatch must be explained by an
      explicit changed input, not by hidden frontend or seed defaults.
-10. Verify admin-web and mobile from backend APIs: no frontend hardcoded park,
+11. Verify admin-web and mobile from backend APIs: no frontend hardcoded park,
     operator, shed, cap, or schedule fallback may be needed.
 
 Do not replicate this to staging until the local/dev DB shows the expected CPT
 scope, HRMS roster, date start, operator capacity split, booster obligations,
 and vaccine-date override recalculation from backend data.
+
+The CPT roster fixture owns operator emails/login identity. STG temporary
+password convention is documented in:
+`docs/runbooks/stg-operator-login-credentials.md`.
+Do not invent random STG operator passwords.
+
+The CPT seed must satisfy the STG login seed contract:
+`docs/runbooks/stg-login-seed-contract.md`
+
+The roster owns field operator/director identity. STG seed must also verify
+Firebase email/password and backend role binding for them. The roster also owns
+the CPT verifier login grant for Jyothi: `jyothipvg12345@gmail.com`,
+role `verifier`, Firebase email/password `Jyothi@2026`, no vaccination
+operator capacity.
+
+## Canonical STG Personnel Rule (10 people total)
+
+Canonical source: `docs/runbooks/stg-login-seed-contract.md`.
+
+10 STG people total: **5 Mesha leadership (Google SSO and Firebase
+email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
+(Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
+(Firebase email/password, password `Jyothi@2026`)**.
+
+| Person | Auth | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
+| Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
+| Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
+| Chandrakant | Firebase `Chandrakant@2026` | **director** | **no** |
+| 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
+| Jyothi | Firebase `Jyothi@2026` | **verifier** | **no** |
+
+- ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
+  Chandrakant is director, Jyothi is verifier, and the 5 leadership users are
+  `ceo_internal`; none of those non-operator users add capacity even though they
+  have login credentials.
+- For the 4 field users, Firebase allowlist alone / Firebase user existing is NOT
+  enough: backend grant AND `/app/bootstrap` context must pass.
+- For the 5 leadership users, Google SSO alone is NOT enough for STG validation:
+  Firebase email/password, active `ceo_internal` grant, active leadership profile,
+  admin-web bootstrap, mobile bootstrap, and CEO AI access must all pass.
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, Jyothi has verifier
+> login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
+> with both Google SSO and Firebase email/password available.
+
+## STG Platform Wiring Required With This Seed
+
+The CPT seed is not STG-ready just because the vaccination rows exist. The seed
+handoff must also verify platform wiring:
+
+- CEO AI / chatbot follows `docs/runbooks/stg-chatbot-ai-wiring.md`: leadership
+  users can see the assistant, non-leadership users cannot, and `/ceo-ai/*`
+  reaches the STG backend path with configured Vertex/Cube/MCP/read-only DB
+  dependencies or reports the exact missing dependency.
+- GCS-backed evidence/storage wiring follows the STG deployment runbooks: buckets
+  and service-account permissions must point at `goatos-stg`, not local/dev/prod
+  placeholders, before proof upload or closeout evidence is claimed.
+- Login proof must cover both surfaces: admin-web/FE and Android/mobile. A user
+  existing in Firebase, a pending email grant, or a successful admin-web login
+  alone is not enough.

@@ -3,24 +3,29 @@
 Status: source of truth for why the leadership assistant exists and how Mesha
 will build it. This is not an implementation-complete document.
 
-Implemented now:
+## Implementation Status
 
-- dashboard bubble/chat shell
+Backend code existing does NOT mean STG AI is fully wired. Each external piece
+must be marked `deployed`, `fallback-only`, `placeholder`, or `missing`.
+
+Implemented:
+- admin-web assistant bubble/chat shell
+- backend `/ceo-ai/*` routes
 - server-side leadership gate
-- safe read-only API demo routing
-- assistant coverage docs/skills/hooks/local-CI guardrails
+- Vertex adapter code
+- Cube client code
+- fallback keyword planner
+- conversation routes/persistence if present
+- Secret Manager setup scripts
 
-Not implemented yet:
+STG wiring must be verified separately:
+- Vertex API/IAM/env
+- Cube Cloud Run service
+- MCP Toolbox Cloud Run service
+- readonly DB roles/secrets
+- `/ceo-ai/ask` smoke test
 
-- Google ADK agent runtime
-- Vertex/Gemini production planner in the Mesha backend
-- Cube Core metric service
-- persisted memory/session store
-- MCP Toolbox runtime service
-- complete `ceo_ai.*` reporting schema
-- safe SQL fallback executor
-- production retry/fallback orchestration
-- assistant audit/metrics persistence
+See `docs/runbooks/stg-chatbot-ai-wiring.md`.
 
 ## Purpose
 

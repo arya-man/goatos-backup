@@ -1,5 +1,6 @@
 package sg.mesha.goatos.ui
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -51,10 +53,6 @@ import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
 import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingTab
-import sg.mesha.goatos.feature.leadership.LeadershipEvent
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
-import sg.mesha.goatos.feature.leadership.OverdueScreen
-import sg.mesha.goatos.feature.leadership.RescheduleScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
@@ -77,6 +75,7 @@ import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.AwaitingRfidViewModel
 import sg.mesha.goatos.viewmodel.BirthDeathViewModel
@@ -87,11 +86,8 @@ import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
-import sg.mesha.goatos.viewmodel.LeadershipViewModel
-import sg.mesha.goatos.viewmodel.OverdueViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
-import sg.mesha.goatos.viewmodel.RescheduleViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
@@ -120,10 +116,7 @@ object Routes {
     const val CALENDAR_DRIVE_HOSTED_ARG = "calendarHosted"
     const val SCAN = "/scan"
     const val SUBMIT = "/submit"
-    const val LEADERSHIP = "/leadership"
     const val RECORD = "/record"
-    const val OVERDUE = "/overdue"
-    const val RESCHEDULE = "/reschedule"
     /**
      * Profile/settings. Path-shaped like every other route because it is now a BACKEND-composed
      * nav item (`bootstrap_copy.go` — the vaccination and leadership modules each contribute
@@ -204,21 +197,35 @@ object Routes {
     // approve/reject, threading both the item id AND its category (the detail VM re-observes
     // that SAME category's Room cache scope rather than adding a second network call).
     const val VERIFY = "/verify"
+    const val VERIFY_ACTION = "/verify/action"
     const val VERIFY_DETAIL = "/verify/item"
+    const val VERIFY_ACTION_DETAIL = "/verify/action/item"
     const val VERIFY_ITEM_ARG = "itemId"
     const val VERIFY_CATEGORY_ARG = "category"
+    const val VERIFY_ACTION_ARG = "actionMode"
+    const val VERIFY_PARK_ARG = "parkId"
+    const val VERIFY_SHED_ARG = "shedId"
 
-    fun verifyDetailRoute(itemId: String, category: String?): String {
+    fun verifyDetailRoute(
+        itemId: String,
+        category: String?,
+        actionMode: Boolean = false,
+        parkId: String? = null,
+        shedId: String? = null,
+    ): String {
         val args = listOfNotNull(
             VERIFY_ITEM_ARG to itemId,
             category?.takeIf { it.isNotBlank() }?.let { VERIFY_CATEGORY_ARG to it },
+            VERIFY_ACTION_ARG to actionMode.toString(),
+            parkId?.takeIf { it.isNotBlank() }?.let { VERIFY_PARK_ARG to it },
+            shedId?.takeIf { it.isNotBlank() }?.let { VERIFY_SHED_ARG to it },
         )
-        return "$VERIFY_DETAIL?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+        val base = if (actionMode) VERIFY_ACTION_DETAIL else VERIFY_DETAIL
+        return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
     }
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
     const val RECORD_SHED_ARG = "shedId"
-    const val RESCHEDULE_OBLIGATION_ARG = "obligationId"
 
     /** Record route for a specific shed (null → generic first-shed record). */
     fun recordRoute(shedId: String?): String =
@@ -293,8 +300,6 @@ object Routes {
             }
         }
 
-    fun rescheduleRoute(obligationId: String?): String =
-        if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
 }
 
 /**
@@ -311,6 +316,8 @@ object Routes {
 internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
     val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
     if (target.isNullOrBlank()) return fallbackDriveRoute
+    val normalizedTarget = target.substringBefore('?').trimEnd('/')
+    if (normalizedTarget == Routes.VACCINATION) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
@@ -355,7 +362,7 @@ private fun shedIdFromTarget(target: String): String? {
 
 private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
-    selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
+    selected.opensRecordOnly -> fallbackRoute
     selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
@@ -490,12 +497,17 @@ fun AppNavHost(
         composable(Routes.VACCINATION) {
             val vm: ShedsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
             ShedsScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
+                            if (selected?.opensRecordOnly == true) {
+                                Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             val route = shedExecutionRoute(selected, Routes.VACCINATION)
                             navController.navigate(route) { launchSingleTop = true }
                         }
@@ -525,17 +537,29 @@ fun AppNavHost(
         ) {
                 val vm: ShedsViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                val context = LocalContext.current
                 ShedsScreen(
                     state = state,
                     onEvent = { event ->
                         when (event) {
                             is ShedsEvent.OpenShedRecord -> {
-                                // Done sheds open the read-only record; anything still due opens
-                                // the execute loop (Scan → Submit). Mirrors the mock's shed card
-                                // ("View completed record ›" vs "Start / scan").
-                                val selected = state.rows.firstOrNull { it.id == event.shedId }
-                                val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
-                                navController.navigate(route) { launchSingleTop = true }
+                                // A leadership oversight read (canOpenShed=false) is read-only:
+                                // block the click here so CEO/Director/Park Head never navigate
+                                // into the operator scan/execute loop. Operators reach sheds via
+                                // the Vaccination (Drives) route, a different composable, and are
+                                // unaffected.
+                                if (state.canOpenShed) {
+                                    // Done sheds open the read-only record; anything still due opens
+                                    // the execute loop (Scan → Submit). Mirrors the mock's shed card
+                                    // ("View completed record ›" vs "Start / scan").
+                                    val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                    if (selected?.opensRecordOnly == true) {
+                                        Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                        return@ShedsScreen
+                                    }
+                                    val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
                             }
                             ShedsEvent.Back -> navController.popBackStack()
                             else -> vm.onEvent(event)
@@ -602,7 +626,7 @@ fun AppNavHost(
             val state by vm.state.collectAsStateWithLifecycle()
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
             // Once the submission this operator just enqueued is accepted (ACKED — durably
-            // queued/accepted by the backend), drill back out to the Calendar landing instead
+            // queued/accepted by the backend), return to the vaccination sheds queue instead
             // of stranding them on the acknowledged submit screen. Gated on having actually
             // watched this submission go in-flight this session (QUEUED/SYNCING) so a cold
             // re-entry into an already-completed task does not immediately bounce away.
@@ -612,7 +636,7 @@ fun AppNavHost(
                     SyncState.QUEUED, SyncState.SYNCING -> sawSubmitInFlight = true
                     SyncState.ACKED -> if (sawSubmitInFlight) {
                         sawSubmitInFlight = false
-                        navController.popBackStack(Routes.CALENDAR, inclusive = false)
+                        navController.popBackStack(Routes.VACCINATION, inclusive = false)
                     }
                     else -> Unit
                 }
@@ -629,122 +653,6 @@ fun AppNavHost(
                     SubmitScreen(state = state, onEvent = vm::onEvent)
                 }
             }
-        }
-
-        // Leadership overview — a decision drills to reschedule; the "doses given" KPI
-        // opens the per-vaccine drill sheet, other KPIs open the overdue list; the scope
-        // + data-gap pills open their sheets; refresh + inert taps stay in the VM.
-        composable(Routes.LEADERSHIP) {
-            val vm: LeadershipViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            val gapsState by vm.gapsState.collectAsStateWithLifecycle()
-            val dosesState by vm.dosesState.collectAsStateWithLifecycle()
-            var showScope by remember { mutableStateOf(false) }
-            var showGaps by remember { mutableStateOf(false) }
-            var showGiven by remember { mutableStateOf(false) }
-            LaunchedEffect(showGaps) {
-                if (showGaps) vm.loadGaps()
-            }
-            LaunchedEffect(showGiven) {
-                if (showGiven) vm.loadDosesGiven()
-            }
-            LeadershipScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is LeadershipEvent.DecisionTapped ->
-                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
-                        // Leadership taps a shed → the read-only record (their lens is follow-up).
-                        is LeadershipEvent.ShedTapped ->
-                            navController.navigate(Routes.recordRoute(event.shedId)) { launchSingleTop = true }
-                        is LeadershipEvent.OpenScopePicker -> showScope = true
-                        is LeadershipEvent.OpenDataGaps -> showGaps = true
-                        is LeadershipEvent.KpiTapped ->
-                            if (event.id == "given") {
-                                showGiven = true
-                            } else {
-                                navController.navigate(Routes.OVERDUE) { launchSingleTop = true }
-                            }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-            if (showScope) {
-                ScopePickerSheet(
-                    scopes = defaultScopeOptions(),
-                    onSelect = { label, token ->
-                        // TODO(backend): send the chosen scope token to re-scope the reads.
-                        showScope = false
-                    },
-                    onDismiss = { showScope = false },
-                )
-            }
-            if (showGaps) {
-                DataGapsSheet(
-                    gapsData = gapsState.items,
-                    isLoading = gapsState.isLoading,
-                    isLoadingMore = gapsState.isLoadingMore,
-                    hasMore = gapsState.hasMore,
-                    errorMessage = gapsState.errorMessage,
-                    isRefreshing = gapsState.isRefreshing,
-                    lastSyncedAt = gapsState.lastSyncedAt,
-                    isOffline = gapsState.isOffline,
-                    onLoadMore = vm::loadMoreGaps,
-                    onDismiss = { showGaps = false },
-                )
-            }
-            if (showGiven) {
-                DosesGivenSheet(
-                    rows = dosesState.items,
-                    isLoading = dosesState.isLoading,
-                    errorMessage = dosesState.errorMessage,
-                    isRefreshing = dosesState.isRefreshing,
-                    lastSyncedAt = dosesState.lastSyncedAt,
-                    isOffline = dosesState.isOffline,
-                    onDismiss = { showGiven = false },
-                )
-            }
-        }
-
-        // Overdue list — a row drills to reschedule; Back pops; refresh stays in the VM.
-        composable(Routes.OVERDUE) {
-            val vm: OverdueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            OverdueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is LeadershipEvent.OverdueRowTapped ->
-                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
-                        LeadershipEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        // Reschedule form — segment/date selection stays local; Confirm + Back pop back.
-        composable(
-            route = "${Routes.RESCHEDULE}?${Routes.RESCHEDULE_OBLIGATION_ARG}={${Routes.RESCHEDULE_OBLIGATION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.RESCHEDULE_OBLIGATION_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
-        ) {
-            val vm: RescheduleViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            RescheduleScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        LeadershipEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
         }
 
         // Record — read-only; Close pops back. Optional shedId arg selects WHICH shed's
@@ -1132,7 +1040,10 @@ fun AppNavHost(
         // verifier's bootstrap nav contains ONLY VERIFY, so this is their entire app. A row
         // drills to VERIFY_DETAIL with both the item id and ITS category threaded through, so
         // the detail VM re-observes that exact Room cache scope (no second network round trip).
-        composable(Routes.VERIFY) {
+        composable(
+            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false }),
+        ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             VerifyQueueScreen(
@@ -1140,7 +1051,41 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(Routes.verifyDetailRoute(event.itemId, event.category)) { launchSingleTop = true }
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = state.isActionQueue,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true }),
+        ) { entry ->
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = true,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -1149,14 +1094,57 @@ fun AppNavHost(
 
         composable(
             route = "${Routes.VERIFY_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
-                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}",
+                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
+                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+                navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.autoCloseAfterDecision) {
+                if (state.autoCloseAfterDecision) {
+                    navController.popBackStack()
+                }
+            }
+            VerifyDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        VerifyDetailEvent.Close -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_ACTION_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
+                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
+                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
+                navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) {
+            val vm: VerifyDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.autoCloseAfterDecision) {
+                if (state.autoCloseAfterDecision) {
+                    navController.popBackStack()
+                }
+            }
             VerifyDetailScreen(
                 state = state,
                 onEvent = { event ->
@@ -1171,24 +1159,41 @@ fun AppNavHost(
 }
 
 /**
- * Cold start must never land on a route the backend did not expose to this principal. The
- * bootstrap already orders the visible roots by job/module priority, so Android renders that
- * contract instead of hardcoding Calendar (which broke operator and verifier startup with a 403).
- * Unknown future roots fail safely to Calendar until the app graph learns the new destination.
+ * Cold start must never land on a route the backend did not expose to this principal, and it
+ * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item.
+ *
+ * Precedence: the backend's default (first available) module's href, then the first supported
+ * bottom-bar item, then Calendar as a safe fallback. Operator/verifier are unaffected -- their
+ * default module href IS their landing (/vaccination, /verify). The `in supportedRootDestinations`
+ * guard keeps an unknown future root from failing startup with a 403.
  */
-internal fun startDestinationFor(navState: NavState): String =
-    navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
+internal fun startDestinationFor(navState: NavState): String {
+    navState.availableModules().firstOrNull()?.href
+        ?.takeIf { it in supportedRootDestinations }
+        ?.let { return it }
+    return navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
         ?: Routes.CALENDAR
+}
 
 private val supportedRootDestinations = setOf(
     Routes.CALENDAR,
     Routes.VACCINATION,
-    Routes.LEADERSHIP,
     Routes.VERIFY,
+    Routes.VERIFY_ACTION,
+    Routes.YOU,
     Routes.ALERTS,
     Routes.TIMETABLE,
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,
+    // Counts roots: a Counts-only principal's default landing is the first page they may
+    // open (/counts census for CEO/admin, /counts/birth-death for a capture operator).
+    // These are registered top-level composables, so cold start must accept them instead
+    // of falling back to Calendar (which a Counts-only principal may not be granted).
+    // Approvals live in admin-web only (moved off mobile), so there is no approvals root here.
+    Routes.COUNTS,
+    Routes.COUNTS_BIRTH_DEATH,
+    Routes.COUNTS_SHIFTING,
+    Routes.COUNTS_PROMOTE,
 )
 
 private fun executionRoutePattern(base: String): String =

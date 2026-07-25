@@ -44,6 +44,12 @@ interface ExecutionRowsCacheDao : JsonBlobCacheDao<ExecutionRowsCacheEntity> {
             "(SELECT cacheKey FROM execution_rows_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /** Drops every cached execution-row blob. Used by the app-version cache gate so an in-place
+     *  update discards read blobs written before a serving-shape change (e.g. a drive-date move),
+     *  forcing a clean refetch. Never touches the outbox or any write-side table. */
+    @Query("DELETE FROM execution_rows_cache")
+    suspend fun clearAll()
 }
 
 @Entity(tableName = "execution_shed_cache")
@@ -75,6 +81,10 @@ interface ExecutionShedCacheDao : JsonBlobCacheDao<ExecutionShedCacheEntity> {
             "(SELECT cacheKey FROM execution_shed_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /** Drops every cached shed-drilldown blob. See [ExecutionRowsCacheDao.clearAll]. */
+    @Query("DELETE FROM execution_shed_cache")
+    suspend fun clearAll()
 }
 
 /** Individual scan roster row — the per-animal SSOT for the shed scan screen. Room is the single

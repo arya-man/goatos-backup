@@ -134,6 +134,17 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const [parkDraft, setParkDraft] = useState('');
   const [rowVersion, setRowVersion] = useState(0);
   const [configSaving, setConfigSaving] = useState(false);
+  const [draftCaps, setDraftCaps] = useState<Record<string, string>>({});
+  const [savingCap, setSavingCap] = useState<string | null>(null);
+  const [capError, setCapError] = useState<string | null>(null);
+  // Common operator cap + per-animal shot cap (tenant capacity config). Editing these writes to the
+  // scheduler-read tables and emits vaccination.capacity.changed per park, re-planning all future drives.
+  const [animalShotCap, setAnimalShotCap] = useState<number | null>(null);
+  const [capRowVersion, setCapRowVersion] = useState(0);
+  const [capConfigError, setCapConfigError] = useState<string | null>(null);
+  const [capEditing, setCapEditing] = useState(false);
+  const [draftAnimalCap, setDraftAnimalCap] = useState('');
+  const [savingCapCfg, setSavingCapCfg] = useState(false);
 
   const [leaves, setLeaves] = useState<Record<string, { from: string; to: string }[]>>({});
   const [loading, setLoading] = useState(true);
@@ -201,6 +212,9 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         const pos = (result.positions as Position[]) ?? [];
         setPositions(pos);
         setCommonCap(result.commonCap);
+        setAnimalShotCap(result.animalShotCap);
+        setCapRowVersion(result.capRowVersion);
+        setCapConfigError(result.capConfigError);
         if (!config) {
           // No config authored yet: fall back to the first NON-BACKUP operator of
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
@@ -362,13 +376,16 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     try {
       const api = getAdminApi();
       // Use position's scope for the leave request
-      await api.applyStaffLeave({
+      const applied = await api.applyStaffLeave({
         workforce_member_id: targetPos.workforce_member_id,
         scope_type: 'center', // Use center scope as default
         scope_id: targetPos.scope_id ?? '', // Use position's scope_id
         reason_code: 'planned_leave',
         starts_on: range.from,
         ends_on: range.to,
+      });
+      await api.approveStaffLeave(applied.data.leave.absence_id, {
+        row_version: applied.data.leave.row_version,
       });
 
       // Optimistically update local state and refetch
@@ -378,20 +395,10 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         [modalTarget]: mergeLeaves(newLeaves),
       });
       closeModal();
-      showToast('<b style="color:var(--brand)">Leave added</b>');
+      showToast('<b style="color:var(--brand)">Leave added</b> · operator availability updated');
     } catch (err) {
       setModalError(err instanceof Error ? err.message : 'Failed to add leave');
     }
-  };
-
-  // Remove leave
-  const removeLeave = (opId: string, fromDate: string) => {
-    const updated = (leaves[opId] ?? []).filter((r) => r.from !== fromDate);
-    setLeaves({
-      ...leaves,
-      [opId]: updated,
-    });
-    showToast('<b style="color:var(--brand)">Leave removed</b>');
   };
 
   const operatorsList = useMemo(() => positions.filter((p) => !p.is_backup_slot), [positions]);
@@ -422,15 +429,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   }, [operatorsList, operatorCount, defaultOperator]);
 
   const weeklyPlan = useMemo(() => {
-    // Find PM operator for fallback chains
-    let pmOp: Position | undefined;
-    if (assignmentConfig?.shifts) {
-      const pmShift = assignmentConfig.shifts.find((s) => s.shiftLabel === 'pm');
-      if (pmShift) {
-        pmOp = operatorsList.find((op) => op.workforce_member_id === pmShift.operatorId);
-      }
-    }
-
     // Map a recurring weekday to its next real occurrence (today or forward within 7 days),
     // so date-range leave applies to the preview the same way the backend resolves per date.
     const dateForDow = (dow: string): string => {
@@ -456,12 +454,15 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         const op = chosen[0];
         const def = orderedOps[0];
         if (op.position_id === def?.position_id) return { dow, ops: chosen, reason: 'default', kind: 'brand' as const };
-        const fallbackName = pmOp ? firstName(pmOp) : firstName(op);
+        // "First available wins": the covering operator IS the chosen op, so the reason must
+        // name that same operator — never a separate PM-shift operator that isn't running the day.
+        const fallbackName = firstName(op);
         const defName = def ? firstName(def) : 'Default';
-        // Distinguish WHY the default dropped out: leave vs recurring week-off.
+        // Distinguish WHY the default dropped out: leave vs recurring week-off (mock wording).
         const defWhy = def && isOnLeave(def) ? 'on leave' : 'week-off';
+        const verb = defWhy === 'on leave' ? 'covers' : 'fills';
         const kind = defWhy === 'on leave' ? ('warn' as const) : ('info' as const);
-        return { dow, ops: chosen, reason: `${defName} ${defWhy} → ${fallbackName} covers`, kind };
+        return { dow, ops: chosen, reason: `${defName} ${defWhy} → ${fallbackName} ${verb}`, kind };
       }
       const off = orderedOps.filter((o) => isWeekOff(o) || isOnLeave(o));
       return {
@@ -473,9 +474,89 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         kind: off.length ? ('info' as const) : ('brand' as const),
       };
     });
-  }, [orderedOps, operatorCount, assignmentConfig, operatorsList, leaves]);
+  }, [orderedOps, operatorCount, leaves]);
 
   const kindColor: Record<string, string> = { brand: 'var(--brand)', info: 'var(--info)', warn: 'var(--warn)', danger: 'var(--danger)' };
+  const capForPosition = (pos: Position): number => pos.vaccination_daily_animal_cap ?? commonCap;
+
+  const saveOperatorCap = async (pos: Position) => {
+    if (!pos.position_id) return;
+    const raw = (draftCaps[pos.position_id] ?? String(capForPosition(pos))).trim();
+    const nextCap = Number(raw);
+    if (!Number.isInteger(nextCap) || nextCap < 1 || nextCap > 100000) {
+      setCapError('Cap must be a whole number between 1 and 100000 animals/day.');
+      return;
+    }
+    setSavingCap(pos.position_id);
+    setCapError(null);
+    try {
+      const api = getAdminApi();
+      const response = await api.updateStaffPosition(pos.position_id, {
+        row_version: pos.row_version,
+        vaccination_daily_animal_cap: nextCap,
+      });
+      const updated = response.data.position as Position;
+      setPositions((current) => current.map((item) => (item.position_id === updated.position_id ? { ...item, ...updated } : item)));
+      setDraftCaps((current) => {
+        const next = { ...current };
+        delete next[pos.position_id!];
+        return next;
+      });
+      showToast(`<b style="color:var(--brand)">Saved</b> · ${updated.person_display_name ?? 'Operator'} cap ${nextCap}/day`);
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : 'Failed to save operator cap');
+    } finally {
+      setSavingCap(null);
+    }
+  };
+
+  const openCapEditor = () => {
+    if (capConfigError) return; // never edit against a config that failed to load
+    setDraftAnimalCap(animalShotCap == null ? '' : String(animalShotCap));
+    setCapError(null);
+    setCapEditing(true);
+  };
+
+  const saveCapacityConfig = async () => {
+    if (capConfigError) {
+      setCapError('Capacity config could not be loaded; reload before editing the cap.');
+      return;
+    }
+    // This control edits ONLY the per-animal shot cap; the operator daily cap is owned by the
+    // per-operator roster rows, so maxPerDay is sent back unchanged (current commonCap).
+    // A cleared animal-cap field means "no override" (null → planner falls back to the rule DSL / default).
+    // An explicit value must be a whole number >= 1; out-of-range is rejected, never silently defaulted.
+    const animalRaw = draftAnimalCap.trim();
+    let nextAnimal: number | null = null;
+    if (animalRaw !== '') {
+      const parsed = Number(animalRaw);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        setCapError('Animal shot cap must be a whole number ≥ 1, or blank to use the protocol default.');
+        return;
+      }
+      nextAnimal = parsed;
+    }
+    setSavingCapCfg(true);
+    setCapError(null);
+    try {
+      const api = getAdminApi();
+      const response = await api.putVaccinationCapacityConfig({
+        maxPerDay: commonCap,
+        maxShotsPerAnimalPerDrive: nextAnimal,
+        rowVersion: capRowVersion,
+      });
+      const updated = response.data;
+      setCommonCap(updated.maxPerDay);
+      setAnimalShotCap(updated.maxShotsPerAnimalPerDrive ?? null);
+      setCapRowVersion(updated.rowVersion);
+      setCapEditing(false);
+      showToast(`<b style="color:var(--brand)">Saved</b> · animal shot cap updated — future vaccination schedules are being re-planned`);
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : 'Failed to save capacity config');
+    } finally {
+      setSavingCapCfg(false);
+    }
+  };
 
   // KPIs
   const kpiOperators = operatorsList.length;
@@ -668,24 +749,55 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         <div className="hd">
           <h3>Operator roster & availability</h3>
           <div className="sp"></div>
-          {/* BUG-020: the cap edit form is NOT rendered at all until a real
-              write endpoint exists. It previously stayed mounted behind a
-              disabled Edit button and its Save handler reported a fabricated
-              "Saved" toast with no backend call. */}
           <div className="capctl">
-            <span className="capctl-lab">Cap / operator</span>
-            <b id="capText">{commonCap}</b>
-            <span className="capunit">animals/day</span>
-            <button
-              className="btn sm"
-              aria-disabled={true}
-              title="Common-cap write not yet available (backend pending)"
-              disabled
-            >
-              ✏️ Edit
-            </button>
+            {/* Operator cap is edited per-operator in the roster rows below + summarized in the KPI
+                card; this control edits ONLY the per-animal shot cap. */}
+            {capEditing ? (
+              <>
+                <span className="capctl-lab">Animal shot cap</span>
+                <input
+                  aria-label="Per-animal shot cap per day"
+                  className="capin"
+                  inputMode="numeric"
+                  min={1}
+                  placeholder="default"
+                  type="number"
+                  value={draftAnimalCap}
+                  onChange={(event) => setDraftAnimalCap(event.target.value)}
+                />
+                <span className="capunit">shots/animal</span>
+                <button className="btn b sm" disabled={savingCapCfg} onClick={() => void saveCapacityConfig()} type="button">
+                  {savingCapCfg ? 'Saving' : 'Save'}
+                </button>
+                <button className="btn sm ghost" disabled={savingCapCfg} onClick={() => setCapEditing(false)} type="button">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="capctl-lab">Animal shot cap</span>
+                <b>{capConfigError ? '—' : animalShotCap == null ? 'default' : animalShotCap}</b>
+                <span className="capunit">shots/animal</span>
+                <button
+                  className="btn sm"
+                  onClick={openCapEditor}
+                  type="button"
+                  disabled={!!capConfigError}
+                  aria-disabled={!!capConfigError}
+                  title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit animal shot cap'}
+                >
+                  Edit cap
+                </button>
+              </>
+            )}
           </div>
         </div>
+        {capConfigError ? (
+          <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>
+            Couldn’t load the vaccination capacity config, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
+          </div>
+        ) : null}
+        {capError ? <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>{capError}</div> : null}
         <div className="bd" style={{ overflowX: 'auto' }}>
           <table>
             <thead>
@@ -693,6 +805,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                 <th>Person</th>
                 <th>Park</th>
                 <th>Shift</th>
+                <th>Cap</th>
                 <th>Week off</th>
                 <th>Planned leave</th>
                 <th>Weekly schedule</th>
@@ -712,6 +825,10 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                 const todayDow = WEEKDAYS[statusToday.getDay() === 0 ? 6 : statusToday.getDay() - 1];
                 const onLeaveToday = opLeaves.some((r) => today >= r.from && today <= r.to);
                 const weekOffToday = weekOff.toLowerCase() === todayDow;
+                const positionId = op.position_id ?? '';
+                const effectiveCap = capForPosition(op);
+                const draftCap = draftCaps[positionId] ?? String(effectiveCap);
+                const capChanged = draftCap.trim() !== String(effectiveCap);
 
                 return (
                   <tr key={op.position_id}>
@@ -734,6 +851,29 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                         const label = shift.shiftLabel.charAt(0).toUpperCase() + shift.shiftLabel.slice(1);
                         return `${label} · ${startTime}–${endTime}`;
                       })()}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <input
+                          aria-label={`${shortName} animals/day cap`}
+                          inputMode="numeric"
+                          min={1}
+                          max={100000}
+                          style={{ width: 92 }}
+                          type="number"
+                          value={draftCap}
+                          onChange={(event) => setDraftCaps((current) => ({ ...current, [positionId]: event.target.value }))}
+                        />
+                        <span className="muted small">/day</span>
+                        <button
+                          className="btn sm"
+                          disabled={!capChanged || savingCap === positionId}
+                          onClick={() => void saveOperatorCap(op)}
+                          type="button"
+                        >
+                          {savingCap === positionId ? 'Saving' : 'Save'}
+                        </button>
+                      </div>
                     </td>
                     <td>
                       <span className="tag t-info">{weekOffLabel}</span>
@@ -844,14 +984,19 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                 ))}
               </select>
             </div>
-            <button
-              className="btn b sm"
-              onClick={persistOperatorConfig}
-              disabled={configSaving}
-              style={{ marginTop: '16px' }}
-            >
-              Save configuration
-            </button>
+            {/* Wrap in a .fld peer with a spacer label so the button sits on the same
+                baseline as the selects. The .fld margin-bottom shifts .ctl's flex-end
+                anchor; a bare button (no label row) otherwise drops ~13px below them. */}
+            <div className="fld">
+              <label aria-hidden="true">&nbsp;</label>
+              <button
+                className="btn b"
+                onClick={persistOperatorConfig}
+                disabled={configSaving}
+              >
+                Save configuration
+              </button>
+            </div>
           </div>
           <div className="note" style={{ marginTop: '10px' }}>
             Live preview of the assignment logic from the roster + week-offs. Configure and save active-operators
@@ -923,7 +1068,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             className="dscrim on"
             onClick={closeDrawer}
           ></div>
-          <aside className="drawer" role="dialog" aria-modal="true">
+          <aside className="drawer on" role="dialog" aria-modal="true">
             <div className="dh">
               <div className="av">{(drawerOp.person_display_name ?? 'OP')[0]}</div>
               <div style={{ flex: 1 }}>
@@ -948,15 +1093,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                             <div className="lvdate">{fmtRange(r)}</div>
                             <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
                           </div>
-                          <button
-                            className="rm"
-                            onClick={() => removeLeave(drawerTarget!, r.from)}
-                            title="Leave cancellation not yet available"
-                            disabled
-                            aria-disabled={true}
-                          >
-                            ×
-                          </button>
                         </div>
                       ))}
                     </>
@@ -970,15 +1106,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                             <div className="lvdate">{fmtRange(r)}</div>
                             <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
                           </div>
-                          <button
-                            className="rm"
-                            onClick={() => removeLeave(drawerTarget!, r.from)}
-                            title="Leave cancellation not yet available"
-                            disabled
-                            aria-disabled={true}
-                          >
-                            ×
-                          </button>
                         </div>
                       ))}
                     </>
@@ -999,7 +1126,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
       {modalOpen && (
         <>
           <div className="scrim on" onClick={closeModal}></div>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal on" role="dialog" aria-modal="true">
             <div className="mh">
               <div className="av">{(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]}</div>
               <div>

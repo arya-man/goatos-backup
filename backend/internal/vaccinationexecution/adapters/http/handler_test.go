@@ -337,6 +337,54 @@ func TestAppVaccinationExecutionRequiresAndCarriesOperatorScope(t *testing.T) {
 	}
 }
 
+// TestAppVaccinationExecutionLeadershipSkipsOperatorScope pins that a leadership principal
+// (CEO/CXO, PC Director, Park Head) reading the APP execution route is NOT
+// operator-assignment scoped: they get the park-scoped read-only oversight view of all
+// sheds, unlike a field operator who only sees their own assigned work. Without this,
+// operator scoping returns zero rows for a leader (they are not an assigned operator), which
+// is why a CEO's drive -> sheds view was empty.
+func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "90000000-0000-4000-8000-000000000104"
+	const parkID = "30000000-0000-4000-8000-000000000001"
+	cases := []struct {
+		role  string
+		grant permissions.ActiveGrant
+	}{
+		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.role, func(t *testing.T) {
+			reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+			mux := http.NewServeMux()
+			Register(mux, NewHandler(reader, &fakeWriter{}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+			ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{tc.grant})
+			req = req.WithContext(ctx)
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+			}
+			if reader.last.OperatorScopeActorID != "" {
+				t.Fatalf("leadership operator scope actor = %q want empty (park-scoped oversight)", reader.last.OperatorScopeActorID)
+			}
+			var resp domain.ExecutionResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if !resp.ViewerReadOnly {
+				t.Fatalf("leadership response viewerReadOnly = false, want true (read-only oversight; shed open blocked)")
+			}
+		})
+	}
+}
+
 func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
 	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
 	mux := http.NewServeMux()
@@ -1091,15 +1139,103 @@ func TestGetCapacityConfig(t *testing.T) {
 	}
 }
 
-func TestUpdateCapacityConfigRouteIsNotRegistered(t *testing.T) {
+// fakeCapacityConfigWriter is the test double for CapacityConfigWriter.
+type fakeCapacityConfigWriter struct {
+	updated  domain.CapacityConfig
+	code     string
+	message  string
+	err      error
+	lastCfg  domain.CapacityConfig
+	lastCall bool
+}
+
+func (f *fakeCapacityConfigWriter) UpdateCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig) (domain.CapacityConfig, string, string, error) {
+	f.lastCfg = cfg
+	f.lastCall = true
+	if f.err != nil {
+		return domain.CapacityConfig{}, "", "", f.err
+	}
+	if f.code != "" {
+		return domain.CapacityConfig{}, f.code, f.message, nil
+	}
+	return f.updated, "", "", nil
+}
+
+func TestPutCapacityConfigWithoutWriterIs500(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
-	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150}`))
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1}`))
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d want 405 body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutCapacityConfigSuccess(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	shots := 3
+	writer := &fakeCapacityConfigWriter{updated: domain.CapacityConfig{MaxPerDay: 150, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 2, MaxShotsPerAnimalPerDrive: &shots}}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1,"maxShotsPerAnimalPerDrive":3}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if !writer.lastCall {
+		t.Fatal("expected writer to be called")
+	}
+	if writer.lastCfg.MaxPerDay != 150 || writer.lastCfg.MaxShotsPerAnimalPerDrive == nil || *writer.lastCfg.MaxShotsPerAnimalPerDrive != 3 {
+		t.Fatalf("lastCfg = %+v", writer.lastCfg)
+	}
+	var resp domain.CapacityConfig
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.RowVersion != 2 {
+		t.Fatalf("resp.RowVersion = %d want 2", resp.RowVersion)
+	}
+}
+
+func TestPutCapacityConfigValidationRejected(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	writer := &fakeCapacityConfigWriter{code: "invalid_max_per_day", message: "max animals per operator per day must be between 1 and 100000"}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":0,"rowVersion":1}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutCapacityConfigConflict(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	writer := &fakeCapacityConfigWriter{err: vaccexecapp.ErrCapacityConfigConflict}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
 	}
 }

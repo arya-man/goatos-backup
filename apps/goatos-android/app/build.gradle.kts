@@ -44,8 +44,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.4"
+        versionCode = 13
+        versionName = "0.1.12"
         multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
@@ -189,7 +189,6 @@ dependencies {
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))
-    implementation(project(":feature:feature-leadership"))
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
@@ -267,6 +266,53 @@ baselineProfile {
 composeCompiler {
     metricsDestination = layout.buildDirectory.dir("compose_metrics")
     reportsDestination = layout.buildDirectory.dir("compose_reports")
+}
+
+val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
+    group = "verification"
+    description = "Fails fast when the stg release signing inputs have not been restored."
+
+    doLast {
+        fun signingProperty(name: String): String? =
+            (project.findProperty(name) as String?)
+                ?: System.getenv(name)
+
+        val required = listOf(
+            "GOATOS_ANDROID_STG_KEYSTORE",
+            "GOATOS_ANDROID_STG_KEYSTORE_PASSWORD",
+            "GOATOS_ANDROID_STG_KEY_ALIAS",
+            "GOATOS_ANDROID_STG_KEY_PASSWORD",
+        )
+        val missing = required.filter { signingProperty(it).isNullOrBlank() }
+        val keystore = signingProperty("GOATOS_ANDROID_STG_KEYSTORE")
+        val missingKeystoreFile = !keystore.isNullOrBlank() && !file(keystore).isFile
+
+        if (missing.isNotEmpty() || missingKeystoreFile) {
+            val missingText = if (missing.isEmpty()) {
+                ""
+            } else {
+                "Missing: ${missing.joinToString(", ")}\n"
+            }
+            val keystoreText = if (missingKeystoreFile) {
+                "Keystore file does not exist: $keystore\n"
+            } else {
+                ""
+            }
+            throw GradleException(
+                "${missingText}${keystoreText}" +
+                    "Restore stg Android signing from ../../docs/mobile/stg-signed-release.md. " +
+                    "Secrets live in GCP Secret Manager project goatos-stg; do not invent or paste " +
+                    "keystore/password values in chat. For Firebase App Distribution auth, use " +
+                    "GOOGLE_APPLICATION_CREDENTIALS or firebase login.",
+            )
+        }
+    }
+}
+
+tasks.matching {
+    it.name == "assembleStgRelease" || it.name == "appDistributionUploadStgRelease"
+}.configureEach {
+    dependsOn(validateStgReleaseInputs)
 }
 
 androidComponents {

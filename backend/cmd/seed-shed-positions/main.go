@@ -74,8 +74,9 @@ var mappingCSVHeader = []string{
 
 // mappingEntry is one resolved assignment plus whether it is provisional or reviewed.
 type mappingEntry struct {
-	memberID    string
-	provisional bool
+	memberID       string
+	backupMemberID string
+	provisional    bool
 }
 
 type stats struct {
@@ -327,6 +328,7 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 		shedID, memberID string
 	}
 	var seats []seat
+	var backupSeats []seat
 	holders := map[string]struct{}{}
 	fallbackIdx := map[string]int{}
 	for _, s := range sheds {
@@ -344,6 +346,9 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 			continue
 		}
 		seats = append(seats, seat{s.shedID, entry.memberID})
+		if entry.backupMemberID != "" {
+			backupSeats = append(backupSeats, seat{s.shedID, entry.backupMemberID})
+		}
 		holders[entry.memberID] = struct{}{}
 		if entry.provisional {
 			st.ProvisionalSeats++
@@ -353,9 +358,13 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 	}
 	st.UnmappedGaps = st.ActiveSheds - len(seats)
 	st.DistinctHolders = len(holders)
-	st.BackupGaps, err = backupCoverageGaps(ctx, pool, tenantID, onlyShedsWithGoats)
-	if err != nil {
-		return st, err
+	if len(backupSeats) > 0 {
+		st.BackupGaps = st.ActiveSheds - len(backupSeats)
+	} else {
+		st.BackupGaps, err = backupCoverageGaps(ctx, pool, tenantID, onlyShedsWithGoats)
+		if err != nil {
+			return st, err
+		}
 	}
 
 	// Strict preflight: refuse to write when any shed is unassigned, provisional, or lacks backup coverage.
@@ -394,6 +403,27 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 			posID, tenantID, s.memberID, s.shedID, shedManagerPositionCode, managerBackupGroupCode)
 	}); err != nil {
 		return st, fmt.Errorf("insert shed seats: %w", err)
+	}
+	if err := batch(ctx, tx, backupSeats, 200, func(b *pgx.Batch, s seat) {
+		posID := detUUID("shed_backup_manager_position", tenantID, s.shedID)
+		b.Queue(`
+			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
+				position_code, position_tier, is_backup_slot, backup_group_code, status, valid_from, updated_at)
+			VALUES ($1,$2,$3,'shed',$4,$5,'manager',true,$6,'active',now(),now())
+			ON CONFLICT (position_id) DO UPDATE SET
+				workforce_member_id = EXCLUDED.workforce_member_id,
+				scope_type = EXCLUDED.scope_type,
+				scope_id = EXCLUDED.scope_id,
+				position_code = EXCLUDED.position_code,
+				position_tier = EXCLUDED.position_tier,
+				is_backup_slot = EXCLUDED.is_backup_slot,
+				backup_group_code = EXCLUDED.backup_group_code,
+				status = 'active',
+				valid_to = NULL,
+				updated_at = now()`,
+			posID, tenantID, s.memberID, s.shedID, "shed_backup_manager", managerBackupGroupCode)
+	}); err != nil {
+		return st, fmt.Errorf("insert shed backup seats: %w", err)
 	}
 	st.SeatsInserted = len(seats)
 
@@ -597,6 +627,7 @@ func loadMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string)
 		return nil, fmt.Errorf("mapping %s must have header columns shed_code,manager_code (got %v)", path, header)
 	}
 	srcCol, hasSrc := col["assignment_source"]
+	backupCol, hasBackup := col["backup_manager_code"]
 
 	shedCodeToID, err := loadCodeMap(ctx, pool, tenantID,
 		`SELECT upper(location_code), location_id::text FROM locations WHERE tenant_id = $1::uuid AND location_type = 'shed' AND location_code IS NOT NULL`)
@@ -604,7 +635,13 @@ func loadMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string)
 		return nil, fmt.Errorf("load shed codes: %w", err)
 	}
 	memberCodeToID, err := loadCodeMap(ctx, pool, tenantID,
-		`SELECT upper(display_code), workforce_member_id::text FROM workforce_members WHERE tenant_id = $1::uuid AND display_code IS NOT NULL`)
+		`SELECT upper(display_code), workforce_member_id::text
+		   FROM workforce_members
+		  WHERE tenant_id = $1::uuid AND display_code IS NOT NULL
+		 UNION
+		 SELECT upper(position_code), workforce_member_id::text
+		   FROM workforce_positions
+		  WHERE tenant_id = $1::uuid AND status = 'active'`)
 	if err != nil {
 		return nil, fmt.Errorf("load member codes: %w", err)
 	}
@@ -642,6 +679,18 @@ func loadMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string)
 			unknownMgrs = append(unknownMgrs, mgrCode)
 			continue
 		}
+		backupMemberID := ""
+		if hasBackup && backupCol < len(rec) {
+			backupCode := strings.ToUpper(strings.TrimSpace(rec[backupCol]))
+			if backupCode != "" {
+				id, ok := memberCodeToID[backupCode]
+				if !ok {
+					unknownMgrs = append(unknownMgrs, backupCode)
+					continue
+				}
+				backupMemberID = id
+			}
+		}
 		// A row is REVIEWED business truth ONLY when it explicitly says so: every
 		// signal must line up -- assignment_source=reviewed AND needs_review is
 		// false AND a real source_ref is cited. Anything weaker (missing columns,
@@ -666,7 +715,7 @@ func loadMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string)
 		if srcVal == "reviewed" && !needsReview && sourceRef != "" && sourceRef != provisionalSourceRef {
 			provisional = false
 		}
-		mapping[shedID] = mappingEntry{memberID: memberID, provisional: provisional}
+		mapping[shedID] = mappingEntry{memberID: memberID, backupMemberID: backupMemberID, provisional: provisional}
 	}
 	if len(unknownSheds) > 0 || len(unknownMgrs) > 0 {
 		return nil, fmt.Errorf("mapping %s has unresolvable codes (fix the source; the seed will not guess): unknown_sheds=%v unknown_managers=%v",

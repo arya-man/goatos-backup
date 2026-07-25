@@ -872,19 +872,19 @@ located AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $10::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           -- The latest terminal transition at/before as_of was in effect at as_of.
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
           -- Terminal events exist but only AFTER as_of: the obligation was still open at as_of.
-          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
           -- No terminal history at all: cannot reconstruct, trust the current stored status (documented residual).
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -1130,9 +1130,16 @@ stateful AS (
         OR enriched.is_quarantine
         OR enriched.is_icu THEN 'deferred'
       WHEN enriched.missed_count > 0 THEN 'missed'
-      WHEN enriched.conducted_by IS NULL
-       AND enriched.assigned_to IS NULL
-       AND enriched.completed_count < enriched.expected_count THEN 'blocked'
+      -- Operator-assignment absence is NOT a work_state blocker. It is a planning gap carried by
+      -- owner_state='missing' + drive_available_operators=0 + blocker_reason, not a lifecycle override.
+      -- Before a2568f07/34bade4f dropped the synthetic default-operator fallback, conducted_by was
+      -- back-filled for any shed that HAD an operator, so a NULL here meant "shed has no operator
+      -- configured at all" (a genuine config gap). Once the operator source became the explicit drive
+      -- assignment, a NULL means only "this drive is not assigned yet" — true for every freshly generated
+      -- future obligation before drive planning. Forcing those to 'blocked' (severity=broken,
+      -- process_intact=false) lit up the entire future pipeline as broken and, worse, mislabeled an
+      -- overdue-but-unassigned drive as blocked instead of overdue. work_state now reflects the
+      -- obligation lifecycle only; the assignment gap surfaces through owner/drive fields below.
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
         OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'

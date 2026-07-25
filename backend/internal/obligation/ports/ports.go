@@ -76,6 +76,15 @@ type Repository interface {
 	// events, in one txn. Idempotent; completed/accepted history untouched. Returns count canceled.
 	CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error)
 
+	// SyncPartitionMoveForGoat updates a goat's goat_shed_partitions.partition_label for a
+	// same-shed partition move (shed_id unchanged) and, in the SAME transaction, re-derives the
+	// goat's vaccination drive-assignment membership for every batch its open obligations belong
+	// to, so the goat's member row moves off its OLD partition's assignment arm onto the new one.
+	// Returns the number of open obligations whose membership was re-derived. A no-op (0, nil) when
+	// the partition label did not actually change. Returns an error if shed_id differs from the
+	// goat's current goat_shed_partitions row -- cross-shed moves go through ReScopeOpenForGoatShift.
+	SyncPartitionMoveForGoat(ctx context.Context, tenantID, goatID, shedID, partitionLabel, sourceShedName string) (int, error)
+
 	// RecordStatusEvent appends a status event guarded by a reserve-before-insert against the
 	// shared idempotency_keys table, inside one transaction. applied is false on retry (the key
 	// was already reserved), so retries never duplicate status events.

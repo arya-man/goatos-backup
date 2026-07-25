@@ -85,6 +85,17 @@ func orderDueGroupsByVaccinePriority(order []string, groups map[string]*dueGroup
 		if left == nil || right == nil {
 			return out[i] < out[j]
 		}
+		leftEnd := dueGroupLatestSafeDate(left)
+		rightEnd := dueGroupLatestSafeDate(right)
+		if !leftEnd.Equal(rightEnd) {
+			if leftEnd.IsZero() {
+				return false
+			}
+			if rightEnd.IsZero() {
+				return true
+			}
+			return leftEnd.Before(rightEnd)
+		}
 		leftID := cfg.getRuleVaccineIdentity(left.ruleID)
 		rightID := cfg.getRuleVaccineIdentity(right.ruleID)
 		if leftID.VaccinePriority != rightID.VaccinePriority {
@@ -98,9 +109,46 @@ func orderDueGroupsByVaccinePriority(order []string, groups map[string]*dueGroup
 	return out
 }
 
+func dueGroupLatestSafeDate(g *dueGroup) time.Time {
+	if g == nil {
+		return time.Time{}
+	}
+	var latest time.Time
+	for _, row := range g.rows {
+		rowLatest := driveLatestDate(driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		})
+		if rowLatest.IsZero() {
+			continue
+		}
+		if latest.IsZero() || rowLatest.Before(latest) {
+			latest = rowLatest
+		}
+	}
+	return latest
+}
+
 func orderParkCandidatesByVaccinePriority(rows []domain.ParkConsolidationCandidate, identityFor ruleVaccineIdentityResolver) []domain.ParkConsolidationCandidate {
 	out := append([]domain.ParkConsolidationCandidate(nil), rows...)
 	sort.SliceStable(out, func(i, j int) bool {
+		leftEnd := parkCandidateLatestSafeDate(out[i])
+		rightEnd := parkCandidateLatestSafeDate(out[j])
+		if !leftEnd.Equal(rightEnd) {
+			if leftEnd.IsZero() {
+				return false
+			}
+			if rightEnd.IsZero() {
+				return true
+			}
+			return leftEnd.Before(rightEnd)
+		}
 		leftID := identityFor(out[i].RuleID)
 		rightID := identityFor(out[j].RuleID)
 		if leftID.VaccinePriority != rightID.VaccinePriority {
@@ -115,4 +163,17 @@ func orderParkCandidatesByVaccinePriority(rows []domain.ParkConsolidationCandida
 		return out[i].ObligationID < out[j].ObligationID
 	})
 	return out
+}
+
+func parkCandidateLatestSafeDate(row domain.ParkConsolidationCandidate) time.Time {
+	return driveLatestDate(driveCandidate{
+		ObligationID:             row.ObligationID,
+		TargetID:                 row.TargetID,
+		TargetReproductiveStatus: row.TargetReproductiveStatus,
+		DueAt:                    row.DueAt,
+		WindowStart:              row.WindowStart,
+		WindowEnd:                row.WindowEnd,
+		BatchingHoldCount:        row.BatchingHoldCount,
+		FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+	})
 }

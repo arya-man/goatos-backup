@@ -10,7 +10,9 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.push.PushTokenSync
@@ -37,6 +39,8 @@ class BootstrapViewModel @Inject constructor(
     private val repo: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val analyticsContext: AnalyticsContext,
+    private val deviceStore: DeviceStore,
+    private val authRepository: AuthRepository,
     private val pushTokenSync: PushTokenSync,
 ) : ViewModel() {
 
@@ -81,13 +85,14 @@ class BootstrapViewModel @Inject constructor(
     /**
      * Sets the analytics principal identity from the just-resolved bootstrap: [AnalyticsPort.setUserId]
      * (the stable, non-PII `operator_id`), the [AnalyticsContext] the egress impl reads, and the
-     * durable user properties (role, park label + id, tenant, flavor). Also couples this
-     * device's FCM push token to the backend ([PushTokenSync]) — covers a cold start with an
-     * already-valid session, not just a fresh sign-in, since `onNewToken` only fires once per
-     * token mint/rotation. Best-effort: a profile/tenant read that fails (e.g. a leadership user
+     * durable user properties (role, park label + id, tenant, flavor, email, device id). Also
+     * couples this device's FCM push token to the backend ([PushTokenSync]) — covers a cold start
+     * with an already-valid session, not just a fresh sign-in, since `onNewToken` only fires once
+     * per token mint/rotation. Best-effort: a profile/tenant read that fails (e.g. a leadership user
      * with no operator profile) must never fail or block bootstrap, so each read is wrapped and
-     * its absence just leaves that piece of identity un-narrowed. Only stable ids/labels are
-     * sent — never names/emails/phone (repo PII rule).
+     * its absence just leaves that piece of identity un-narrowed. Email is sent as a user property
+     * by explicit business-owner decision (overrides the earlier ids/labels-only convention);
+     * names/phone are still never sent.
      */
     private suspend fun applyAnalyticsIdentity() {
         val profile = runCatching { repo.operatorProfile() }.getOrNull()
@@ -96,9 +101,14 @@ class BootstrapViewModel @Inject constructor(
         val park = profile?.primaryLocation?.ifBlank { null }
         val parkId = profile?.primaryLocationId?.ifBlank { null }
         val memberId = profile?.operatorId?.ifBlank { null }
+        // Signed-in user's email (business-owner decision: primary user identity dimension).
+        val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
+        // Stable per-install device id — same login on two phones is distinguishable.
+        val deviceId = runCatching { deviceStore.appInstallId() }.getOrNull()?.ifBlank { null }
 
         analyticsContext.role = role
         analyticsContext.parkScope = park
+        analyticsContext.deviceId = deviceId
 
         analytics.setUserId(memberId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, role)
@@ -106,6 +116,8 @@ class BootstrapViewModel @Inject constructor(
         analytics.setUserProperty(AnalyticsEvents.UserProps.PARK_ID, parkId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.TENANT, tenantId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.FLAVOR, analyticsContext.flavor)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, email)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.DEVICE_ID, deviceId)
 
         pushTokenSync.syncNow()
     }

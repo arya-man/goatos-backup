@@ -31,8 +31,8 @@ func TestKernelStoryAM_OperatorDriveAssignment(t *testing.T) {
 	planner := vaccexecapp.OperatorDrivePlanner{}
 
 	story.Step("CPT proof run: three operators, cap 200 animals each, partitions under physical sheds",
-		"The July 23 proof run has 321 clean eligible animals. Gandhi partitions total 114, Godel 1 "+
-			"partitions total 118, and Godel 2 + Mandela 2 + Old Yashoda total 89. All three operators "+
+		"The July 23 proof run has 324 source animals. Gandhi partitions total 114, Godel 1 "+
+			"partitions total 120, and Godel 2 + Mandela 2 + Old Yashoda total 90. All three operators "+
 			"must receive meaningful work without multiplying animals by vaccine bundle count.")
 	cptPlan, err := planner.Plan(vaccexecapp.DrivePlanRequest{
 		StartDate: dateAM(2026, 7, 23),
@@ -48,15 +48,15 @@ func TestKernelStoryAM_OperatorDriveAssignment(t *testing.T) {
 	})
 	story.Assert("operator planner returned no error", err == nil, "err=%v", err)
 	story.Assert("one drive day was enough at 3 × 200", len(cptPlan.Days) == 1, "days=%d", len(cptPlan.Days))
-	story.Assert("all 321 clean eligible animals assigned", cptPlan.Days[0].Assigned == 321 && len(cptPlan.Unassigned) == 0,
+	story.Assert("all 324 source animals assigned", cptPlan.Days[0].Assigned == 324 && len(cptPlan.Unassigned) == 0,
 		"assigned=%d unassigned=%d", cptPlan.Days[0].Assigned, len(cptPlan.Unassigned))
 	totals := totalsByOperatorAM(cptPlan.Days[0])
 	story.Assert("all three operators receive meaningful balanced work",
-		totals["Amit Kumar"] == 114 && totals["Darshan Talwar"] == 118 && totals["Sagar Mahoor"] == 89,
+		totals["Amit Kumar"] == 114 && totals["Darshan Talwar"] == 120 && totals["Sagar Mahoor"] == 90,
 		"totals=%+v", totals)
 	story.Assert("operator-only assignment preserves shed visibility grains",
 		assignmentForAM(cptPlan.Days[0], "Amit Kumar", "Gandhi") == 114 &&
-			assignmentForAM(cptPlan.Days[0], "Darshan Talwar", "Godel 1") == 118 &&
+			assignmentForAM(cptPlan.Days[0], "Darshan Talwar", "Godel 1") == 120 &&
 			assignmentForAM(cptPlan.Days[0], "Sagar Mahoor", "Mandela 2") == 47,
 		"assignments=%+v", cptPlan.Days[0].Assignments)
 
@@ -89,10 +89,10 @@ func TestKernelStoryAM_OperatorDriveAssignment(t *testing.T) {
 		secondDayTotals["Amit Kumar"] == 0 && secondDayTotals["Darshan Talwar"] == 50 && secondDayTotals["Sagar Mahoor"] == 50,
 		"secondDayTotals=%+v", secondDayTotals)
 
-	story.Step("Latest-safe over-cap: eligible animals are completed over cap, not delayed or escalated away",
-		"When animals are crossing the +1 week safe boundary, the planner assigns them today even if that "+
-			"overtakes the operator cap. The warning is an over-cap-required execution marker, not an "+
-			"escalation substitute.")
+	story.Step("Latest-safe residual capacity: whole partitions are never cut to top up a day",
+		"When animals are crossing the +1 week safe boundary, the planner still treats the physical "+
+			"shed/partition as the atomic unit. If the next whole partition does not fit, it remains "+
+			"unassigned for a capacity action instead of being sliced into the residual slot.")
 	urgentPlan, err := planner.Plan(vaccexecapp.DrivePlanRequest{
 		StartDate: dateAM(2026, 7, 23),
 		Availability: []vaccexecapp.DriveDateAvailability{{
@@ -106,21 +106,25 @@ func TestKernelStoryAM_OperatorDriveAssignment(t *testing.T) {
 		},
 	})
 	story.Assert("urgent planner returned no error", err == nil, "err=%v", err)
-	story.Assert("latest-safe animals are assigned over cap today", urgentPlan.Days[0].Assigned == 75,
+	story.Assert("only the fitting latest-safe partition is assigned today", urgentPlan.Days[0].Assigned == 50,
 		"assigned=%d", urgentPlan.Days[0].Assigned)
-	story.Assert("later-safe work is the only unassigned block", len(urgentPlan.Unassigned) == 1 && urgentPlan.Unassigned[0].ID == "later-safe",
+	story.Assert("non-fitting latest-safe partition remains whole with later-safe work",
+		len(urgentPlan.Unassigned) == 2 &&
+			urgentPlan.Unassigned[0].ID == "latest-safe-b" &&
+			urgentPlan.Unassigned[0].Animals == 25 &&
+			urgentPlan.Unassigned[1].ID == "later-safe",
 		"unassigned=%+v", urgentPlan.Unassigned)
-	story.Assert("over-cap marker contains no escalation/delay substitute",
-		hasWarningAM(urgentPlan.Days[0], "over_cap_required_latest_safe") && !planTextContainsAM(urgentPlan, "escalat") && !planTextContainsAM(urgentPlan, "delay"),
+	story.Assert("capacity breach is surfaced without forced partition split",
+		!hasWarningAM(urgentPlan.Days[0], "forced_partition_split") && planTextContainsAM(urgentPlan, "capacity_breach"),
 		"plan=%+v", urgentPlan)
 }
 
 func cptAdultProofBlocksAM() []vaccexecapp.DriveWorkBlock {
 	return []vaccexecapp.DriveWorkBlock{
 		{ID: "gandhi-1", Park: "CPT", RawShed: "Gandhi 1", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
-		{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 31, Bundle: "Goat: ET+TT Booster + Goat Pox"},
-		{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 41, Bundle: "Sheep: ET+TT Booster + PPR"},
-		{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 58, Bundle: "Sheep: ET+TT Booster + PPR"},
+		{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
+		{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
+		{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 60, Bundle: "Sheep: ET+TT Booster + PPR"},
 		{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 - Part 3", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
 		{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 - Part 4", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
 		{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 - Part 4", Animals: 32, Bundle: "Goat: ET+TT Booster + Goat Pox"},
@@ -130,7 +134,7 @@ func cptAdultProofBlocksAM() []vaccexecapp.DriveWorkBlock {
 		{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 - Part 7", Animals: 13, Bundle: "Sheep: ET+TT Booster + PPR"},
 		{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 - Part 8", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
 		{ID: "old-yashoda-1", Park: "CPT", RawShed: "Old Yashoda 1", Animals: 8, Bundle: "Sheep: ET+TT Booster + PPR"},
-		{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 2, Bundle: "Goat: ET+TT Booster + PPR"},
+		{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 3, Bundle: "Goat: ET+TT Booster + PPR"},
 	}
 }
 

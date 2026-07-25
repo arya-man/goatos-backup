@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -931,77 +932,14 @@ RETURNING absence_id::text`,
 		return domain.StaffLeave{}, err
 	}
 
-	// Enqueue vaccination.leave.changed event to outbox_messages for durable cascade
-	// (only shed-scoped leaves trigger cascade). If enqueue fails, the whole write fails.
-	if cmd.Body.ScopeType == "shed" && cmd.Body.ScopeID != "" {
-		now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
-		eventID := platformoutbox.DeterministicUUID("vaccination.leave.changed:" + cmd.TenantID + ":" + absenceID)
-		idempotencyKey := "vaccination.leave.changed:" + absenceID
-		payload := map[string]any{
-			"absence_id":  absenceID,
-			"scope_type":  cmd.Body.ScopeType,
-			"scope_id":    cmd.Body.ScopeID,
-			"reason_code": cmd.Body.ReasonCode,
-		}
-		// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
-		// additionalProperties:false). subject is the shed (a location); aggregate is the absence row.
-		envelope, err := json.Marshal(map[string]any{
-			"event_id":       eventID,
-			"event_type":     "vaccination.leave.changed",
-			"schema_version": "1.0.0",
-			"schema_ref":     "domain-event-envelope.v1",
-			"aggregate_type": "absence",
-			"aggregate_id":   absenceID,
-			"occurred_at":    now,
-			"recorded_at":    now,
-			"producer": map[string]any{
-				"service": "goatos-api",
-				"module":  "workforce",
-				"version": nil,
-			},
-			"idempotency_key": idempotencyKey,
-			"actor": map[string]any{
-				"actor_type": "human",
-				"actor_id":   cmd.ActorID,
-				"actor_ref":  nil,
-			},
-			"subject_type": "location",
-			"subject_id":   cmd.Body.ScopeID,
-			"visibility_scope": map[string]any{
-				"tenant_id": cmd.TenantID,
-				"shed_id":   cmd.Body.ScopeID,
-			},
-			"evidence_refs": []map[string]string{{
-				"evidence_type": "location",
-				"evidence_id":   cmd.Body.ScopeID,
-			}},
-			"payload":  payload,
-			"trace_id": idempotencyKey,
-		})
-		if err != nil {
-			return domain.StaffLeave{}, fmt.Errorf("workforce: marshal leave-changed envelope: %w", err)
-		}
-		headers, err := json.Marshal(map[string]any{
-			"producer":        "workforce.ApplyLeave",
-			"schema_version":  "1.0.0",
-			"absence_id":      absenceID,
-			"idempotency_key": idempotencyKey,
-		})
-		if err != nil {
-			return domain.StaffLeave{}, fmt.Errorf("workforce: marshal headers: %w", err)
-		}
-		_, err = tx.Exec(ctx, `
-INSERT INTO outbox_messages (
-  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
-  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
-) VALUES ($1::uuid, $2::uuid, 'vaccination.leave.changed', '1.0.0', 'absence', $3::uuid,
-  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
-ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.leave.changed' DO NOTHING`,
-			cmd.TenantID, eventID, absenceID, envelope, headers, idempotencyKey)
-		if err != nil {
-			return domain.StaffLeave{}, fmt.Errorf("workforce: enqueue leave-changed to outbox: %w", err)
-		}
-	}
+	// NOTE: vaccination.leave.changed is deliberately NOT enqueued here. A plain apply
+	// leaves the absence in status='reported', which the scheduler's availability
+	// predicate (obligation/adapters/postgres/visit_shot_lock.go) does not exclude on
+	// (only 'approved'/'escalation_required' do) -- so a reported-only apply is a no-op
+	// for planning and firing the cascade here would only cause needless replan churn
+	// for a leave that is not yet active. The cascade fires on the transitions that
+	// actually change availability: ApproveLeave and ResolveLeaveCoverage (see
+	// enqueueVaccinationLeaveCascade), both in the same tx as their status write.
 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.StaffLeave{}, err
@@ -1041,6 +979,21 @@ func (r *Repository) ApproveLeave(ctx context.Context, cmd ports.ApproveLeaveCom
 		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 		return leave, true, err
+	}
+
+	// ATOMIC min-operator-coverage guard (BLOCKER 4 / P0 race fix): the service-level
+	// pre-check (RosterService.checkMinOperatorCoverage) reads and decides in a SEPARATE,
+	// already-committed transaction from this one -- two concurrent ApproveLeave calls for
+	// DIFFERENT operators on the same park/day can each pass that pre-check before either
+	// commits, then both commit here, together dropping the park to 0 available operators
+	// (classic TOCTOU). Closing it requires the check AND the status-flip write to be in the
+	// SAME transaction, serialized against any other approval racing for the same
+	// tenant+park+day via a transaction-scoped advisory lock (released automatically on
+	// commit/rollback) acquired BEFORE the coverage count is read. A second concurrent
+	// transaction blocks on the lock until the first commits or rolls back, so it always
+	// re-counts against the FIRST transaction's already-durable outcome -- no split-brain.
+	if err := lockAndCheckMinOperatorCoverage(ctx, tx, cmd.TenantID, cmd.AbsenceID); err != nil {
+		return domain.StaffLeave{}, false, err
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -1344,6 +1297,197 @@ LIMIT 1`, tenantID, workforceMemberID, startsAt, endsAt).Scan(&absenceID)
 		return false, "", err
 	}
 	return true, absenceID, nil
+}
+
+// ParkIDsForVaccinationOperator resolves the park(s) workforceMemberID holds an active,
+// duty-based (position_module_duties) vaccination-execute seat in -- see ports doc comment.
+func (r *Repository) ParkIDsForVaccinationOperator(ctx context.Context, tenantID, workforceMemberID string, at time.Time) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT COALESCE(park_loc.location_id, p.scope_id)::text
+FROM workforce_positions p
+LEFT JOIN locations shed_loc ON p.scope_type = 'shed' AND shed_loc.tenant_id = p.tenant_id AND shed_loc.location_id = p.scope_id
+LEFT JOIN locations park_loc ON park_loc.tenant_id = p.tenant_id
+  AND park_loc.location_id = COALESCE(shed_loc.parent_location_id, p.scope_id)
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $3::date + interval '1 day'
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.workforce_member_id = $2::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.scope_type IN ('center', 'shed')
+  AND p.valid_from <= $3::date + interval '1 day'
+  AND (p.valid_to IS NULL OR p.valid_to > $3::date)`,
+		tenantID, workforceMemberID, biztime.BusinessDayStart(at))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var parkID string
+		if err := rows.Scan(&parkID); err != nil {
+			return nil, err
+		}
+		out = append(out, parkID)
+	}
+	return out, rows.Err()
+}
+
+// ListVaccinationOperatorsForPark returns the active vaccination-execute duty-based operator
+// seats for parkID (scope center=parkID or a shed under it) -- see ports doc comment.
+func (r *Repository) ListVaccinationOperatorsForPark(ctx context.Context, tenantID, parkID string, at time.Time) ([]domain.Position, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, positionSelectSQL(`
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $3::date + interval '1 day'
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.valid_from <= $3::date + interval '1 day'
+  AND (p.valid_to IS NULL OR p.valid_to > $3::date)
+  AND (
+    (p.scope_type = 'center' AND p.scope_id = $2::uuid)
+    OR (p.scope_type = 'shed' AND p.scope_id IN (
+      SELECT location_id FROM locations WHERE tenant_id = p.tenant_id AND parent_location_id = $2::uuid AND location_type = 'shed' AND status = 'active'
+    ))
+  )
+ORDER BY p.workforce_member_id`), tenantID, parkID, biztime.BusinessDayStart(at))
+	if err != nil {
+		return nil, err
+	}
+	return scanPositions(rows)
+}
+
+// lockAndCheckMinOperatorCoverage is the transaction-scoped counterpart of
+// RosterService.checkMinOperatorCoverage (app/roster_service.go): it re-derives the SAME
+// park(s) and per-day availability count, using tx (not r.pool), inside the caller's
+// transaction, so the count is read after acquiring a per tenant+park+day
+// pg_advisory_xact_lock -- guaranteeing that a second concurrent ApproveLeave for a
+// DIFFERENT operator on the same park/day cannot compute its count until the first
+// transaction has committed or rolled back (true serialization, not just a read snapshot).
+// Returns ports.ErrMinOperatorCoverage (wrapped with the offending park/day) when approving
+// absenceID would leave 0 available vaccination operators on some day it covers; a no-op
+// (nil) if the absence is not currently 'reported' (the subsequent UPDATE's WHERE clause
+// handles that case as a normal optimistic-lock conflict) or the leaving member holds no
+// vaccination-operator duty anywhere.
+func lockAndCheckMinOperatorCoverage(ctx context.Context, tx pgx.Tx, tenantID, absenceID string) error {
+	var workforceMemberID string
+	var startsAt, endsAt time.Time
+	err := tx.QueryRow(ctx, `
+SELECT workforce_member_id, starts_at, ends_at
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status = 'reported'`,
+		tenantID, absenceID).Scan(&workforceMemberID, &startsAt, &endsAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // not reported (already approved/rejected/replayed) -- the UPDATE below settles it
+	}
+	if err != nil {
+		return fmt.Errorf("workforce: read leave for coverage guard: %w", err)
+	}
+
+	parkRows, err := tx.Query(ctx, `
+SELECT DISTINCT COALESCE(park_loc.location_id, p.scope_id)::text
+FROM workforce_positions p
+LEFT JOIN locations shed_loc ON p.scope_type = 'shed' AND shed_loc.tenant_id = p.tenant_id AND shed_loc.location_id = p.scope_id
+LEFT JOIN locations park_loc ON park_loc.tenant_id = p.tenant_id
+  AND park_loc.location_id = COALESCE(shed_loc.parent_location_id, p.scope_id)
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.workforce_member_id = $2::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.scope_type IN ('center', 'shed')`, tenantID, workforceMemberID)
+	if err != nil {
+		return fmt.Errorf("workforce: resolve operator parks for coverage guard: %w", err)
+	}
+	var parkIDs []string
+	for parkRows.Next() {
+		var parkID string
+		if err := parkRows.Scan(&parkID); err != nil {
+			parkRows.Close()
+			return err
+		}
+		parkIDs = append(parkIDs, parkID)
+	}
+	if err := parkRows.Err(); err != nil {
+		parkRows.Close()
+		return err
+	}
+	parkRows.Close()
+	if len(parkIDs) == 0 {
+		return nil // leaving member holds no vaccination-operator duty -- nothing to guard
+	}
+
+	for _, parkID := range parkIDs {
+		for day := biztime.BusinessDayStart(startsAt); day.Before(endsAt); day = day.AddDate(0, 0, 1) {
+			lockKey := tenantID + ":" + parkID + ":" + day.Format("2006-01-02")
+			// scale-guard:ignore: per-(tenant,park,day) advisory lock IS the required race grain (blocker 4); parks-per-seat~1 x few leave-window days, rare admin approve, not a per-request/per-goat path
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+				return fmt.Errorf("workforce: acquire coverage lock: %w", err)
+			}
+			var available int
+			// scale-guard:ignore: one bounded availability count per (park,day) under the coverage lock; parks-per-seat~1 x few window days on a rare admin leave-approval, not a per-request/per-goat path
+			err := tx.QueryRow(ctx, `
+WITH operators AS (
+  SELECT DISTINCT p.workforce_member_id, p.week_off_weekday
+  FROM workforce_positions p
+  JOIN position_module_duties pmd
+    ON pmd.tenant_id = p.tenant_id
+   AND pmd.position_code = p.position_code
+   AND pmd.status = 'active'
+   AND pmd.duty_type = 'execute'
+   AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+  WHERE p.tenant_id = $1::uuid
+    AND p.status = 'active'
+    AND p.position_tier <> 'director'
+    AND (
+      (p.scope_type = 'center' AND p.scope_id = $2::uuid)
+      OR (p.scope_type = 'shed' AND p.scope_id IN (
+        SELECT location_id FROM locations WHERE tenant_id = $1::uuid AND parent_location_id = $2::uuid AND location_type = 'shed' AND status = 'active'
+      ))
+    )
+)
+SELECT count(*)
+FROM operators o
+WHERE o.workforce_member_id <> $3::uuid
+  AND (o.week_off_weekday IS NULL OR o.week_off_weekday <> lower(to_char($4::date, 'FMDay')))
+  AND NOT EXISTS (
+    SELECT 1 FROM workforce_absences wa
+    WHERE wa.tenant_id = $1::uuid
+      AND wa.workforce_member_id = o.workforce_member_id
+      AND wa.status IN ('approved', 'escalation_required')
+      AND wa.starts_at < $4::date + interval '1 day'
+      AND wa.ends_at > $4::date
+  )`, tenantID, parkID, workforceMemberID, day).Scan(&available)
+			if err != nil {
+				return fmt.Errorf("workforce: count available operators for coverage guard: %w", err)
+			}
+			if available < 1 {
+				return fmt.Errorf("%w: park %s on %s", ports.ErrMinOperatorCoverage, parkID, day.Format("2006-01-02"))
+			}
+		}
+	}
+	return nil
 }
 
 // ---- Backup config + coverage lists -----------------------------------------

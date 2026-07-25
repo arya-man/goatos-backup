@@ -42,6 +42,7 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 type ProofValidator interface {
 	ResolveProofRefs(ctx context.Context, tenantID string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error)
+	ApplyRetentionPolicy(ctx context.Context, tenantID string, refs []domain.ProofReference, policy string, acceptedAt time.Time) error
 }
 
 type TaskReviewFanout interface {
@@ -525,11 +526,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	}
 	cmd.Body.Answers = mergeDraftScanAnswers(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
-		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, domain.ProofBinding{
-			TaskID:    task.TaskID,
-			ScopeType: task.ScopeType,
-			ScopeID:   task.ScopeID,
-		}, cmd.Body.ProofRefs)
+		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
 			return nil, BadRequest("invalid_proof_refs", "proof_refs must reference server-issued proof records for this tenant")
 		}
@@ -539,7 +536,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	proofPolicy := version.ProofPolicy
 	if submissionFanoutNeeded(task) {
 		gate := vaccinationCompletionProofGate(version.ProofPolicy)
-		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, gate.MinimumCount, gate.MaximumCount)
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, submittedShedProofSubjectID(cmd.Body.ProofRefs), gate.MinimumCount, gate.MaximumCount)
 		if err != nil {
 			return nil, mapRepoErr(err)
 		}
@@ -575,16 +572,22 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	cmd.ItemState = "accepted"
 	cmd.TaskState = "accepted"
 	requiresProof := evaluationRequiresProof(evaluation)
+	if shedCompletionAck && boolValue(version.ProofPolicy, "verify_before_apply") {
+		requiresProof = true
+	}
 	if requiresProof && boolValue(version.ProofPolicy, "verify_before_apply") {
 		cmd.ItemState = "needs_review"
 		cmd.TaskState = "needs_review"
 	}
 	cmd.SubmissionItems = buildSubmissionItemsWithDraftScans(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	cmd.MovementPayload = buildMovementPayload(task, cmd.Body)
-	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task)
+	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task) && (cmd.TaskState == "accepted" || cmd.TaskState == "needs_review")
 	submission, updatedTask, replay, err := s.repo.SubmitTask(ctx, cmd)
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	if !replay && s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
+		_ = s.proofs.ApplyRetentionPolicy(ctx, cmd.TenantID, cmd.Body.ProofRefs, stringValue(version.ProofPolicy, "retention_policy"), s.now())
 	}
 	if cmd.SubmissionFanoutRequired && !replay {
 		if err := s.applySubmissionFanout(ctx, cmd.TenantID, updatedTask, submission, true); err != nil {
@@ -592,6 +595,27 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		}
 	}
 	return &domain.SubmissionResponse{Submission: submission, Task: updatedTask, TraceID: traceID}, nil
+}
+
+func submittedShedProofSubjectID(refs []domain.ProofReference) string {
+	for _, ref := range refs {
+		if ref.SubjectType != "shed" || ref.SubjectID == nil {
+			continue
+		}
+		if shedID := strings.TrimSpace(*ref.SubjectID); shedID != "" {
+			return shedID
+		}
+	}
+	return ""
+}
+
+func proofBindingForSubmission(task domain.TaskSummary, refs []domain.ProofReference) domain.ProofBinding {
+	binding := domain.ProofBinding{TaskID: task.TaskID, ScopeType: task.ScopeType, ScopeID: task.ScopeID}
+	if shedID := submittedShedProofSubjectID(refs); shedID != "" {
+		binding.ScopeType = "shed"
+		binding.ScopeID = shedID
+	}
+	return binding
 }
 
 func (s *Service) RecordScanCapture(ctx context.Context, cmd ports.RecordScanCaptureCommand, traceID string) (*domain.ScanCaptureResponse, error) {

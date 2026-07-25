@@ -168,6 +168,61 @@ resource "google_cloud_run_v2_service" "api" {
         value = "15s"
       }
 
+      env {
+        name  = "MESHA_AI_PROVIDER"
+        value = "vertex"
+      }
+
+      env {
+        name  = "MESHA_VERTEX_PROJECT"
+        value = var.project_id
+      }
+
+      env {
+        name  = "MESHA_VERTEX_LOCATION"
+        value = var.region
+      }
+
+      env {
+        name  = "MESHA_VERTEX_MODEL"
+        value = "gemini-2.5-flash"
+      }
+
+      env {
+        name  = "MESHA_MCP_TOOLSET"
+        value = "mesha_ceo_toolset"
+      }
+
+      env {
+        name = "MESHA_MCP_DB_DSN"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["mesha_ceo_readonly_db_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "MESHA_CUBE_DB_DSN"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["mesha_cube_readonly_db_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "MESHA_CUBE_API_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["mesha_cube_api_secret"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
       volume_mounts {
         name       = "cloudsql"
         mount_path = "/cloudsql"

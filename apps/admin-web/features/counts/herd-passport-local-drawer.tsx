@@ -102,6 +102,14 @@ function sourceObligationLabel(obligationId: string): string {
   return obligationId.slice(0, 8);
 }
 
+function vaccineRowLabel(item: { display_label: string }): string {
+  return item.display_label;
+}
+
+function sameDate(left?: string, right?: string): boolean {
+  return Boolean(left && right && left.slice(0, 10) === right.slice(0, 10));
+}
+
 function passportIdentityLabels(pageContract: AdminUiPageContract): string[] {
   if (pageContract.route_id === "herd-register") return tableLabels(pageContract, "herd-register");
   return [
@@ -151,7 +159,7 @@ function HerdDrawerVaccinationBlock({
               <div className="v" style={{ fontSize: 13 }}>
                 {vaccination.next_due ? (
                   <>
-                    {fmtDate(vaccination.next_due.due_at)}{" "}
+                    {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
                     <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
                   </>
                 ) : copy(pageContract, "vaccination.no_upcoming")}
@@ -181,8 +189,13 @@ function HerdDrawerVaccinationBlock({
                 <tbody>
                   {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
                     <tr key={due.obligation_id}>
-                      <td>{fmtDate(due.due_at)}</td>
-                      <td>{due.sequence}</td>
+                      <td>
+                        <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                        {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                          <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
+                        ) : null}
+                      </td>
+                      <td>{vaccineRowLabel(due)}</td>
                       <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
                       <td><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></td>
                     </tr>
@@ -206,7 +219,7 @@ function HerdDrawerVaccinationBlock({
                   {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
                     <tr key={h.completion_id}>
                       <td>{fmtDate(h.administered_at)}</td>
-                      <td>{h.doses}</td>
+                      <td>{vaccineRowLabel(h)}</td>
                       <td><Tag tone={historyTone(h.status)}>{h.status}</Tag></td>
                       <td>{proofLabel(h, pageContract)}</td>
                       <td><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></td>

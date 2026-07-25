@@ -719,7 +719,9 @@
   .schedule-date-stack{display:grid;gap:2px;text-align:center;line-height:1.1}
   .schedule-date-main{font-size:13px;font-weight:700;color:var(--warn)}
   .schedule-date-sub{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.4px}
-  .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0}
+  .main table.full-vaccine-schedule-table .schedule-status-link{overflow:visible;text-overflow:clip}
+  .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0;white-space:nowrap;max-width:none;overflow:visible}
+  .main table.full-vaccine-schedule-table .schedule-status-cell{min-width:120px}
   .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:center;white-space:normal;overflow:visible;text-overflow:clip;min-height:58px}
   .main table.full-vaccine-schedule-table .schedule-shed-cell{overflow:hidden}
   .main table.full-vaccine-schedule-table .operator-day-sheds{display:flex;flex-wrap:wrap;gap:6px;padding:9px 12px;white-space:normal}
@@ -1557,6 +1559,20 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .fld label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 select { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 8px 10px; font: inherit; min-width: 170px; }
 select:disabled { opacity: .45; }
+/* Vaccination-operators drive-assignment fallback chain + weekly preview
+   (ported verbatim from mock/vaccination-operators-hrms-mock.html — these
+   classes were used in JSX but never had styles, so the chain rendered as
+   bare text instead of the mock's boxed operator cards). */
+.cnode { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 8px 12px; min-width: 150px; }
+.cnode .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 11px; background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand); }
+.cnode b { font-size: 12.5px; }
+.cnode small { display: block; color: var(--muted); font-size: 10.5px; }
+.cnode.default { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.cnode.down { opacity: .4; filter: grayscale(.5); }
+.carrow { color: var(--faint); font-weight: 800; align-self: center; }
+.badge-def { font-size: 9px; background: var(--brand); color: #08130B; border-radius: 999px; padding: 1px 6px; font-weight: 800; letter-spacing: .4px; margin-left: 4px; }
+.op { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.op .dot { width: 8px; height: 8px; border-radius: 50%; }
 .banner { border: 1px solid var(--line); border-left: 3px solid var(--info); background: var(--infox); border-radius: 10px; padding: 10px 13px; font-size: 12px; margin-top: 12px; }
 .banner.warn { border-left-color: var(--warn); background: var(--warnx); }
 .banner b { color: var(--info); }

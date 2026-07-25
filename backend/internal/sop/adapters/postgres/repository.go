@@ -1028,7 +1028,7 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
-func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
+func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
@@ -1054,35 +1054,54 @@ task_scope AS (
   WHERE tenant_id = $1::uuid
     AND task_id = $2::uuid
 ),
-expected AS (
-  SELECT count(*) AS n
+target_shed AS (
+  SELECT CASE
+    WHEN nullif($4, '')::uuid IS NOT NULL THEN nullif($4, '')::uuid
+    WHEN ts.scope_type = 'shed' THEN ts.scope_id
+    ELSE NULL::uuid
+  END AS shed_id
+  FROM task_scope ts
+),
+eligible AS (
+  SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
   FROM obligation_instances oi
   JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  CROSS JOIN target_shed target
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+),
+expected AS (
+  SELECT count(*) AS n
+  FROM eligible
 ),
 handled AS (
-  SELECT count(DISTINCT goat_id) AS n
-  FROM sop_task_scan_captures
-  WHERE tenant_id = $1::uuid
-    AND task_id = $2::uuid
-    AND field_key IN ('goat_ids', '__scan_roster__')
-    AND goat_id IS NOT NULL
+  SELECT count(DISTINCT c.goat_id) AS n
+  FROM sop_task_scan_captures c
+  JOIN eligible e
+    ON e.obligation_id = c.obligation_id
+    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  WHERE c.tenant_id = $1::uuid
+    AND c.task_id = $2::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND c.goat_id IS NOT NULL
 ),
 proofed_goat AS (
   SELECT count(DISTINCT subject_id) AS n
-  FROM proof_artifacts
-  WHERE tenant_id = $1::uuid
-    AND scope_type = 'task'
-    AND scope_id = $2::uuid
-    AND subject_type = 'goat'
-    AND subject_id IS NOT NULL
-    AND upload_state = 'completed'
+  FROM proof_artifacts p
+  JOIN eligible e ON e.goat_id = p.subject_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'task'
+    AND p.scope_id = $2::uuid
+    AND p.subject_type = 'goat'
+    AND p.subject_id IS NOT NULL
+    AND p.upload_state = 'completed'
 ),
 proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p
-  JOIN task_scope ts ON ts.scope_type = 'shed' AND p.scope_id = ts.scope_id
+  JOIN target_shed target ON target.shed_id IS NOT NULL AND p.scope_id = target.shed_id
   WHERE p.tenant_id = $1::uuid
     AND p.scope_type = 'shed'
     AND p.subject_type = 'shed'
@@ -1098,6 +1117,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 		tenantID,
 		taskID,
 		proofSubject,
+		shedID,
 	).Scan(&expected, &handled, &proofReady)
 	if err != nil {
 		return ports.ShedCompletionReadiness{}, err

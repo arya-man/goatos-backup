@@ -89,11 +89,13 @@ type proofResponse struct {
 }
 
 type createUploadResponse struct {
-	Proof        proofResponse     `json:"proof"`
-	UploadURL    string            `json:"upload_url"`
-	UploadMethod string            `json:"upload_method"`
-	Headers      map[string]string `json:"headers"`
-	ExpiresAt    time.Time         `json:"expires_at"`
+	Proof          proofResponse     `json:"proof"`
+	UploadURL      string            `json:"upload_url"`
+	UploadMethod   string            `json:"upload_method"`
+	Headers        map[string]string `json:"headers"`
+	ExpiresAt      time.Time         `json:"expires_at"`
+	UploadProtocol string            `json:"upload_protocol"`
+	ChunkSizeBytes int64             `json:"chunk_size_bytes,omitempty"`
 }
 
 type downloadURLResponse struct {
@@ -128,11 +130,13 @@ func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusCreated, createUploadResponse{
-		Proof:        toProofResponse(target.Proof),
-		UploadURL:    target.UploadURL,
-		UploadMethod: target.Method,
-		Headers:      target.Headers,
-		ExpiresAt:    target.ExpiresAt,
+		Proof:          toProofResponse(target.Proof),
+		UploadURL:      target.UploadURL,
+		UploadMethod:   target.Method,
+		Headers:        target.Headers,
+		ExpiresAt:      target.ExpiresAt,
+		UploadProtocol: target.UploadProtocol,
+		ChunkSizeBytes: target.ChunkSizeBytes,
 	})
 }
 

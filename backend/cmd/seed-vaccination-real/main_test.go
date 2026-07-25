@@ -640,6 +640,17 @@ func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
 	}
 }
 
+func TestCPTPublicationMatrixCanExcludePPRFor2026SeedPacket(t *testing.T) {
+	t.Setenv("GOATOS_CPT_EXCLUDE_PPR_2026", "1")
+	matrix := buildSeedPublicationVaccinationMatrix()
+	if _, ok := matrix["PPR"]; ok {
+		t.Fatalf("PPR present in CPT 2026 seed publication matrix")
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["PPR"]; !ok {
+		t.Fatalf("canonical matrix must still include PPR for source/history mapping")
+	}
+}
+
 // TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge is the R50-001 regression guard.
 // A kid-age (15-week) dose administration on an animal that is NOW 30+ weeks old (well past the
 // 16/20-week kid-course cutoff, so no longer a "continuation" case even with a kid-stage tag) must
@@ -867,8 +878,8 @@ func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testi
 			Gap     int
 		}{
 			"et_tt_kid_7w":   {Trigger: "birth_age", Offset: 49, Gap: 21},
-			"et_tt_adult_w1": {Trigger: "post_arrival", Offset: 7, Gap: 0},
-			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 21, Gap: 21},
+			"et_tt_adult_w1": {Trigger: "manual_campaign", Offset: 7, Gap: 0},
+			"et_tt_adult_w2": {Trigger: "after_previous_completion", Offset: 21, Gap: 21},
 			"et_tt_revac":    {Trigger: "after_previous_completion", Offset: 182, Gap: 182},
 		} {
 			if got[dose] != want {
@@ -878,6 +889,33 @@ func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testi
 		return
 	}
 	t.Fatal("ET_TT matrix row missing")
+}
+
+func TestVaccinationMatrixHasNoAdultPostArrivalInitialRules(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix: %v", err)
+	}
+	var payload struct {
+		MatrixRows []struct {
+			Schedule []struct {
+				DoseCode    string `json:"dose_code"`
+				TriggerType string `json:"trigger_type"`
+			} `json:"schedule"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal matrix: %v", err)
+	}
+	for _, row := range payload.MatrixRows {
+		for _, sched := range row.Schedule {
+			if strings.Contains(strings.ToLower(sched.DoseCode), "_adult_") &&
+				!strings.Contains(strings.ToLower(sched.DoseCode), "_revac") &&
+				sched.TriggerType == "post_arrival" {
+				t.Fatalf("adult initial dose %s uses post_arrival; adult entry_date is never a vaccination due-date anchor", sched.DoseCode)
+			}
+		}
+	}
 }
 
 func TestValidateSeedReconciliation(t *testing.T) {

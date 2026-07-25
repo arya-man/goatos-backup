@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.KeyEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,6 +36,7 @@ import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.DeviceResponseDto
 import sg.mesha.goatos.core.network.DeviceSummaryDto
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -55,10 +58,11 @@ class ProfileViewModelLogoutTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private class FakeBootstrapRepository : BootstrapRepository {
+    private class FakeBootstrapRepository(
+        private val profile: BootstrapOperatorProfileDto? = BootstrapOperatorProfileDto(displayName = "Test Operator"),
+    ) : BootstrapRepository {
         override suspend fun loadNavState(): NavState = NavState(NavChrome.MINIMAL, emptyList())
-        override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
-            BootstrapOperatorProfileDto(displayName = "Test Operator")
+        override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
     }
 
     private class FakeAuthRepository : AuthRepository {
@@ -67,6 +71,7 @@ class ProfileViewModelLogoutTest {
         override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
         override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = null
+        override fun currentEmail(): String? = null
         override fun signOut() { signedOut = true }
     }
 
@@ -108,17 +113,20 @@ class ProfileViewModelLogoutTest {
             outboxWiper = OutboxWiper { outboxCleared = true },
             syncJobsCanceller = SyncJobsCanceller { jobsCancelled = true },
         )
+        var relaunched = false
         val vm = ProfileViewModel(
             bootstrap = FakeBootstrapRepository(),
             authRepository = auth,
             reader = FakeRfidReaderPort(),
             logoutCoordinator = logoutCoordinator,
+            relauncher = { relaunched = true },
         )
 
         vm.signOut()
         advanceUntilIdle()
 
         assertTrue("vendor auth sign-out invoked", auth.signedOut)
+        assertTrue("process relaunched for a clean in-memory slate", relaunched)
         assertEquals("device deregister attempted", 1, api.deregisterCallCount)
         assertTrue("Room screen caches wiped", cacheCleared)
         assertTrue("outbox wiped", outboxCleared)
@@ -126,4 +134,52 @@ class ProfileViewModelLogoutTest {
         assertNull("session token cleared", sessionStore.currentToken())
         assertNull("device id cleared", deviceStore.deviceId())
     }
+
+    @Test
+    fun `operator profile shows RFID settings row`() = runTest {
+        val vm = buildViewModel(
+            profile = BootstrapOperatorProfileDto(
+                displayName = "Test Operator",
+                primaryRoleHint = "operator",
+            ),
+        )
+
+        val collector = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.rows.any { it.kind == SettingKind.RFID })
+        collector.cancel()
+    }
+
+    @Test
+    fun `non operator profile hides RFID settings row`() = runTest {
+        val vm = buildViewModel(
+            profile = BootstrapOperatorProfileDto(
+                displayName = "Test Supervisor",
+                primaryRoleHint = "supervisor",
+            ),
+        )
+
+        val collector = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.rows.any { it.kind == SettingKind.RFID })
+        collector.cancel()
+    }
+
+    private fun buildViewModel(profile: BootstrapOperatorProfileDto?): ProfileViewModel =
+        ProfileViewModel(
+            bootstrap = FakeBootstrapRepository(profile),
+            authRepository = FakeAuthRepository(),
+            reader = FakeRfidReaderPort(),
+            logoutCoordinator = LogoutCoordinator(
+                api = FakeAppApi(),
+                deviceStore = FakeDeviceStore(),
+                sessionStore = FakeSessionStore(),
+                screenCacheStore = ScreenCacheStore {},
+                outboxWiper = OutboxWiper {},
+                syncJobsCanceller = SyncJobsCanceller {},
+            ),
+            relauncher = {},
+        )
 }

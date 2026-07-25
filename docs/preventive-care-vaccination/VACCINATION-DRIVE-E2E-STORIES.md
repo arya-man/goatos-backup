@@ -76,7 +76,7 @@ Concrete CPT proof slice:
 
 | Date | Operators | Cap | Clean animals | Expected assignment |
 |---|---|---:|---:|---|
-| 2026-07-23 | Amit, Darshan, Sagar | 200 each | 321 | Gandhi 114, Godel 1 118, Godel 2 + Mandela 2 + Old Yashoda 89 |
+| 2026-07-23 | Amit, Darshan, Sagar | 200 each | 324 | Gandhi 114, Godel 1 120, Godel 2 + Mandela 2 + Old Yashoda 90 |
 
 Proof:
 

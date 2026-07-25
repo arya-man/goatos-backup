@@ -120,3 +120,17 @@ also exercise the real route on a physical device and retain the evidence.
 
 Context7 may retrieve version-specific AndroidX/Material/CameraX snippets, but these Google pages
 and the corresponding AndroidX source remain authoritative.
+
+## Compose lazy-list keys (machine: `make android-compose-lists-guard`)
+
+Every `LazyColumn`/`LazyRow`/`LazyVerticalGrid` item needs a stable key that is
+**unique per rendered row**, not per domain entity. Keying a per-row list (one row
+per obligation) by a per-entity id (`goatId`) crashes on any entity that owns two
+rows — a goat with two due vaccines produced
+`IllegalArgumentException: Key "<uuid>" was already used` in the LazyList measure
+pass and popped the screen (shipped `0.1.6-stg`, fixed `a9c35a1d`). Key the unique
+per-row id (`obligationId`) or a composite (`"${it.goatId}|${it.vaccineLabel}"`),
+and always pass a `key` to `items()`/`itemsIndexed()` over a collection. Rule +
+guard details live in
+[`docs/decisions/mobile-data-fetch-anti-patterns.md`](../decisions/mobile-data-fetch-anti-patterns.md)
+→ "Compose lazy-list key correctness".

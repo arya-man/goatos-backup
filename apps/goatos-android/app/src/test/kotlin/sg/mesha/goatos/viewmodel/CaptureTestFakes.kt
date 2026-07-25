@@ -31,6 +31,8 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     private val flow = MutableStateFlow<List<ScannedGoatRow>>(emptyList())
     var recordScanCalls: Int = 0
         private set
+    var enqueuePendingScansCalls: Int = 0
+        private set
 
     override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> =
         flow.map { list -> list.filter { it.fieldKey == fieldKey } }
@@ -59,6 +61,10 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
             )
             flow.value = rows.toList()
         }
+    }
+
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
+        enqueuePendingScansCalls++
     }
 
     override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }

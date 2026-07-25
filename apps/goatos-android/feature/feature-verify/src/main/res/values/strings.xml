@@ -13,13 +13,18 @@
     <string name="verify_module_under_construction">Under construction</string>
     <string name="verify_module_under_construction_subtitle">This verification queue will appear here when its workflow is ready.</string>
     <string name="verify_queue_title">Video verification</string>
+    <string name="verify_action_queue_title">Vaccination videos</string>
     <string name="verify_queue_refresh">Refresh</string>
     <string name="verify_queue_empty">Queue clear</string>
     <string name="verify_queue_empty_subtitle">No pending videos to verify right now</string>
+    <string name="verify_action_queue_empty">No submitted videos</string>
+    <string name="verify_action_queue_empty_subtitle">Submitted vaccination videos will appear here for Director review</string>
     <string name="verify_queue_load_more">Load more</string>
     <string name="verify_queue_loading_more">Loading more…</string>
 
     <string name="verify_detail_close">Close</string>
+    <string name="verify_detail_fullscreen">Open video fullscreen</string>
+    <string name="verify_detail_exit_fullscreen">Exit fullscreen video</string>
     <string name="verify_detail_context_title">Context</string>
     <string name="verify_detail_shed_label">Shed</string>
     <string name="verify_detail_park_label">Park</string>
@@ -29,7 +34,15 @@
     <string name="verify_detail_approve">Approve</string>
     <string name="verify_detail_reject">Reject</string>
     <string name="verify_detail_already_decided">Already decided — no further action needed</string>
+    <string name="verify_detail_media_unavailable">Video is still loading or unavailable. Refresh the queue before deciding.</string>
+    <string name="verify_detail_already_closed">Already closed — no further action needed</string>
+    <string name="verify_detail_close_submission">Close drive</string>
+    <string name="verify_detail_rejection_reason_title">Verifier rejection reason</string>
     <string name="verify_detail_submitting">Submitting…</string>
+    <string name="verify_drive_ready_title">Vaccination drive ready</string>
+    <string name="verify_drive_ready_subtitle">%1$d animals · %2$d sheds · %3$d/%4$d videos approved</string>
+    <string name="verify_drive_ready_detail">Video pending %1$d · rejected %2$d</string>
+    <string name="verify_drive_close">Close</string>
 
     <string name="verify_reject_dialog_title">Reject with reason</string>
     <string name="verify_reject_dialog_subtitle">A reason is required so the authority can act on this violation</string>

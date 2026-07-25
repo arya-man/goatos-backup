@@ -47,6 +47,9 @@ func (s *Service) CreateUpload(ctx context.Context, in domain.CreateUpload) (dom
 	if target.ExpiresAt.IsZero() {
 		target.ExpiresAt = s.now().Add(s.ttl).UTC()
 	}
+	if strings.TrimSpace(target.UploadProtocol) == "" {
+		target.UploadProtocol = "simple_put"
+	}
 	return target, nil
 }
 
@@ -183,6 +186,51 @@ func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding
 		})
 	}
 	return out, nil
+}
+
+func (s *Service) ApplyRetentionPolicy(ctx context.Context, tenantID string, refs []sopdomain.ProofReference, policy string, acceptedAt time.Time) error {
+	proofIDs := proofIDsFromRefs(refs)
+	if len(proofIDs) == 0 {
+		return nil
+	}
+	expiresAt := retentionExpiry(policy, acceptedAt)
+	_, err := s.repo.ApplyRetention(ctx, tenantID, proofIDs, strings.TrimSpace(policy), expiresAt)
+	return err
+}
+
+func proofIDsFromRefs(refs []sopdomain.ProofReference) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		proofID := strings.TrimSpace(ref.ProofID)
+		if proofID == "" {
+			continue
+		}
+		if _, ok := seen[proofID]; ok {
+			continue
+		}
+		seen[proofID] = struct{}{}
+		out = append(out, proofID)
+	}
+	return out
+}
+
+func retentionExpiry(policy string, acceptedAt time.Time) *time.Time {
+	base := acceptedAt.UTC()
+	var expires time.Time
+	switch strings.TrimSpace(policy) {
+	case "operational_90d":
+		expires = base.AddDate(0, 0, 90)
+	case "standard_1y":
+		expires = base.AddDate(1, 0, 0)
+	case "critical_7y":
+		expires = base.AddDate(7, 0, 0)
+	case "legal_hold":
+		return nil
+	default:
+		return nil
+	}
+	return &expires
 }
 
 func proofBoundToTask(proof domain.Artifact, binding sopdomain.ProofBinding) bool {

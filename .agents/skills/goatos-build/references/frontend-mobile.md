@@ -130,6 +130,13 @@ Calendar or dashboard label.
   open/closed or selected-row state. For admin-web, load
   `context/frontend/admin-web-backend-ui-contract.md` before changing shell,
   route bodies, tables, filters, chips, or drawers.
+- Vaccination execution status and row action are backend-owned across admin-web
+  and Android. Render `workState`, `sopStatus`, `proofStatus`,
+  `verificationStatus`, counts, `carrySummary`, and `primaryActionKey`; do not
+  derive client-only "in review/done/open scan" truth from local route hacks.
+  A submitted or verification-pending shed row with `primaryActionKey=none`
+  stays on the vaccination surface until a backend-owned review/detail action
+  exists.
 - Same-page overlays are transient client UI, not a Server Component
   navigation. Use the shared `LocalOverlayLink` plus a narrow local controller,
   preserve a history/hash deep link, and prove one-click open plus
@@ -252,6 +259,16 @@ Navigation hierarchy is separately locked by
   filters/pickers/actions only;
 - `make android-navigation-stack-guard` plus the Android JVM unit suite enforce
   the route/chrome regression.
+
+Vaccination execution-specific route guard: the operator flow is
+`Vaccination sheds -> Scan -> Submit -> Vaccination sheds`. Once a shed video
+submission is synced and the drive/shed is `submitted`, `needs_review`, or
+verification-pending, do not route the card to the generic `/record` surface as
+a "read-only" fallback. That screen is not the vaccination review/detail surface
+and can show contradictory generic counts. If no dedicated vaccination detail
+exists, keep the operator on Vaccination sheds and show the submitted/in-review
+status there. The submit ACK state must show explicit copy such as `Submitted`,
+and the Vaccines-to-carry card path must stay wired to backend `carrySummary`.
 
 Hard rules (screen motion is spatial, never decorative):
 

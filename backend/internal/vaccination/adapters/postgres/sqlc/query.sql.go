@@ -377,6 +377,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
+       COALESCE(gsp.partition_label, '')::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -410,6 +411,9 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
 `
 
@@ -432,6 +436,7 @@ type GetGoatForGenerationRow struct {
 	WarmingEntryAt       pgtype.Timestamptz
 	ShedID               string
 	ParkID               string
+	PartitionLabel       string
 	Sex                  string
 	Breed                string
 	ManagementStage      string
@@ -458,6 +463,7 @@ func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenera
 		&i.WarmingEntryAt,
 		&i.ShedID,
 		&i.ParkID,
+		&i.PartitionLabel,
 		&i.Sex,
 		&i.Breed,
 		&i.ManagementStage,
@@ -547,6 +553,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
+       COALESCE(gsp.partition_label, '')::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -580,6 +587,9 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
@@ -617,6 +627,7 @@ type ListEligibleGoatsForGenerationRow struct {
 	WarmingEntryAt       pgtype.Timestamptz
 	ShedID               string
 	ParkID               string
+	PartitionLabel       string
 	Sex                  string
 	Breed                string
 	ManagementStage      string
@@ -660,6 +671,7 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 			&i.WarmingEntryAt,
 			&i.ShedID,
 			&i.ParkID,
+			&i.PartitionLabel,
 			&i.Sex,
 			&i.Breed,
 			&i.ManagementStage,
@@ -800,13 +812,29 @@ func (q *Queries) ListRecordedCompletionsByTask(ctx context.Context, arg ListRec
 }
 
 const listVaccinationCompletionsByGoat = `-- name: ListVaccinationCompletionsByGoat :many
-SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id,
-       COALESCE(batch_id::text, '')::text AS batch_id, administered_at, status,
-       COALESCE(doses, 0)::int AS doses, COALESCE(route_site, '')::text AS route_site,
-       adverse_reaction, withdrawal_until_date
-FROM vaccination_completions
-WHERE tenant_id = $1 AND goat_id = $2
-ORDER BY administered_at DESC
+SELECT vc.completion_id::text AS completion_id, vc.obligation_id::text AS obligation_id,
+       COALESCE(vc.batch_id::text, '')::text AS batch_id, vc.administered_at, vc.status,
+       COALESCE(vc.doses, 0)::int AS doses, COALESCE(vc.route_site, '')::text AS route_site,
+       COALESCE(pr.dose_code, '')::text AS dose_code,
+       COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''), NULLIF(prd.vaccine_code, ''), NULLIF(pr.dose_code, ''), '')::text AS vaccine_label,
+       vc.adverse_reaction, vc.withdrawal_until_date
+FROM vaccination_completions vc
+LEFT JOIN obligation_instances oi
+  ON oi.tenant_id = vc.tenant_id
+ AND oi.obligation_id = vc.obligation_id
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN LATERAL (
+  SELECT vaccine_code
+  FROM protocol_rule_dimensions dim
+  WHERE dim.tenant_id = pr.tenant_id
+    AND dim.rule_id = pr.rule_id
+  ORDER BY NULLIF(dim.vaccine_code, '') NULLS LAST, dim.protocol_rule_dimension_id
+  LIMIT 1
+) prd ON true
+WHERE vc.tenant_id = $1 AND vc.goat_id = $2
+ORDER BY vc.administered_at DESC
 LIMIT $3
 `
 
@@ -824,6 +852,8 @@ type ListVaccinationCompletionsByGoatRow struct {
 	Status              string
 	Doses               int32
 	RouteSite           string
+	DoseCode            string
+	VaccineLabel        string
 	AdverseReaction     bool
 	WithdrawalUntilDate pgtype.Date
 }
@@ -846,6 +876,8 @@ func (q *Queries) ListVaccinationCompletionsByGoat(ctx context.Context, arg List
 			&i.Status,
 			&i.Doses,
 			&i.RouteSite,
+			&i.DoseCode,
+			&i.VaccineLabel,
 			&i.AdverseReaction,
 			&i.WithdrawalUntilDate,
 		); err != nil {

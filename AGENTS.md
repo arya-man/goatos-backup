@@ -52,6 +52,34 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## STG Deployment Contract
+
+For Goat OS, STG deploy is NOT GitHub Actions and NOT PR-driven.
+
+GitHub Actions is billing-blocked and must not be used for deployment
+(validate only via `make ci-local` on the pushed SHA).
+Do not create main→stg PRs as a deploy mechanism.
+Do not force-push a `stg` branch and wait for CI.
+Do not infer CI deployment from branch names.
+
+Authoritative STG deploy path:
+1. Read `docs/runbooks/stg-deploy.md` (short contract) →
+   `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
+2. Use the manual Google Cloud Deploy scripts under
+   `tools/deploy/stg-clouddeploy-*.sh`.
+3. Verify active account is `ravi@mesha.sg`.
+4. Verify target org is `vgoats.com` and environment is Goat OS STG
+   (`goatos-stg`).
+5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
+
+If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
+manual Google Cloud Deploy from the latest approved `origin/main`, following the
+runbook.
+
+Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
+the user explicitly asks to change deployment architecture. The machine-readable
+form of this contract lives at `context/deploy-contract.json`.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
@@ -408,14 +436,14 @@ Organization boundaries:
   gmail, or personal identities are blocked by `make git-identity-guard` and
   the local CI common gate. The expected maintainer identity is
   `Raviteja <ravi@mesha.sg>`.
-- **Staging promotion is PR-only (always on).** Never push any local ref, local
-  `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
-  The only authorized staging branch update is GitHub merging a same-repository
-  `vgoats/goatos main -> stg` pull request after `stg-pr-gate` passes. A manual
-  `stg-deploy` dispatch may rerun that already-merged `stg` SHA; it may not
-  deploy `main`, an agent branch, or any SHA without the matching merged PR.
-  Run `make ai-setup` (or `make stg-promotion-guard-install`) to install the
-  machine-local pre-push block. Do not bypass it with `--no-verify`.
+- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
+  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
+  push as a deployment mechanism. Agents must deploy from a clean checkout at
+  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
+  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
+  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
+  is not deployment authority. Run `make ai-setup` so the local guard blocks
+  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -773,6 +801,23 @@ Do:
   `.agents/skills/goatos-code-review/references/aggregates-and-projections.md`
   and run `make aggregate-projection-guard`; the required CI guard includes
   committed, staged, unstaged, and untracked changes.
+- Cross-surface count parity (Claude AND Codex): the SAME business fact must show
+  the SAME number on every surface that renders it — admin-web, the mobile app,
+  and the API. If two surfaces disagree (e.g. a drive shows 200 doses on the web
+  operator schedule but 400 on the mobile calendar), one backend read model is
+  wrong even if each query is internally consistent — the frontend/mobile is
+  usually faithfully rendering a wrong backend number, so "web fine, mobile
+  broken" is really "two backend read models of the same fact disagree". Pick ONE
+  authoritative source+grain per business count and reuse it across surfaces
+  (for "animals in a drive/day" that is `count(DISTINCT target_id)` over the real
+  `vaccination_drive_assignments`, the grain the operator schedule uses). NEVER
+  render an estimate/rollup column (`estimated_targets`, `estimated_*`,
+  `*_quantity`, cached counters) as a user-facing count while a sibling surface
+  reads the actuals. When you add or change a count shown on more than one
+  surface, prove parity in the same change next to the `projection-review:`
+  marker and add a test asserting the surfaces resolve to the same source/grain.
+  Full rule + the 200-vs-400 incident:
+  `docs/decisions/scale-anti-patterns.md` -> "Cross-surface count parity".
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The
@@ -838,6 +883,32 @@ Do:
   migrated). Full rule + the NetworkBoundResource pattern:
   `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
   architecture guides.
+- Every Android READ screen must be refresh-on-open (hard rule — Claude, Codex,
+  humans): call the shared `sg.mesha.goatos.core.ui.RefreshOnResume { onEvent(XEvent.Refresh) }`
+  composable (`core/core-ui/.../RefreshOnResume.kt`, wraps
+  `LifecycleEventEffect(Lifecycle.Event.ON_RESUME)`) near the top of the screen's
+  composable body so cached Room data shows instantly and a background refresh
+  fires automatically every time the user lands on or returns to the screen — a
+  retained ViewModel on the nav backstack must never show data that was only
+  fetched once at ViewModel creation. Never rely on a manual sync button/icon as
+  the only way to see fresh data; a visible sync affordance is allowed as a
+  supplementary manual trigger, not the primary refresh path. Skip this only for
+  screens where a resume-triggered refresh would disrupt in-progress user input
+  (scan-capture flows, forms, mid-entry screens) — the ViewModel's `refresh()`
+  itself must stay non-blocking (upsert Room on success, leave cache visible on
+  failure) so this never produces a loading wall. See
+  `docs/decisions/android-offline-first.md`.
+- Every Android READ screen's sync/refresh icon must show a spinning animation while a refresh
+  is in flight and become non-clickable to prevent duplicate refresh triggers (hard rule —
+  Claude, Codex, humans). Use the shared `SyncIconButton` composable
+  (`sg.mesha.goatos.core.ui.SyncIconButton`, `core/core-ui/.../SyncIconButton.kt`) on every
+  screen with a manual refresh affordance: pass `isSyncing = state.isRefreshing` (or
+  `refreshInFlight` if the screen names it differently) and `onSync = { onEvent(XEvent.Refresh)
+  }`. When `isSyncing` is true, the icon continuously rotates 360° and the button is disabled,
+  so duplicate taps are ignored. When false, the icon is static and clickable. Applies to all
+  read screens with visible refresh buttons: Calendar, Sheds, Counts, Approval, Verify (queue),
+  Leadership (all three screens), and any future read screens that expose manual sync. This is
+  consistent across the app and prevents race conditions from overlapping refresh requests.
 - Treat every Android Room schema change as an installed-APK upgrade contract, never just a
   fresh-install schema (hard rule — Claude, Codex, humans). Room builds a DB two ways: a fresh
   install runs `createAllTables` (every @Entity), but an in-place upgrade runs ONLY the registered
@@ -976,12 +1047,11 @@ Do:
 - **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
   `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and
   scheduled workflow must not start Postgres or run Docker-backed DB tests.
-  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`; hosted DB gates
-  require the workflow's manual `run_postgres_tests` input, or the documented
-  `run-postgres-tests` label for the `main -> stg` PR gate. `MODE=all` means all
-  affected component jobs, not Postgres. `GOATOS_REQUIRE_DOCKER=1` may make an
-  explicitly requested DB run fail closed, but it must never opt a default run
-  into Postgres by itself.
+  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`. Hosted DB gates
+  are not a Goat OS staging deploy path while GitHub Actions is unavailable.
+  `MODE=all` means all affected component jobs, not Postgres.
+  `GOATOS_REQUIRE_DOCKER=1` may make an explicitly requested DB run fail closed,
+  but it must never opt a default run into Postgres by itself.
 
 - **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
   on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
@@ -1017,6 +1087,29 @@ Do:
   derived from those instants — scheduling, due/missed buckets, reminder keys,
   reporting groups, audit-log display, and UI labels — must convert to
   `Asia/Kolkata` first. UTC must never define a Goat OS business day.
+- **VACCINATION TIME GRAIN IS THE BUSINESS DAY — NEVER HOURS (maintainer rule,
+  Claude AND Codex).** A vaccination drive is a business DAY in `Asia/Kolkata`.
+  It is not an instant, not a timestamp, and never "now ± N hours". This is a
+  business rule about how the farm actually works, not a test-hygiene
+  preference: operators work a day, a drive is planned for a day,
+  `planned_date` is a `DATE`, and two vaccination facts on the same business day
+  are the same day no matter how many hours separate their timestamps.
+  - Never place a drive, due value, safe window, or query window with hour or
+    minute arithmetic. No `time.Now().Add(-2 * time.Hour)`, no
+    `dueAt.Add(-1 * time.Hour)`, no `now±N` clock instants — in production code,
+    fixtures, or assertions.
+  - Anchor to `biztime.BusinessDayStart(...)` / `biztime.BusinessDate(...)`, or
+    to a fixed business date. Compare business DATES, not instants.
+  - Never widen an hour tolerance to make a same-day comparison pass. If a
+    same-day check fails because two timestamps differ by hours, the DAY is the
+    correct unit and whichever side compares instants is the defect.
+  - Why this is a hard rule: hour-anchored fixtures shipped a defect class where
+    15 calendar tests passed or failed depending on the time of day they ran — a
+    batched park drive anchors at 00:00 IST, the fixtures asked for `dueAt - 1h`,
+    and that fell outside the window except during a ~1-hour slice of each day.
+    Sub-day precision on a vaccination date is always a bug in the making.
+  - If a specific case genuinely needs sub-day precision, it needs a recorded
+    maintainer decision first. Ambiguity is not approval.
 - Pinned-clock tests must derive time-sensitive fixture fields such as
   `valid_from`, `valid_to`, due instants, and recipient eligibility from the
   same pinned anchor. Never mix a pinned application clock with SQL `now()` or
@@ -1106,6 +1199,30 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+  **A STG (or any) seed is INCOMPLETE until this grant is MATERIALIZED, not
+  merely pending.** `auth_pending_email_grants` rows only become an active
+  `user_scope_grants` row via the `/auth/session-events` runtime claim path,
+  and admin-web Google SSO does not reliably trigger that path on the first
+  login after a fresh seed — the observed failure is `403 permission_denied`.
+  For STG, run `make seed-stg-9-person-login`
+  (`backend/cmd/seed-stg-login-grants`), which materializes the ACTIVE tenant
+  grant directly for all 5 leadership accounts (plus the 3 operators + 1
+  director below), keyed by `platformauth.StableSubjectID(issuer,
+  firebase_uid)` — the same derivation the backend uses at request time. Verify
+  with `make verify-stg-9-person-login` and
+  `docs/runbooks/stg-9-person-login-verification.md` before declaring the seed
+  done. `docs/runbooks/stg-login-seed-contract.md` is the canonical personnel
+  rule this command implements.
+  **Leadership log in with Google SSO OR Firebase email/password** (maintainer
+  decision 2026-07-24; the prior SSO-only rule is retired — password convention
+  `<FirstName>@2026`, maintainer sets the Firebase password). **All 9 accounts,
+  leadership included, also need an active `workforce_members` profile**: the
+  mobile `/app/bootstrap` hard-requires a profile row and returns
+  `403 operator_profile_missing` without one, so leadership could open admin-web
+  but got "Couldn't load your workspace" on the Android app until
+  `ensureLeadershipMember` (in `seed-stg-login-grants`) created their
+  `auth:<uid>` profile. Materialized grant alone is not enough; the profile is
+  part of the completion bar.
 - CPT operator-drive rehearsal seed invariant: the committed packet at
   `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
   and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.
@@ -1114,6 +1231,18 @@ Do not:
   director-only monitoring scope. The `Adult` source filenames do not narrow
   the vaccination kernel: kid/adult/booster/clinical/combo-spacing/safe-window
   rules still come from backend vaccination rules.
+  **Materialized grant + department binding is part of this invariant, not a
+  separate concern.** Amit, Darshan, Sagar (operator role) and Chandrakant
+  (`pc_director` role) are only real, working STG logins once their
+  `user_scope_grants` row is `status='active'` AND their existing named
+  `workforce_members` roster row (seeded by `seed-roster-real` /
+  `seed-vaccination-cpt-operator-drive`) is bound to `user_id` with
+  `department_id = preventive_care`, so `department_module_grants` gives them
+  the vaccination bottom bar. `make seed-stg-9-person-login` is wired as a
+  required final step of `seed-vaccination-source-full` and
+  `seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg` — do not seed CPT
+  operator-drive rehearsal data on STG without it, and do not declare the
+  rehearsal seeded until `make verify-stg-9-person-login` passes.
 - Leadership assistant coverage invariant: every leadership-relevant table,
   read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
   domain event, or official KPI must resolve to a Cube governed metric, a

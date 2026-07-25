@@ -41,6 +41,29 @@ none of them is support-only, backup-only, or park-head-only. Their week-offs
 must come from HRMS/timetable seed data and reduce the available operator pool
 for that business date before animal-cap splitting runs.
 
+Owner-attribution drift is the adjacent failure. A CPT operator-drive seed that
+has `cpt-operator-roster.json` must still write reviewed shed ownership for
+every active physical shed: Darshan as the reviewed manager/default drive owner
+and Sagar as backup. Completed accepted drive history, including a fully done
+Gandhi ET+TT row, must still resolve to Darshan in shed summaries instead of
+falling through to `Operators unassigned` merely because no open drive row
+remains.
+
+Adult vaccination date drift is also a seed-scale anti-pattern. Adult
+`entry_date` / `post_arrival` must not create private due windows, singleton
+drives, or shed/partition fragments. Adult timing comes from accepted
+same-vaccine history when present; adult no-history animals join the reviewed
+manual campaign/catch-up cohort and are packed by the same whole
+physical-shed/partition operator-cap rule as the rest of the drive. Kid and
+young-stock DOB/age timing remains strict and must not be weakened by this adult
+campaign rule.
+
+Verifier-capacity drift is the adjacent seed anti-pattern. A verifier login
+grant such as Jyothi's CPT seed account is review authority only. If the seeder
+turns a verifier into a `vaccination_operator_*` position, shift row, or animal
+cap contributor, the drive planner silently gains fake capacity and every
+operator-day proof becomes suspect.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar
@@ -228,6 +251,20 @@ Do not model raw partition-bearing shed names as separate canonical buildings.
 `Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
 rows multiplies work, breaks operator ownership, and makes UI grouping lie.
 
+Derive a person's role from their AUTHORITATIVE current position, not a frozen
+snapshot taken earlier in the seed. `seed-roster-real` recasts a rehearsal
+operator's resolved seat into a `vaccination_operator_<name>` position via the
+operator-roster overlay, but it computes `bestCode`/`bestTier` during the earlier
+June-seat mapping pass, BEFORE that overlay runs. Deriving `primary_role_hint`
+from that stale `bestCode`/`bestTier` labelled field executors by their old seat —
+manager tier → `supervisor`, or a leftover `park_head` seat → `park_head` — and
+the mobile scan gate (`operatorAllowed = primary_role_hint == "operator"`)
+silently dropped every scan for Amit/Darshan/Sagar on STG. The fix keys the hint
+off the member's actual post-overlay positions (any active `vaccination_operator_*`
+⇒ `operator`), locked by `TestDeriveRoleHintVaccinationOperatorAlwaysOperator`.
+The general rule: when a later pass mutates the authoritative record, recompute
+derived identity from the final record, never from a snapshot frozen upstream.
+
 Do not report drive assignment rows as the complete future schedule until the
 missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
 same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
@@ -253,6 +290,9 @@ eligible animals from vaccination drives.
 - adding a source column, migration, config/SOP rule, owner role, or importer
   branch without adding the corresponding validator rule, failing fixture,
   deterministic transform decision, manifest refresh, and documentation;
+- leaving an active one-time vaccination obligation live after accepted source
+  history for the same goat/rule has been imported; that creates duplicate work
+  while hiding that the goat already has accepted history;
 - a guard with no adversarial self-test, or a guard not run by full local CI;
 - validating only the default fixture while a source-path override can be
   written before that exact override is checked.
@@ -981,6 +1021,54 @@ single-vaccine, single-partition, single-date fixture proves nothing here and is
 a false green — and the single-date case is what let sub-shape B through a
 review that had already learned sub-shape A.
 
+## Cross-surface count parity (web = mobile = API must show the same number)
+
+**The same business fact must produce the SAME number on every surface that
+shows it — admin-web, the mobile app, and the API. If two surfaces disagree,
+one of them is a bug, even when each query is internally "correct".**
+
+The concrete incident: a vaccination drive on one day showed **200 doses** on the
+admin-web operator drive schedule and **400 doses** on the mobile calendar for
+the identical drive. Neither the phone nor the web was wrong to render what it
+got — the two BACKEND read models counted different things:
+
+- Operator drive schedule → `count(DISTINCT oi.target_id)` from
+  `vaccination_drive_assignments` = **200 distinct animals** (correct).
+- Calendar park-drive marker → `GREATEST(ob.estimated_targets, 1)` =
+  `obligation_batches.estimated_targets` = **400**, which is the obligation-ROW
+  estimate (200 animals × 2 dose rows), not distinct animals.
+
+The mobile app was NOT at fault — it faithfully rendered a wrong backend number.
+"Frontend is fine, mobile is broken" was actually "two backend read models of the
+same fact disagree", and the phone happened to consume the wrong one.
+
+Rules (Claude AND Codex):
+
+1. **Pick ONE authoritative source per business count and reuse it.** For "how
+   many animals in this drive/day", that is `count(DISTINCT target_id)` over the
+   actual `vaccination_drive_assignments`/obligations — the same grain the
+   operator schedule uses. Never let one surface read an *estimate* column
+   (`estimated_targets`, `estimated_*`, `*_quantity`, a cached rollup) as a
+   user-facing count while a sibling surface reads the actuals.
+2. **Estimate columns are not display counts.** `estimated_targets` is a
+   pre-split planning estimate and can legitimately differ from realized work
+   (row-grain, pre-move, pre-cap-split). It may drive capacity planning; it must
+   never be rendered as the drive's animals/doses on a user surface.
+3. **When you add or change a count that appears on more than one surface, prove
+   parity in the same change**: state, next to the `projection-review:` marker,
+   that the web/mobile/API paths for that fact resolve to the same source and
+   grain, and add a test that asserts `calendar_marker_count ==
+   operator_schedule_count == raw_assignment_distinct_animals` for a drive.
+4. Different *labels* are fine (one surface may say "animals", another "doses"),
+   but the underlying **number for the same fact must match**. A single-injection
+   vaccine is 1 dose per animal; if "doses" ≠ "animals" for such a vaccine, the
+   count is double-counting dose rows.
+
+Fixed at `backend/internal/calendar/adapters/postgres/canonical_read.go` by
+switching the park-drive `target_count` from `ob.estimated_targets` to
+`count(DISTINCT oi.target_id)` — the same grain the single-shed drive path and
+the operator schedule already use.
+
 ## Documented gate with no executable enforcement
 
 A rule that exists only as prose in a runbook or validation doc is not a gate —
@@ -1039,3 +1127,10 @@ leaving the key present and unread is not.
 <!-- Coupling review 2026-07-23: vaccination operator assignment config is scheduler-consumed, not config-only. The bounded point lookup filters the already-loaded daily operator-capacity candidate set by active_operators_per_day/default_operator_code and shift fallback identity; it does not introduce tenant-wide scans, per-animal reads, or time-of-day drive splitting. -->
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
+
+<!-- Coupling review 2026-07-24: CPT operator Android login provisioning is a seed/auth contract, not a scale-path change. Every executable vaccination operator must receive a distinct Firebase/Auth email-password identity from cpt-operator-roster.json operators[].email_hint after DB seed; shared operator credentials, founder/CXO Android execution shortcuts, and committed plaintext passwords are forbidden. No new request-path query, projection, or tenant scan is introduced. -->
+<!-- Coupling review 2026-07-24: CPT no-PPR 2026 seed publication is a bounded seed-packet rule filter, not a direct obligation mutation or request-path scale change. Canonical source/history mapping remains available; the CPT operator-drive target simply does not publish PPR rules into the 2026 packet proof. -->
+<!-- Coupling review 2026-07-24: CPT adult campaign coalescing and seed_catchup_overrides do not introduce a request-path scale pattern. Adult same-partition grouping is in generation/packing, and the date-scoped capacity override is a bounded operator/date lookup for an explicit seed catch-up row, not a tenant-wide recompute or general cap escalation. -->
+<!-- Coupling review 2026-07-24: CPT clean-DB roster bootstrap is seed-time bounded work over source-present centers only. Adult same-business-day history cutoff changes generation evidence timing, not request-path reads. No new tenant-wide request scan, projection workaround, or general capacity escalation is introduced. -->
+<!-- Coupling review 2026-07-25: Adult campaign idempotency-key stabilization and unbatched open-row realignment happen inside the obligation repository insert path during generation replay. This is bounded per generated obligation and prevents duplicate derived work; it is not a request-path scan, projection workaround, or shell-side derived-state mutation. -->
+<!-- Coupling review 2026-07-25: PUT /vaccination/capacity-config (caps-editable) reuses the compute-on-write cascade spine: UpsertCapacityConfig writes the tenant capacity row under an optimistic row_version lock and, in the SAME transaction, fans vaccination.capacity.changed to every active park via outbox_messages. OperatorConfigReplanHandler consumes it to re-plan future drives; the CT/AC/Workflows/Calendar screens read that canonical result live, so no new projection table or read-path scan is introduced. The shot-cap override is read once per sweep pass, not per row. -->

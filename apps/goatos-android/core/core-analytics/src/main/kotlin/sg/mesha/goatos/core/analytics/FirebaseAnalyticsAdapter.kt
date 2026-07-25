@@ -9,10 +9,11 @@ import com.google.firebase.analytics.FirebaseAnalytics
  * flavors with `BuildConfig.TELEMETRY_ENABLED = true` (see `di/TelemetryModule.kt` in `:app`).
  *
  * [crashReporter] is composed here (not called directly by feature code) so every durable
- * identity property this class ever sets is ALSO visible on the next crash/non-fatal report —
- * [AnalyticsEvents.UserProps] are role/primary_park/flavor/tenant only, so this never risks
- * leaking PII into Crashlytics. [setUserProperty] enforces an allowlist to prevent accidental
- * forwarding of arbitrary names (e.g. email, name) to Crashlytics custom keys.
+ * identity property this class ever sets is ALSO visible on the next crash/non-fatal report.
+ * The forwarded [AnalyticsEvents.UserProps] are role/primary_park/flavor/tenant/device_id plus
+ * `email` — the business owner's explicit decision to use email as the primary user identity
+ * dimension. [setUserProperty] still enforces an allowlist so only these intended keys are
+ * forwarded to Crashlytics; any other arbitrary key (e.g. name, phone) is dropped.
  *
  * Stable public API grepped by the telemetry CI guardrail (see `docs/TELEMETRY.md`) — do not
  * rename without updating that doc and the guard.
@@ -20,11 +21,17 @@ import com.google.firebase.analytics.FirebaseAnalytics
 class FirebaseAnalyticsAdapter(
     context: Context,
     private val crashReporter: CrashReporter,
+    private val analyticsContext: AnalyticsContext,
 ) : AnalyticsPort {
     private val firebaseAnalytics: FirebaseAnalytics = FirebaseAnalytics.getInstance(context)
 
     override fun track(event: String, props: Map<String, String>) {
-        val bundle = Bundle(props.size)
+        // Stamp the stable per-install device id onto every event (from the bootstrap-populated
+        // AnalyticsContext) so the same login on two phones is distinguishable per-event. Null
+        // before bootstrap resolves; an explicit prop of the same key always wins.
+        val deviceId = analyticsContext.deviceId
+        val bundle = Bundle(props.size + 1)
+        if (!deviceId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.DEVICE_ID, deviceId)
         for ((key, value) in props) bundle.putString(key, value)
         firebaseAnalytics.logEvent(event, bundle)
     }
@@ -65,6 +72,8 @@ class FirebaseAnalyticsAdapter(
             AnalyticsEvents.UserProps.PRIMARY_PARK,
             AnalyticsEvents.UserProps.FLAVOR,
             AnalyticsEvents.UserProps.TENANT,
+            AnalyticsEvents.UserProps.EMAIL,
+            AnalyticsEvents.UserProps.DEVICE_ID,
         )
 
         /** Crashlytics custom key the workforce member id is stamped under (see [setUserId]). */

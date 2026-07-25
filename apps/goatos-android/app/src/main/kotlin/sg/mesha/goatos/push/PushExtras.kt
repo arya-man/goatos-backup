@@ -11,7 +11,8 @@ package sg.mesha.goatos.push
  * Payload shape (coordinate with the backend FCM slice — the sibling `goatos-fcm-notif`
  * worktree): `type`, `obligation_id`, `park_id`, `shed_id`, optional `task_id`, and either `target`/`href` (a
  * backend deep-link, reusing the SAME shape Calendar items already carry) or `screen` (an
- * explicit named screen). `title`/`body` are display-only fallbacks used when the message has
+ * explicit named screen). `role` is the backend-resolved recipient role used for role-aware
+ * vaccination landing. `title`/`body` are display-only fallbacks used when the message has
  * no `notification` block (a pure data message).
  */
 object PushExtras {
@@ -25,10 +26,11 @@ object PushExtras {
     const val TARGET = "target"
     const val HREF = "href"
     const val SCREEN = "screen"
+    const val ROLE = "role"
     const val TITLE = "title"
     const val BODY = "body"
 
     /** The subset carried through to the tap intent / route resolver — [TITLE]/[BODY] are
      *  display-only and never affect routing. */
-    val ROUTE_KEYS = listOf(TYPE, OBLIGATION_ID, PARK_ID, SHED_ID, TASK_ID, ITEM_ID, CATEGORY, TARGET, HREF, SCREEN)
+    val ROUTE_KEYS = listOf(TYPE, OBLIGATION_ID, PARK_ID, SHED_ID, TASK_ID, ITEM_ID, CATEGORY, TARGET, HREF, SCREEN, ROLE)
 }

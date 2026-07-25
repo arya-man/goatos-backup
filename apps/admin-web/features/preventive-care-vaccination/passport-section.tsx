@@ -3,7 +3,6 @@ import { Syringe } from "lucide-react";
 import {
   getGoatVaccinationPassport,
   type VaccinationPassport,
-  type VaccinationPassportDue,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
 import { Tag } from "@/components/ui-primitives";
@@ -36,6 +35,14 @@ function realWorkflowRowId(rowId: string | undefined): string | null {
 }
 function sourceObligationLabel(obligationId: string): string {
   return obligationId.slice(0, 8);
+}
+
+function vaccineRowLabel(item: { display_label: string }): string {
+  return item.display_label;
+}
+
+function sameDate(left?: string, right?: string): boolean {
+  return Boolean(left && right && left.slice(0, 10) === right.slice(0, 10));
 }
 
 // VaccinationPassportSection renders a goat's vaccination passport: next due, open obligations, last
@@ -75,7 +82,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
           <div className="sp" />
           {p.next_due ? (
             <span className="muted small">
-              {copy(pageContract, "vaccination.next_due_inline")} <b>{fmtDate(p.next_due.due_at)}</b> · {copy(pageContract, "vaccination.dose_singular")} {p.next_due.sequence}
+              {copy(pageContract, "vaccination.next_due_inline")} <b>{fmtDate(p.next_due.scheduled_for || p.next_due.due_at)}</b> · {vaccineRowLabel(p.next_due)}
             </span>
           ) : (
             <span className="muted small">{copy(pageContract, "vaccination.no_upcoming")}</span>
@@ -89,7 +96,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
               <div className="v">
                 {p.next_due ? (
                   <>
-                    {fmtDate(p.next_due.due_at)} <Tag tone="warn">{p.next_due.status}</Tag>
+                    {fmtDate(p.next_due.scheduled_for || p.next_due.due_at)} <Tag tone="warn">{p.next_due.status}</Tag>
                   </>
                 ) : (
                   copy(pageContract, "label.placeholder")
@@ -138,8 +145,13 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                   const rowId = realWorkflowRowId(due.workflow_row_id);
                   return (
                     <tr key={due.obligation_id}>
-                      <td>{fmtDate(due.due_at)}</td>
-                      <td>{due.sequence}</td>
+                      <td>
+                        <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                        {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                          <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
+                        ) : null}
+                      </td>
+                      <td>{vaccineRowLabel(due)}</td>
                       <td>
                         <Tag tone={statusTone(due.status)}>{due.status}</Tag>
                       </td>
@@ -201,7 +213,7 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                 {history.map((h) => (
                   <tr key={h.completion_id}>
                     <td>{fmtDate(h.administered_at)}</td>
-                    <td>{h.doses}</td>
+                    <td>{vaccineRowLabel(h)}</td>
                     <td className="muted">{h.route_site || copy(pageContract, "label.placeholder")}</td>
                     <td>
                       <Tag tone={statusTone(h.status)}>{h.status}</Tag>

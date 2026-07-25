@@ -36,9 +36,10 @@ object AnalyticsModule {
     fun provideAnalyticsPort(
         @ApplicationContext context: Context,
         crashReporter: CrashReporter,
+        analyticsContext: AnalyticsContext,
     ): AnalyticsPort =
         if (BuildConfig.TELEMETRY_ENABLED) {
-            FirebaseAnalyticsAdapter(context, crashReporter)
+            FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext)
         } else {
             NoopAnalytics()
         }

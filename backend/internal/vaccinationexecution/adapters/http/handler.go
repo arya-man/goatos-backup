@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -62,6 +63,12 @@ type OperatorAssignmentConfigWriter interface {
 	UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg vaccexecd.OperatorAssignmentConfig) (vaccexecd.OperatorAssignmentConfig, string, string, error)
 }
 
+// CapacityConfigWriter is the write slice for the admin capacity-config screen (daily operator animal
+// cap + per-animal shot-cap override).
+type CapacityConfigWriter interface {
+	UpdateCapacityConfig(ctx context.Context, tenantID string, cfg vaccexecd.CapacityConfig) (vaccexecd.CapacityConfig, string, string, error)
+}
+
 // Writer is the obligation write interface needed for reschedule operations.
 type Writer interface {
 	// ReopenDeferredObligationByIdempotencyKey is the SM-2 health-recovery reopen path (a goat recovers
@@ -88,6 +95,7 @@ type Handler struct {
 	reader       Reader
 	writer       Writer
 	operatorCfgW OperatorAssignmentConfigWriter
+	capacityCfgW CapacityConfigWriter
 	log          *slog.Logger
 	clock        func() time.Time
 }
@@ -106,6 +114,14 @@ func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 // unaffected; a handler without this set 500s the PUT route rather than silently no-op-ing.
 func (h *Handler) WithOperatorAssignmentConfigWriter(w OperatorAssignmentConfigWriter) *Handler {
 	h.operatorCfgW = w
+	return h
+}
+
+// WithCapacityConfigWriter attaches the capacity-config write path. Kept as a separate opt-in setter
+// (rather than a NewHandler parameter) so existing call sites are unaffected; a handler without this
+// set 500s the PUT route rather than silently no-op-ing.
+func (h *Handler) WithCapacityConfigWriter(w CapacityConfigWriter) *Handler {
+	h.capacityCfgW = w
 	return h
 }
 
@@ -137,6 +153,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
+	mux.HandleFunc("PUT /vaccination/capacity-config", h.PutCapacityConfig)
 	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
 	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
@@ -481,6 +498,11 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
+	// A leadership oversight read (app route, no operator scope) is read-only: the client
+	// renders the shed list but must not open a shed into the operator scan/execute loop.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
+		page.ViewerReadOnly = true
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
@@ -518,7 +540,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
 		Limit:     defaultLimit,
 	}
-	if isAppExecutionRoute(r) {
+	// On the app/mobile execution routes a field OPERATOR sees only their assigned work
+	// (OperatorScopeActorID). A leadership principal (CEO/CXO, PC Director, Park Head) is not
+	// an assigned operator, so operator scoping would return zero rows; they instead get a
+	// read-only view of ALL sheds/partitions in their authorized park(s) (park scope is applied
+	// by applyExecutionParkScope -> ResolveAuthorizedParkScope: CEO = all parks, Park Head = his
+	// park). Scan/capture stays blocked on the client (operator capability); this only opens the
+	// read.
+	if isAppExecutionRoute(r) && !h.isLeadershipExecutionActor(r) {
 		q.OperatorScopeActorID = httpmiddleware.ActorIDFromContext(r.Context())
 		if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
 			h.badRequest(w, r, "operator_scope_required", "app vaccination execution requires an authenticated operator scope")
@@ -570,6 +599,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.OpenOnly = openOnly
 	}
+	if raw := query.Get("include_filter_options"); raw != "" {
+		includeFilterOptions, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_include_filter_options", "include_filter_options must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.IncludeFilterOptions = includeFilterOptions
+	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
 		if err != nil {
@@ -596,6 +633,13 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 			n = maxExecutionLimit
 		}
 		q.Limit = n
+	}
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		if q.AuthorizedParkIDs == nil {
+			q.AuthorizedParkIDs = []string{}
+		}
 	}
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false
@@ -683,6 +727,25 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 
 func isAppExecutionRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
+}
+
+// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
+// execution on the app routes, rather than operator-assignment-scoped work.
+var leadershipExecutionRoles = map[string]bool{
+	permissions.RoleCEOInternal: true,
+	permissions.RolePCDirector:  true,
+	permissions.RoleParkHead:    true,
+}
+
+// isLeadershipExecutionActor reports whether any of the caller's active grants is a
+// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
+	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if leadershipExecutionRoles[g.Role] {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {
@@ -1166,6 +1229,74 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, cfg)
+}
+
+// updateCapacityConfigRequest is the PUT body: max animals/operator/day + the optional per-animal
+// shot-cap override + the row_version the admin last read (optimistic concurrency).
+type updateCapacityConfigRequest struct {
+	MaxPerDay                 int    `json:"maxPerDay"`
+	CapacityScope             string `json:"capacityScope"`
+	MaxBufferDays             int    `json:"maxBufferDays"`
+	OverflowPolicy            string `json:"overflowPolicy"`
+	RowVersion                int    `json:"rowVersion"`
+	MaxShotsPerAnimalPerDrive *int   `json:"maxShotsPerAnimalPerDrive"`
+}
+
+// PutCapacityConfig writes the tenant's daily operator animal cap + per-animal shot-cap override.
+// Write authority is enforced at the permission layer (config authority: CEO/CXO). Validate-or-reject:
+// an invalid maxPerDay or out-of-range maxShotsPerAnimalPerDrive returns 400, never a silently-applied
+// default. A row_version mismatch returns 409. A successful write cascades vaccination.capacity.changed
+// (one per active park -- see UpsertCapacityConfig) which re-plans future vaccination drives.
+func (h *Handler) PutCapacityConfig(w http.ResponseWriter, r *http.Request) {
+	if h.capacityCfgW == nil {
+		h.internal(w, r, errors.New("vaccination execution: capacity config writer is not wired"))
+		return
+	}
+	var req updateCapacityConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.badRequest(w, r, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	// capacityScope/maxBufferDays/overflowPolicy default to the current tenant row's values when the
+	// request omits them, so a PUT that only sets maxPerDay/maxShotsPerAnimalPerDrive never clobbers
+	// the other fields with zero values.
+	current, err := h.reader.CapacityConfig(r.Context(), tenantID(r))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	cfg := vaccexecd.CapacityConfig{
+		MaxPerDay:                 req.MaxPerDay,
+		CapacityScope:             current.CapacityScope,
+		MaxBufferDays:             current.MaxBufferDays,
+		OverflowPolicy:            current.OverflowPolicy,
+		RowVersion:                req.RowVersion,
+		MaxShotsPerAnimalPerDrive: req.MaxShotsPerAnimalPerDrive,
+	}
+	if strings.TrimSpace(req.CapacityScope) != "" {
+		cfg.CapacityScope = req.CapacityScope
+	}
+	if strings.TrimSpace(req.OverflowPolicy) != "" {
+		cfg.OverflowPolicy = req.OverflowPolicy
+	}
+	if req.MaxBufferDays != 0 {
+		cfg.MaxBufferDays = req.MaxBufferDays
+	}
+	updated, code, msg, err := h.capacityCfgW.UpdateCapacityConfig(r.Context(), tenantID(r), cfg)
+	if code != "" {
+		h.badRequest(w, r, code, msg)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrCapacityConfigConflict) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "row_version_conflict", Message: "capacity config was updated by someone else; reload and retry", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, updated)
 }
 
 // operatorAssignmentConfigResponse is the wire shape for GET/PUT operator-assignment config: the N/

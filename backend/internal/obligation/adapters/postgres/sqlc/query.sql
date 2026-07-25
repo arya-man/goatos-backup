@@ -29,35 +29,65 @@ LIMIT 1;
 SELECT oi.obligation_id::text AS obligation_id, oi.protocol_version_id::text AS protocol_version_id,
        oi.rule_id::text AS rule_id, oi.scope_type, COALESCE(oi.scope_id::text, '')::text AS scope_id,
        COALESCE(oi.batch_id::text, '')::text AS batch_id,
-       COALESCE(vda.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz AS due_at,
+       COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz AS due_at,
+       oi.due_at AS clinical_due_at,
+       COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'))::timestamptz AS scheduled_for,
+       COALESCE(pr.dose_code, '')::text AS dose_code,
+       COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''), NULLIF(prd.vaccine_code, ''), NULLIF(pr.dose_code, ''), '')::text AS vaccine_label,
        oi.status, oi."sequence"
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
  AND ob.batch_id = oi.batch_id
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN LATERAL (
+  SELECT vaccine_code
+  FROM protocol_rule_dimensions dim
+  WHERE dim.tenant_id = pr.tenant_id
+    AND dim.rule_id = pr.rule_id
+  ORDER BY NULLIF(dim.vaccine_code, '') NULLS LAST, dim.protocol_rule_dimension_id
+  LIMIT 1
+) prd ON true
 LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND g.merged_into_goat_id IS NULL
+-- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row
+-- (tenant_id, obligation_id) UNIQUE. That member row binds the goat/obligation to one assignment
+-- row, so scheduled_for is the goat's own operator drive date. The lateral guess below is legacy
+-- fallback only when old rows have no member binding.
+LEFT JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = oi.tenant_id
+ AND m.obligation_id = oi.obligation_id
+ AND m.goat_id = oi.target_id
+LEFT JOIN vaccination_drive_assignments assignment
+  ON assignment.tenant_id = m.tenant_id
+ AND assignment.assignment_id = m.assignment_id
 LEFT JOIN LATERAL (
   SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-  FROM vaccination_drive_assignments assignment
-  WHERE assignment.tenant_id = oi.tenant_id
-    AND assignment.batch_id = oi.batch_id
-    AND assignment.shed_id = g.shed_id
+) vda_member ON assignment.assignment_id IS NOT NULL
+LEFT JOIN LATERAL (
+  SELECT (guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments guess
+  WHERE m.assignment_id IS NULL
+    AND guess.tenant_id = oi.tenant_id
+    AND guess.batch_id = oi.batch_id
+    AND guess.shed_id = g.shed_id
     AND (
-      cardinality(assignment.vaccine_rule_ids) = 0
-      OR oi.rule_id = ANY(assignment.vaccine_rule_ids)
+      cardinality(guess.vaccine_rule_ids) = 0
+      OR oi.rule_id = ANY(guess.vaccine_rule_ids)
     )
-  ORDER BY assignment.planned_date ASC,
-           assignment.partition_label ASC,
-           assignment.operator_id ASC NULLS LAST,
-           assignment.assignment_id ASC
+  ORDER BY guess.planned_date ASC,
+           guess.partition_label ASC,
+           guess.operator_id ASC NULLS LAST,
+           guess.assignment_id ASC
   LIMIT 1
-) vda ON true
+) vda_guess ON true
 WHERE oi.tenant_id = @tenant_id AND oi.target_type = 'goat' AND oi.target_id = @target_id
   AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
-ORDER BY COALESCE(vda.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz ASC, oi.obligation_id ASC
+ORDER BY COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz ASC, oi.obligation_id ASC
 LIMIT @row_limit;
 
 -- name: GetObligationBoosterContext :one

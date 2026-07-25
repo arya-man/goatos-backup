@@ -24,9 +24,6 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.feature.calendar.CalendarScreen
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
-import sg.mesha.goatos.feature.leadership.OverdueScreen
-import sg.mesha.goatos.feature.leadership.RescheduleScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
@@ -40,11 +37,8 @@ import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.ui.sampleAlertsState
 import sg.mesha.goatos.ui.sampleCalendarState
 import sg.mesha.goatos.ui.sampleCalendarWithCoverageState
-import sg.mesha.goatos.ui.sampleLeadershipState
-import sg.mesha.goatos.ui.sampleOverdueState
 import sg.mesha.goatos.ui.sampleProfileState
 import sg.mesha.goatos.ui.sampleRecordState
-import sg.mesha.goatos.ui.sampleRescheduleState
 import sg.mesha.goatos.ui.sampleRfidState
 import sg.mesha.goatos.ui.sampleScanState
 import sg.mesha.goatos.ui.sampleShedsState
@@ -58,8 +52,7 @@ import sg.mesha.goatos.ui.sampleTimetableState
  *
  *   adb shell am start -n sg.mesha.goatos.dev/sg.mesha.goatos.GalleryActivity -e screen calendar
  *
- * screen in login|calendar|calendar_coverage|sheds|scan|submit|overview|record|rfid|alerts|
- *   you|overdue|reschedule|timetable
+ * screen in login|calendar|calendar_coverage|sheds|scan|submit|record|rfid|alerts|you|timetable
  */
 class GalleryActivity : ComponentActivity() {
     private lateinit var rfidReader: KeyboardWedgeRfidReader
@@ -89,7 +82,7 @@ class GalleryActivity : ComponentActivity() {
                                 },
                             )
                             "submit" -> SubmitScreen(state = sampleSubmitState())
-                            "overview", "leadership" -> LeadershipScreen(state = sampleLeadershipState())
+                            "overview" -> ShedsScreen(state = sampleShedsState())
                             "record" -> RecordScreen(state = sampleRecordState())
                             "rfid" -> BleRfidScannerScreen(
                                 scanner = bleScanner,
@@ -101,8 +94,6 @@ class GalleryActivity : ComponentActivity() {
                             "rfid_mock" -> RfidScreen(state = sampleRfidState())
                             "alerts" -> AlertsScreen(state = sampleAlertsState())
                             "you", "profile" -> ProfileScreen(state = sampleProfileState())
-                            "overdue" -> OverdueScreen(state = sampleOverdueState())
-                            "reschedule" -> RescheduleScreen(state = sampleRescheduleState())
                             "timetable" -> TimetableScreen(state = sampleTimetableState())
                             else -> Text("unknown screen: $screen", color = Color.White)
                         }

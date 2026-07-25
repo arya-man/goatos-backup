@@ -119,18 +119,18 @@ Seed counts:
 |---|---:|
 | Animal rows in goats JSON | 324 |
 | Vaccination rows after headers | 324 |
-| Clean schedulable animals | 321 |
-| Review holds / incomplete rows | 3 |
+| Source animals in the CPT proof packet | 324 |
+| Review holds / incomplete rows | 0 |
 
 Physical shed normalization for the mock run:
 
 | Physical shed | Source partitions | Total animals | Clean schedulable |
 |---|---|---:|---:|
-| Gandhi | `Gandhi 1`, `Gandhi 2`, `Gandhi 3` | 115 | 114 |
-| Godel 1 | `Godel 1 - Part 1`, `Godel 1 - Part 3`, `Godel 1 - Part 4` | 120 | 118 |
+| Gandhi | `Gandhi 1`, `Gandhi 2`, `Gandhi 3` | 114 | 114 |
+| Godel 1 | `Godel 1 - Part 1`, `Godel 1 - Part 3`, `Godel 1 - Part 4` | 120 | 120 |
 | Godel 2 | `Godel 2 - Part 4` | 32 | 32 |
 | Mandela 2 | `Mandela 2 - Part 1`, `Part 2`, `Part 3`, `Part 7`, `Part 8` | 47 | 47 |
-| Old Yashoda | `Old Yashoda 1`, `Old Yashoda 5` | 10 | 10 |
+| Old Yashoda | `Old Yashoda 1`, `Old Yashoda 5` | 11 | 11 |
 
 Current proof operators:
 
@@ -146,10 +146,10 @@ Example July 23 drive plan with cap `200` animals/operator/day:
 | Date | Operator | Physical shed(s) | Partition(s) | Animals |
 |---|---|---|---|---:|
 | 2026-07-23 | Amit Kumar | Gandhi | 1, 2, 3 | 114 |
-| 2026-07-23 | Darshan Talwar | Godel 1 | Part 1, Part 3, Part 4 | 118 |
-| 2026-07-23 | Sagar Mahoor | Godel 2, Mandela 2, Old Yashoda | mixed | 89 |
+| 2026-07-23 | Darshan Talwar | Godel 1 | Part 1, Part 3, Part 4 | 120 |
+| 2026-07-23 | Sagar Mahoor | Godel 2, Mandela 2, Old Yashoda | mixed | 90 |
 
-This plan is preferred over `200 / 121 / 0` because all three available
+This plan is preferred over `200 / 124 / 0` because all three available
 operators receive meaningful work while physical shed/partition integrity is
 preserved.
 
@@ -396,8 +396,8 @@ Example output shape:
 | Date | Operator | Shed | Partition | Animals | Bundle |
 |---|---|---|---|---:|---|
 | 2026-07-23 | Amit | Gandhi | 1, 2, 3 | 114 | species/bundle breakdown |
-| 2026-07-23 | Darshan | Godel 1 | Part 1, 3, 4 | 118 | species/bundle breakdown |
-| 2026-07-23 | Sagar | Godel 2, Mandela 2, Old Yashoda | mixed | 89 | species/bundle breakdown |
+| 2026-07-23 | Darshan | Godel 1 | Part 1, 3, 4 | 120 | species/bundle breakdown |
+| 2026-07-23 | Sagar | Godel 2, Mandela 2, Old Yashoda | mixed | 90 | species/bundle breakdown |
 
 ## 12. UX Requirements
 
@@ -457,7 +457,7 @@ The field MOP must require:
 
 ## 14. Acceptance Criteria
 
-- Given 321 clean eligible animals, 3 available operators, and cap 200, planner
+- Given 324 source animals, 3 available operators, and cap 200, planner
   assigns all 3 operators meaningful work without splitting partitions
   unnecessarily.
 - Given an operator is weekly-off on the spillover date, planner excludes them

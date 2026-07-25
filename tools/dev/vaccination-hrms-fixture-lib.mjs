@@ -1,5 +1,9 @@
 // Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
 // (migrations 000024-000027) to load and validate vaccination source data.
+// Coupling review 2026-07-25: migration 000045 adds a nullable
+// vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture
+// seeds no override (sweeper falls back to rule_dsl/default), so its data and hashes are
+// unchanged; the loader/validator needs no new field handling.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -25,6 +29,11 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
 export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+// Accepted source history is canonical for one-time vaccine rules. If kernel
+// generation emits an active obligation for the same goat/rule after the seed
+// imports accepted completion history, the seed must supersede that active row
+// and keep the accepted completion visible as goat history.
+export const ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS = true;
 // An operator-drive rehearsal source may ship an authoritative operator-roster
 // contract (cpt-operator-roster.json). When present it is the source of truth
 // for that park's field capacity: seed-roster-real recasts the resolved seats
@@ -34,6 +43,10 @@ export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_an
 // governs every other center/source that ships no such contract.
 export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
 export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
+// CPT-only operator-roster bundles must be able to start from a clean migrated
+// local/dev DB: seed-roster-real resolves only centers present in the source
+// bundle and may create that required park row before member/position import.
+export const OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY = true;
 export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
 export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
 export const OPERATOR_SHIFT_LABEL_FIELD = "shift_label";
@@ -68,6 +81,41 @@ export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
 export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
 export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+export const OPERATOR_ROSTER_VERIFIERS_FIELD = "verifiers";
+export const OPERATOR_ROSTER_VERIFIER_ROLE = "verifier";
+export const OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
+// A vaccination operator's app designation is its EXECUTION capability, not its HR
+// capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
+// vaccination_operator_<name> position for capacity/roster, and a person may also
+// hold a higher-ranked June seat (e.g. park_head). deriveRoleHint must still emit
+// primary_role_hint="operator" for anyone holding an active vaccination_operator_*
+// position, overriding tier/bestCode — otherwise the mobile scan gate
+// (operatorAllowed = primary_role_hint == "operator") silently drops every scan for
+// a field executor mislabelled supervisor/park_head (the Amit/Darshan/Sagar STG
+// incident). Capacity tier "manager" is NOT a role and never a non-operator hint.
+export const OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT = true;
+// The same CPT operator-roster contract also owns Android field-login setup
+// after DB seed: every executable vaccination operator must have a distinct
+// email/password identity derived from operators[].email_hint. Shared operator
+// logins, shared passwords, founder/CXO logins for field execution, and
+// plaintext passwords in git are invalid seed evidence.
+export const OPERATOR_ANDROID_LOGIN_CONTRACT_FIELD = "operator_android_login";
+export const OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ANDROID_LOGIN_EMAIL_FIELD = "operators[].email_hint";
+export const OPERATOR_ANDROID_SHARED_PASSWORD_FORBIDDEN = true;
+// CPT operator-drive materialization must emit reviewed shed-manager mapping
+// rows from cpt-operator-roster.json, not a header-only placeholder. Darshan is
+// the default reviewed shed/drive owner and Sagar is the reviewed backup for
+// every active CPT physical shed in that packet.
+export const OPERATOR_ROSTER_MATERIALIZES_REVIEWED_SHED_OWNERS = true;
+export const CPT_OPERATOR_ROSTER_DEFAULT_SHED_OWNER = "vaccination_operator_darshan";
+export const CPT_OPERATOR_ROSTER_BACKUP_SHED_OWNER = "vaccination_operator_sagar";
+// Completed accepted vaccination history is still drive work evidence: shed
+// summary/operator reads must resolve it through the scheduler default operator
+// when no open vaccination_drive_assignments row remains.
+export const ACCEPTED_COMPLETED_HISTORY_RESOLVES_DEFAULT_OPERATOR = true;
 // A reseed proof is only valid from an origin/main-identical, clean checkout:
 // `make seed-checkout-staleness-gate` runs read-only BEFORE any DB mutation in
 // both seed targets and fails closed (BUG-023). GOATOS_ALLOW_STALE_SEED_CHECKOUT=1
@@ -536,3 +584,23 @@ export function updateManifestHashes(directory, manifest) {
 // the loader/contract changes are a no-op for it and every manifest hash, row count,
 // and correction-ledger entry is unchanged. Recorded in
 // fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+
+// Coupling review 2026-07-24 (CPT no-PPR 2026 seed): the CPT operator-drive
+// Makefile target may publish a packet-scoped rule subset without PPR. The
+// canonical source fixture and validator still preserve PPR history mapping.
+
+// Coupling review 2026-07-24/25: CPT adult campaign grouping and
+// seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
+// cpt-operator-roster.json. Adult entry_date is never a vaccination due-date
+// anchor; adult blank-history rows are campaign/catch-up cohort work by physical
+// shed/partition. The committed full fixture has no such contract file, so raw
+// fixture bytes and manifest hashes remain unchanged.
+
+// Coupling review 2026-07-25: adult non-repeating physical-partition campaign
+// obligations are generation-idempotent at campaign grain. Replaying with a
+// corrected as-of date may realign unbatched derived obligations, but this
+// fixture library's raw source hashes/counts remain unchanged.
+
+// Coupling review 2026-07-25: CPT operator-roster verifiers are auth/workflow
+// reviewers only. They seed pending Firebase email-password verifier grants and
+// must never become vaccination operators, shift seats, or animal-capacity rows.

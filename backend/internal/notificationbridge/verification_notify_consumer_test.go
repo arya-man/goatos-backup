@@ -12,9 +12,11 @@ package notificationbridge_test
 //   - TestVerificationEventConsumer_Idempotent      : same event twice -> exactly ONE row.
 //   - TestVerificationEventConsumer_ReplayAndDLQ    : retried transient failure -> no duplicate;
 //                                                     poison payload -> eventbus.PermanentError (DLQ).
-//   - TestVerificationEventConsumer_RecipientResolution : pending->verifier only; rework->operator
-//                                                     + park head; approved->park head; closed->operator.
-//   - TestVerificationEventConsumer_LegacyDedup     : legacy vaccination SOP item rework -> NO row.
+//   - TestVerificationEventConsumer_RecipientResolution : pending->verifier + park head + PC
+//                                                     director + CEO; rework/approved->leadership;
+//                                                     closed->operator; drive close->CEO.
+//   - TestVerificationEventConsumer_LegacyDedup     : legacy vaccination SOP item rework still
+//                                                     notifies Director/CEO without duplicate operator rows.
 
 import (
 	"context"
@@ -45,6 +47,8 @@ const (
 	vecItemIdem     = "fa000000-0000-4000-8000-0000000000a5"
 	vecItemReplay   = "fa000000-0000-4000-8000-0000000000a6"
 	vecItemClosed   = "fa000000-0000-4000-8000-0000000000a7"
+	vecBatchReady   = "fa000000-0000-4000-8000-0000000000a8"
+	vecBatchClosed  = "fa000000-0000-4000-8000-0000000000a9"
 	vecOperatorUser = "fa000000-0000-4000-8000-0000000000b1"
 )
 
@@ -73,6 +77,8 @@ func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEven
 	seedMember(vnOperatorMember, "VEC-OP", "VEC Operator", "operator")
 	seedMember(vnParkHeadMember, "VEC-PH", "VEC Park Head", "park_head")
 	seedMember(vnVerifierMember, "VEC-VER", "VEC Verifier", "verifier")
+	seedMember(vnLeadershipMember, "VEC-PCD", "VEC PC Director", "other")
+	seedMember(vnCEOMember, "VEC-CEO", "VEC CEO", "other")
 	exec(t, ctx, pool, "operator auth identity",
 		`UPDATE workforce_members SET user_id = $1 WHERE tenant_id = $2 AND workforce_member_id = $3`,
 		vecOperatorUser, vnTenant, vnOperatorMember)
@@ -86,6 +92,14 @@ func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEven
 	}
 	seedPosition(vnVerifierMember, vnVerifierPositionCode, "manager")
 	seedPosition(vnParkHeadMember, "park_head", "head")
+	seedTenantPosition := func(memberID, positionCode, tier string) {
+		exec(t, ctx, pool, "tenant position "+positionCode,
+			`INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
+			 VALUES ($1, $2, 'tenant', $1, $3, $4, 'active', now() - interval '1 hour')`,
+			vnTenant, memberID, positionCode, tier)
+	}
+	seedTenantPosition(vnLeadershipMember, "pc_director", "director")
+	seedTenantPosition(vnCEOMember, "ceo_internal", "cxo")
 
 	// Verify duty for the verifier position under pc.vaccination.
 	exec(t, ctx, pool, "verify duty",
@@ -103,6 +117,8 @@ func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEven
 	seedDevice(vnOperatorDevice, vnOperatorMember, "vec-op", vnOperatorToken)
 	seedDevice(vnParkHeadDevice, vnParkHeadMember, "vec-ph", vnParkHeadToken)
 	seedDevice(vnVerifierDevice, vnVerifierMember, "vec-ver", vnVerifierToken)
+	seedDevice(vnLeadershipDevice, vnLeadershipMember, "vec-pcd", vnLeadershipToken)
+	seedDevice(vnCEODevice, vnCEOMember, "vec-ceo", vnCEOToken)
 
 	// notification_requests.calendar_event_id no longer has an FK to satisfy (calendar_event_projections
 	// is retired; the FK was already dropped in migration 000186), so there is no projection fixture to
@@ -137,12 +153,23 @@ func vecPayload(itemID, operatorID, decision, reason string, legacy bool) []byte
 	return b
 }
 
+func vecBatchPayload(batchID, status string) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"tenant_id": vnTenant,
+		"batch_id":  batchID,
+		"park_id":   vnPark,
+		"status":    status,
+	})
+	return b
+}
+
 func vecEvent(eventType, itemID string, payload []byte) eventbus.Event {
 	return eventbus.Event{Type: eventType, TenantID: vnTenant, Key: itemID, Payload: payload}
 }
 
 // TestVerificationEventConsumer_Idempotent: the SAME pending event processed twice produces exactly
-// ONE notification_request for the verifier (ON CONFLICT DO NOTHING on the device idempotency key).
+// one notification_request per required pending recipient (ON CONFLICT DO NOTHING on the device
+// idempotency key).
 func TestVerificationEventConsumer_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	pool, consumer := vecSetup(t)
@@ -160,8 +187,8 @@ func TestVerificationEventConsumer_Idempotent(t *testing.T) {
 	got := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
 		vnTenant, vecItemIdem)
-	if got != 1 {
-		t.Fatalf("notification_requests after duplicate processing = %d, want 1 (idempotent)", got)
+	if got != 4 {
+		t.Fatalf("notification_requests after duplicate processing = %d, want 4 (idempotent)", got)
 	}
 }
 
@@ -200,8 +227,8 @@ func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
 	rows := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
 		vnTenant, vecItemReplay)
-	if rows != 1 {
-		t.Fatalf("notification_requests after failed-then-retried run = %d, want 1 (no duplicate side effect)", rows)
+	if rows != 4 {
+		t.Fatalf("notification_requests after failed-then-retried run = %d, want 4 (no duplicate side effect)", rows)
 	}
 
 	// --- DLQ leg: a poison payload can never parse -> PermanentError -> DLQ, and writes NOTHING. ---
@@ -215,52 +242,66 @@ func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
 	}
 	poisonRows := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1`, vnTenant)
-	if poisonRows != 1 { // only the replay-leg row exists; the poison event wrote nothing
-		t.Fatalf("notification_requests after poison event = %d, want 1 (poison writes nothing)", poisonRows)
+	if poisonRows != 4 { // only the replay-leg rows exist; the poison event wrote nothing
+		t.Fatalf("notification_requests after poison event = %d, want 4 (poison writes nothing)", poisonRows)
 	}
 }
 
 // TestVerificationEventConsumer_RecipientResolution proves per-event routing:
-// pending -> verifier device only; rework -> operator + park head; approved -> park head;
-// leadership closure -> operator.
+// pending -> verifier + park head + PC director + CEO; rework -> operator + park head + PC director + CEO;
+// approved -> park head + PC director + CEO; item closure -> operator; drive closure -> CEO.
 func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	ctx := context.Background()
 	pool, consumer := vecSetup(t)
 
-	// pending -> the verifier's device only.
+	// pending -> verifier, park head, PC director, and CEO.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemPending,
 		vecItemPending, vecPayload(vecItemPending, vnOperatorMember, "", "", false))); err != nil {
 		t.Fatalf("pending handle: %v", err)
 	}
 	pendingRefs := vecRecipientRefs(t, ctx, pool, vecItemPending)
-	if len(pendingRefs) != 1 || !pendingRefs[vnVerifierToken] {
-		t.Fatalf("pending recipients = %v, want exactly {verifier %q}", pendingRefs, vnVerifierToken)
+	if len(pendingRefs) != 4 ||
+		!pendingRefs[vnVerifierToken] ||
+		!pendingRefs[vnParkHeadToken] ||
+		!pendingRefs[vnLeadershipToken] ||
+		!pendingRefs[vnCEOToken] {
+		t.Fatalf("pending recipients = %v, want verifier %q, park head %q, PC director %q, CEO %q",
+			pendingRefs, vnVerifierToken, vnParkHeadToken, vnLeadershipToken, vnCEOToken)
 	}
-	if pendingRefs[vnOperatorToken] || pendingRefs[vnParkHeadToken] {
-		t.Fatalf("pending must NOT notify operator/park head: %v", pendingRefs)
+	if pendingRefs[vnOperatorToken] {
+		t.Fatalf("pending must NOT notify operator: %v", pendingRefs)
 	}
 
-	// rework -> operator + park head (both), never the verifier.
+	// rework -> operator + park head + PC director + CEO, never the verifier.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
 		vecItemRework, vecPayload(vecItemRework, vecOperatorUser, "rejected", "blurry", false))); err != nil {
 		t.Fatalf("rework handle: %v", err)
 	}
 	reworkRefs := vecRecipientRefs(t, ctx, pool, vecItemRework)
-	if len(reworkRefs) != 2 || !reworkRefs[vnOperatorToken] || !reworkRefs[vnParkHeadToken] {
-		t.Fatalf("rework recipients = %v, want {operator %q, park head %q}", reworkRefs, vnOperatorToken, vnParkHeadToken)
+	if len(reworkRefs) != 4 ||
+		!reworkRefs[vnOperatorToken] ||
+		!reworkRefs[vnParkHeadToken] ||
+		!reworkRefs[vnLeadershipToken] ||
+		!reworkRefs[vnCEOToken] {
+		t.Fatalf("rework recipients = %v, want operator %q, park head %q, PC director %q, CEO %q",
+			reworkRefs, vnOperatorToken, vnParkHeadToken, vnLeadershipToken, vnCEOToken)
 	}
 	if reworkRefs[vnVerifierToken] {
 		t.Fatalf("rework must NOT notify the verifier: %v", reworkRefs)
 	}
 
-	// approved -> park head only, so the independently verified item reaches operational closure.
+	// approved -> park head + PC director + CEO, so leadership knows it can be closed.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictApproved,
 		vecItemApproved, vecPayload(vecItemApproved, vnOperatorMember, "approved", "", false))); err != nil {
 		t.Fatalf("approved handle: %v", err)
 	}
 	approvedRefs := vecRecipientRefs(t, ctx, pool, vecItemApproved)
-	if len(approvedRefs) != 1 || !approvedRefs[vnParkHeadToken] {
-		t.Fatalf("approved recipients = %v, want exactly {park head %q}", approvedRefs, vnParkHeadToken)
+	if len(approvedRefs) != 3 ||
+		!approvedRefs[vnParkHeadToken] ||
+		!approvedRefs[vnLeadershipToken] ||
+		!approvedRefs[vnCEOToken] {
+		t.Fatalf("approved recipients = %v, want park head %q, PC director %q, CEO %q",
+			approvedRefs, vnParkHeadToken, vnLeadershipToken, vnCEOToken)
 	}
 	if approvedRefs[vnOperatorToken] || approvedRefs[vnVerifierToken] {
 		t.Fatalf("approved must NOT notify operator/verifier: %v", approvedRefs)
@@ -278,26 +319,52 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	if closedRefs[vnParkHeadToken] || closedRefs[vnVerifierToken] {
 		t.Fatalf("closed must NOT notify park head/verifier: %v", closedRefs)
 	}
+
+	// whole drive ready -> park head + PC director + CEO.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVaccinationDriveReady,
+		vecBatchReady, vecBatchPayload(vecBatchReady, "ready"))); err != nil {
+		t.Fatalf("drive ready handle: %v", err)
+	}
+	readyRefs := vecRecipientRefs(t, ctx, pool, vecBatchReady)
+	if len(readyRefs) != 3 ||
+		!readyRefs[vnParkHeadToken] ||
+		!readyRefs[vnLeadershipToken] ||
+		!readyRefs[vnCEOToken] {
+		t.Fatalf("drive ready recipients = %v, want park head %q, PC director %q, CEO %q",
+			readyRefs, vnParkHeadToken, vnLeadershipToken, vnCEOToken)
+	}
+
+	// whole drive closed by Director -> CEO.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVaccinationDriveClosed,
+		vecBatchClosed, vecBatchPayload(vecBatchClosed, "closed"))); err != nil {
+		t.Fatalf("drive closed handle: %v", err)
+	}
+	driveClosedRefs := vecRecipientRefs(t, ctx, pool, vecBatchClosed)
+	if len(driveClosedRefs) != 1 || !driveClosedRefs[vnCEOToken] {
+		t.Fatalf("drive closed recipients = %v, want exactly CEO %q", driveClosedRefs, vnCEOToken)
+	}
 }
 
 // TestVerificationEventConsumer_LegacyDedup: a generic verification_item that mirrors a legacy
 // vaccination SOP verification (source.module=vaccination, source.ref_type=sop_submission) is
-// ALREADY notified by the legacy vaccination.verify.rejected path, so the generic rework push is
-// suppressed -> NO second notification_request. A non-legacy item on the same park still notifies.
+// ALREADY notified by the legacy vaccination.verify.rejected path for operator + park head, so the
+// generic rework push only adds Director + CEO. A non-legacy item still notifies everyone.
 func TestVerificationEventConsumer_LegacyDedup(t *testing.T) {
 	ctx := context.Background()
 	pool, consumer := vecSetup(t)
 
-	// Legacy-sourced rework -> suppressed (zero rows).
+	// Legacy-sourced rework -> Director + CEO only; operator/park-head are handled by legacy path.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
 		vecItemLegacy, vecPayload(vecItemLegacy, vnOperatorMember, "rejected", "legacy dup", true))); err != nil {
 		t.Fatalf("legacy rework handle: %v", err)
 	}
-	legacyRows := countRows(t, ctx, pool,
-		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
-		vnTenant, vecItemLegacy)
-	if legacyRows != 0 {
-		t.Fatalf("legacy vaccination rework produced %d rows, want 0 (suppressed to avoid double push)", legacyRows)
+	legacyRefs := vecRecipientRefs(t, ctx, pool, vecItemLegacy)
+	if len(legacyRefs) != 2 || !legacyRefs[vnLeadershipToken] || !legacyRefs[vnCEOToken] {
+		t.Fatalf("legacy vaccination rework recipients = %v, want exactly PC director %q and CEO %q",
+			legacyRefs, vnLeadershipToken, vnCEOToken)
+	}
+	if legacyRefs[vnOperatorToken] || legacyRefs[vnParkHeadToken] {
+		t.Fatalf("legacy vaccination rework must not duplicate operator/park-head pushes: %v", legacyRefs)
 	}
 
 	// Control: a NON-legacy (generic) rework on the same park is NOT suppressed.
@@ -305,11 +372,13 @@ func TestVerificationEventConsumer_LegacyDedup(t *testing.T) {
 		vecItemRework, vecPayload(vecItemRework, vnOperatorMember, "rejected", "generic", false))); err != nil {
 		t.Fatalf("generic rework handle: %v", err)
 	}
-	genericRows := countRows(t, ctx, pool,
-		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
-		vnTenant, vecItemRework)
-	if genericRows == 0 {
-		t.Fatalf("non-legacy generic rework must still notify (got 0 rows); suppression is too broad")
+	genericRefs := vecRecipientRefs(t, ctx, pool, vecItemRework)
+	if len(genericRefs) != 4 ||
+		!genericRefs[vnOperatorToken] ||
+		!genericRefs[vnParkHeadToken] ||
+		!genericRefs[vnLeadershipToken] ||
+		!genericRefs[vnCEOToken] {
+		t.Fatalf("non-legacy generic rework recipients = %v, want operator/park-head/PC director/CEO", genericRefs)
 	}
 }
 

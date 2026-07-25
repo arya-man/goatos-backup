@@ -76,6 +76,10 @@ type OpenObligation struct {
 	ScopeType         string
 	ScopeID           string
 	DueAt             time.Time
+	ClinicalDueAt     time.Time
+	ScheduledFor      *time.Time
+	DoseCode          string
+	VaccineLabel      string
 	Status            string
 	Sequence          int32
 }
@@ -117,8 +121,9 @@ type DriveAssignment struct {
 }
 
 type DriveOperatorCapacity struct {
-	OperatorID string
-	Cap        int32
+	OperatorID    string
+	Cap           int32
+	ConfiguredCap int32
 }
 
 type VaccineDriveDateOverride struct {

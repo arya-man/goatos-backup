@@ -14,6 +14,10 @@ import (
 // service can errors.Is against one stable value without an adapter-to-adapter import.
 var ErrOperatorAssignmentConfigConflict = errors.New("vaccination execution: operator assignment config: row version conflict")
 
+// ErrCapacityConfigConflict is the optimistic-concurrency sentinel for UpsertCapacityConfig: a stale
+// RowVersion never silently clobbers a concurrent admin write. Mirrors ErrOperatorAssignmentConfigConflict.
+var ErrCapacityConfigConflict = errors.New("vaccination execution: capacity config: row version conflict")
+
 type Repository interface {
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
 	// ListVaccinationExecutionPage returns one stable keyset page of execution projections plus the
@@ -62,4 +66,15 @@ type Repository interface {
 	// 0 the row must not already exist (first write); otherwise rowVersion must match the current stored
 	// value or ErrOperatorAssignmentConfigConflict is returned.
 	UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error)
+	// UpsertCapacityConfig idempotently writes the tenant's daily operator animal cap + per-animal
+	// shot-cap override with optimistic concurrency and durably enqueues vaccination.capacity.changed to
+	// outbox_messages in the same transaction (see OperatorConfigReplanHandler, which recomputes future
+	// vaccination drives on that event). cfg.RowVersion == 0 means "first write, row must not already
+	// exist"; any other value must match the currently stored row_version or ErrCapacityConfigConflict is
+	// returned.
+	UpsertCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, error)
+	// VaccinationExecutionCarrySummary returns per-day carry summary (dose counts by vaccine) for an operator
+	// across a date range. Aggregated FULL-DAY (not paginated). Date range is inclusive: from q.AsOf to q.DueBefore.
+	// Returns VaccineCarryLine rows keyed by (date, vaccine_label).
+	VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error)
 }

@@ -20,6 +20,7 @@
 #   tools/ci/run-local-ci.sh query-plans # one required DB-plan job (no push receipt)
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
 #   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
+#   GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh android  # faster developer loop; no landing receipt
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -33,6 +34,13 @@ receipt_base=""
 receipt_jobs=""
 declare -a RESULTS
 
+fast_local_ci_enabled() {
+  case "${GOATOS_FAST_LOCAL_CI:-0}" in
+    1|true|TRUE|True) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 step() { # name, command...
   local name="$1"; shift
   echo "── ci-local: ${name}"
@@ -45,11 +53,32 @@ step() { # name, command...
   fi
 }
 
+optional_step() { # name, command...
+  local name="$1"; shift
+  echo "── ci-local: ${name} (non-blocking)"
+  if "$@"; then
+    RESULTS+=("PASS  ${name} (optional)")
+  else
+    RESULTS+=("WARN  ${name} (optional, non-blocking)")
+    echo "!! ci-local optional step FAILED: ${name}"
+  fi
+}
+
 postgres_tests_enabled() {
   case "${GOATOS_RUN_POSTGRES_TESTS:-0}" in
     1|true|TRUE|True) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+changed_since_base() {
+  local base_ref="${GOATOS_CI_BASE:-origin/main}"
+  if ! git rev-parse --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
+    base_ref="HEAD~1"
+  fi
+  git diff --name-only --diff-filter=ACMRD "${base_ref}...HEAD" 2>/dev/null || true
+  git diff --name-only --diff-filter=ACMRD --cached 2>/dev/null || true
+  git diff --name-only --diff-filter=ACMRD 2>/dev/null || true
 }
 
 # ceo_ai_eval_live_enabled: the CEO-AI answer-quality eval calls a live assistant
@@ -221,6 +250,7 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard
@@ -238,10 +268,35 @@ run_android() {
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
   [ -f apps/goatos-android/local.properties ] || echo "sdk.dir=$sdk" > apps/goatos-android/local.properties
+  if fast_local_ci_enabled; then
+    echo "── ci-local: android FAST mode enabled (Gradle daemon + combined tasks; no landing receipt)"
+    step "android fast compile/unit/lint" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --console=plain'
+    case "${GOATOS_FORCE_ANDROID_SCREENSHOTS:-0}" in
+      1|true|TRUE|True)
+        optional_step "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+        ;;
+      *)
+        echo "── ci-local: android screenshots SKIPPED by GOATOS_FAST_LOCAL_CI=1 (set GOATOS_FORCE_ANDROID_SCREENSHOTS=1 to run)"
+        RESULTS+=("SKIP  android screenshots (GOATOS_FAST_LOCAL_CI=1)")
+        ;;
+    esac
+    if changed_since_base | grep -Eq '(^apps/goatos-android/(benchmark|buildSrc)/|^apps/goatos-android/.+\.gradle\.kts$|^apps/goatos-android/settings\.gradle\.kts$)'; then
+      step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --console=plain'
+    else
+      echo "── ci-local: android benchmark compile SKIPPED by GOATOS_FAST_LOCAL_CI=1 (no Android build/benchmark diff)"
+      RESULTS+=("SKIP  android benchmark compile (GOATOS_FAST_LOCAL_CI=1)")
+    fi
+    return
+  fi
   step "android :app compile" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin --no-daemon --console=plain'
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
   step "android :app lint"    bash -c 'cd apps/goatos-android && ./gradlew :app:lintStgRelease --no-daemon --console=plain'
-  step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  if [ "${GOATOS_SKIP_ANDROID_SCREENSHOTS:-0}" = "1" ]; then
+    echo "── ci-local: android screenshots SKIPPED by GOATOS_SKIP_ANDROID_SCREENSHOTS=1"
+    RESULTS+=("SKIP  android screenshots (GOATOS_SKIP_ANDROID_SCREENSHOTS=1)")
+  else
+    optional_step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  fi
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }
 
@@ -300,7 +355,9 @@ if [ "$fail" -eq 0 ]; then
   echo "ci-local: GREEN @ ${sha}"
   # Exact-SHA push evidence: an auto-scoped run records the exact base + selected
   # jobs; a forced full run records mode=all. Explicit JOB=... runs stay partial.
-  if [ -n "$receipt_mode" ]; then
+  if fast_local_ci_enabled; then
+    echo "ci-local: FAST local run — no main-push evidence receipt written."
+  elif [ -n "$receipt_mode" ]; then
     receipt_args=(--record "$sha" --mode "$receipt_mode" --jobs "$receipt_jobs")
     if [ "$receipt_mode" = "scoped" ]; then receipt_args+=(--base "$receipt_base"); fi
     node tools/ci/check-local-ci-evidence.mjs "${receipt_args[@]}" || \

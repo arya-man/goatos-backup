@@ -393,7 +393,16 @@ WITH a AS (
   -- (a specific lane and a legacy unspecific one), the specific lane wins deterministically instead
   -- of a random UUID picking the lane.
   ORDER BY oi.obligation_id,
-           (gsp.partition_label IS NOT NULL AND s.partition_label = gsp.partition_label) DESC,
+           -- Partition-label canonicalization: the assignment row stores the DISPLAY form ("Part 1")
+           -- while goat_shed_partitions stores the normalized form ("1"), so a raw equality never
+           -- matched for numeric-partition sheds (Gandhi 1/2/3) and every goat fell through to the
+           -- alphabetical s.partition_label tiebreak below -- collapsing all of a shed's partitions
+           -- onto its first arm. Strip a leading "part " on both sides so the goat binds to its OWN
+           -- partition cell. (BUG-029 follow-up: proven by the CPT reseed, Gandhi Part 3 goats were
+           -- landing on Part 1 rows.)
+           (gsp.partition_label IS NOT NULL
+             AND regexp_replace(lower(btrim(s.partition_label)), '^part[[:space:]]+', '')
+               = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')) DESC,
            s.physical_shed, s.partition_label,
            (cardinality(s.lane_key) > 0) DESC, s.lane_key, s.assignment_id
 ), goat_rank AS (
@@ -711,6 +720,19 @@ func (r *Repository) PickVaccinationOperatorForDrive(ctx context.Context, tenant
 }
 
 func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
+	return r.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, "", date, capPerOperator)
+}
+
+// AvailableVaccinationOperatorsForDriveExcludingBatch is the BUG-041 rebuild-path read: it computes
+// each operator's REMAINING capacity for the park/date exactly like AvailableVaccinationOperatorsForDrive
+// but excludes excludeBatchID's own obligations from the persisted load, so a batch being rebuilt does
+// not count against its own operators (item 4: capacity self-counting). Other batches on the same
+// operator/date still count in full.
+func (r *Repository) AvailableVaccinationOperatorsForDriveExcludingBatch(ctx context.Context, tenantID, parkID, excludeBatchID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
+	return r.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, excludeBatchID, date, capPerOperator)
+}
+
+func (r *Repository) availableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID, excludeBatchID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -721,13 +743,20 @@ func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, 
 	if err != nil {
 		return nil, fmt.Errorf("obligation: park id: %w", err)
 	}
+	excludeBatch := pgtype.UUID{}
+	if strings.TrimSpace(excludeBatchID) != "" {
+		excludeBatch, err = pgconv.UUID(excludeBatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: exclude batch id: %w", err)
+		}
+	}
 	rows, err := r.pool.Query(ctx, `
 WITH capacity_config AS (
   SELECT COALESCE((SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = $1), NULLIF($4::int, 0), 200)::int AS default_cap
 ),
 candidate AS (
   SELECT wm.workforce_member_id, wm.updated_at,
-         COALESCE(MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))::int AS daily_cap
+         COALESCE(MAX(voco.max_animals), MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))::int AS daily_cap
   FROM workforce_members wm
   JOIN locations park_loc
     ON park_loc.tenant_id = $1
@@ -754,6 +783,11 @@ candidate AS (
    AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
    AND pmd.duty_type = 'execute'
    AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+  LEFT JOIN vaccination_operator_capacity_overrides voco
+    ON voco.tenant_id = wm.tenant_id
+   AND voco.park_id = $2
+   AND voco.operator_id = wm.workforce_member_id
+   AND voco.capacity_date = $3::date
   WHERE wm.tenant_id = $1
     AND wm.status = 'active'
     AND NOT EXISTS (
@@ -776,8 +810,31 @@ candidate AS (
         AND offpos.week_off_weekday = lower(to_char($3::date, 'FMDay'))
     )
   GROUP BY wm.workforce_member_id, wm.updated_at
-), load AS (
-  -- projection-review: membership=active planned/in-progress batches with conducted_by workforce_member_id on one park/planned_date; group_key=conducted_by workforce_member_id; join_cardinality=OneToMany (obligation_batches:obligation_instances=1:N collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load); pagination=Pagination (full available-operator candidate set for one park/date, no keyset paging); scope=ParkScope (explicit park scope only); date=ExecutionDate (planned_date); status=StatusMatrix (scheduled,due,in_progress statuses counted, others excluded).
+), assignment_load AS (
+  -- projection-review: membership=exact vaccination_drive_assignment_members rows for drive-assignment cells on one park/planned_date/operator; group_key=vda.operator_id for one tenant+park_id+planned_date after filtering exact member obligations by status; join_cardinality=vda:members is 1:N at exact member grain and members:obligation_instances is N:1 by obligation_id, collapsed with COUNT(DISTINCT m.goat_id) so multi-vaccine obligations do not inflate operator animal load; pagination=full available-operator candidate set for one park/date, no keyset paging; scope=explicit vda.park_id with execution date vda.planned_date and status matrix ob.status plus oi.status.
+  SELECT vda.operator_id AS workforce_member_id, count(DISTINCT m.goat_id)::int AS animals
+  FROM vaccination_drive_assignments vda
+  JOIN obligation_batches ob
+    ON ob.tenant_id = vda.tenant_id
+   AND ob.batch_id = vda.batch_id
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = vda.tenant_id
+   AND m.assignment_id = vda.assignment_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id
+   AND oi.obligation_id = m.obligation_id
+  WHERE vda.tenant_id = $1
+    AND vda.park_id = $2
+    AND vda.planned_date = $3::date
+    AND vda.operator_id IS NOT NULL
+    AND ($5::uuid IS NULL OR vda.batch_id <> $5)
+    AND ob.status IN ('planned', 'in_progress')
+    AND oi.status IN ('scheduled', 'due', 'in_progress')
+  GROUP BY vda.operator_id
+), legacy_batch_load AS (
+  -- Legacy fallback for planned batches that predate exact drive-assignment rows. Once a batch has
+  -- any vaccination_drive_assignments, assignment_load above is authoritative for that batch so
+  -- split operators/dates/partitions cannot be collapsed back to obligation_batches.conducted_by.
   SELECT ob.conducted_by AS workforce_member_id, count(DISTINCT oi.target_id)::int AS animals
   FROM obligation_batches ob
   JOIN obligation_instances oi
@@ -789,17 +846,35 @@ candidate AS (
     AND ob.planned_date = $3::date
     AND ob.status IN ('planned', 'in_progress')
     AND ob.conducted_by IS NOT NULL
+    AND ($5::uuid IS NULL OR ob.batch_id <> $5)
     AND oi.status IN ('scheduled', 'due', 'in_progress')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments vda
+      WHERE vda.tenant_id = ob.tenant_id
+        AND vda.batch_id = ob.batch_id
+    )
   GROUP BY ob.conducted_by
+), load AS (
+  -- projection-review: membership=assignment_load plus legacy_batch_load already reduced to one row per operator for the same tenant+park+planned_date; group_key=workforce_member_id; join_cardinality=UNION ALL of two pre-aggregated operator-load sources followed by GROUP BY workforce_member_id, so no member or obligation rows are joined at this layer; pagination=full available-operator candidate set for one park/date, no keyset paging; scope=explicit park/date/status filters inherited from both source CTEs.
+  SELECT workforce_member_id, sum(animals)::int AS animals
+  FROM (
+    SELECT workforce_member_id, animals FROM assignment_load
+    UNION ALL
+    SELECT workforce_member_id, animals FROM legacy_batch_load
+  ) all_load
+  GROUP BY workforce_member_id
 )
-SELECT c.workforce_member_id::text, GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int
+SELECT c.workforce_member_id::text,
+       GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int,
+       c.daily_cap::int
 FROM candidate c
 LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id
 ORDER BY
   CASE WHEN c.daily_cap <= 0 THEN 0 WHEN COALESCE(l.animals, 0) < c.daily_cap THEN 0 ELSE 1 END,
   COALESCE(l.animals, 0) ASC,
   c.updated_at ASC NULLS FIRST,
-  c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator)
+  c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator, excludeBatch)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list vaccination operators: %w", err)
 	}
@@ -807,7 +882,7 @@ ORDER BY
 	out := make([]domain.DriveOperatorCapacity, 0)
 	for rows.Next() {
 		var operator domain.DriveOperatorCapacity
-		if err := rows.Scan(&operator.OperatorID, &operator.Cap); err != nil {
+		if err := rows.Scan(&operator.OperatorID, &operator.Cap, &operator.ConfiguredCap); err != nil {
 			return nil, fmt.Errorf("obligation: scan vaccination operator: %w", err)
 		}
 		out = append(out, operator)

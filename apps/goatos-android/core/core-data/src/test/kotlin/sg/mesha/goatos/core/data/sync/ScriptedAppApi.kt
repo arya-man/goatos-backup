@@ -31,6 +31,7 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
     var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
     var closeVerificationSubmissionFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
+    var closeVaccinationBatchFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
 
     /** (itemId, header Idempotency-Key) for every [submitVerificationVerdict] call — same
      *  same-key-on-retry assertion shape as [submitCalls]. */
@@ -38,11 +39,13 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     val closeSubmissionCalls: MutableList<Pair<String, String>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+    val closeBatchCalls: MutableList<Pair<String, String>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
 
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
      *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
      *  called with, capture "uploaded" bytes, or throw to exercise the resumable-retry path. */
-    var uploadProofBlobFn: (suspend (String, String, String, Map<String, String>, String, String, Long?) -> ProofCompleteResponseDto)? = null
+    var uploadProofBlobFn: (suspend (String, String, String, Map<String, String>, String, Long?, String, String, Long?) -> ProofCompleteResponseDto)? = null
 
     /** Every [uploadProofBlob] call, in order — lets a test assert how many times bytes were
      *  (re-)streamed across a failure + retry. */
@@ -112,17 +115,48 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
             ?: delegate.closeVerificationSubmission(submissionId, idempotencyKey)
     }
 
+    override suspend fun closeVaccinationBatch(
+        batchId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto {
+        closeBatchCalls += batchId to idempotencyKey
+        return closeVaccinationBatchFn?.invoke(batchId, idempotencyKey)
+            ?: delegate.closeVaccinationBatch(batchId, idempotencyKey)
+    }
+
     override suspend fun uploadProofBlob(
         proofId: String,
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
         durationMs: Long?,
     ): ProofCompleteResponseDto {
         uploadProofBlobCalls += proofId
-        return uploadProofBlobFn?.invoke(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
-            ?: delegate.uploadProofBlob(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
+        return uploadProofBlobFn?.invoke(
+            proofId,
+            uploadUrl,
+            uploadMethod,
+            uploadHeaders,
+            uploadProtocol,
+            chunkSizeBytes,
+            mimeType,
+            filePath,
+            durationMs,
+        )
+            ?: delegate.uploadProofBlob(
+                proofId,
+                uploadUrl,
+                uploadMethod,
+                uploadHeaders,
+                uploadProtocol,
+                chunkSizeBytes,
+                mimeType,
+                filePath,
+                durationMs,
+            )
     }
 }

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +46,36 @@ func TestPickBestParkDriveDateMaximizesFeasibleGoats(t *testing.T) {
 	}
 	if len(ids) != 3 {
 		t.Fatalf("selected ids = %#v, want all three obligations", ids)
+	}
+}
+
+func TestParkConsolidationOverrideWindowKeepsPPRBlueTongueComboTogether(t *testing.T) {
+	due := businessDate(time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC))
+	windowEnd := due.AddDate(0, 0, 1)
+	cfg := SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 2},
+			"rule-bt":  {VaccineCode: "BLUE_TONGUE", VaccinePriority: 4},
+		},
+	}
+	ppr := domain.ParkConsolidationCandidate{
+		ParkID:       "park-cpt",
+		RuleID:       "rule-ppr",
+		ObligationID: "obl-ppr",
+		TargetID:     "goat-1",
+		DueAt:        due,
+		WindowStart:  &due,
+		WindowEnd:    &windowEnd,
+	}
+	bt := ppr
+	bt.RuleID = "rule-bt"
+	bt.ObligationID = "obl-bt"
+
+	if got, want := parkConsolidationGroupKey(cfg, ppr), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+		t.Fatalf("PPR group key = %q, want %q", got, want)
+	}
+	if got, want := parkConsolidationGroupKey(cfg, bt), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+		t.Fatalf("Blue Tongue group key = %q, want %q", got, want)
 	}
 }
 
@@ -124,6 +156,58 @@ func TestConsolidateParkDrivesCanMergeSameShedAnimalsAtParkLevel(t *testing.T) {
 	}
 }
 
+func TestConsolidateParkDrivesMergesSpeciesForSameParkVaccineSession(t *testing.T) {
+	due := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		parkRows: []domain.ParkConsolidationCandidate{
+			{ObligationID: "obl-goat", TargetID: "goat-1", RuleID: "rule-ettt", ShedID: "shed-1", ShedName: "Godel 1 - Part 1", ParkID: "park-1", TargetSpecies: "goat", TargetAnimalStage: "adult", DueAt: due, WindowEnd: ptrTime(due.AddDate(0, 0, 7))},
+			{ObligationID: "obl-sheep", TargetID: "sheep-1", RuleID: "rule-ettt", ShedID: "shed-2", ShedName: "Godel 2 - Part 4", ParkID: "park-1", TargetSpecies: "sheep", TargetAnimalStage: "adult", DueAt: due, WindowEnd: ptrTime(due.AddDate(0, 0, 7))},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-ettt": {VaccineCode: "ET_TT", VaccinePriority: 1},
+		},
+		DrivePlanner:      domain.DrivePlannerSettings{Enabled: true, MaxGoatsPerDrive: 200, SpeciesGroupingPolicy: "species_specific"},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, due)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 2 {
+		t.Fatalf("result = %#v, want one same-vaccine park batch across adult species", res)
+	}
+	if len(repo.createdBatches) != 1 || repo.createdBatches[0].EstimatedTargets != 2 {
+		t.Fatalf("created batches = %#v, want one two-animal batch", repo.createdBatches)
+	}
+}
+
+func TestOrderParkConsolidationGroupsUsesEffectiveLatestSafeBeforeDiscoveryOrder(t *testing.T) {
+	etStart := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	etEnd := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	btStart := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	btEnd := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	cfg := SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-ettt": {VaccineCode: "ET_TT", VaccinePriority: 1},
+			"rule-bt":   {VaccineCode: "Blue Tongue", VaccinePriority: 4},
+		},
+	}
+	groups := map[string][]domain.ParkConsolidationCandidate{
+		"cpt|rule:rule-bt":   {{ObligationID: "obl-bt", RuleID: "rule-bt", ParkID: "cpt", DueAt: btStart, WindowEnd: &btEnd}},
+		"cpt|rule:rule-ettt": {{ObligationID: "obl-ettt", RuleID: "rule-ettt", ParkID: "cpt", DueAt: etStart, WindowEnd: &etEnd}},
+	}
+
+	got := orderParkConsolidationGroups([]string{"cpt|rule:rule-bt", "cpt|rule:rule-ettt"}, groups, cfg)
+	want := []string{"cpt|rule:rule-ettt", "cpt|rule:rule-bt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("group order = %#v, want %#v", got, want)
+	}
+}
+
 func TestConsolidateParkDrivesHonorsAnimalCapOnNextSafeDay(t *testing.T) {
 	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	winEnd := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
@@ -165,7 +249,7 @@ func TestConsolidateParkDrivesHonorsAnimalCapOnNextSafeDay(t *testing.T) {
 	}
 }
 
-func TestConsolidateParkDrivesAllowsOverCapOnLastSafeDay(t *testing.T) {
+func TestConsolidateParkDrivesKeepsLastSafeDayUnderCap(t *testing.T) {
 	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.ParkConsolidationCandidate{
 		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &now},
@@ -185,14 +269,14 @@ func TestConsolidateParkDrivesAllowsOverCapOnLastSafeDay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consolidateParkDrives: %v", err)
 	}
-	if res.ParkBatches != 1 || res.ParkObligations != 3 {
-		t.Fatalf("result = %#v, want one over-cap park batch because all animals are on last safe day", res)
+	if res.ParkBatches != 1 || res.ParkObligations != 2 {
+		t.Fatalf("result = %#v, want one capped park batch on last safe day", res)
 	}
 	if len(repo.createdBatches) != 1 {
 		t.Fatalf("created batches = %d, want 1", len(repo.createdBatches))
 	}
-	if repo.createdBatches[0].EstimatedTargets != 3 {
-		t.Fatalf("estimated targets = %d, want 3 animals despite cap 2", repo.createdBatches[0].EstimatedTargets)
+	if repo.createdBatches[0].EstimatedTargets != 2 {
+		t.Fatalf("estimated targets = %d, want 2 animals inside cap 2", repo.createdBatches[0].EstimatedTargets)
 	}
 }
 
@@ -414,22 +498,22 @@ func TestConsolidateParkDrivesFailsWhenCandidateCursorDoesNotAdvance(t *testing.
 	}
 }
 
-func TestConsolidateParkDrivesMergesDifferentVaccinesAcrossSheds(t *testing.T) {
+func TestConsolidateParkDrivesMergesApprovedComboVaccinesAcrossSheds(t *testing.T) {
 	repo := &fakeSweepRepo{
 		parkRows: []domain.ParkConsolidationCandidate{
 			{
-				ObligationID: "obl-et",
-				TargetID:     "goat-et",
-				RuleID:       "rule-et",
+				ObligationID: "obl-fmd",
+				TargetID:     "goat-fmd",
+				RuleID:       "rule-fmd",
 				ShedID:       "shed-1",
 				ParkID:       "park-1",
 				DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 				WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
 			},
 			{
-				ObligationID: "obl-tt",
-				TargetID:     "goat-tt",
-				RuleID:       "rule-tt",
+				ObligationID: "obl-hs",
+				TargetID:     "goat-hs",
+				RuleID:       "rule-hs",
 				ShedID:       "shed-2",
 				ParkID:       "park-1",
 				DueAt:        time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC),
@@ -441,6 +525,10 @@ func TestConsolidateParkDrivesMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 	svc := NewSweeperService(repo, nil, nil)
 
 	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd": {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-hs":  {VaccineCode: "HS", VaccinePriority: 6},
+		},
 		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
 	}, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -583,6 +671,53 @@ func TestConsolidateParkDrivesPicksLaterDateWithMoreFreeCapacity(t *testing.T) {
 	}
 }
 
+func TestConsolidateParkDrivesAppliesVaccineDateOverride(t *testing.T) {
+	original := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	postponed := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-ppr-1", TargetID: "goat-1", RuleID: "rule-ppr", ShedID: "shed-1", ShedName: "Godel 1 - Part 1", ParkID: "park-1", DueAt: original, WindowEnd: ptrTime(original.AddDate(0, 0, 7))},
+		{ObligationID: "obl-ppr-2", TargetID: "goat-2", RuleID: "rule-ppr", ShedID: "shed-1", ShedName: "Godel 1 - Part 1", ParkID: "park-1", DueAt: original, WindowEnd: ptrTime(original.AddDate(0, 0, 7))},
+	}
+	repo := &fakeSweepRepo{
+		parkRows:  rows,
+		attachAll: true,
+		overrides: map[string]domain.VaccineDriveDateOverride{
+			"tenant-1|park-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CPT validation override",
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 2},
+		},
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxGoatsPerDrive:          200,
+			MaxShotsPerAnimalPerDrive: 2,
+			MaxBatchingHoldDays:       7,
+			MaxBatchingHoldCount:      1,
+		},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, original)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 1 || len(repo.createdBatches) != 1 || repo.createdBatches[0].PlannedDate == nil {
+		t.Fatalf("result = %#v batches=%#v, want one overridden park batch", res, repo.createdBatches)
+	}
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-07" {
+		t.Fatalf("planned date = %s, want override date 2026-08-07", got)
+	}
+}
+
 // TestLimitParkSelectionReservesCapacityForLastSafeRows is the VAXCAP-006 park guard: at cap 1,
 // a movable row listed FIRST must not consume the only cell a last-safe row needs. The last-safe
 // row is admitted, the movable row is parked for a later date, and the cap is never exceeded.
@@ -597,15 +732,15 @@ func TestLimitParkSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
 }
 
-// TestLimitParkSelectionAllLastSafeExceedsCap is the VAXCAP-006 legitimate-overflow guard: when
-// every selected row is on its last safe day, all are admitted even beyond the cap.
-func TestLimitParkSelectionAllLastSafeExceedsCap(t *testing.T) {
+// TestLimitParkSelectionAllLastSafeStillRespectsCap is the VAXCAP-006 hard-cap guard: even when
+// every selected row is on its last safe day, the operator-day cap is not exceeded.
+func TestLimitParkSelectionAllLastSafeStillRespectsCap(t *testing.T) {
 	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.ParkConsolidationCandidate{
 		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
@@ -615,9 +750,27 @@ func TestLimitParkSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession())
-	if len(out) != 3 {
-		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 1 || out[0] != "obl-1" {
+		t.Fatalf("admitted = %#v, want only the first last-safe row inside cap 1", out)
+	}
+}
+
+func TestLimitParkSelectionRejectsPastWindowRideAlongOverflow(t *testing.T) {
+	now := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	tightEnd := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	looseEnd := time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-blue-tongue", TargetID: "goat-1", RuleID: "rule-bt", ParkID: "park-1", DueAt: time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC), WindowEnd: &tightEnd, BatchingHoldCount: 1},
+		{ObligationID: "obl-loose", TargetID: "goat-2", RuleID: "rule-loose", ParkID: "park-1", DueAt: planned, WindowEnd: &looseEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitParkSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 1 || out[0] != "obl-loose" {
+		t.Fatalf("admitted = %#v, want only loose-window row; past-window blue_tongue must not ride 07-31 batch", out)
 	}
 }
 
@@ -632,9 +785,143 @@ func TestLimitParkSelectionCountsDistinctAnimals(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 2
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
+	}
+}
+
+func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	var rows []domain.ParkConsolidationCandidate
+	add := func(shed string, n int) {
+		for i := 1; i <= n; i++ {
+			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			rows = append(rows, domain.ParkConsolidationCandidate{
+				ObligationID: "obl-" + id,
+				TargetID:     "goat-" + id,
+				RuleID:       "rule-ettt",
+				ParkID:       "cpt",
+				ShedName:     shed,
+				DueAt:        planned,
+				WindowEnd:    &movableEnd,
+			})
+		}
+	}
+	// Deliberately list Gandhi first to prove cap admission is not raw scan-order bin packing.
+	add("Gandhi 1", 115)
+	add("Godel 1 - Part 1", 120)
+	add("Godel 2 - Part 4", 32)
+	add("Mandela 2 - Part 8", 47)
+	add("Old Yashoda 1", 10)
+	selected := make([]string, 0, len(rows))
+	for _, row := range rows {
+		selected = append(selected, row.ObligationID)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 200
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	gotRows := filterRows(rows, out)
+	if got := uniqueParkTargetCount(gotRows); got != 199 {
+		t.Fatalf("admitted animals = %d, want 199", got)
+	}
+	gotByShed := map[string]int{}
+	for _, row := range gotRows {
+		physical, _ := normalizeAssignmentShed(row.ShedName)
+		gotByShed[physical]++
+	}
+	want := map[string]int{"Godel 1": 120, "Godel 2": 32, "Mandela 2": 47}
+	if !reflect.DeepEqual(gotByShed, want) {
+		t.Fatalf("admitted shed rollup = %#v, want %#v", gotByShed, want)
+	}
+}
+
+func TestLimitParkSelectionFallsBackToWholePartitionsWhenShedExceedsRemainingCapacity(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	var rows []domain.ParkConsolidationCandidate
+	add := func(shed string, n int) {
+		for i := 1; i <= n; i++ {
+			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			rows = append(rows, domain.ParkConsolidationCandidate{
+				ObligationID: "obl-" + id,
+				TargetID:     "goat-" + id,
+				RuleID:       "rule-ettt",
+				ParkID:       "cpt",
+				ShedName:     shed,
+				DueAt:        planned,
+				WindowEnd:    &movableEnd,
+			})
+		}
+	}
+	// Route prefix leaves 111 slots. Gandhi as a physical shed is 115, so only whole partitions
+	// Gandhi 1 and Gandhi 2 should be admitted; Gandhi 3 carries to the next operator-day.
+	add("Godel 2 - Part 4", 32)
+	add("Mandela 2 - Part 8", 47)
+	add("Old Yashoda 1", 10)
+	add("Gandhi 1", 42)
+	add("Gandhi 2", 31)
+	add("Gandhi 3", 42)
+	selected := make([]string, 0, len(rows))
+	for _, row := range rows {
+		selected = append(selected, row.ObligationID)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 200
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	gotRows := filterRows(rows, out)
+	if got := uniqueParkTargetCount(gotRows); got != 162 {
+		t.Fatalf("admitted animals = %d, want 162", got)
+	}
+	gotByShed := map[string]int{}
+	for _, row := range gotRows {
+		gotByShed[row.ShedName]++
+	}
+	want := map[string]int{
+		"Godel 2 - Part 4":   32,
+		"Mandela 2 - Part 8": 47,
+		"Old Yashoda 1":      10,
+		"Gandhi 1":           42,
+		"Gandhi 2":           31,
+	}
+	if !reflect.DeepEqual(gotByShed, want) {
+		t.Fatalf("admitted shed partitions = %#v, want %#v", gotByShed, want)
+	}
+}
+
+func TestLimitParkSelectionLatestSafeKeepsWholePartitionPastResidualCapacity(t *testing.T) {
+	planned := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	var rows []domain.ParkConsolidationCandidate
+	add := func(shed string, n int) {
+		for i := 1; i <= n; i++ {
+			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			rows = append(rows, domain.ParkConsolidationCandidate{
+				ObligationID: "obl-" + id,
+				TargetID:     "goat-" + id,
+				RuleID:       "rule-pox",
+				ParkID:       "cpt",
+				ShedName:     shed,
+				DueAt:        planned.AddDate(0, 0, -7),
+				WindowEnd:    &planned,
+			})
+		}
+	}
+	add("Godel 1 - Part 1", 3)
+	selected := make([]string, 0, len(rows))
+	for _, row := range rows {
+		selected = append(selected, row.ObligationID)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 200
+	session := NewSweepSession()
+	session.claimDriveCapacity("cpt", planned, "existing-199", 199)
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, session)
+	if len(out) != 0 {
+		t.Fatalf("admitted = %#v, want none; latest-safe residual capacity must not split a normal partition", out)
 	}
 }
 

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -466,4 +467,257 @@ ORDER BY oi.sequence`, tenantID, batchID)
 	if seen != wantRows {
 		t.Fatalf("got %d member rows, want %d", seen, wantRows)
 	}
+}
+
+// TestDriveAssignmentMembershipCanonicalizesPartitionLabelFormat is the BUG-040 regression proof.
+//
+// The BUG-035 fix binds each goat to the assignment arm matching its OWN shed partition by comparing
+// vaccination_drive_assignments.partition_label against goat_shed_partitions.partition_label. But the
+// two writers normalize that label differently: goat placement stores the NORMALIZED form ("1", from
+// seed-vaccination-real normalizing "Gandhi 1") while the drive planner writes the DISPLAY form
+// ("Part 1"). For numeric-partition sheds the equality never matched, so the partition tiebreak was a
+// silent no-op and DISTINCT ON collapsed every partition onto the alphabetically-first arm (the CPT
+// reseed proved Gandhi Part 3 goats landing on Part 1). The fix canonicalizes both sides (strips a
+// leading "part "). Every subtest below seeds numeric placement labels ("1"/"3") against display cell
+// labels ("Part 1"/"Part 3") and asserts each goat binds to its OWN partition arm.
+func TestDriveAssignmentMembershipCanonicalizesPartitionLabelFormat(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	env := newLaneEnv(t, ctx, pool, proto, repo)
+
+	// seedPart seeds a fresh shed whose goats carry NUMERIC placement partitions ("1"/"3", one per
+	// goat, cycling through parts). The drive cells built later use the DISPLAY form ("Part N").
+	seedPart := func(t *testing.T, name string, count int, parts []string) (string, []string, []string) {
+		t.Helper()
+		env.seq++
+		shedID := fmt.Sprintf("00000000-0000-4000-8000-%012x", 0xca0000+env.seq)
+		seedParkConsolidationShed(t, ctx, pool, shedID, "partcanon-"+name)
+		goats := make([]string, count)
+		goatPart := make([]string, count)
+		for i := 0; i < count; i++ {
+			goats[i] = fmt.Sprintf("10000000-0000-4000-8000-%012x", (0xca<<24)|(env.seq<<8)|i)
+			goatPart[i] = parts[i%len(parts)]
+		}
+		seedReserveGoats(t, ctx, pool, shedID, cbePark, goats...)
+		for i, goatID := range goats {
+			if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1,$2,$3,$4,'Gandhi '||$4)`, tenantID, goatID, shedID, goatPart[i]); err != nil {
+				t.Fatalf("seed partition %s: %v", goatPart[i], err)
+			}
+		}
+		return shedID, goats, goatPart
+	}
+	obligate := func(t *testing.T, scopeType, scopeID, ruleID, key string, seq int32, goatID string) string {
+		t.Helper()
+		id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: env.versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: scopeType, ScopeID: scopeID,
+			DueAt: time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: seq,
+		})
+		if err != nil || !applied {
+			t.Fatalf("insert obligation %s: applied=%v err=%v", key, applied, err)
+		}
+		return id
+	}
+	makeBatch := func(t *testing.T, scopeType, scopeID, session string, obligations []string) string {
+		t.Helper()
+		planned := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+		op := env.operatorOne
+		batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+			TenantID: tenantID, ProtocolVersionID: env.versionID, ScopeType: scopeType, ScopeID: scopeID,
+			Session: session, PlannedDate: &planned, Status: "planned",
+			EstimatedTargets: int32(len(obligations)), PlannedQuantity: fmt.Sprintf("%d", len(obligations)),
+			QuantityUnit: "dose", ConductedBy: &op,
+		}, obligations)
+		if err != nil || attached != int64(len(obligations)) {
+			t.Fatalf("create batch: attached=%d want=%d err=%v", attached, len(obligations), err)
+		}
+		return batchID
+	}
+	partCell := func(shedID, ruleID string, date time.Time, part string, animals int32, operatorID string) domain.DriveAssignment {
+		shed := shedID
+		op := operatorID
+		return domain.DriveAssignment{
+			PlannedDate: date, OperatorID: &op, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: part, AnimalCount: animals,
+			VaccineRuleIDs: []string{ruleID}, TotalDoses: animals, CapacityStatus: "within_cap",
+		}
+	}
+	upsert := func(t *testing.T, batchID string, cells ...domain.DriveAssignment) {
+		t.Helper()
+		for i := range cells {
+			cells[i].BatchID = batchID
+		}
+		// Rewrite the cells several rounds so every round mints fresh random assignment_ids: any binding
+		// that leans on the UUID rather than the goat's own partition flips within a few rounds.
+		for round := 1; round <= 4; round++ {
+			if _, err := pool.Exec(ctx, `DELETE FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); err != nil {
+				t.Fatalf("round %d: clear: %v", round, err)
+			}
+			if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, cells); err != nil {
+				t.Fatalf("round %d: upsert: %v", round, err)
+			}
+		}
+	}
+	// boundPartition returns the display partition label of the arm an obligation is bound to.
+	boundPartition := func(t *testing.T, obligationID string) string {
+		t.Helper()
+		var got string
+		if err := pool.QueryRow(ctx, `
+SELECT vda.partition_label
+FROM vaccination_drive_assignment_members m
+JOIN vaccination_drive_assignments vda ON vda.tenant_id=m.tenant_id AND vda.assignment_id=m.assignment_id
+WHERE m.tenant_id=$1 AND m.obligation_id=$2`, tenantID, obligationID).Scan(&got); err != nil {
+			t.Fatalf("read membership: %v", err)
+		}
+		return got
+	}
+	// canon strips a leading "part " so a numeric placement label matches its display arm.
+	canon := func(s string) string {
+		low := strings.ToLower(strings.TrimSpace(s))
+		return strings.TrimSpace(strings.TrimPrefix(low, "part "))
+	}
+	assertArmSizing := func(t *testing.T, batchID string, wantArms int) {
+		t.Helper()
+		rows, err := pool.Query(ctx, `
+SELECT vda.assignment_id::text, vda.partition_label, vda.animal_count, count(DISTINCT m.goat_id)
+FROM vaccination_drive_assignments vda
+LEFT JOIN vaccination_drive_assignment_members m ON m.tenant_id=vda.tenant_id AND m.assignment_id=vda.assignment_id
+WHERE vda.tenant_id=$1 AND vda.batch_id=$2
+GROUP BY vda.assignment_id, vda.partition_label, vda.animal_count`, tenantID, batchID)
+		if err != nil {
+			t.Fatalf("arm sizing: %v", err)
+		}
+		defer rows.Close()
+		arms := 0
+		for rows.Next() {
+			var assignmentID, part string
+			var animalCount, members int
+			if err := rows.Scan(&assignmentID, &part, &animalCount, &members); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if animalCount != members {
+				t.Fatalf("arm %q: animal_count=%d but distinct members=%d (BUG-040 partition collapse)", part, animalCount, members)
+			}
+			arms++
+		}
+		if arms != wantArms {
+			t.Fatalf("saw %d arms, want %d", arms, wantArms)
+		}
+	}
+
+	planned := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+
+	t.Run("OneToMany", func(t *testing.T) {
+		// One goat in numeric partition "1" carrying an obligation for each vaccine: both member rows
+		// must follow the goat to its OWN "Part 1" arm, never split across partitions.
+		shedID, goats, _ := seedPart(t, "onetomany", 1, []string{"1"})
+		oA := obligate(t, "shed", shedID, env.ruleA, "pc-otm-a", 1, goats[0])
+		oB := obligate(t, "shed", shedID, env.ruleB, "pc-otm-b", 2, goats[0])
+		batchID := makeBatch(t, "shed", shedID, "pc-otm", []string{oA, oB})
+		upsert(t, batchID,
+			partCell(shedID, env.ruleA, planned, "Part 1", 1, env.operatorOne),
+			partCell(shedID, env.ruleB, planned, "Part 1", 1, env.operatorTwo),
+		)
+		if got := boundPartition(t, oA); got != "Part 1" {
+			t.Fatalf("ruleA bound to %q, want Part 1", got)
+		}
+		if got := boundPartition(t, oB); got != "Part 1" {
+			t.Fatalf("ruleB bound to %q, want Part 1", got)
+		}
+		assertArmSizing(t, batchID, 2)
+	})
+
+	t.Run("PageBoundary", func(t *testing.T) {
+		// 40 goats split across numeric partitions "1" and "3"; the whole-batch set-based recompute must
+		// place each goat on its own display arm, and neither arm may over- or under-fill.
+		const goatCount = 40
+		shedID, goats, goatPart := seedPart(t, "pageboundary", goatCount, []string{"1", "3"})
+		obls := make([]string, goatCount)
+		for i := range goats {
+			obls[i] = obligate(t, "shed", shedID, env.ruleA, fmt.Sprintf("pc-page-%d", i), int32(i+1), goats[i])
+		}
+		batchID := makeBatch(t, "shed", shedID, "pc-page", obls)
+		upsert(t, batchID,
+			partCell(shedID, env.ruleA, planned, "Part 1", goatCount/2, env.operatorOne),
+			partCell(shedID, env.ruleA, planned, "Part 3", goatCount/2, env.operatorOne),
+		)
+		for i, o := range obls {
+			want := "Part " + goatPart[i]
+			if got := boundPartition(t, o); got != want {
+				t.Fatalf("goat %d (placement %s) bound to %q, want %q", i, goatPart[i], got, want)
+			}
+		}
+		assertArmSizing(t, batchID, 2)
+	})
+
+	t.Run("DateShift", func(t *testing.T) {
+		// The two partition arms execute on DIFFERENT days. Binding must follow the goat's partition,
+		// not the earlier date, so an exit decrements the day that actually carries the animal.
+		shedID, goats, goatPart := seedPart(t, "dateshift", 2, []string{"1", "3"})
+		obls := []string{
+			obligate(t, "shed", shedID, env.ruleA, "pc-date-0", 1, goats[0]),
+			obligate(t, "shed", shedID, env.ruleA, "pc-date-1", 2, goats[1]),
+		}
+		batchID := makeBatch(t, "shed", shedID, "pc-date", obls)
+		upsert(t, batchID,
+			partCell(shedID, env.ruleA, planned, "Part 1", 1, env.operatorOne),
+			partCell(shedID, env.ruleA, planned.AddDate(0, 0, 1), "Part 3", 1, env.operatorOne),
+		)
+		for i, o := range obls {
+			if got := boundPartition(t, o); got != "Part "+goatPart[i] {
+				t.Fatalf("goat %d bound to %q, want Part %s", i, got, goatPart[i])
+			}
+		}
+		assertArmSizing(t, batchID, 2)
+	})
+
+	t.Run("ScopeHierarchy", func(t *testing.T) {
+		// Partition canonicalization is a shed-grain concern; a park-grain cell (no partition) must still
+		// bind the batch's non-shed-scoped obligation, and a shed-grain partition arm binds its own goat.
+		shedID, goats, _ := seedPart(t, "scopehierarchy", 1, []string{"1"})
+		oShed := obligate(t, "shed", shedID, env.ruleA, "pc-scope-shed", 1, goats[0])
+		batchID := makeBatch(t, "shed", shedID, "pc-scope", []string{oShed})
+		upsert(t, batchID, partCell(shedID, env.ruleA, planned, "Part 1", 1, env.operatorOne))
+		if got := boundPartition(t, oShed); got != "Part 1" {
+			t.Fatalf("shed-scoped obligation bound to %q, want Part 1", got)
+		}
+		assertArmSizing(t, batchID, 1)
+	})
+
+	t.Run("StatusMatrix", func(t *testing.T) {
+		// A canceled obligation must not consume a partition arm slot; the surviving live obligation must
+		// still bind to its own numeric partition's display arm.
+		shedID, goats, _ := seedPart(t, "statusmatrix", 2, []string{"1", "3"})
+		live := obligate(t, "shed", shedID, env.ruleA, "pc-status-live", 1, goats[0])
+		dead := obligate(t, "shed", shedID, env.ruleA, "pc-status-dead", 2, goats[1])
+		batchID := makeBatch(t, "shed", shedID, "pc-status", []string{live, dead})
+		if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, dead); err != nil {
+			t.Fatalf("cancel: %v", err)
+		}
+		upsert(t, batchID,
+			partCell(shedID, env.ruleA, planned, "Part 1", 1, env.operatorOne),
+			partCell(shedID, env.ruleA, planned, "Part 3", 0, env.operatorOne),
+		)
+		if got := boundPartition(t, live); got != "Part 1" {
+			t.Fatalf("live obligation bound to %q, want Part 1", got)
+		}
+		var deadBound int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM vaccination_drive_assignment_members WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, dead).Scan(&deadBound); err != nil {
+			t.Fatalf("dead membership: %v", err)
+		}
+		if deadBound != 0 {
+			t.Fatalf("canceled obligation has %d membership rows, want 0", deadBound)
+		}
+		// canon() keeps the placement/display equivalence explicit for the reviewer.
+		if canon("Part 1") != canon("1") {
+			t.Fatalf("canonicalization broken: %q != %q", canon("Part 1"), canon("1"))
+		}
+	})
 }

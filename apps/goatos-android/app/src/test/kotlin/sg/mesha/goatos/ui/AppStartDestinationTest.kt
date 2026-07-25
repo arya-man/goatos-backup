@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 
 class AppStartDestinationTest {
@@ -46,6 +48,53 @@ class AppStartDestinationTest {
     fun `unknown or empty bootstrap root fails safely`() {
         assertEquals(Routes.CALENDAR, startDestinationFor(navState(NavItem("future", "Future", "/future"))))
         assertEquals(Routes.CALENDAR, startDestinationFor(NavState.Empty))
+    }
+
+    @Test
+    fun `leadership cold start lands in shared vaccination module`() {
+        val vaccinationBar = listOf(
+            NavItem("vaccination", "Vaccination", Routes.VACCINATION),
+            NavItem("alerts", "Alerts", Routes.ALERTS),
+            NavItem("you", "You", Routes.YOU),
+        )
+        val state = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = vaccinationBar,
+            modules = listOf(
+                NavModule(
+                    key = "vaccination",
+                    label = "Vaccination",
+                    href = Routes.VACCINATION,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = vaccinationBar,
+                ),
+            ),
+        )
+        assertEquals(Routes.VACCINATION, startDestinationFor(state))
+    }
+
+    @Test
+    fun `counts-only operator cold starts on its counts landing, not calendar`() {
+        val countsBar = listOf(
+            NavItem("birth_death", "Birth/Death", Routes.COUNTS_BIRTH_DEATH),
+            NavItem("shifting", "Shifting", Routes.COUNTS_SHIFTING),
+        )
+        // The backend lands a capture operator on /counts/birth-death (the census /counts is
+        // gated away). Calendar is NOT exposed to them, so the fallback must not fire.
+        val state = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = countsBar,
+            modules = listOf(
+                NavModule(
+                    key = "counts",
+                    label = "Counts",
+                    href = Routes.COUNTS_BIRTH_DEATH,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = countsBar,
+                ),
+            ),
+        )
+        assertEquals(Routes.COUNTS_BIRTH_DEATH, startDestinationFor(state))
     }
 
     private fun navState(vararg items: NavItem) =
