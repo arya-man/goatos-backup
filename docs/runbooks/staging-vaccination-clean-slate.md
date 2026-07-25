@@ -324,9 +324,16 @@ The closeout must save and hand off:
 - expected-drive-schedule result
 - integrity SQL output
 - adult goat count and shed totals
+- `tools/dev/stg-seed-postflight.sh` output, including FCM worker readiness
 - pass/fail timestamp
 
 A UI screenshot is never a substitute for these DB artifacts.
+
+The postflight is part of the seed, not an optional deploy check. In particular,
+FCM is not considered ready just because Firebase accepts a direct test message:
+`goatos-kernel-worker-stg` must have `GOATOS_WORKER_STAGES_ENABLED=true`, CPU
+allocated while idle, and a nonzero warm instance count so the backend
+notification dispatcher drains `notification_requests` after the seed.
 
 ## Login Seed Contract
 

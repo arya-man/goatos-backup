@@ -71,6 +71,30 @@ print("")
 PY
 }
 
+service_scaling_value() {
+  local json="$1" name="$2"
+  python3 - "$json" "$name" <<'PY'
+import json, sys
+path, name = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path))
+except Exception:
+    print("")
+    raise SystemExit
+scaling = data.get("spec", {}).get("template", {}).get("scaling", {}) or {}
+value = scaling.get(name)
+if value is None:
+    annotations = data.get("spec", {}).get("template", {}).get("metadata", {}).get("annotations", {}) or {}
+    annotation_name = {
+        "minInstanceCount": "autoscaling.knative.dev/minScale",
+        "maxInstanceCount": "autoscaling.knative.dev/maxScale",
+    }.get(name)
+    if annotation_name:
+        value = annotations.get(annotation_name)
+print("" if value is None else value)
+PY
+}
+
 require_service_env() {
   local json="$1" service="$2" name="$3" expected="${4:-}"
   local value
@@ -164,6 +188,20 @@ check_fcm() {
   echo "==> postflight: FCM notification wiring"
   local kernel="$tmpdir/kernel.json"
   service_json "$KERNEL_SERVICE" "$kernel"
+  require_service_env "$kernel" "$KERNEL_SERVICE" GOATOS_WORKER_STAGES_ENABLED true
+  local min_instances max_instances
+  min_instances="$(service_scaling_value "$kernel" minInstanceCount)"
+  max_instances="$(service_scaling_value "$kernel" maxInstanceCount)"
+  if [[ "${min_instances:-0}" -ge 1 ]]; then
+    pass "${KERNEL_SERVICE}: min instances keeps notification dispatcher running"
+  else
+    fail "${KERNEL_SERVICE}: minInstanceCount=${min_instances:-<missing>}, want >=1 so FCM dispatcher cannot scale to zero"
+  fi
+  if [[ "${max_instances:-0}" -ge "${min_instances:-0}" && "${max_instances:-0}" -ge 1 ]]; then
+    pass "${KERNEL_SERVICE}: max instances allow warm dispatcher instance(s)"
+  else
+    fail "${KERNEL_SERVICE}: maxInstanceCount=${max_instances:-<missing>} is below minInstanceCount=${min_instances:-<missing>}"
+  fi
   local project topic devices
   project="$(service_env "$kernel" GOATOS_FCM_PROJECT_ID)"
   if [[ -z "$project" ]]; then
