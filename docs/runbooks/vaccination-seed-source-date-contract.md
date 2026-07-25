@@ -110,7 +110,7 @@ removed from the roster. It also reuses the founder/CXO `ceo_internal` grant coh
 `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
 The same roster may carry verifier-only grants. Jyothi
 (`jyothipvg12345@gmail.com`, seeded Firebase/email-password password
-`Jyothi@2025`) is a CPT evidence verifier, not an operator; her seed grant must
+`Jyothi@2026`) is a CPT evidence verifier, not an operator; her seed grant must
 not create field execution capacity or change drive scheduling.
 After the DB seed completes, each executable vaccination operator in that
 roster must also be provisioned as a separate Android login using the operator's

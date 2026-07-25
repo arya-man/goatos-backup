@@ -683,7 +683,7 @@ STG seed/login rules are governed by:
 10 STG people total: **5 Mesha leadership (Google SSO and Firebase
 email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
 (Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
-(Firebase email/password, password `Jyothi@2025`)**. Canonical source:
+(Firebase email/password, password `Jyothi@2026`)**. Canonical source:
 `docs/runbooks/stg-login-seed-contract.md`.
 
 | Person | Auth | Role | Adds vaccination capacity? |
@@ -691,8 +691,8 @@ email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
 | Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
 | Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
 | Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
-| Chandrakant | Firebase `Chandra@2026` | **director** | **no** |
-| Jyothi | Firebase `Jyothi@2025` | **verifier** | **no** |
+| Chandrakant | Firebase `Chandrakant@2026` | **director** | **no** |
+| Jyothi | Firebase `Jyothi@2026` | **verifier** | **no** |
 | 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
 
 The 5 Mesha leadership users are `ceo_internal` with both Google SSO and

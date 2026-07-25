@@ -17,7 +17,7 @@ export function FirebaseSessionBridge() {
         if (!mounted) return;
         unsubscribe = onIdTokenChanged(auth, (user) => {
           if (!user) return;
-          void syncFirebaseSession(user).catch((error: unknown) => {
+          void syncFirebaseSession(user, true, "auth.sign_in").catch((error: unknown) => {
             if (isFirebaseSessionError(error, "email_not_allowed")) {
               void clearFirebaseSession().catch(() => undefined);
             }

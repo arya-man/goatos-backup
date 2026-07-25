@@ -16,11 +16,11 @@ admin-web and an empty bottom bar on mobile.
 
 A STG seed is **INCOMPLETE** until:
 
-1. all 9 UID-backed accounts have an **ACTIVE** (`status = 'active'`)
+1. all 10 UID-backed accounts have an **ACTIVE** (`status = 'active'`)
    `user_scope_grants` row — not merely a pending email grant — and Jyothi has
    an active CPT verifier pending-email grant that materializes on first
    verified sign-in;
-2. **all 9 UID-backed accounts have an active `workforce_members` profile.** The mobile
+2. **all 10 UID-backed accounts have an active `workforce_members` profile.** The mobile
    `/app/bootstrap` (`activeProfileAndGrants`) hard-requires a profile row for
    the signed-in user and returns `403 operator_profile_missing` without one —
    this applies to the 5 leadership users too, not just field users. The 4
@@ -46,7 +46,7 @@ must not create replacement Firebase users during seed.
 
 `make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
 permanent, idempotent command that materializes step 1 and 2 directly for the
-original 9 UID-backed accounts — it does not wait for a claim event. Both
+all 10 UID-backed accounts — it does not wait for a claim event. Both
 commands are wired as required final steps of `make seed-vaccination-source-full`
 and `make seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg`, in this
 order: Firebase passwords first, DB grant/profile materialization second, and
@@ -81,7 +81,7 @@ email/password) + 4 field users (Firebase email/password) + 1 proof verifier
   | Person | STG password |
   |---|---|
   | Ravi | `Ravi@2026` |
-  | Manohar (Manohark) | `Manohark@2026` |
+  | Manohar (Manohark) | `Manohar@2026` |
   | Manju | `Manju@2026` |
   | Abhishek | `Abhishek@2026` |
   | Aryaman | `Aryaman@2026` |
@@ -105,7 +105,7 @@ email/password) + 4 field users (Firebase email/password) + 1 proof verifier
   | Amit | Amit | `Amit@2026` |
   | Darshan | Darshan | `Darshan@2026` |
   | Sagar | Sagar | `Sagar@2026` |
-  | Chandrakant | Chandra | `Chandra@2026` |
+  | Chandrakant | Chandra | `Chandrakant@2026` |
 
 - These are **STG throwaway credentials only**.
 - Firebase allowed-emails is **NOT** enough.
@@ -132,7 +132,7 @@ Field roles:
 
 - Jyothi logs in with **Firebase email/password**.
 - Email: `jyothipvg12345@gmail.com`.
-- Password: `Jyothi@2025`.
+- Password: `Jyothi@2026`.
 - Role/grant: **`verifier`**, tenant scope.
 - Seed path: the CPT operator-drive roster seeds an active
   `auth_pending_email_grants` row for this email/role during DB seed. Because
@@ -178,7 +178,7 @@ These users log in with Firebase email/password.
 | Amit | vaccination operator | amit797069@gmail.com | `Amit@2026` |
 | Darshan | vaccination operator | darshantalawar033@gmail.com | `Darshan@2026` |
 | Sagar | vaccination operator | sagarmahoor143@gmail.com | `Sagar@2026` |
-| Chandrakant | director | chandrakanth119527@gmail.com | `Chandra@2026` |
+| Chandrakant | director | chandrakanth119527@gmail.com | `Chandrakant@2026` |
 
 Seed requirements:
 
@@ -203,7 +203,7 @@ Seed requirements:
 - Firebase email/password provider is added to each leadership account in
   `goatos-stg` (SSO `google.com` provider stays as well)
 - password follows the `<FirstName>@2026` convention (`Ravi@2026`,
-  `Manohark@2026`, `Manju@2026`, `Abhishek@2026`, `Aryaman@2026`)
+  `Manohar@2026`, `Manju@2026`, `Abhishek@2026`, `Aryaman@2026`)
 - SSO identity is allowlisted for STG
 - `ceo_internal` grant exists and is ACTIVE
 - an active `workforce_members` profile exists (auto-created by
