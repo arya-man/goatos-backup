@@ -498,11 +498,10 @@ class ScanViewModel @Inject constructor(
     }
 
     /** RFID/manual input is accepted once the FULL roster is local (any tag validates against the
-     *  complete SSOT via [findScanRosterByTag], independent of the visible window) and a refresh is
-     *  not mid-flight. This is why a page-2/page-N animal scans correctly — the SSOT holds it even
-     *  when it is below the scroll window. */
+     *  complete SSOT via [findScanRosterByTag], independent of the visible window). A background
+     *  refresh is stale-while-revalidate only; while Room has a roster, it must not block scanning. */
     private fun canAcceptScanInput(): Boolean =
-        _operatorAllowed.value == true && rosterTotal.value > 0 && !_isRefreshing.value
+        _operatorAllowed.value == true && rosterTotal.value > 0 && !state.value.hasMore
 
     private fun draftDoneIds(): Set<String> =
         persistedScans.value.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet() + _localDone.value
