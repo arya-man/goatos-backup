@@ -350,7 +350,7 @@ func appendRecipients(base []calendarports.NotificationRecipient, extra []calend
 }
 
 func isLeadershipCadenceSlot(fire calendarports.ReminderCadenceFire) bool {
-	return fire.NotificationType == "due_today" && fire.Slot == "19:30"
+	return fire.NotificationType == "due_today" && fire.Slot == "20:30"
 }
 
 // splitParkPositionKey parses the "<scopeID>|<positionCode>" key ResolvePositionRecipientsBatch emits.
@@ -393,7 +393,7 @@ func renderReminderBody(fire calendarports.ReminderCadenceFire) string {
 		return fmt.Sprintf("%d vaccination(s) due soon", fire.ObligationCount)
 	case "due_today":
 		if isLeadershipCadenceSlot(fire) {
-			return fmt.Sprintf("%d scheduled vaccination shed(s) still not submitted by 7:30 PM", fire.ObligationCount)
+			return fmt.Sprintf("%d scheduled vaccination shed(s) still not submitted by 8:30 PM", fire.ObligationCount)
 		}
 		return fmt.Sprintf("%d vaccination(s) due today", fire.ObligationCount)
 	case "overdue":

@@ -80,7 +80,7 @@ func TestReminderCadenceStageRunsAgainstRealPostgres(t *testing.T) {
 //     D+7 relative to biztime.BusinessDayStart(time.Now()) — anchored to the business day, NO fixed
 //     calendar dates (india-date-guard / time-bomb safe).
 //
-// The stage is evaluated at a pinned evening instant (19:45 IST today, after every ladder slot and
+// The stage is evaluated at a pinned evening instant (20:45 IST today, after every ladder slot and
 // before quiet hours) so each obligation lands exactly one ladder rung ON today's fire day:
 //   - the D+7 obligation -> advance_notice (D-7 rung)
 //   - the D+3 obligation -> reminder      (D-6..D-1 rung)
@@ -102,7 +102,7 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 
 	// ---- Anchor everything to the business day, never a fixed date. -----------------------------
 	dayStart := biztime.BusinessDayStart(time.Now())          // midnight IST today
-	evalNow := dayStart.Add(19*time.Hour + 45*time.Minute)    // 19:45 IST today (after all slots, before quiet hours)
+	evalNow := dayStart.Add(20*time.Hour + 45*time.Minute)    // 20:45 IST today (after all slots, before quiet hours)
 	dueToday := dayStart.Add(10 * time.Hour)                  // today 10:00 IST  -> due_today rung fires today
 	duePlus3 := dayStart.AddDate(0, 0, 3).Add(10 * time.Hour) // today+3          -> reminder rung fires today
 	duePlus7 := dayStart.AddDate(0, 0, 7).Add(10 * time.Hour) // today+7          -> advance_notice rung fires today
@@ -135,14 +135,14 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 	}
 	dueTodayTokens := reminderRecipientTokensForType(t, ctx, pool, "due_today")
 	if len(dueTodayTokens) == 0 {
-		t.Fatalf("7:30 due_today slot produced NO notification_requests rows")
+		t.Fatalf("8:30 due_today slot produced NO notification_requests rows")
 	}
 	if !sameStringSet(dueTodayTokens, leadershipExceptionTokens) {
-		t.Fatalf("7:30 due_today recipients = %v, want field + leadership %v", dueTodayTokens, leadershipExceptionTokens)
+		t.Fatalf("8:30 due_today recipients = %v, want field + leadership %v", dueTodayTokens, leadershipExceptionTokens)
 	}
 	if title, body := notificationTitleBodyForType(t, ctx, pool, "due_today"); title != "Vaccination EOD exception" ||
-		body != "1 scheduled vaccination shed(s) still not submitted by 7:30 PM" {
-		t.Fatalf("7:30 due_today title/body = %q/%q, want EOD exception copy", title, body)
+		body != "1 scheduled vaccination shed(s) still not submitted by 8:30 PM" {
+		t.Fatalf("8:30 due_today title/body = %q/%q, want EOD exception copy", title, body)
 	}
 
 	firstTotal := reminderNotificationCount(t, ctx, pool)

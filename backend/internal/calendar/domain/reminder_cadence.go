@@ -44,8 +44,8 @@ const (
 // DefaultReminderLadder is the vaccination reminder cadence for an actionable scheduled/open
 // vaccination shed with due date D (all times local/IST):
 //   - D-7d: one advance_notice at 08:00 (normal)
-//   - D-6d..D-1d: three reminders/day at 08:00, 13:00, and 19:30 (normal)
-//   - D-0 (due day): three due_today reminders at 08:00, 13:00, and 19:30 (high)
+//   - D-6d..D-1d: three reminders/day at 08:00, 13:00, and 20:30 (normal)
+//   - D-0 (due day): three due_today reminders at 08:00, 13:00, and 20:30 (high)
 //
 // The repository candidate filter stops this ladder once the shed enters in_progress (operator
 // scanning) or a later submitted/review state; the separate submission notification path owns those
@@ -53,8 +53,8 @@ const (
 func DefaultReminderLadder() []ReminderLadderStep {
 	return []ReminderLadderStep{
 		{OffsetDaysFrom: -7, OffsetDaysTo: -7, Slots: []string{"08:00"}, Type: ReminderTypeAdvanceNotice, Priority: ReminderPriorityNormal},
-		{OffsetDaysFrom: -6, OffsetDaysTo: -1, Slots: []string{"08:00", "13:00", "19:30"}, Type: ReminderTypeReminder, Priority: ReminderPriorityNormal},
-		{OffsetDaysFrom: 0, OffsetDaysTo: 0, Slots: []string{"08:00", "13:00", "19:30"}, Type: ReminderTypeDueToday, Priority: ReminderPriorityHigh},
+		{OffsetDaysFrom: -6, OffsetDaysTo: -1, Slots: []string{"08:00", "13:00", "20:30"}, Type: ReminderTypeReminder, Priority: ReminderPriorityNormal},
+		{OffsetDaysFrom: 0, OffsetDaysTo: 0, Slots: []string{"08:00", "13:00", "20:30"}, Type: ReminderTypeDueToday, Priority: ReminderPriorityHigh},
 	}
 }
 
