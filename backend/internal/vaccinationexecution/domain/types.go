@@ -119,6 +119,11 @@ type ExecutionResponse struct {
 	ViewerReadOnly bool                 `json:"viewerReadOnly"`
 	Freshness      *ProjectionFreshness `json:"freshness,omitempty"`
 	CarrySummary   *CarrySummary        `json:"carrySummary,omitempty"`
+	FilterOptions  *ExecutionFilters    `json:"filterOptions,omitempty"`
+}
+
+type ExecutionFilters struct {
+	Parks []ParkOption `json:"parks,omitempty"`
 }
 
 // VaccineCarryLine is internal aggregation from repo layer (date + vaccine + counts).
@@ -190,6 +195,7 @@ type ExecutionQuery struct {
 	// workforce member before returning assigned operator work. Admin reads leave
 	// it empty and keep the broader park/tenant visibility.
 	OperatorScopeActorID string
+	AuthorizedParkIDs    []string
 	WorkState            *WorkState
 	Severity             *Severity
 	Cursor               *ExecutionCursor
@@ -197,6 +203,7 @@ type ExecutionQuery struct {
 	DueBefore            time.Time
 	HistoricalAsOf       bool
 	OpenOnly             bool
+	IncludeFilterOptions bool
 	Limit                int
 }
 
