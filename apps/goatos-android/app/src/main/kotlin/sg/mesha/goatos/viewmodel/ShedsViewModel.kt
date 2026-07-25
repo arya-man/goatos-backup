@@ -15,10 +15,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
-import sg.mesha.goatos.core.data.AdherenceRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
-import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
@@ -42,7 +40,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import javax.inject.Inject
-import kotlin.math.roundToInt
 
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
@@ -66,7 +63,6 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 @HiltViewModel
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
-    private val adherenceRepo: AdherenceRepository,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -100,21 +96,6 @@ class ShedsViewModel @Inject constructor(
             Resource(data = null)
         )
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val adherenceResource: StateFlow<Resource<ProtocolAdherenceResponseDto>> =
-        _selectedParkId.flatMapLatest { parkId ->
-            adherenceRepo.observeAdherence(
-                parkId = parkId,
-                asOf = workWindow.asOf,
-                dueBefore = workWindow.dueBefore,
-                limit = PAGE_LIMIT,
-            )
-        }.stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            Resource(data = null),
-        )
-
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
@@ -131,9 +112,8 @@ class ShedsViewModel @Inject constructor(
     // Combines observed resource with transient flags; lifecycle-aware
     val state: StateFlow<ShedsUiState> = combine(
         observedResource,
-        adherenceResource,
         transientState,
-    ) { resource, adherence, transient ->
+    ) { resource, transient ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !transient.isOffline
@@ -158,7 +138,6 @@ class ShedsViewModel @Inject constructor(
                 )
             }
         base.copy(
-            adherence = adherence.data?.toProtocolAdherenceSummary(),
             hostedFromCalendar = calendarHosted,
             isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
@@ -190,19 +169,10 @@ class ShedsViewModel @Inject constructor(
             limit = PAGE_LIMIT,
             includeFilterOptions = true,
         )
-        val adherenceResult = adherenceRepo.refreshAdherence(
-            parkId = _selectedParkId.value,
-            asOf = workWindow.asOf,
-            dueBefore = workWindow.dueBefore,
-            limit = PAGE_LIMIT,
-        )
         _isRefreshing.value = false
-        _isOffline.value = result.isFailure || adherenceResult.isFailure
+        _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
             crashReporter.recordException(it, "vaccination sheds refresh failed")
-        }
-        adherenceResult.exceptionOrNull()?.let {
-            crashReporter.recordException(it, "vaccination adherence refresh failed")
         }
     }
 
@@ -320,6 +290,7 @@ class ShedsViewModel @Inject constructor(
                 .thenBy { it.name.lowercase() }
         )
         val totals = executionCounts(rowsForSelectedDay)
+        val visibleWindowTotals = executionCounts(weekRows.filter { it.hasOperatorVisibleWork() })
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
@@ -360,6 +331,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
+            adherence = protocolAdherenceSummary(visibleWindowTotals),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
@@ -424,23 +396,15 @@ private data class ShedsTransientState(
     val isLoadingMore: Boolean,
 )
 
-private fun ProtocolAdherenceResponseDto.toProtocolAdherenceSummary(): ProtocolAdherenceSummary? {
-    if (summary.expectedCount <= 0 && summary.completedCount <= 0 && summary.openGapCount <= 0) return null
-    val reviewRows = rows.filter { row ->
-        row.workState.equals("verification_pending", ignoreCase = true) ||
-            row.gap.equals("verification_pending", ignoreCase = true)
-    }
-    val reviewAnimals = reviewRows.sumOf { row ->
-        row.driveAnimalsRequired.takeIf { it > 0 } ?: row.driveAnimalsAssigned.coerceAtLeast(0)
-    }
-    val submittedCount = (summary.completedCount + reviewAnimals).coerceAtMost(summary.expectedCount)
+internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? {
+    if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
     return ProtocolAdherenceSummary(
-        expectedCount = summary.expectedCount,
-        submittedCount = submittedCount,
-        acceptedCount = summary.completedCount,
-        reviewItemCount = reviewRows.size,
-        deferredCount = summary.deferredCount,
-        acceptedPercent = summary.adherencePercent.roundToInt().coerceIn(0, 100),
+        expectedCount = counts.target,
+        submittedCount = counts.done,
+        acceptedCount = counts.done,
+        reviewItemCount = 0,
+        deferredCount = 0,
+        acceptedPercent = if (counts.target > 0) (counts.done * 100 / counts.target).coerceIn(0, 100) else 0,
     )
 }
 
