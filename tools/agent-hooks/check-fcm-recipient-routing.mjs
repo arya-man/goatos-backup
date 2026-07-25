@@ -7,7 +7,7 @@
 // workforce_positions seats. Seed scripts must not fabricate notification
 // routing as a side effect; routing belongs in runtime recipient resolvers.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repo = process.argv.find((arg) => arg.startsWith("--test-dir="))
@@ -52,6 +52,14 @@ function findings({ rosterRepository, stgSeed }) {
   return out;
 }
 
+function readGoPackageSource(dir) {
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".go"))
+    .sort()
+    .map((name) => readFileSync(resolve(dir, name), "utf8"))
+    .join("\n");
+}
+
 function selfTest() {
   const goodRoster = `
 func (r *Repository) ResolvePositionRecipients() {
@@ -88,7 +96,7 @@ if (process.argv.includes("--self-test")) {
 
 const result = findings({
   rosterRepository: readFileSync(resolve(repo, "backend/internal/workforce/adapters/postgres/roster_repository.go"), "utf8"),
-  stgSeed: readFileSync(resolve(repo, "backend/cmd/seed-stg-login-grants/main.go"), "utf8"),
+  stgSeed: readGoPackageSource(resolve(repo, "backend/cmd/seed-stg-login-grants")),
 });
 
 if (result.length > 0) {
