@@ -123,4 +123,5 @@ private class FakeVerifyQueueRepository : VerificationRepository {
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = error("unused")
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit
+    override suspend fun markVerificationItemDecidedLocally(itemId: String) = Unit
 }

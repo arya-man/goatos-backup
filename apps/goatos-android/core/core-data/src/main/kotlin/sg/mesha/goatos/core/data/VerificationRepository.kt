@@ -87,6 +87,11 @@ interface VerificationRepository {
         shedId: String? = null,
         limit: Int? = null,
     )
+
+    /** Optimistically removes a verifier-decided item from cached pending queues after the
+     *  verdict outbox row has SUCCEEDED. This keeps the verifier queue honest when the backend
+     *  write landed but the follow-up refresh is temporarily offline/stale. */
+    suspend fun markVerificationItemDecidedLocally(itemId: String)
 }
 
 class DefaultVerificationRepository(
@@ -204,6 +209,29 @@ class DefaultVerificationRepository(
         )
     }
 
+    override suspend fun markVerificationItemDecidedLocally(itemId: String) {
+        val trimmedItemId = itemId.trim()
+        if (trimmedItemId.isEmpty()) return
+        queueDao.getByPrefix(VERIFY_QUEUE_CACHE_PREFIX).forEach { entity ->
+            val current = readCachedJson<VerificationQueueResponseDto>(
+                json = json,
+                cacheKey = entity.cacheKey,
+                dtoJson = entity.dtoJson,
+                updatedAt = entity.updatedAt,
+                now = clock(),
+                quarantine = { queueDao.delete(it) },
+            ).data ?: return@forEach
+            val updated = current.removeItem(trimmedItemId) ?: return@forEach
+            queueDao.upsert(
+                VerificationQueueCacheEntity(
+                    cacheKey = entity.cacheKey,
+                    dtoJson = json.encodeToString(updated),
+                    updatedAt = clock(),
+                ),
+            )
+        }
+    }
+
     private suspend fun VerificationQueueCacheEntity?.toResource(key: String): Resource<VerificationQueueResponseDto> {
         val cached = readCachedJson<VerificationQueueResponseDto>(
             json = json,
@@ -217,7 +245,7 @@ class DefaultVerificationRepository(
     }
 
     private fun scopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
-        cacheKey("verify-queue", category, parkId, shedId, limit?.toString())
+        cacheKey(VERIFY_QUEUE_CACHE_PREFIX, category, parkId, shedId, limit?.toString())
 
     private fun actionScopeKey(category: String?, limit: Int?): String =
         actionScopeKey(category, null, null, limit)
@@ -241,4 +269,20 @@ internal fun mergeVerificationQueuePage(
         .distinctBy { it.itemId }
         .takeLast(MAX_CACHED_VERIFICATION_QUEUE_ITEMS)
     return page.copy(items = boundedItems)
+}
+
+private const val VERIFY_QUEUE_CACHE_PREFIX = "verify-queue"
+
+private fun VerificationQueueResponseDto.removeItem(itemId: String): VerificationQueueResponseDto? {
+    if (items.none { it.itemId == itemId }) return null
+    val remaining = items.filterNot { it.itemId == itemId }
+    val remainingParkIds = remaining.mapNotNull { it.parkId }.toSet()
+    val remainingShedIds = remaining.mapNotNull { it.shedId }.toSet()
+    return copy(
+        items = remaining,
+        filterOptions = filterOptions.copy(
+            parks = filterOptions.parks.orEmpty().filter { it.id in remainingParkIds },
+            sheds = filterOptions.sheds.orEmpty().filter { it.id in remainingShedIds },
+        ),
+    )
 }

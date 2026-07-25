@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -17,11 +18,13 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
@@ -41,6 +44,8 @@ private data class VerifyDetailFlags(
     val awaitingBackendDecision: Boolean = false,
     val autoCloseAfterDecision: Boolean = false,
 )
+
+private const val VERIFY_DETAIL_PAGE_SIZE = 20
 
 /**
  * The standalone Verifier section's detail state holder (context/architecture/
@@ -69,13 +74,22 @@ class VerifyDetailViewModel @Inject constructor(
     private val itemId: String = savedStateHandle.get<String>("itemId").orEmpty()
     private val category: String? = savedStateHandle.get<String>("category")
     private val isActionMode: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
+    private val parkId: String? = savedStateHandle.get<String>("parkId")
+    private val shedId: String? = savedStateHandle.get<String>("shedId")
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
+    private val observedQueue: Flow<Resource<VerificationQueueResponseDto>> =
+        if (isActionMode) {
+            repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        } else {
+            repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        }
+
     // Cache-first: the tapped row's category scope Room cache already holds this item's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
     private val observedItem: StateFlow<VerificationQueueItem?> =
-        (if (isActionMode) repo.observeActionQueue(category = category) else repo.observeQueue(category = category))
+        observedQueue
             .map { resource -> resource.data?.items?.firstOrNull { it.itemId == itemId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -101,7 +115,11 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun refresh() = viewModelScope.launch {
         _flags.update { it.copy(isRefreshing = true) }
-        val result = if (isActionMode) repo.refreshActionQueue(category = category) else repo.refreshQueue(category = category)
+        val result = if (isActionMode) {
+            repo.refreshActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        } else {
+            repo.refreshQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        }
         _flags.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
     }
 
@@ -153,6 +171,9 @@ class VerifyDetailViewModel @Inject constructor(
                     val item = outbox.value
                     when {
                         item?.status == SyncItemStatus.SUCCEEDED -> {
+                            if (!isActionMode) {
+                                repo.markVerificationItemDecidedLocally(itemId)
+                            }
                             refresh()
                             return null
                         }
@@ -166,6 +187,9 @@ class VerifyDetailViewModel @Inject constructor(
             _flags.update { flags -> flags.copy(isOffline = result.isFailure) }
             val current = observedItem.value
             if (current == null || current.status != VerificationStatus.PENDING) {
+                if (!isActionMode) {
+                    repo.markVerificationItemDecidedLocally(itemId)
+                }
                 return null
             }
             delay(320)

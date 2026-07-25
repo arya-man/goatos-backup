@@ -32,6 +32,9 @@ interface VerificationQueueCacheDao : JsonBlobCacheDao<VerificationQueueCacheEnt
     @Query("SELECT * FROM verification_queue_cache WHERE cacheKey = :cacheKey")
     suspend fun get(cacheKey: String): VerificationQueueCacheEntity?
 
+    @Query("SELECT * FROM verification_queue_cache WHERE cacheKey LIKE :prefix || '|%'")
+    suspend fun getByPrefix(prefix: String): List<VerificationQueueCacheEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     override suspend fun upsert(entity: VerificationQueueCacheEntity)
 

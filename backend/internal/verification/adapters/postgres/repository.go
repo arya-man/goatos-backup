@@ -651,6 +651,7 @@ proofs AS (
     AND (NOT $7::boolean OR vi.closed_at IS NULL)
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
+    AND ($9 = '' OR vi.shed_id = $9::uuid)
 ),
 rollup AS (
   SELECT
@@ -679,7 +680,7 @@ WHERE proof_count = total_count
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID)
+		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, params.ShedID)
 	if err != nil {
 		return nil, err
 	}
@@ -823,13 +824,8 @@ WHERE vc.tenant_id = $1::uuid
 		}
 		return items, nil
 	}
-	if !reservation.proceed {
+	if !reservation.proceed && reservation.resultID != in.BatchID {
 		return nil, ports.ErrConflict
-	}
-	for _, item := range items {
-		if item.ClosedAt != nil {
-			return nil, ports.ErrConflict
-		}
 	}
 
 	if _, err := tx.Exec(ctx, `

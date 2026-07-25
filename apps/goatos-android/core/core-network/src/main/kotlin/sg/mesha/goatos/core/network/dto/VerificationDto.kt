@@ -89,8 +89,8 @@ data class VerificationQueueResponseDto(
 
 @Serializable
 data class VerificationFilterOptionsDto(
-    @SerialName("parks") val parks: List<VerificationLocationOptionDto> = emptyList(),
-    @SerialName("sheds") val sheds: List<VerificationLocationOptionDto> = emptyList(),
+    @SerialName("parks") val parks: List<VerificationLocationOptionDto>? = null,
+    @SerialName("sheds") val sheds: List<VerificationLocationOptionDto>? = null,
 )
 
 @Serializable
