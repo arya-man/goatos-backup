@@ -148,6 +148,10 @@ func (s *ProofRetentionSweeperStage) Name() string { return "proof-retention-swe
 
 func (s *ProofRetentionSweeperStage) Run(ctx context.Context) error {
 	before := time.Now().UTC()
+	backfilled, err := s.repo.BackfillSubmissionRetention(ctx, before, s.limit)
+	if err != nil {
+		return fmt.Errorf("backfill proof artifact retention: %w", err)
+	}
 	expired, err := s.repo.PurgeExpired(ctx, before, s.limit)
 	if err != nil {
 		return fmt.Errorf("delete expired proof artifacts: %w", err)
@@ -157,7 +161,7 @@ func (s *ProofRetentionSweeperStage) Run(ctx context.Context) error {
 		return fmt.Errorf("delete abandoned proof uploads: %w", err)
 	}
 	if s.logger != nil {
-		s.logger.Info("proof_retention_sweep_stage_complete", "expired", expired, "abandoned_uploads", abandoned, "before", before.Format(time.RFC3339))
+		s.logger.Info("proof_retention_sweep_stage_complete", "backfilled", backfilled, "expired", expired, "abandoned_uploads", abandoned, "before", before.Format(time.RFC3339))
 	}
 	return nil
 }

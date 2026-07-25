@@ -362,6 +362,10 @@ func (r *fakeProofRepo) ApplyRetention(context.Context, string, []string, string
 	return 0, nil
 }
 
+func (r *fakeProofRepo) BackfillSubmissionRetention(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
+
 func (r *fakeProofRepo) PurgeExpired(context.Context, time.Time, int) (int, error) {
 	return 0, nil
 }

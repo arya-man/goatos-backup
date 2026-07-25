@@ -403,12 +403,13 @@ no coverage-matrix mapping required.
 ## Explicit exclusion: proof artifact retention lifecycle plumbing (2026-07-25)
 
 `func:NewProofRetentionSweeperStage`, `func:Name`, and `func:Run` add hourly
-housekeeping for expired proof-artifact metadata and abandoned pending/uploading
-proof rows. `func:ApplyRetention`, `func:PurgeExpired`,
+housekeeping for expired proof-artifact metadata, missed submitted-SOP retention
+stamps, and abandoned pending/uploading proof rows. `func:ApplyRetention`,
+`func:BackfillSubmissionRetention`, `func:PurgeExpired`,
 `func:PurgeAbandonedUploads`, and `func:ApplyRetentionPolicy` are internal proof
-repository/application helpers that attach SOP proof-policy retention windows and
-delete expired runtime proof rows. They add NO leadership KPI, table, read API
-route, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership
+repository/application helpers that attach or repair SOP proof-policy retention
+windows and delete expired runtime proof rows. They add NO leadership KPI, table,
+read API route, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership
 assistant read surface remains unchanged. Physical media deletion remains owned
 by object-store lifecycle configuration, not a leadership assistant read path.
 Explicit documented exclusion — no coverage-matrix mapping required.

@@ -26,6 +26,7 @@ type Repository interface {
 	GetProofsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error)
 	CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error)
 	ApplyRetention(ctx context.Context, tenantID string, proofIDs []string, policy string, expiresAt *time.Time) (int, error)
+	BackfillSubmissionRetention(ctx context.Context, before time.Time, limit int) (int, error)
 	PurgeExpired(ctx context.Context, before time.Time, limit int) (int, error)
 	PurgeAbandonedUploads(ctx context.Context, before time.Time, limit int) (int, error)
 }

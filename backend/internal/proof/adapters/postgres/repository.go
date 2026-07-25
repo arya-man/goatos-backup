@@ -284,6 +284,79 @@ WHERE tenant_id = $1::uuid
 	return int(tag.RowsAffected()), err
 }
 
+func (r *Repository) BackfillSubmissionRetention(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+WITH raw_candidates AS (
+  SELECT
+    s.tenant_id,
+    ref.value->>'proof_id' AS proof_id_text,
+    btrim(v.proof_policy->>'retention_policy') AS retention_policy,
+    COALESCE(s.accepted_at, s.submitted_at) AS anchor_at
+  FROM sop_submissions s
+  JOIN sop_versions v ON v.tenant_id = s.tenant_id AND v.sop_version_id = s.sop_version_id
+  CROSS JOIN LATERAL jsonb_array_elements(s.proof_refs) AS ref(value)
+  WHERE s.submitted_at <= $1
+    AND s.state IN ('accepted', 'needs_review', 'submitted')
+    AND jsonb_typeof(s.proof_refs) = 'array'
+    AND btrim(v.proof_policy->>'retention_policy') IN ('operational_90d', 'standard_1y', 'critical_7y', 'legal_hold')
+    AND ref.value ? 'proof_id'
+    AND ref.value->>'proof_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+),
+candidates AS (
+  SELECT
+    raw.tenant_id,
+    raw.proof_id_text::uuid AS proof_id,
+    raw.retention_policy,
+    raw.anchor_at
+  FROM raw_candidates raw
+  JOIN proof_artifacts p ON p.tenant_id = raw.tenant_id AND p.proof_id = raw.proof_id_text::uuid
+  WHERE true
+    AND p.upload_state = 'completed'
+    AND p.retention_policy <> 'legal_hold'
+    AND (p.retention_policy, p.retention_expires_at) IS DISTINCT FROM (
+      raw.retention_policy,
+      CASE raw.retention_policy
+        WHEN 'operational_90d' THEN raw.anchor_at + interval '90 days'
+        WHEN 'standard_1y' THEN raw.anchor_at + interval '1 year'
+        WHEN 'critical_7y' THEN raw.anchor_at + interval '7 years'
+        ELSE NULL::timestamptz
+      END
+    )
+  ORDER BY raw.anchor_at, raw.proof_id_text
+  LIMIT $2
+),
+resolved AS (
+  SELECT
+    tenant_id,
+    proof_id,
+    retention_policy,
+    CASE retention_policy
+      WHEN 'operational_90d' THEN anchor_at + interval '90 days'
+      WHEN 'standard_1y' THEN anchor_at + interval '1 year'
+      WHEN 'critical_7y' THEN anchor_at + interval '7 years'
+      ELSE NULL::timestamptz
+    END AS retention_expires_at
+  FROM candidates
+)
+UPDATE proof_artifacts p
+SET retention_policy = r.retention_policy,
+    retention_expires_at = r.retention_expires_at,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM resolved r
+WHERE p.tenant_id = r.tenant_id
+  AND p.proof_id = r.proof_id
+  AND p.upload_state = 'completed'
+  AND p.retention_policy <> 'legal_hold'
+  AND (p.retention_policy, p.retention_expires_at) IS DISTINCT FROM (r.retention_policy, r.retention_expires_at)`, before.UTC(), limit)
+	return int(tag.RowsAffected()), err
+}
+
 func (r *Repository) PurgeExpired(ctx context.Context, before time.Time, limit int) (int, error) {
 	if limit <= 0 {
 		return 0, nil
