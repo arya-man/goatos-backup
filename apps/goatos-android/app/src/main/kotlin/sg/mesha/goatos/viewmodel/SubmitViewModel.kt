@@ -891,7 +891,10 @@ class SubmitViewModel @Inject constructor(
     private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
         if (!task.state.isSubmissionTerminal()) return false
         if (!currentProofPolicy.isShedLevelVideo) return true
-        return currentShedProofReadiness().blockingReason == null
+        if (currentShedCompletionSummary?.submitState?.isSubmissionTerminal() != true) return false
+        val readiness = currentShedProofReadiness()
+        if (readiness.uploading > 0 || readiness.failed > 0) return false
+        return readiness.blockingReason == null
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
@@ -902,13 +905,6 @@ class SubmitViewModel @Inject constructor(
             syncProgress = 1f,
             canSubmit = false,
             blockingReason = null,
-            proofSummaryTitle = "",
-            proofSummarySyncedLabel = "",
-            proofSummaryFinalizeHint = "",
-            proofTotal = 0,
-            proofSynced = 0,
-            proofUploading = 0,
-            proofFailed = 0,
         )
 
     private fun blockedState(): SubmitUiState = submitPlaceholder().copy(isNoTaskAssigned = true)
