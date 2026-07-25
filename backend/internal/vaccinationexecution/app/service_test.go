@@ -273,6 +273,47 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 	}
 }
 
+func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	rows := []domain.ExecutionProjection{
+		projection("shed-complete", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.ObligationCount = 2
+			p.CompletedCount = 2
+			p.CompletionAccepted = 2
+			p.ProofSubmittedCount = 1
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateCompleted {
+		t.Fatalf("workState = %q want completed", row.WorkState)
+	}
+	if row.ProofStatus != domain.ProofStatusAccepted || row.VerificationStatus != domain.VerificationStatusVerified {
+		t.Fatalf("proof/verification = %q/%q want accepted/verified", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
+		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
 func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedProof(t *testing.T) {
 	t.Parallel()
 

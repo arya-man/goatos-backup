@@ -22,7 +22,9 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -79,14 +81,66 @@ class ShedsEmptyStateDayStripTest {
         val tabs = vm.state.value.dayTabs
         assertEquals("tapping yesterday selects it", yesterday, tabs.single { it.isSelected }.dateKey)
     }
+
+    @Test
+    fun `completed sheds for today remain visible to the operator`() = runTest(dispatcher) {
+        val today = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+        val vm = ShedsViewModel(
+            EmptyExecutionRepository(
+                VaccinationExecutionResponseDto(
+                    rows = listOf(
+                        VaccinationExecutionRowDto(
+                            shedId = "godel-1",
+                            shedName = "Godel 1",
+                            physicalShed = "Godel 1",
+                            targetCount = 2,
+                            doneCount = 2,
+                            dueDate = today,
+                            workState = "completed",
+                            sopStatus = "accepted",
+                            proofStatus = "accepted",
+                            verificationStatus = "verified",
+                        ),
+                        VaccinationExecutionRowDto(
+                            shedId = "godel-2",
+                            shedName = "Godel 2",
+                            physicalShed = "Godel 2",
+                            targetCount = 3,
+                            doneCount = 3,
+                            dueDate = today,
+                            workState = "completed",
+                            sopStatus = "accepted",
+                            proofStatus = "accepted",
+                            verificationStatus = "verified",
+                        ),
+                    ),
+                    totalCount = 2,
+                ),
+            ),
+            NoopCrashReporter(),
+            SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(null, state.caption)
+        assertEquals(2, state.rows.size)
+        assertEquals(listOf("Godel 1", "Godel 2"), state.rows.map { it.name })
+        assertTrue(state.rows.all { it.status == ShedStatus.DONE })
+        assertEquals(5, state.doneCount)
+        assertEquals("5 / 5 done", state.daySummary)
+    }
 }
 
 /** Emits a single empty-but-present execution response (hasData = true, zero rows). */
-private class EmptyExecutionRepository : ExecutionRepository {
+private class EmptyExecutionRepository(
+    private val response: VaccinationExecutionResponseDto = VaccinationExecutionResponseDto(),
+) : ExecutionRepository {
     override fun observeRows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
     ): Flow<Resource<VaccinationExecutionResponseDto>> =
-        flowOf(Resource(data = VaccinationExecutionResponseDto()))
+        flowOf(Resource(data = response))
 
     override suspend fun refreshRows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,

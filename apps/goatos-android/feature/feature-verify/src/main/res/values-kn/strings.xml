@@ -7,13 +7,18 @@
     <string name="verify_module_under_construction">ನಿರ್ಮಾಣ ಹಂತದಲ್ಲಿದೆ</string>
     <string name="verify_module_under_construction_subtitle">ಇದರ ಕಾರ್ಯಪ್ರವಾಹ ಸಿದ್ಧವಾದಾಗ ಈ ಪರಿಶೀಲನಾ ಸರತಿ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ.</string>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
+    <string name="verify_action_queue_title">ಲಸಿಕೆ ವೀಡಿಯೊಗಳು</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="verify_queue_empty">ಸರತಿ ಖಾಲಿ ಇದೆ</string>
     <string name="verify_queue_empty_subtitle">ಇದೀಗ ಪರಿಶೀಲಿಸಲು ಯಾವುದೇ ಬಾಕಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_action_queue_empty">ಸಲ್ಲಿಸಿದ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_action_queue_empty_subtitle">ಸಲ್ಲಿಸಿದ ಲಸಿಕೆ ವೀಡಿಯೊಗಳು ನಿರ್ದೇಶಕರ ಪರಿಶೀಲನೆಗೆ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ</string>
     <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
+    <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>
+    <string name="verify_detail_exit_fullscreen">ಪೂರ್ಣ ಪರದೆ ವೀಡಿಯೊ ಮುಚ್ಚಿ</string>
     <string name="verify_detail_context_title">ಸಂದರ್ಭ</string>
     <string name="verify_detail_shed_label">ಶೆಡ್</string>
     <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
@@ -23,7 +28,15 @@
     <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
     <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>
     <string name="verify_detail_already_decided">ಈಗಾಗಲೇ ನಿರ್ಧರಿಸಲಾಗಿದೆ — ಮತ್ತಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ</string>
+    <string name="verify_detail_media_unavailable">ವೀಡಿಯೊ ಇನ್ನೂ ಲೋಡ್ ಆಗುತ್ತಿದೆ ಅಥವಾ ಲಭ್ಯವಿಲ್ಲ. ನಿರ್ಧಾರಕ್ಕೂ ಮೊದಲು ಕ್ಯೂ ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
+    <string name="verify_detail_already_closed">ಈಗಾಗಲೇ ಮುಚ್ಚಲಾಗಿದೆ — ಮತ್ತಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ</string>
+    <string name="verify_detail_close_submission">ಡ್ರೈವ್ ಮುಚ್ಚಿ</string>
+    <string name="verify_detail_rejection_reason_title">ಪರಿಶೀಲಕರ ತಿರಸ್ಕಾರ ಕಾರಣ</string>
     <string name="verify_detail_submitting">ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="verify_drive_ready_title">ಲಸಿಕೆ ಡ್ರೈವ್ ಸಿದ್ಧವಾಗಿದೆ</string>
+    <string name="verify_drive_ready_subtitle">%1$d ಪ್ರಾಣಿಗಳು · %2$d ಶೆಡ್‌ಗಳು · %3$d/%4$d ವೀಡಿಯೊಗಳು ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
+    <string name="verify_drive_ready_detail">ವೀಡಿಯೊ ಬಾಕಿ %1$d · ತಿರಸ್ಕೃತ %2$d</string>
+    <string name="verify_drive_close">ಮುಚ್ಚಿ</string>
 
     <string name="verify_reject_dialog_title">ಕಾರಣದೊಂದಿಗೆ ತಿರಸ್ಕರಿಸಿ</string>
     <string name="verify_reject_dialog_subtitle">ಪ್ರಾಧಿಕಾರ ಈ ಉಲ್ಲಂಘನೆಯ ಬಗ್ಗೆ ಕ್ರಮ ತೆಗೆದುಕೊಳ್ಳಲು ಕಾರಣ ಅಗತ್ಯವಿದೆ</string>

@@ -108,7 +108,16 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}
 	}
 
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary}, nil
+	var filterOptions *domain.ExecutionFilters
+	if q.IncludeFilterOptions {
+		parks, err := s.repo.AuthorizedParkOptions(ctx, q.TenantID, q.AuthorizedParkIDs)
+		if err != nil {
+			return domain.ExecutionResponse{}, err
+		}
+		filterOptions = &domain.ExecutionFilters{Parks: parks}
+	}
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -564,6 +573,8 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
+	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
+		return domain.VerificationStatusVerified
 	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:

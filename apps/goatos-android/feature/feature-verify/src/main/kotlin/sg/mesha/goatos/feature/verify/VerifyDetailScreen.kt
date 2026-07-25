@@ -24,6 +24,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -93,18 +97,25 @@ data class VerifyDetailUiState(
     val context: List<VerifyContextRow> = emptyList(),
     val statusTone: VerifyTone = VerifyTone.PENDING,
     val rowVersion: Int = 1,
+    val isCloseMode: Boolean = false,
+    val isCloseEnabled: Boolean = false,
+    val verdictReason: String? = null,
     /** False once a verdict has already been recorded (server or a just-submitted local
      *  optimistic state) — the buttons disable rather than allow a second conflicting verdict. */
     // Fail closed while the requested item is absent/loading. The ViewModel enables decisions
     // only after a real pending row with resolvable evidence arrives from Room.
     val isDecisionEnabled: Boolean = false,
+    val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
     val isSubmitting: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
     val errorMessage: String? = null,
+    val autoCloseAfterDecision: Boolean = false,
 )
+
+enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
 
 sealed interface VerifyDetailEvent {
     data object Close : VerifyDetailEvent
@@ -156,13 +167,19 @@ fun VerifyDetailScreen(
                         StatusPill(tone = state.statusTone)
                     }
                 }
+                state.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                    item { RejectionReasonCard(reason = reason) }
+                }
                 item {
-                    DecisionRow(
-                        enabled = state.isDecisionEnabled && !state.isSubmitting,
-                        isSubmitting = state.isSubmitting,
-                        onApprove = { onEvent(VerifyDetailEvent.Approve) },
-                        onReject = { showRejectDialog = true },
-                    )
+                    if (!state.isCloseMode) {
+                        DecisionRow(
+                            enabled = state.isDecisionEnabled && !state.isSubmitting,
+                            unavailableReason = state.decisionUnavailableReason,
+                            isSubmitting = state.isSubmitting,
+                            onApprove = { onEvent(VerifyDetailEvent.Approve) },
+                            onReject = { showRejectDialog = true },
+                        )
+                    }
                 }
                 state.errorMessage?.let { message ->
                     item {
@@ -238,6 +255,7 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
 @Composable
 private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
     val player = remember(media.signedUrl) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
@@ -263,6 +281,119 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
             },
             modifier = Modifier.fillMaxSize(),
         )
+        VideoFullscreenButton(
+            onClick = {
+                player.playWhenReady = false
+                isFullscreen = true
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+        )
+    }
+
+    if (isFullscreen) {
+        FullscreenVideoDialog(
+            media = media,
+            onDismiss = { isFullscreen = false },
+        )
+    }
+}
+
+@Composable
+private fun RejectionReasonCard(reason: String) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .background(MeshaColors.DangerX, shape = RoundedCornerShape(16.dp))
+            .border(1.dp, MeshaColors.Danger.copy(alpha = 0.28f), shape = RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.verify_detail_rejection_reason_title),
+            color = MeshaColors.Danger,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.W800,
+        )
+        Text(
+            text = reason,
+            color = MeshaColors.Ink,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W600,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun VideoFullscreenButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = MeshaIcons.Expand,
+                contentDescription = stringResource(R.string.verify_detail_fullscreen),
+                tint = MeshaColors.Surf,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FullscreenVideoDialog(
+    media: VerifyMediaItem,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val player = remember(media.signedUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(MeshaColors.Ink)) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(48.dp)
+                    .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(12.dp))
+                    .clickable { onDismiss() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Close,
+                    contentDescription = stringResource(R.string.verify_detail_exit_fullscreen),
+                    tint = MeshaColors.Surf,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }
 
@@ -327,13 +458,37 @@ private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {
 @Composable
 private fun DecisionRow(
     enabled: Boolean,
+    unavailableReason: VerifyDecisionUnavailableReason,
     isSubmitting: Boolean,
     onApprove: () -> Unit,
     onReject: () -> Unit,
 ) {
+    if (isSubmitting) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Brand, strokeWidth = 2.dp)
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = stringResource(R.string.verify_detail_submitting),
+                color = MeshaColors.Muted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
+        return
+    }
     if (!enabled && !isSubmitting) {
+        val message = when (unavailableReason) {
+            VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE -> stringResource(R.string.verify_detail_media_unavailable)
+            VerifyDecisionUnavailableReason.ALREADY_DECIDED -> stringResource(R.string.verify_detail_already_decided)
+            VerifyDecisionUnavailableReason.NONE -> null
+        }
+        if (message == null) return
         Text(
-            text = stringResource(R.string.verify_detail_already_decided),
+            text = message,
             color = MeshaColors.Muted,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.W600,

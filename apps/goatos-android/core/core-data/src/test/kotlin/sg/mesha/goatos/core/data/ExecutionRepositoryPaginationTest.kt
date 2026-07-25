@@ -14,6 +14,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.ExecutionFilterOptionsDto
+import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -51,6 +53,28 @@ class ExecutionRepositoryPaginationTest {
         assertEquals(listOf("shed-a", "shed-b", "shed-c"), merged.rows.map { it.shedId })
         assertEquals(3, merged.totalCount)
         assertNull(merged.nextCursor)
+    }
+
+    @Test
+    fun `execution continuation preserves first page backend filter options`() {
+        val first = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a")),
+            totalCount = 2,
+            nextCursor = "execution-cursor-1",
+            filterOptions = ExecutionFilterOptionsDto(
+                parks = listOf(ExecutionParkOptionDto(parkId = "park-a", code = "PA", name = "Park A")),
+            ),
+        )
+        val second = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-b", "task-b")),
+            totalCount = 2,
+            nextCursor = null,
+        )
+
+        val merged = mergeExecutionRowsPage(first, second)
+
+        assertEquals(listOf("park-a"), merged.filterOptions?.parks?.map { it.parkId })
+        assertEquals(listOf("shed-a", "shed-b"), merged.rows.map { it.shedId })
     }
 
     @Test

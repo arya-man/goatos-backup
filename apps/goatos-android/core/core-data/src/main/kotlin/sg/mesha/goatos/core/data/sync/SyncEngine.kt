@@ -212,6 +212,7 @@ class SyncEngine(
         OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
         OutboxOpType.VERIFICATION_CLOSE -> dispatchVerificationClose(item)
         OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> dispatchVerificationSubmissionClose(item)
+        OutboxOpType.VERIFICATION_CLOSE_BATCH -> dispatchVerificationBatchClose(item)
         OutboxOpType.COUNTS_SHIFTING -> dispatchCountsShifting(item)
         OutboxOpType.COUNTS_BIRTH -> dispatchCountsBirth(item)
         OutboxOpType.COUNTS_DEATH -> dispatchCountsDeath(item)
@@ -346,6 +347,12 @@ class SyncEngine(
     private suspend fun dispatchVerificationSubmissionClose(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<VerificationCloseSubmissionPayload>(item.payloadJson)
         val response = api.closeVerificationSubmission(payload.submissionId, item.idempotencyKey)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchVerificationBatchClose(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerificationCloseBatchPayload>(item.payloadJson)
+        val response = api.closeVaccinationBatch(payload.batchId, item.idempotencyKey)
         return syncJson.encodeToString(response)
     }
 

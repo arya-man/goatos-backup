@@ -1,8 +1,10 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -14,13 +16,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerificationQueueRow
+import sg.mesha.goatos.feature.verify.VerifyDriveClosure
 import sg.mesha.goatos.feature.verify.VerifyCategoryOption
+import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
@@ -28,6 +35,21 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import javax.inject.Inject
 
 private const val VERIFY_QUEUE_PAGE_SIZE = 20
+
+private data class VerifyQueueFlags(
+    val isRefreshing: Boolean = false,
+    val isOffline: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val closingBatchId: String? = null,
+    val closeErrorBatchId: String? = null,
+    val closeErrorMessage: String? = null,
+)
+
+private data class VerifyCloseFlags(
+    val closingBatchId: String? = null,
+    val closeErrorBatchId: String? = null,
+    val closeErrorMessage: String? = null,
+)
 
 /**
  * The standalone Verifier section's queue state holder (context/architecture/
@@ -44,46 +66,116 @@ private const val VERIFY_QUEUE_PAGE_SIZE = 20
 @HiltViewModel
 class VerifyQueueViewModel @Inject constructor(
     private val repo: VerificationRepository,
+    private val syncRepo: SyncRepository,
     private val analytics: AnalyticsPort,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
+    private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
     private val _selectedModule = MutableStateFlow(VerifyModuleTab.VACCINATION)
+    private val _selectedParkId = MutableStateFlow<String?>(null)
+    private val _selectedShedId = MutableStateFlow<String?>(null)
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    private val _closingBatchId = MutableStateFlow<String?>(null)
+    private val _closeErrorBatchId = MutableStateFlow<String?>(null)
+    private val _closeErrorMessage = MutableStateFlow<String?>(null)
 
     // flatMapLatest cancels the previous category's Room collection and starts a fresh one the
     // moment _selectedCategory changes (same pattern as CalendarViewModel's _selectedDay).
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        _selectedModule.flatMapLatest { module ->
+        combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
+            Triple(module, parkId, shedId)
+        }.flatMapLatest { (module, parkId, shedId) ->
             if (module == VerifyModuleTab.VACCINATION) {
-                repo.observeQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+                if (isActionQueue) {
+                    repo.observeActionQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                } else {
+                    repo.observeQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                }
             } else {
                 flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
-    val state: StateFlow<VerifyQueueUiState> = combine(
-        observedResource,
-        _selectedModule,
+    private val closeFlags: StateFlow<VerifyCloseFlags> = combine(
+        _closingBatchId,
+        _closeErrorBatchId,
+        _closeErrorMessage,
+    ) { closingBatchId, closeErrorBatchId, closeError ->
+        VerifyCloseFlags(closingBatchId, closeErrorBatchId, closeError)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyCloseFlags())
+
+    private val flags: StateFlow<VerifyQueueFlags> = combine(
         _isRefreshing,
         _isOffline,
         _isLoadingMore,
-    ) { resource, module, isRefreshing, isOffline, isLoadingMore ->
+        closeFlags,
+    ) { isRefreshing, isOffline, isLoadingMore, closeFlags ->
+        VerifyQueueFlags(
+            isRefreshing = isRefreshing,
+            isOffline = isOffline,
+            isLoadingMore = isLoadingMore,
+            closingBatchId = closeFlags.closingBatchId,
+            closeErrorBatchId = closeFlags.closeErrorBatchId,
+            closeErrorMessage = closeFlags.closeErrorMessage,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueFlags())
+
+    val state: StateFlow<VerifyQueueUiState> = combine(
+        observedResource,
+        _selectedModule,
+        _selectedParkId,
+        _selectedShedId,
+        flags,
+    ) { resource, module, parkId, shedId, flags ->
         val items = resource.data?.items.orEmpty()
         VerifyQueueUiState(
             rows = items.map { it.toRow() },
             selectedModule = module,
-            isRefreshing = isRefreshing,
+            isActionQueue = isActionQueue,
+            parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, parkId),
+            selectedParkId = parkId,
+            shedOptions = locationOptions("All sheds", resource.data?.filterOptions?.sheds.orEmpty().map { it.id to it.label }, shedId),
+            selectedShedId = shedId,
+            isRefreshing = flags.isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
-            isOffline = isOffline,
-            hasMore = resource.data?.nextCursor != null,
-            isLoadingMore = isLoadingMore,
+            isOffline = flags.isOffline,
+            hasMore = !isActionQueue && resource.data?.nextCursor != null,
+            isLoadingMore = flags.isLoadingMore,
+            driveClosures = resource.data?.driveClosures.orEmpty()
+                .filter { it.ready }
+                .map {
+                    VerifyDriveClosure(
+                        batchId = it.batchId,
+                        driveLabel = it.driveLabel,
+                        batchLabel = it.batchLabel,
+                        totalCount = it.totalCount,
+                        approvedCount = it.approvedCount,
+                        rejectedCount = it.rejectedCount,
+                        pendingCount = it.pendingCount,
+                        videoCount = it.videoCount,
+                        approvedVideos = it.approvedVideos,
+                        rejectedVideos = it.rejectedVideos,
+                        pendingVideos = it.pendingVideos,
+                        shedCount = it.shedCount,
+                        ready = it.ready,
+                    )
+                },
+            closingBatchId = flags.closingBatchId,
+            closeErrorBatchId = flags.closeErrorBatchId,
+            closeErrorMessage = flags.closeErrorMessage,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueUiState())
 
     init {
+        viewModelScope.launch {
+            observedResource.collect { resource ->
+                clearStaleLocationFilters(resource.data ?: return@collect)
+            }
+        }
         refresh()
     }
 
@@ -92,6 +184,15 @@ class VerifyQueueViewModel @Inject constructor(
             is VerifyQueueEvent.SelectCategory -> {
                 Unit
             }
+            is VerifyQueueEvent.SelectPark -> {
+                _selectedParkId.value = event.parkId
+                _selectedShedId.value = null
+                refresh()
+            }
+            is VerifyQueueEvent.SelectShed -> {
+                _selectedShedId.value = event.shedId
+                refresh()
+            }
             is VerifyQueueEvent.SelectModule -> {
                 _selectedModule.value = event.module
                 if (event.module == VerifyModuleTab.VACCINATION) refresh()
@@ -99,6 +200,7 @@ class VerifyQueueViewModel @Inject constructor(
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
             VerifyQueueEvent.Refresh -> refresh()
             VerifyQueueEvent.LoadMore -> loadMore()
+            is VerifyQueueEvent.CloseDrive -> closeDrive(event.batchId)
         }
     }
 
@@ -108,7 +210,21 @@ class VerifyQueueViewModel @Inject constructor(
         try {
             if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
             AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
-            val result = repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            val result = if (isActionQueue) {
+                repo.refreshActionQueue(
+                    category = VACCINATION_CATEGORY,
+                    parkId = _selectedParkId.value,
+                    shedId = _selectedShedId.value,
+                    limit = VERIFY_QUEUE_PAGE_SIZE,
+                )
+            } else {
+                repo.refreshQueue(
+                    category = VACCINATION_CATEGORY,
+                    parkId = _selectedParkId.value,
+                    shedId = _selectedShedId.value,
+                    limit = VERIFY_QUEUE_PAGE_SIZE,
+                )
+            }
             _isOffline.value = result.isFailure
         } finally {
             _isRefreshing.value = false
@@ -118,9 +234,82 @@ class VerifyQueueViewModel @Inject constructor(
     private fun loadMore() = viewModelScope.launch {
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
-        val result = repo.appendQueue(cursor = cursor, category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+        val result = repo.appendQueue(
+            cursor = cursor,
+            category = VACCINATION_CATEGORY,
+            parkId = _selectedParkId.value,
+            shedId = _selectedShedId.value,
+            limit = VERIFY_QUEUE_PAGE_SIZE,
+        )
         _isOffline.value = result.isFailure
         _isLoadingMore.value = false
+    }
+
+    private fun closeDrive(batchId: String) = viewModelScope.launch {
+        val batchId = batchId.takeIf { it.isNotBlank() } ?: return@launch
+        _closingBatchId.value = batchId
+        _closeErrorBatchId.value = null
+        _closeErrorMessage.value = null
+        when (val result = syncRepo.enqueueVerificationBatchClose(batchId)) {
+            is AppResult.Ok -> {
+                val error = waitForCloseSync(result.value)
+                _closingBatchId.value = null
+                if (error == null) {
+                    repo.markVaccinationBatchClosedLocally(
+                        batchId = batchId,
+                        category = VACCINATION_CATEGORY,
+                        parkId = _selectedParkId.value,
+                        shedId = _selectedShedId.value,
+                        limit = VERIFY_QUEUE_PAGE_SIZE,
+                    )
+                    _isOffline.value = false
+                    refresh()
+                } else {
+                    _closeErrorBatchId.value = batchId
+                    _closeErrorMessage.value = error
+                }
+            }
+            is AppResult.Err -> {
+                _closingBatchId.value = null
+                _closeErrorBatchId.value = batchId
+                _closeErrorMessage.value = result.message
+            }
+        }
+    }
+
+    private suspend fun waitForCloseSync(outboxItemId: String): String? {
+        repeat(30) {
+            syncRepo.triggerDrain()
+            delay(250)
+            when (val item = syncRepo.findOutboxItem(outboxItemId)) {
+                is AppResult.Ok -> {
+                    val row = item.value
+                    when {
+                        row?.status == SyncItemStatus.SUCCEEDED -> return null
+                        row?.status == SyncItemStatus.FAILED && (row.conflict || row.isDeadLetter) ->
+                            return row.lastError ?: "Backend rejected the close action."
+                    }
+                }
+                is AppResult.Err -> Unit
+            }
+            delay(320)
+        }
+        return "Close saved locally; waiting for backend sync."
+    }
+
+    private fun clearStaleLocationFilters(data: VerificationQueueResponseDto) {
+        val selectedPark = _selectedParkId.value
+        if (selectedPark != null && data.filterOptions.parks.orEmpty().none { it.id == selectedPark }) {
+            _selectedParkId.value = null
+            _selectedShedId.value = null
+            refresh()
+            return
+        }
+        val selectedShed = _selectedShedId.value
+        if (selectedShed != null && data.filterOptions.sheds.orEmpty().none { it.id == selectedShed }) {
+            _selectedShedId.value = null
+            refresh()
+        }
     }
 
     /** `value = null` ("All") always leads, followed by every distinct category the backend has
@@ -156,6 +345,19 @@ class VerifyQueueViewModel @Inject constructor(
 }
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
+
+private fun locationOptions(
+    allLabel: String,
+    raw: List<Pair<String, String>>,
+    selected: String?,
+): List<VerifyLocationFilterOption> {
+    if (raw.isEmpty() && selected == null) return emptyList()
+    val options = mutableListOf(VerifyLocationFilterOption(value = null, label = allLabel))
+    raw.filter { (id, _) -> id.isNotBlank() }
+        .distinctBy { (id, _) -> id }
+        .forEach { (id, label) -> options += VerifyLocationFilterOption(value = id, label = label.ifBlank { id }) }
+    return options
+}
 
 internal fun humanizeCategory(category: String): String =
     category.replace('_', ' ').replaceFirstChar { it.uppercase() }

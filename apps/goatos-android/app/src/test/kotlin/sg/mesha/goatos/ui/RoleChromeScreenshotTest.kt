@@ -70,6 +70,15 @@ class RoleChromeScreenshotTest {
     private fun vaccinationCeoNavItems() = listOf(
         NavItem(key = "overview", label = "Overview", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
+        NavItem(key = "close", label = "Close", href = Routes.VERIFY_ACTION),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "you", label = "You", href = Routes.YOU),
+    )
+
+    private fun vaccinationCloserNavItems() = listOf(
+        NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
+        NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
+        NavItem(key = "close", label = "Close", href = Routes.VERIFY_ACTION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
@@ -162,8 +171,8 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationFieldNavItems(),
-                modules = listOf(vaccinationModule()),
+                items = vaccinationCloserNavItems(),
+                modules = listOf(vaccinationModule().copy(navItems = vaccinationCloserNavItems())),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
@@ -179,8 +188,8 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationFieldNavItems(),
-                modules = listOf(vaccinationModule()),
+                items = vaccinationCloserNavItems(),
+                modules = listOf(vaccinationModule().copy(navItems = vaccinationCloserNavItems())),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},

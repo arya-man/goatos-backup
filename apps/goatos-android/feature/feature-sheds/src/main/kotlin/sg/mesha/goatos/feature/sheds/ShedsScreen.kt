@@ -111,6 +111,13 @@ data class ShedDayTab(
     val isSelected: Boolean,
 )
 
+@Immutable
+data class ShedParkFilter(
+    val parkId: String,
+    val label: String,
+    val isSelected: Boolean,
+)
+
 /**
  * One shed card. Domain values come from the backend payload while localized labels
  * and count captions are app chrome;
@@ -172,6 +179,7 @@ data class ShedsUiState(
     val caption: String? = null,
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
+    val parkFilters: List<ShedParkFilter> = emptyList(),
     val rows: List<ShedRow> = emptyList(),
     // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
     // false for a leadership oversight read (read-only shed list; the open click is blocked so
@@ -198,6 +206,7 @@ data class ShedsUiState(
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
     data class SelectDay(val dateKey: String) : ShedsEvent
+    data class SelectPark(val parkId: String?) : ShedsEvent
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
@@ -285,6 +294,9 @@ fun ShedsScreen(
                 if (state.canOpenShed) {
                     item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
                 }
+                if (state.parkFilters.size > 1) {
+                    item { ParkFilters(state.parkFilters, onSelect = { onEvent(ShedsEvent.SelectPark(it)) }) }
+                }
                 item { VaccineCarryCard(carry = state.carry) }
             } else {
                 item { DriveMeta(state) }
@@ -338,6 +350,55 @@ private fun InlineLoadingFooter() {
             color = Muted,
             strokeWidth = 2.dp,
         )
+    }
+}
+
+@Composable
+private fun ParkFilters(filters: List<ShedParkFilter>, onSelect: (String?) -> Unit) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val anySelected = filters.any { it.isSelected }
+        FilterPill(
+            label = "All parks",
+            selected = !anySelected,
+            onClick = { onSelect(null) },
+        )
+        filters.forEach { option ->
+            FilterPill(
+                label = option.label,
+                selected = option.isSelected,
+                onClick = { onSelect(option.parkId) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) Brand else Surf2
+    val edge = if (selected) Brand else Hair
+    val fg = if (selected) PageBg else Ink
+    Card(
+        modifier = Modifier.height(36.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        border = BorderStroke(1.dp, edge),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+        }
     }
 }
 
@@ -612,6 +673,10 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             ShedCardTop(row = row, tone = tone)
             DriveAssignmentStrip(row)
+            if (row.vaccineGroups.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                VaccineChips(row.vaccineGroups)
+            }
             Spacer(Modifier.height(14.dp))
             NumsRow(row)
             Spacer(Modifier.height(12.dp))

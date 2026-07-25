@@ -281,6 +281,7 @@ var protectedRoutes = []Route{
 	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationReview}},
 	{OperationID: "closeVerificationItem", Method: "POST", Pattern: "/verification/items/{item_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVerificationSubmission", Method: "POST", Pattern: "/verification/submissions/{submission_id}/close", Permissions: []string{VerificationAct}},
+	{OperationID: "closeVaccinationBatch", Method: "POST", Pattern: "/verification/vaccination-batches/{batch_id}/close", Permissions: []string{VerificationAct}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

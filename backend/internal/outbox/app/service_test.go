@@ -111,6 +111,63 @@ func TestEnvelopeValidatorAcceptsProtocolPublished(t *testing.T) {
 	}
 }
 
+func TestEnvelopeValidatorAcceptsVaccinationDriveLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eventType string
+		status    string
+		actor     map[string]any
+	}{
+		{
+			name:      "ready",
+			eventType: "verification.vaccination_drive.ready",
+			status:    "ready",
+			actor:     map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": nil},
+		},
+		{
+			name:      "closed",
+			eventType: "verification.vaccination_drive.closed",
+			status:    "closed",
+			actor:     map[string]any{"actor_type": "human", "actor_id": "00000000-0000-4000-8000-000000000103", "actor_ref": nil},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			batchID := "72000000-0000-4000-8000-000000000001"
+			payload, err := json.Marshal(map[string]any{
+				"event_id":        serviceTestUUID("22000000", len(tc.name)),
+				"event_type":      tc.eventType,
+				"schema_version":  "1.0.0",
+				"schema_ref":      "contracts/jsonschema/domain-event-envelope.schema.json#" + tc.eventType,
+				"aggregate_type":  "vaccination_batch",
+				"aggregate_id":    batchID,
+				"occurred_at":     serviceTestNow.Format(time.RFC3339),
+				"recorded_at":     serviceTestNow.Format(time.RFC3339),
+				"producer":        map[string]any{"service": "goatos-test", "module": "verification", "version": nil},
+				"idempotency_key": tc.eventType + ":" + batchID,
+				"actor":           tc.actor,
+				"subject_type":    "vaccination_batch",
+				"subject_id":      batchID,
+				"visibility_scope": map[string]any{
+					"tenant_id": "00000000-0000-4000-8000-000000000001",
+				},
+				"evidence_refs": []any{},
+				"payload": map[string]any{
+					"tenant_id": "00000000-0000-4000-8000-000000000001",
+					"batch_id":  batchID,
+					"status":    tc.status,
+				},
+				"trace_id": tc.eventType + ":" + batchID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := serviceTestValidator(t).Validate(payload); err != nil {
+				t.Fatalf("vaccination drive lifecycle envelope should validate: %v", err)
+			}
+		})
+	}
+}
+
 func TestEnvelopeValidatorAcceptsProtocolRetired(t *testing.T) {
 	eventID := serviceTestUUID("21000000", 2)
 	versionID := "62000000-0000-4000-8000-000000000002"
