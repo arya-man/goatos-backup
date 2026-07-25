@@ -29,11 +29,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
@@ -118,6 +124,19 @@ data class ShedParkFilter(
     val isSelected: Boolean,
 )
 
+@Immutable
+data class ProtocolAdherenceSummary(
+    val expectedCount: Int,
+    val submittedCount: Int,
+    val acceptedCount: Int,
+    val reviewItemCount: Int,
+    val deferredCount: Int,
+    val acceptedPercent: Int,
+) {
+    val progressFraction: Float =
+        if (expectedCount > 0) submittedCount.toFloat() / expectedCount else 0f
+}
+
 /**
  * One shed card. Domain values come from the backend payload while localized labels
  * and count captions are app chrome;
@@ -180,7 +199,9 @@ data class ShedsUiState(
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
     val parkFilters: List<ShedParkFilter> = emptyList(),
+    val adherence: ProtocolAdherenceSummary? = null,
     val rows: List<ShedRow> = emptyList(),
+    val hostedFromCalendar: Boolean = false,
     // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
     // false for a leadership oversight read (read-only shed list; the open click is blocked so
     // CEO/Director/Park Head never reach the scan screen). Defaults true so operators are
@@ -264,6 +285,8 @@ fun ShedsScreen(
 ) {
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
+    val canFilterHere = state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar
+    var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
@@ -280,22 +303,34 @@ fun ShedsScreen(
             .fillMaxSize()
             .background(PageBg),
     ) {
-        ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) }, onBack = { onEvent(ShedsEvent.Back) })
+        ShedsHeader(
+            state = state,
+            onRefresh = { onEvent(ShedsEvent.Refresh) },
+            onBack = { onEvent(ShedsEvent.Back) },
+            onOpenFilters = { showParkFilters = true },
+        )
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (!state.hostedFromCalendar) {
+                state.adherence?.let { adherence ->
+                    item {
+                        ProtocolAdherenceCard(
+                            summary = adherence,
+                            parkScope = state.parkFilters.firstOrNull { it.isSelected }?.label ?: "All parks",
+                        )
+                    }
+                }
+            }
             if (state.dayTabs.isNotEmpty()) {
                 // Leadership reaches this screen from a specific drive/date on the Calendar, so
                 // the day strip is redundant for them — show it only for the operator work queue
                 // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
                 if (state.canOpenShed) {
                     item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
-                }
-                if (state.parkFilters.size > 1) {
-                    item { ParkFilters(state.parkFilters, onSelect = { onEvent(ShedsEvent.SelectPark(it)) }) }
                 }
                 item { VaccineCarryCard(carry = state.carry) }
             } else {
@@ -335,6 +370,16 @@ fun ShedsScreen(
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
         }
     }
+    if (showParkFilters && canFilterHere) {
+        ShedsParkFilterSheet(
+            filters = state.parkFilters,
+            onDismiss = { showParkFilters = false },
+            onSelect = {
+                onEvent(ShedsEvent.SelectPark(it))
+                showParkFilters = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -350,6 +395,35 @@ private fun InlineLoadingFooter() {
             color = Muted,
             strokeWidth = 2.dp,
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShedsParkFilterSheet(
+    filters: List<ShedParkFilter>,
+    onDismiss: () -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Surf,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = "Filter park",
+                color = Ink,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.height(14.dp))
+            ParkFilters(filters = filters, onSelect = onSelect)
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 
@@ -510,11 +584,21 @@ private fun VaccineCarryCard(carry: DayCarry?) {
  * `/vaccination`, Up at `/calendar/drive` — with no route check anywhere in this feature module.
  */
 @Composable
-private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -> Unit) {
+private fun ShedsHeader(
+    state: ShedsUiState,
+    onRefresh: () -> Unit,
+    onBack: () -> Unit,
+    onOpenFilters: () -> Unit,
+) {
+    val headerTitle = if (!state.canOpenShed && !state.hostedFromCalendar) {
+        "Overview"
+    } else {
+        stringResource(R.string.sheds_title)
+    }
     MeshaScreenHeader(
         // Static screen title — localized client-side (the VM always bakes the
         // English "Today's sheds" chrome string; ignore it, render the screen's own).
-        title = stringResource(R.string.sheds_title),
+        title = headerTitle,
         eyebrow = listOf(state.moduleLabel, state.scopeLabel)
             .filter { it.isNotBlank() }
             .joinToString(" · "),
@@ -537,6 +621,14 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
             )
         },
         actions = {
+            if (state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar) {
+                ShedsHeaderIconButton(
+                    onClick = onOpenFilters,
+                    icon = MeshaIcons.Filter,
+                    contentDescription = "Filter park",
+                )
+                Spacer(Modifier.size(8.dp))
+            }
             SyncIconButton(
                 isSyncing = state.isRefreshing,
                 onSync = onRefresh,
@@ -544,6 +636,30 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
             )
         },
     )
+}
+
+@Composable
+private fun ShedsHeaderIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+) {
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Surf)
+            .border(1.dp, Hair, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Muted,
+            modifier = Modifier.size(24.dp),
+        )
+    }
 }
 
 @Composable
@@ -621,6 +737,103 @@ private fun DayProgress(state: ShedsUiState) {
         }
         Text(text = summary, color = Muted, fontSize = 10.5f.sp)
     }
+}
+
+@Composable
+private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: String) {
+    val stateLabel = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "Complete"
+        summary.reviewItemCount > 0 -> "In review"
+        summary.submittedCount > 0 -> "Submitted"
+        else -> "Open"
+    }
+    val progressLabel = "${summary.submittedCount}/${summary.expectedCount} goats submitted"
+    val progressCaption = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "${summary.acceptedPercent}% accepted"
+        summary.reviewItemCount > 0 -> "Submitted"
+        else -> "Submitted"
+    }
+    val reviewLine = when (summary.reviewItemCount) {
+        0 -> null
+        1 -> "1 shed video awaiting review"
+        else -> "${summary.reviewItemCount} shed videos awaiting review"
+    }
+    val acceptedLine = "${summary.acceptedCount}/${summary.expectedCount} goats accepted so far"
+    val tone = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
+        summary.reviewItemCount > 0 || summary.submittedCount > 0 -> toneFor(ShedStatus.PENDING)
+        else -> toneFor(ShedStatus.DELAYED)
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Protocol adherence",
+                        color = Ink,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = parkScope,
+                        color = Muted,
+                        fontSize = 11.5f.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                StatusPill(label = stateLabel, tone = tone)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = progressLabel,
+                    color = Ink,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = progressCaption,
+                    color = BrandD,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            ProgressBar(summary.progressFraction)
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                reviewLine?.let { CompactFact(it, color = tone.fg) }
+                CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactFact(text: String, color: Color) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 11.5f.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Surf2)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -983,6 +1196,14 @@ private fun previewState(): ShedsUiState = ShedsUiState(
     daySummary = "Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1",
     caption = "Tap a shed for its live status · red = delayed, chase the team",
     roleNote = "Read-only · the ground team runs the drive",
+    adherence = ProtocolAdherenceSummary(
+        expectedCount = 77,
+        submittedCount = 77,
+        acceptedCount = 46,
+        reviewItemCount = 4,
+        deferredCount = 0,
+        acceptedPercent = 60,
+    ),
     rows = listOf(
         ShedRow(
             id = "mandela1",
