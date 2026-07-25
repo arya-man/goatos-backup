@@ -55,14 +55,43 @@ Seed all of these people exactly:
 | Darshan Talwar | vaccination operator | yes | Sunday | 200 |
 | Sagar Mahoor | vaccination operator | yes | Saturday | 200 |
 | Chandrakant | preventive care director | no | none | 0 |
+| Jyothi | verifier | no | none | 0 |
 
-Founder/CXO tenant grants must also exist for:
+Each vaccination operator must also be provisioned for Android login after the
+database seed finishes:
+
+| Person | Android login email source | Password rule |
+|---|---|---|
+| Amit Kumar | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+| Darshan Talwar | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+| Sagar Mahoor | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+
+Do not seed a common operator email, a shared field password, or a CEO/CXO login
+for Android execution. Plaintext passwords must never be committed to this
+fixture, runbook, screenshots, shell history, or seed evidence. The valid cloud
+path is to create/verify one Firebase/Auth email-password account per operator
+and send/record an individual reset flow; the valid local proof is to show each
+operator identity reaches Android bootstrap with its own email.
+
+Founder/CXO tenant grants, leadership profiles, and STG login paths must also
+exist for:
 
 - `ravi@mesha.sg`
 - `manohark@mesha.sg`
 - `manju@mesha.sg`
 - `abhishek@mesha.sg`
 - `aryaman@mesha.sg`
+
+For STG, these 5 leadership users are not SSO-only. Each one must have Google
+SSO and Firebase email/password available, active `ceo_internal` grant, active
+leadership profile, admin-web bootstrap, mobile bootstrap, and CEO AI access.
+They never add vaccination operator capacity.
+
+Verifier login/grant readiness must also exist for `jyothipvg12345@gmail.com`.
+For STG, Jyothi uses Firebase email/password `Jyothi@2026` and receives the
+tenant-scoped `verifier` grant through the CPT roster seed's
+`auth_pending_email_grants` row. Jyothi reviews proof and never adds vaccination
+operator capacity.
 
 Forbidden HRMS shapes:
 
@@ -71,7 +100,16 @@ Forbidden HRMS shapes:
 - Do not change Sagar week-off to Monday.
 - Do not leave any vaccination operator without `vaccination_daily_animal_cap`.
 - Do not leave any vaccination operator without `vaccination_operator_shift_config`.
+- Do not finish seed validation before unique Android login provisioning is
+  complete for Amit, Darshan, and Sagar.
+- Do not reuse one shared operator password across Amit, Darshan, and Sagar.
 - Do not turn Chandrakant into vaccination execution capacity.
+- Do not finish STG validation with only pending grants, only Firebase users, or
+  only admin-web login. All 10 users must pass the canonical login verification.
+- Do not mark leadership complete with Google SSO only; the 5 leadership users
+  also need Firebase email/password for STG.
+- Do not count Jyothi as a vaccination operator or schedule operator capacity
+  from the verifier grant.
 
 ## Capacity Rules
 
@@ -79,6 +117,12 @@ Forbidden HRMS shapes:
 - Capacity unit is distinct animals per operator per business date.
 - Dose count is not capacity.
 - With `active_operators_per_day = 1`, final drive capacity is 200 animals/day.
+- The CPT `2026-07-25` ET+TT seed catch-up is the only exception in this
+  packet: Darshan may be scheduled for 210 remaining ET+TT animals because 114
+  ET+TT animals were already completed on `2026-07-24`. This is a seed/proof
+  fixture exception, not a production cap change.
+- No future drive may use 210 unless its source fixture explicitly declares a
+  `seed_catchup_overrides` row.
 - HRMS raw availability can still be 400 or 600:
   - 2 available operators * 200 = 400 raw available field capacity.
   - 3 available operators * 200 = 600 raw available field capacity.
@@ -116,11 +160,11 @@ Expected physical shed totals:
 
 | Shed | Animals |
 |---|---:|
-| Gandhi | 115 |
+| Gandhi | 114 |
 | Godel 1 | 120 |
 | Godel 2 | 32 |
 | Mandela 2 | 47 |
-| Old Yashoda | 10 |
+| Old Yashoda | 11 |
 
 Health normalization:
 
@@ -131,39 +175,79 @@ Health normalization:
 
 ## Expected Due Counts To Report
 
-The validation report must include every vaccine family generated from the
-source/rules, even when the final drive scenario focuses on ET+TT and PPR.
+The validation report must include every seeded vaccine family generated from
+the source/rules. PPR is intentionally excluded from this CPT seed packet for
+now; this is not a global vaccination protocol rule change.
 
 Minimum expected due/history counts from the current CPT source discussion:
 
 | Dose code | Expected shape |
 |---|---|
 | `et_tt_adult_w1` | 324 completed history |
-| `et_tt_adult_w2` | 324 due by 2026-07-24 |
-| `ppr_adult_w1` | 231 due/eligible by 2026-07-24, but moved by drive policy |
-| `ppr_revac` | 93 future booster, not part of first drive |
+| `et_tt_adult_w2` | 114 completed history dated 2026-07-24; 210 remaining due by 2026-07-24 |
 | Blue Tongue | report separately by planned date/operator/animal count |
 | FMD | report separately by planned date/operator/animal count |
 | HS | report separately by planned date/operator/animal count |
 | Goat pox | report separately by planned date/operator/animal count |
 | Sheep pox | report separately by planned date/operator/animal count |
 
-Do not hide non-ET+TT/PPR obligations. Do not mix them into the ET+TT/PPR final
-proof table.
+Do not hide non-PPR obligations. Do not mix them into the ET+TT final proof
+table.
 
-## Final Expected ET+TT/PPR Drive Schedule
+## Final Expected ET+TT Drive Schedule
 
 This is the final validation scenario.
 
 | Date | Vaccine | Operator | Animals | Remaining |
 |---|---|---|---:|---:|
-| 2026-07-24 | ET+TT | Darshan Talwar | 200 | 124 |
-| 2026-07-25 | ET+TT | Darshan Talwar | 124 | 0 |
-| 2026-08-07 | PPR | Darshan Talwar | 200 | 124 |
-| 2026-08-08 | PPR | Darshan Talwar | 124 | 0 |
+| 2026-07-25 | ET+TT | Darshan Talwar | 210 | 0 |
 
-PPR must not be planned on 2026-07-24 or 2026-07-25 in this final scenario.
-ET+TT and PPR same-day is only a separate cap sanity variant.
+The 210 row is allowed only by the packet's explicit one-time
+`seed_catchup_overrides` entry. The configured operator cap remains 200 for all
+normal planning and subsequent drives.
+
+PPR must not be planned anywhere by this seed packet for now.
+
+## Known Reseed Failure Modes
+
+These are not theoretical. They were the failure modes found while landing this
+packet and must stay guarded before any STG seed:
+
+- **Midnight/as-of drift:** closeout must use the reviewed as-of
+  `2026-07-24T00:00:00+05:30` for generation and sweeping. A command run after
+  midnight must not silently shift the packet to `2026-07-25`.
+- **210 is not the normal cap:** standing operator cap remains 200. The only
+  allowed 210 is Darshan on `2026-07-25` for the ET+TT seed catch-up row declared
+  in `seed_catchup_overrides`.
+- **Shed/partition grouping is enforceable:** normal planner output must keep a
+  physical shed or partition whole when that unit fits within the 200 animal cap.
+  Splitting is valid only when the unit itself exceeds cap, health/death/sale/shift
+  state removes animals from the work set, operator availability/date movement
+  forces it, or an explicit seed catch-up override says so. The DB proof fails
+  unnecessary fragmentation.
+- **False-green exact-row checks:** a proof that only finds
+  `2026-07-25 / Darshan / ET+TT / 210` is insufficient. It must also prove there
+  are no extra ET+TT W2 rows on later dates and no duplicate open goat+dose
+  assignment rows.
+- **Adult entry-date singleton trap:** adult campaign rows must not split into
+  one-animal fragments only because adults arrived on different source entry
+  dates. Adult blank-history animals join the normal physical shed/partition
+  campaign. Adult same-vaccine history remains authoritative. Kid/young DOB
+  timing stays strict. Adult entry_date is never a vaccination due-date anchor,
+  and every adult initial `*_adult_*` rule must fail validation if its
+  `trigger_type` is `post_arrival`.
+- **PPR packet boundary:** PPR is excluded only from this CPT seed packet. Do not
+  delete or mutate the global vaccination rules to make the packet pass.
+- **History visibility:** `2026-07-24` ET+TT rows are completed history, not
+  pending work. They must be visible through goat passport/register reads for the
+  114 completed animals.
+- **STG identity/platform wiring:** 5 leadership users need both Google SSO and
+  Firebase email/password, 3 operators plus 1 director plus 1 verifier need
+  Firebase email/password, all 10 need active backend grants/profiles/bootstrap,
+  CEO AI must be gated to leadership, and GCS/evidence storage must point to
+  `goatos-stg`.
+- **Clean proof isolation:** do not run leave/cap/date-move cascade experiments
+  on the same database before claiming clean reseed proof.
 
 ## Required DB Proof Queries
 
@@ -219,9 +303,74 @@ from rows
 group by planned_date, conducted_by
 having count(distinct target_id) > 200
 order by planned_date;
+
+-- ET+TT W2 history/open shape. Expected:
+-- completed on 2026-07-24 = 114
+-- scheduled/open remaining = 210
+select pr.dose_code, oi.status, oi.due_at::date, count(distinct oi.target_id)
+from obligation_instances oi
+join protocol_rules pr on pr.rule_id = oi.rule_id
+where pr.dose_code = 'et_tt_adult_w2'
+group by 1, 2, 3
+order by 3, 2;
+
+-- Adult rule anchor guard. Expected: 0 rows.
+select pr.dose_code, pr.trigger_type
+from protocol_rules pr
+where pr.dose_code like '%\_adult\_%' escape '\'
+  and pr.dose_code not like '%\_revac' escape '\'
+  and pr.trigger_type = 'post_arrival'
+order by 1;
+
+-- Final ET+TT assignment shape. Expected exactly one row:
+-- 2026-07-25 | Darshan Talwar | et_tt_adult_w2 | 210
+select vda.planned_date::date,
+       coalesce(wm.display_name, '(unassigned)') as operator,
+       pr.dose_code,
+       count(distinct m.goat_id) as animals
+from vaccination_drive_assignments vda
+join obligation_batches ob on ob.tenant_id = vda.tenant_id and ob.batch_id = vda.batch_id
+join vaccination_drive_assignment_members m on m.tenant_id = vda.tenant_id and m.assignment_id = vda.assignment_id
+join obligation_instances oi on oi.tenant_id = m.tenant_id and oi.obligation_id = m.obligation_id
+join protocol_rules pr on pr.rule_id = oi.rule_id
+left join workforce_members wm on wm.workforce_member_id = vda.operator_id
+where ob.status <> 'superseded'
+  and pr.dose_code = 'et_tt_adult_w2'
+group by 1, 2, 3
+order by 1, 2, 3;
+
+-- Duplicate open goat+dose assignment guard. Expected: 0 rows.
+select pr.dose_code,
+       m.goat_id,
+       count(distinct m.assignment_id) as open_assignment_count
+from vaccination_drive_assignment_members m
+join obligation_instances oi on oi.tenant_id = m.tenant_id and oi.obligation_id = m.obligation_id
+join protocol_rules pr on pr.tenant_id = oi.tenant_id and pr.rule_id = oi.rule_id
+join obligation_batches ob on ob.tenant_id = oi.tenant_id and ob.batch_id = oi.batch_id
+where oi.status in ('scheduled', 'due', 'missed')
+  and ob.status <> 'superseded'
+group by 1, 2
+having count(distinct m.assignment_id) > 1
+order by 1, 2;
+
+-- Passport/register history spot checks. Expected:
+-- completed-114 sample 901007000504553 has accepted rows on 2026-06-30 and 2026-07-24.
+-- pending-210 samples 901007000503935 and 901007000504370 have prior accepted history
+-- and ET+TT W2 scheduled on 2026-07-25.
+select gi.identifier_value,
+       g.display_id,
+       vc.administered_at::date,
+       vc.status,
+       vc.obligation_id
+from goat_identifiers gi
+join goats g on g.tenant_id = gi.tenant_id and g.goat_id = gi.goat_id
+left join vaccination_completions vc on vc.tenant_id = g.tenant_id and vc.goat_id = g.goat_id
+where gi.identifier_value in ('901007000504553', '901007000503935', '901007000504370')
+order by gi.identifier_value, vc.administered_at;
 ```
 
-The last query must return zero rows.
+The cap-breach query and duplicate-open-assignment query must return zero rows.
+The final ET+TT assignment query must return only the one Darshan/210 row.
 
 ## Automatic Failures
 
@@ -234,16 +383,36 @@ Treat the validation as failed if any of these happen:
 - Amit is missing, uncapped, or has no shift config;
 - Sagar week-off is anything other than Saturday;
 - any clean planned date/operator has more than 200 distinct animals;
-- PPR appears on 2026-07-24 or 2026-07-25 in the final scenario;
-- non-ET+TT/PPR vaccines are omitted from the report;
+  except the explicit Darshan `2026-07-25` ET+TT seed catch-up override of 210;
+- ET+TT W2 appears as more than one open assignment per goat;
+- ET+TT W2 appears in extra planned rows after the final `2026-07-25` Darshan
+  210 row;
+- the 114 completed ET+TT W2 rows dated `2026-07-24` are not visible as accepted
+  vaccination history through goat passport/register reads;
+- PPR appears anywhere in this CPT seed packet output;
+- non-PPR vaccines are omitted from the report;
 - superseded empty batches are used as schedule proof;
   (the cap, operator fan-out, contract-operator, pre-business-date, forbidden-park,
   shell-batch, and operator-shift-config failures above are now enforced in
   `seed-closeout` by `check-expected-drive-schedules.mjs` and FAIL the closeout;
-  the PPR-date and vaccine-family report rows are checked when
+  the prohibited-PPR and vaccine-family report rows are checked when
   `GOATOS_EXPECTED_DRIVE_VARIANT` names the applied variant);
 - leave/cascade mutation runs on the same DB before clean reseed proof;
 - a test says PASS but executed zero tests;
+- operators share one Android login or one shared password;
+- any operator can execute vaccination in HRMS but cannot log into Android with
+  their own provisioned identity after seed;
+- Chandrakant cannot log in with his own Firebase email/password identity or
+  appears as vaccination execution capacity instead of director capacity;
+- Jyothi cannot log in with Firebase email/password, lacks verifier grant
+  readiness, or appears as vaccination execution capacity;
+- any of the 5 leadership users lacks either Google SSO, Firebase email/password,
+  active `ceo_internal` grant, active profile, admin-web bootstrap, mobile
+  bootstrap, or CEO AI access;
+- CEO AI/chatbot is visible to non-leadership users, hidden from leadership
+  users, or wired to local/dev/prod dependencies instead of STG;
+- GCS/evidence storage uses local/dev/prod placeholders, missing buckets, or
+  service accounts without STG object permissions;
 - the report relies on UI screenshots before DB rows.
 
 ## Separation Of Proofs

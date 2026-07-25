@@ -39,6 +39,7 @@ const (
 	ProtocolPublish           = "protocol.publish"
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
+	VaccinationOverviewRead   = "vaccination.overview_read"
 	VaccinationVerify         = "vaccination.verify"
 	VaccinationCampaign       = "vaccination.campaign"
 	CalendarRead              = "calendar.read"
@@ -273,7 +274,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
+		VaccinationOverviewRead: {},
+		CalendarRead:            {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},

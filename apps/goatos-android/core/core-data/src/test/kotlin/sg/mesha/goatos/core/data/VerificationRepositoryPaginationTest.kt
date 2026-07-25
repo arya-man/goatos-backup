@@ -14,6 +14,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
+import sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -26,7 +28,13 @@ import sg.mesha.goatos.core.network.dto.VerificationStatus
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class VerificationRepositoryPaginationTest {
-    private data class Request(val category: String?, val cursor: String?, val limit: Int?)
+    private data class Request(
+        val category: String?,
+        val parkId: String?,
+        val shedId: String?,
+        val cursor: String?,
+        val limit: Int?,
+    )
 
     @Test
     fun `queue merge dedupes by item id and keeps the newer page's cursor`() {
@@ -126,6 +134,37 @@ class VerificationRepositoryPaginationTest {
         }
     }
 
+    @Test
+    fun `decided verification item is removed from cached verifier queue scopes`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.response = {
+                VerificationQueueResponseDto(
+                    items = listOf(
+                        item(id = "item-1", parkId = "park-1", shedId = "shed-1"),
+                        item(id = "item-2", parkId = "park-1", shedId = "shed-2"),
+                    ),
+                    filterOptions = VerificationFilterOptionsDto(
+                        parks = listOf(VerificationLocationOptionDto(id = "park-1", label = "North Park")),
+                        sheds = listOf(
+                            VerificationLocationOptionDto(id = "shed-1", label = "Godel 1"),
+                            VerificationLocationOptionDto(id = "shed-2", label = "Godel 2"),
+                        ),
+                    ),
+                )
+            }
+            repository.refreshQueue(category = "vaccine", limit = PAGE_SIZE).getOrThrow()
+            repository.refreshQueue(category = "vaccine", shedId = "shed-2", limit = PAGE_SIZE).getOrThrow()
+
+            repository.markVerificationItemDecidedLocally("item-2")
+
+            val categoryScope = repository.observeQueue(category = "vaccine", limit = PAGE_SIZE).first().data!!
+            val shedScope = repository.observeQueue(category = "vaccine", shedId = "shed-2", limit = PAGE_SIZE).first().data!!
+            assertEquals(listOf("item-1"), categoryScope.items.map { it.itemId })
+            assertEquals(listOf("shed-1"), categoryScope.filterOptions.sheds.orEmpty().map { it.id })
+            assertTrue(shedScope.items.none { it.itemId == "item-2" })
+        }
+    }
+
     private suspend fun withRepository(
         block: suspend (DefaultVerificationRepository, Backend, MutableList<Request>) -> Unit,
     ) {
@@ -141,8 +180,10 @@ class VerificationRepositoryPaginationTest {
                     "listVerificationQueue" -> {
                         val request = Request(
                             category = args?.get(0) as String?,
-                            cursor = args?.get(1) as String?,
-                            limit = args?.get(2) as Int?,
+                            parkId = args?.get(1) as String?,
+                            shedId = args?.get(2) as String?,
+                            cursor = args?.get(3) as String?,
+                            limit = args?.get(4) as Int?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
@@ -182,10 +223,12 @@ class VerificationRepositoryPaginationTest {
         return VerificationQueueResponseDto(items = items, nextCursor = next)
     }
 
-    private fun item(id: String) = VerificationQueueItem(
+    private fun item(id: String, parkId: String? = null, shedId: String? = null) = VerificationQueueItem(
         itemId = id,
         category = "vaccine",
         status = VerificationStatus.PENDING,
+        parkId = parkId,
+        shedId = shedId,
     )
 
     private companion object {

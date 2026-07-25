@@ -207,9 +207,9 @@ func renderFacts(r domain.ToolResult) string {
 		var lines []string
 		for _, f := range facts {
 			if f.Scope != "" {
-				lines = append(lines, fmt.Sprintf("- %s (%s): %s", f.Label, f.Scope, f.Value))
+				lines = append(lines, fmt.Sprintf("%s in %s: %s.", f.Label, f.Scope, sentenceValue(f.Value)))
 			} else {
-				lines = append(lines, fmt.Sprintf("- %s: %s", f.Label, f.Value))
+				lines = append(lines, fmt.Sprintf("%s: %s.", f.Label, sentenceValue(f.Value)))
 			}
 		}
 		b.WriteString(strings.Join(lines, "\n"))
@@ -221,6 +221,14 @@ func renderFacts(r domain.ToolResult) string {
 		b.WriteString(fmt.Sprintf("\n… %d more not shown (aggregate view).", len(r.Facts)-maxRows))
 	}
 	return b.String()
+}
+
+func sentenceValue(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return v
+	}
+	return strings.TrimRight(v, ".")
 }
 
 // chartKeywords trigger a chart when the user explicitly asks to visualize.

@@ -42,6 +42,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool. Assistant coverage/read API note: when this detail is opened from Calendar/Herd/Shed rosters, open obligation dates must use the canonical vaccination effective-date chain: `vaccination_drive_assignments.planned_date`, then `obligation_batches.planned_date`, then raw `obligation_instances.due_at` only as the final legacy fallback. |
 | GET /goats/{goat_id}/timeline | EXCLUDED | Per-animal audit trail |
 | GET /identifiers/{type}/{value}/resolve | EXCLUDED | Scan-time resolution utility |
+| GET /app/vaccination/tasks/{task_id}/option-values (func:TaskOptionValues) | EXCLUDED | Operator scan/execute form option-values (dropdown vocabulary for a task); an operator write-flow input, not a leadership aggregate metric |
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
 | GET /vaccination/execution/sheds/{shed_id} | api + view:vaccination_shed_status | Cause drilldown |
 | GET /vaccination/operations | api + view:vaccination_shed_status | Cohort rollups |
@@ -49,6 +50,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | POST /vaccination/schedule/drive-date-overrides | api + view:vaccination_operator_status | Admin vaccine-date move/revert. The write path must split or restore raw `vaccination_drive_assignments` membership for the moved vaccine; leadership assistant, MCP Toolbox/read API answers, and SQL fallback must report the regenerated operator-date rows, not stale mixed rows from the original date. |
 | Vaccination schedule-source sync across Calendar/AC/PA/WF/execution/Android | api + view:vaccination_operator_status | Coverage clarification: no new assistant tool or KPI. Existing vaccination read API, MCP Toolbox, and `ceo_ai` coverage must prefer the effective `vaccination_drive_assignments` operator-day date before legacy batch/obligation/task due dates, so leadership answers match the same current schedule shown in admin-web and Android. |
 | HRMS operator vaccination animal cap | api + view:workforce_coverage_status + view:vaccination_operator_status | Coverage clarification: the scheduler and leadership assistant read per-operator animal capacity from `workforce_positions.vaccination_daily_animal_cap`; tenant `vaccination_capacity_config.max_per_day` is fallback only. Capacity/utilization answers must use the HRMS position cap that admin-web HRMS edits persist. `null` clears a custom HRMS cap and means default capacity, never zero; DB coverage must include real Postgres proof of custom/default/week-off operator rows. |
+| vaccination_operator_capacity_overrides | api + view:vaccination_operator_status | Date-scoped operational exception table for explicit operator/date animal-cap overrides. Leadership capacity answers stay on the operator schedule/status surface and must show normal HRMS cap semantics unless a matching override row exists for that exact operator/date. CPT uses this only for the one-time 2026-07-25 ET+TT seed catch-up allowance; it is not a general cap increase. |
 | GET /vaccination/sheds | api + view:vaccination_shed_status | Shed status list |
 | GET /vaccination/sheds/{shed_id} | api + view:vaccination_shed_status | Shed drilldown |
 | GET /vaccination/sheds/{shed_id}/animals | EXCLUDED | Animal-level detail; not aggregate |
@@ -85,6 +87,10 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
 | POST /admin/roster/leave/{absence_id}/resolve-coverage | EXCLUDED | Single-absence coverage mutation (`ResolveLeaveCoverage`), not a leadership read. It is a vaccination-planning-effective transition: it enqueues `vaccination.leave.changed` in the same transaction so the operator-config replan consumer releases/re-plans that park's future drives. Leadership sees the RESULT through `view:workforce_coverage_status` and the vaccination operator/date surfaces, never this write. |
+| PUT /vaccination/capacity-config (func:PutCapacityConfig, func:UpdateCapacityConfig, func:UpsertCapacityConfig, func:WithCapacityConfigWriter) | EXCLUDED | Admin config WRITE, not a leadership read. Edits the tenant operator daily-animal cap + nullable per-animal shot-cap override on the People/vaccination-operators screen. It is vaccination-planning-effective: `UpsertCapacityConfig` fans `vaccination.capacity.changed` per active park in the same transaction so the replan consumer re-plans future drives. Leadership sees the RESULT (capacity/throughput) through the vaccination operator/date and drive surfaces, never this write endpoint. |
+| func:ApplyCapacityShotCapOverride | EXCLUDED | Obligation-sweeper planner helper that applies the capacity-config per-animal shot-cap override (or falls back to rule_dsl/default). Internal scheduling logic, not a leadership read surface. |
+| func:PlannedDriveSessionsForShed | EXCLUDED | Operator/execution read helper for a shed's planned drive sessions; operational drive-execution detail, not a leadership aggregate metric. Leadership drive/coverage answers aggregate through the vaccination operator/date + drive surfaces. |
+| func:ParkIDsForVaccinationOperator, func:ListVaccinationOperatorsForPark | EXCLUDED | Internal workforce roster reads that back the min-operator leave-coverage GUARD (duty-based operator membership per park + the leaving member's park set), mirroring the scheduler's `position_module_duties` predicate. They enforce a write-path invariant (a leave can't drop a park below one available operator); they are not leadership-facing reads. Leadership coverage answers aggregate through `view:workforce_coverage_status` + the vaccination operator/date surfaces. |
 | GET /admin/roster/backup-config | EXCLUDED | Config |
 | GET /admin/roster/vaccination-owner | api + view:workforce_coverage_status | Accountability mapping |
 | GET /app/roster/timetable, /app/roster/my-coverage | EXCLUDED | Self-scoped operator schedule |
@@ -383,6 +389,34 @@ Toolbox tool; the leadership assistant read surface, read-only SQL fallback, and
 tool catalog are unchanged. Explicit documented exclusion — no coverage-matrix
 mapping required.
 
+## Explicit exclusion: vaccination scan draft + shed-readiness helpers (2026-07-25)
+
+`func:RecordScanCapture` persists per-tap draft scan rows for the mobile operator
+outbox, and `func:ShedCompletionReadiness` gates whether a shed-level submission
+has the expected scans/proofs before it can enter verification. Both are internal
+write/readiness helpers on the existing vaccination SOP execution path. They add
+NO new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, or
+MCP Toolbox tool; the leadership assistant read surface remains the existing
+vaccination execution/process-integrity coverage. Explicit documented exclusion —
+no coverage-matrix mapping required.
+
+## Explicit exclusion: proof artifact retention lifecycle plumbing (2026-07-25)
+
+`func:NewProofRetentionSweeperStage`, `func:Name`, and `func:Run` add hourly
+housekeeping for expired proof-artifact metadata, missed submitted-SOP retention
+stamps, and abandoned pending/uploading proof rows. `func:ApplyRetention`,
+`func:BackfillSubmissionRetention`, `func:PurgeExpired`,
+`func:PurgeAbandonedUploads`, and `func:ApplyRetentionPolicy` are internal proof
+repository/application helpers that attach or repair SOP proof-policy retention
+windows and delete expired runtime proof rows. Migration
+`000046_proof_artifact_retention` adds only retention/upload-expiry metadata and
+indexes on `proof_artifacts`; those columns are lifecycle plumbing, not a CEO
+chat answer source. They add NO leadership KPI, table, read API route, Cube
+metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read
+surface remains unchanged. Physical media deletion remains owned by object-store
+lifecycle configuration, not a leadership assistant read path. Explicit
+documented exclusion — no coverage-matrix mapping required.
+
 ## Pre-arrival vaccination history: covered table + excluded write/repair surfaces (2026-07-24)
 
 The pre-arrival supplier vaccination-history change (migration 000041) and the
@@ -447,3 +481,37 @@ business measure, no time dimension, nothing to trend or compare. It is the same
 category as the already-excluded `GET /app/counts/shifting/destinations`
 operator picker. The leadership assistant derives park scope from the
 server-side session, never from a UI picker endpoint.
+
+**EXCLUDED — BUG-041 obligation-engine drive-assignment rebuild internals**
+(`backend/internal/obligation/...`) — `UpdateBatchPlannedDate`,
+`mergeUnfinalizedBatchIntoPlannedDate`'s target return, `DriveRebuildInputsForBatch`,
+`AvailableVaccinationOperatorsForDriveExcludingBatch`,
+`RebuildMergedBatchDriveAssignments`, and the `SweepSession` rebuild-outcome
+accessors `DriveRebuilds` / `Rebuilt` are internal sweeper/scheduler mechanics for
+rebuilding a merged vaccination drive batch's operator assignments. They produce no
+counts, no KPI, no time-series, and expose no read API, table, `ceo_ai.*` view,
+Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
+existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views; these functions
+only keep the operator drive sheets internally consistent after a combo-align
+merge. Same category as the already-excluded operator execution/scan internals.
+
+**EXCLUDED — `func:SyncPartitionMoveForGoat`**
+(`backend/internal/obligation/adapters/postgres/partition_move.go`) — a repository
+transactional primitive that, on a same-shed partition move, updates
+`goat_shed_partitions.partition_label` and re-syncs the goat's vaccination
+drive-assignment membership to the new partition arm. It is operator/scheduler
+plumbing: no counts, no KPI, no time-series, no read API, table, `ceo_ai.*` view,
+Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
+existing aggregate `/vaccination/*` surfaces; this only keeps operator drive
+sheets internally consistent after a within-shed partition move.
+
+**EXCLUDED — `func:VaccinationExecutionCarrySummary`**
+(`backend/internal/vaccinationexecution/adapters/postgres/repository.go`) — computes
+the per-operator, per-business-day "vaccines to carry" total (remaining doses by
+vaccine over that operator's own sheds for the day) served ONLY on the operator
+mobile execution response (`OperatorScopeActorID` set); admin/leadership reads get
+`nil`. It is operator field-work chrome — how many doses one operator packs for one
+day — not a leadership KPI, time-series, or tenant/park rollup. Same category as the
+already-excluded operator execution/scan internals; leadership drive/coverage answers
+stay on the existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views. No
+`ceo_ai.*` view, Cube metric, or Toolbox tool is warranted.

@@ -2,6 +2,7 @@
 <resources>
     <string name="submit_eyebrow">ಲಸಿಕೆ</string>
     <string name="submit_record_title">ಶೆಡ್ ದಾಖಲೆ</string>
+    <string name="submit_record_submitted_title">ಶೆಡ್ ದಾಖಲೆ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="submit_summary_shed">ಶೆಡ್</string>
     <string name="submit_summary_drive">ಡ್ರೈವ್</string>
     <string name="submit_summary_cohort">ಪ್ರಾಣಿಯ ಹಂತ</string>
@@ -18,6 +19,8 @@
     <string name="submit_goat_proof_failed">%1$d ಮರುಪ್ರಯತ್ನಿಸಬೇಕು</string>
     <string name="submit_goat_proof_finalize_hint">ಅಂತಿಮಗೊಳಿಸುವುದು ಸಿಂಕ್ ಆದ ದಾಖಲೆಗಳನ್ನು ಪರಿಶೀಲಿಸುತ್ತದೆ. ಅದು ಫೈಲ್‌ಗಳನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡುವುದಿಲ್ಲ.</string>
     <string name="submit_retry_label">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="submit_submitting_label">ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="submit_submitted_label">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="submit_form_yes">ಹೌದು</string>
     <string name="submit_form_no">ಇಲ್ಲ</string>
     <string name="submit_form_select">ಆಯ್ಕೆಮಾಡಿ…</string>

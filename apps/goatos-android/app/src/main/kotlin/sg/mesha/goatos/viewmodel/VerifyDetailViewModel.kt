@@ -4,10 +4,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -16,13 +18,18 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
+import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
@@ -34,7 +41,11 @@ private data class VerifyDetailFlags(
     val isOffline: Boolean = false,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
+    val awaitingBackendDecision: Boolean = false,
+    val autoCloseAfterDecision: Boolean = false,
 )
+
+private const val VERIFY_DETAIL_PAGE_SIZE = 20
 
 /**
  * The standalone Verifier section's detail state holder (context/architecture/
@@ -47,9 +58,9 @@ private data class VerifyDetailFlags(
  *
  * Approve/Reject go through the offline-sync outbox ([SyncRepository.enqueueVerificationVerdict])
  * exactly like every other write in this app — durable, idempotent, retried with backoff. The
- * verdict is optimistic: once queued, the buttons disable immediately (verdict already recorded
- * from the verifier's point of view, [_localDecision]); a queue failure re-enables them with an
- * honest error and clears the optimistic flip.
+ * verdict is not visually completed until the outbox has drained and a queue refresh confirms
+ * the item is no longer pending. That keeps the verifier on this screen while the network call
+ * is real, then auto-returns them to the reduced queue.
  */
 @HiltViewModel
 class VerifyDetailViewModel @Inject constructor(
@@ -62,26 +73,31 @@ class VerifyDetailViewModel @Inject constructor(
 
     private val itemId: String = savedStateHandle.get<String>("itemId").orEmpty()
     private val category: String? = savedStateHandle.get<String>("category")
+    private val isActionMode: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
+    private val parkId: String? = savedStateHandle.get<String>("parkId")
+    private val shedId: String? = savedStateHandle.get<String>("shedId")
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
-    /** Optimistic local override once a verdict is queued — cleared by the next successful
-     *  refresh (the cached item then reflects the server's own status). */
-    private val _localDecision = MutableStateFlow<String?>(null)
+    private val observedQueue: Flow<Resource<VerificationQueueResponseDto>> =
+        if (isActionMode) {
+            repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        } else {
+            repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        }
 
     // Cache-first: the tapped row's category scope Room cache already holds this item's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
     private val observedItem: StateFlow<VerificationQueueItem?> =
-        repo.observeQueue(category = category)
+        observedQueue
             .map { resource -> resource.data?.items?.firstOrNull { it.itemId == itemId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<VerifyDetailUiState> = combine(
         observedItem,
-        _localDecision,
         _flags,
-    ) { item, localDecision, flags ->
-        item.toUiState(localDecision = localDecision, flags = flags)
+    ) { item, flags ->
+        item.toUiState(flags = flags)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
@@ -99,7 +115,11 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun refresh() = viewModelScope.launch {
         _flags.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshQueue(category = category)
+        val result = if (isActionMode) {
+            repo.refreshActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        } else {
+            repo.refreshQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+        }
         _flags.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
     }
 
@@ -109,7 +129,7 @@ class VerifyDetailViewModel @Inject constructor(
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
 
         val rowVersion = observedItem.value?.rowVersion ?: 1
-        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
+        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
         AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision)
         val result = syncRepo.enqueueVerificationVerdict(
             itemId = itemId,
@@ -119,47 +139,119 @@ class VerifyDetailViewModel @Inject constructor(
         )
         when (result) {
             is AppResult.Ok -> {
-                _localDecision.value = decision
-                _flags.update { it.copy(isSubmitting = false) }
-                AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision)
+                _flags.update { it.copy(awaitingBackendDecision = true) }
+                val waitError = waitForBackendDecision(result.value)
+                if (waitError == null) {
+                    _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = true) }
+                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision)
+                } else {
+                    _flags.update {
+                        it.copy(
+                            isSubmitting = false,
+                            awaitingBackendDecision = false,
+                            errorMessage = waitError,
+                        )
+                    }
+                }
             }
             is AppResult.Err -> {
-                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message) }
                 result.cause?.let { crashReporter.recordException(it, "verification verdict enqueue failed") }
                 AnalyticsFunnels.trackVerifyVerdictFailed(analytics, itemId, decision, result.message)
             }
         }
     }
 
-    private fun VerificationQueueItem?.toUiState(localDecision: String?, flags: VerifyDetailFlags): VerifyDetailUiState {
+    private suspend fun waitForBackendDecision(outboxItemId: String): String? {
+        repeat(30) {
+            syncRepo.triggerDrain()
+            delay(250)
+            when (val outbox = syncRepo.findOutboxItem(outboxItemId)) {
+                is AppResult.Ok -> {
+                    val item = outbox.value
+                    when {
+                        item?.status == SyncItemStatus.SUCCEEDED -> {
+                            if (!isActionMode) {
+                                repo.markVerificationItemDecidedLocally(itemId)
+                            }
+                            refresh()
+                            return null
+                        }
+                        item?.status == SyncItemStatus.FAILED && (item.conflict || item.isDeadLetter) ->
+                            return item.lastError ?: "Backend rejected the verification decision."
+                    }
+                }
+                is AppResult.Err -> Unit
+            }
+            val result = if (isActionMode) repo.refreshActionQueue(category = category) else repo.refreshQueue(category = category)
+            _flags.update { flags -> flags.copy(isOffline = result.isFailure) }
+            val current = observedItem.value
+            if (current == null || current.status != VerificationStatus.PENDING) {
+                if (!isActionMode) {
+                    repo.markVerificationItemDecidedLocally(itemId)
+                }
+                return null
+            }
+            delay(320)
+        }
+        return "Decision saved locally; waiting for backend sync."
+    }
+
+    private fun VerificationQueueItem?.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
         if (this == null) {
             return VerifyDetailUiState(
                 itemId = itemId,
+                isCloseMode = isActionMode,
                 isRefreshing = flags.isRefreshing,
                 isOffline = flags.isOffline,
                 isSubmitting = flags.isSubmitting,
                 errorMessage = flags.errorMessage,
                 isDecisionEnabled = false,
+                autoCloseAfterDecision = flags.autoCloseAfterDecision,
             )
         }
-        val effectiveStatus = localDecision ?: status
+        val effectiveStatus = status
+        val playableEvidenceAvailable = evidenceAvailable && media.any { it.downloadUrl.isNotBlank() }
+        val canDecide = !isActionMode && effectiveStatus == VerificationStatus.PENDING && playableEvidenceAvailable
         return VerifyDetailUiState(
             itemId = itemId,
             categoryLabel = humanizeCategory(category),
-            media = media.map { VerifyMediaItem(signedUrl = it.downloadUrl, mimeType = it.mimeType ?: "", proofSubject = it.proofId ?: "") },
+            media = media.map {
+                VerifyMediaItem(
+                    signedUrl = absoluteDownloadUrl(it.downloadUrl),
+                    mimeType = it.mimeType ?: "",
+                    proofSubject = it.proofId,
+                )
+            },
             context = buildContext(this),
             statusTone = statusTone(effectiveStatus),
             rowVersion = rowVersion,
+            isCloseMode = isActionMode,
+            isCloseEnabled = false,
+            verdictReason = verdictReason,
             // R50-017: the backend now fails evidence resolution closed instead of silently
             // omitting media, so a verdict with no resolvable evidence must stay disabled even
             // though the item itself is still PENDING.
-            isDecisionEnabled = effectiveStatus == VerificationStatus.PENDING && evidenceAvailable,
+            isDecisionEnabled = canDecide,
+            decisionUnavailableReason = when {
+                isActionMode || canDecide -> VerifyDecisionUnavailableReason.NONE
+                effectiveStatus == VerificationStatus.PENDING -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
+                else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
+            },
             isSubmitting = flags.isSubmitting,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = null,
             isOffline = flags.isOffline,
             errorMessage = flags.errorMessage,
+            autoCloseAfterDecision = flags.autoCloseAfterDecision,
         )
+    }
+
+    private fun absoluteDownloadUrl(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
+        if (!trimmed.startsWith("/")) return trimmed
+        return BuildConfig.API_BASE_URL.trimEnd('/') + trimmed
     }
 
     private fun buildContext(item: VerificationQueueItem): List<VerifyContextRow> {

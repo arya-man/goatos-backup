@@ -537,6 +537,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	plans := make(map[string]cachedVersionPlan)
 	effectiveVersionsByPark := make(map[string][]string)
 	failedGoats := make(map[string]struct{})
+	allPlans := make([]goatGenerationPlan, 0, s.page)
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
 		if err != nil {
@@ -572,27 +573,37 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 				})
 			}
 		}
-		vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
-		if err != nil {
-			return res, err
-		}
-		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				if shouldAbortGeneration(err) {
-					return res, err
-				}
-				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
-				continue
-			}
-		}
+		allPlans = append(allPlans, pagePlans...)
 		if int32(len(goats)) < s.page {
 			break
 		}
 		after = goats[len(goats)-1].GoatID
+	}
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, allPlans, businessDayEnd(asOf))
+	if err != nil {
+		return res, err
+	}
+	runOpts := baseOpts
+	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range allPlans {
+		allPlans[i].opts = runOpts
+	}
+	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range allPlans {
+		p.opts = runOpts
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if shouldAbortGeneration(err) {
+				return res, err
+			}
+			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+			continue
+		}
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -835,6 +846,7 @@ type generationOptions struct {
 	ManualCampaignID  string
 	RunIDempotencyKey string
 	RunRequestHash    string
+	campaignDueByGoat map[string]time.Time
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
@@ -842,6 +854,85 @@ type generationOptions struct {
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
 	heartbeat func(ctx context.Context)
+}
+
+func campaignDueGoatKey(versionID, ruleID, goatID string) string {
+	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
+}
+
+func adultCampaignStart(asOf time.Time) time.Time {
+	return businessDayStart(asOf).AddDate(0, 0, 1)
+}
+
+func businessDayEnd(asOf time.Time) time.Time {
+	return businessDayStart(asOf).AddDate(0, 0, 1).Add(-time.Nanosecond)
+}
+
+func isAdultCampaignRule(rule protodomain.Rule) bool {
+	doseCode := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	return strings.Contains(doseCode, "_adult_") || strings.HasSuffix(doseCode, "_adult")
+}
+
+func hasPhysicalCampaignPartition(g domain.EligibleGoat) bool {
+	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != "" && strings.TrimSpace(g.PartitionLabel) != ""
+}
+
+func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHistoryByGoat map[string][]domain.RecentVaccineAdministration) (map[string]time.Time, error) {
+	type candidate struct {
+		goatKey string
+	}
+	var candidates []candidate
+	for _, plan := range plans {
+		path := schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, vaccineHistoryByGoat[plan.goat.GoatID])
+		for _, rule := range plan.rules {
+			triggerType := strings.TrimSpace(rule.TriggerType)
+			if !strings.EqualFold(triggerType, "post_arrival") && !strings.EqualFold(triggerType, "manual_campaign") {
+				continue
+			}
+			if !isAdultCampaignRule(rule) {
+				continue
+			}
+			if !hasPhysicalCampaignPartition(plan.goat) {
+				continue
+			}
+			ruleEligibility, _, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			if err != nil {
+				return nil, err
+			}
+			if !goatMatchesEligibility(plan.goat, ruleEligibility, plan.policies.Pregnancy, asOf) {
+				continue
+			}
+			if !ruleMatchesSchedulePath(rule, path) {
+				continue
+			}
+			_, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			if err != nil {
+				return nil, err
+			}
+			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistoryByGoat[plan.goat.GoatID]) {
+				continue
+			}
+			rowDeferStates := ruleEligibility.DeferStates
+			if len(rowDeferStates) == 0 {
+				rowDeferStates = plan.deferState
+			}
+			if deferredReason(plan.goat, rowDeferStates) != "" || policyDeferReason(plan.goat, plan.policies, asOf) != "" {
+				continue
+			}
+			candidates = append(candidates, candidate{
+				goatKey: campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+			})
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	campaignDate := adultCampaignStart(asOf)
+	out := make(map[string]time.Time, len(candidates))
+	for _, c := range candidates {
+		out[c.goatKey] = campaignDate
+	}
+	return out, nil
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -884,6 +975,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	}
 	effectiveVersionsByPark := make(map[string][]string)
 	failedGoats := make(map[string]struct{})
+	allPlans := make([]goatGenerationPlan, 0, s.page)
 	after := ""
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
@@ -927,23 +1019,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				vaccineProfile: vaccineProf,
 			})
 		}
-		vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
-		if err != nil {
-			return res, err
-		}
-		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				if shouldAbortGeneration(err) {
-					return res, err
-				}
-				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
-				continue
-			}
-		}
+		allPlans = append(allPlans, pagePlans...)
 		if opts.heartbeat != nil {
 			opts.heartbeat(ctx)
 		}
@@ -951,6 +1027,32 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		after = goats[len(goats)-1].GoatID
+	}
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, allPlans, businessDayEnd(asOf))
+	if err != nil {
+		return res, err
+	}
+	runOpts := opts
+	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range allPlans {
+		allPlans[i].opts = runOpts
+	}
+	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range allPlans {
+		p.opts = runOpts
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if shouldAbortGeneration(err) {
+				return res, err
+			}
+			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+			continue
+		}
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -1067,6 +1169,9 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			if !ok {
 				continue
 			}
+			if override, found := plan.opts.campaignDueByGoat[campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID)]; found {
+				due = override
+			}
 			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf, nil, plan.policies.MissedDose)
 			if !ok {
 				continue
@@ -1179,7 +1284,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// Match the SPECIFIC dose (not any dose of the vaccine): a still-required later dose of the
 		// same course (ET+TT week-7 booster, adult wave two) has no matching administration yet and
 		// must still be scheduled from its own anchor (VACC-REV-06).
-		if isPrimaryAnchorRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
+		if isPrimaryCourseRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
 			res.SuppressedByTrustedHistory++
 			// Supersede any stale no-anchor catch-up placeholder for THIS dose from an earlier pass so
 			// history + a later DOB fix never leave a duplicate of the already-given dose behind.
@@ -1305,6 +1410,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
+		if override, found := opts.campaignDueByGoat[campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)]; found {
+			baseDue = override
+		}
+		if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+			campaignStart := adultCampaignStart(asOf)
+			if baseDue.Before(campaignStart) {
+				baseDue = campaignStart
+			}
+		}
 		nearbyMissedDrive, err := s.nearbyMissedDoseDriveDate(ctx, tenantID, versionID, rule, ruleVaccine, g, baseDue, asOf, policies.MissedDose)
 		if err != nil {
 			return err
@@ -1354,7 +1468,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		keyDue := obligationKeyDue(rule, baseDue, due)
-		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDue.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		keyDueToken := keyDue.UTC().Format(time.RFC3339)
+		if isStableAdultCampaignObligationKey(rule, g) {
+			keyDueToken = "adult_campaign"
+		}
+		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDueToken, strconv.Itoa(int(rule.Sequence)))
 		if anchorCatchUpKey != "" {
 			key = anchorCatchUpKey
 		}
@@ -1696,7 +1814,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 			vaccineProfile: p.vaccineProfile,
 		})
 	}
-	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, businessDayEnd(asOf))
 	if err != nil {
 		return res, err
 	}
@@ -1851,6 +1969,14 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveD
 
 func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
 	return baseDue
+}
+
+func isStableAdultCampaignObligationKey(rule protodomain.Rule, g domain.EligibleGoat) bool {
+	repeat := strings.TrimSpace(rule.Repeat)
+	if repeat != "" && !strings.EqualFold(repeat, "none") {
+		return false
+	}
+	return isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g)
 }
 
 func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
@@ -2116,12 +2242,11 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 	return businessDayStart(latest).AddDate(0, 0, int(gap)), true
 }
 
-// primaryCourseContinuationDueFromHistory handles course rows that are authored as DOB/arrival
-// anchored primaries (for example ET+TT adult dose 1/dose 2 or kid 4w/7w) but whose first dose was
+// primaryCourseContinuationDueFromHistory handles primary-course rows whose earlier course dose was
 // imported as real history. In that case the next primary-course dose must continue from the actual
 // administered date plus the configured row-to-row gap, not from a stale/missing DOB or entry date.
 func primaryCourseContinuationDueFromHistory(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (time.Time, bool, error) {
-	if !isPrimaryAnchorRule(rule) {
+	if !isPrimaryCourseRule(rule) {
 		return time.Time{}, false, nil
 	}
 	prev, prevVaccine, found, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, fallbackEligibility, fallbackVaccine, path)
@@ -2158,7 +2283,7 @@ func repeatMustWaitForPrimaryCourse(rule protodomain.Rule, ruleVaccine vaccinePr
 		return false, err
 	}
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		candidateEligibility, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
@@ -2185,7 +2310,7 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 	var bestVaccine vaccineProfile
 	found := false
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
@@ -2209,7 +2334,7 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 
 func primaryRuleForAdministration(ruleVaccine vaccineProfile, admin domain.RecentVaccineAdministration, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)

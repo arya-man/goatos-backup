@@ -249,7 +249,7 @@ fun GoatOsShellChrome(
     // L0 roots: exactly the OPEN module's backend-composed destinations, and nothing else.
     //
     // The You tab used to be appended here as client-static chrome. It is now a nav
-    // contribution like any other (`bootstrap_copy.go` -> vaccination/leadership contribute
+    // contribution like any other (`bootstrap_copy.go` -> vaccination contributes
     // `you`; Counts contributes `approval` in that trailing slot instead), so the L0 set is
     // whatever the backend composed — no client-side addition. That is what let the Counts
     // module replace the trailing tab without a client release.
@@ -350,11 +350,12 @@ fun GoatOsShellChrome(
 }
 
 /**
- * Only exact bootstrap roots own global navigation chrome. A child route must
- * never inherit the bar from a root with a similar path prefix.
+ * Only bootstrap roots own global navigation chrome. A destination must match one of the exact
+ * backend-composed root hrefs to receive the bottom bar/drawer; child routes and route patterns do
+ * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute != null && currentRoute in topLevelRoutes
+    currentRoute?.routeBase() in topLevelRoutes
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every
@@ -403,14 +404,18 @@ private fun MeshaNavBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
+        val currentBaseRoute = currentRoute?.routeBase()
         // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
         // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
+            val isSelected = currentBaseRoute == item.href
             NavigationBarItem(
-                selected = currentRoute == item.href,
-                onClick = { onSelect(item.href) },
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) onSelect(item.href)
+                },
                 icon = {
                     Icon(
                         imageVector = MeshaIcons.forNavKey(item.key),
@@ -424,6 +429,8 @@ private fun MeshaNavBar(
         }
     }
 }
+
+private fun String.routeBase(): String = substringBefore('?')
 
 // ---------------------------------------------------------------------------
 // Module-switcher drawer — ports the mock's `ovl-drawer` (`mock/vaccination-mobile-

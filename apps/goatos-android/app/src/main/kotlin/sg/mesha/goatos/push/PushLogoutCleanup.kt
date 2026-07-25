@@ -31,11 +31,14 @@ class PushLogoutCleanup @Inject constructor(
 
         analyticsContext.role = null
         analyticsContext.parkScope = null
+        analyticsContext.deviceId = null
 
         analytics.setUserId(null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.PRIMARY_PARK, null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.PARK_ID, null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.TENANT, null)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, null)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.DEVICE_ID, null)
     }
 }

@@ -23,17 +23,38 @@ Coimbatore. The only field operators are Amit Kumar, Darshan Talwar, and Sagar
 Mahoor, all equal vaccination operators at `200` unique animals/day/operator.
 Chandrakant is director-only monitoring scope. The five founder/CXO emails in
 `docs/runbooks/auth.md` must receive tenant-scoped `ceo_internal` grants. The
+same roster may include verifier-only Firebase email-password grants; Jyothi
+`jyothipvg12345@gmail.com` is a verifier for CPT seed review and must not gain a
+vaccination operator seat or animal capacity.
 `Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
-rules still come from the backend vaccination rule engine.
+rules still come from the backend vaccination rule engine. Adult vaccination
+generation must not use `entry_date` / `post_arrival` as a due-date anchor:
+accepted same-vaccine history drives adult booster/repeat timing, and adult
+blank-history animals enter the reviewed manual campaign/catch-up cohort packed
+by whole physical shed/partition. Kid/young DOB and age-window timing remains
+strict.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
 command and the executable shape agree. Do not hand-run the individual binaries.
+The materialized CPT bundle must include reviewed shed-manager rows for every
+active Channapatna physical shed. Darshan Talwar is the manager/default drive
+owner and Sagar Mahoor is the reviewed backup; `seed-shed-positions` must run
+even when `cpt-operator-roster.json` is present. A completed accepted-history
+shed, such as Gandhi ET+TT, still resolves to Darshan in shed summaries rather
+than showing `Operators unassigned`.
 The director and the CEO/CXO grants come from the committed
 `cpt-operator-roster.json` (`directors[]`, `leadership_full_access`), which
 `backend/cmd/seed-roster-real` now genuinely consumes; a director is seeded with
 no `workforce_positions` row, so he carries zero field execution capacity, and
 that is asserted rather than assumed.
+After that DB seed, provision Android login for the three field operators from
+the same roster: Amit, Darshan, and Sagar each need their own Firebase/Auth
+email-password identity using their `operators[].email_hint`. Never use one
+common operator account, one shared password, or a CEO/CXO account for field
+Android execution; use unique temporary passwords or individual reset flows, do
+not commit plaintext passwords, and smoke-test Android bootstrap/login for each
+operator before calling the seed complete.
 
 Git identity rule: Goat OS commits must use a Mesha identity. Before committing
 or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
@@ -162,7 +183,7 @@ Permanent scale and guard-authoring rules:
   Strict source-backed shed ownership applies to active sheds that contain live
   source goats; empty baseline catalog sheds are not vaccination drive truth.
   In CPT operator-drive rehearsal seeds, Amit, Darshan, and Sagar are all
-  manager-tier vaccination operators; do not treat Amit as park-head-only or
+  vaccination operators; do not treat Amit as park-head-only or
   Sagar as backup/support-only for drive assignment. Preserve the source
   week-offs: Amit Friday, Darshan Sunday, Sagar Saturday.
 - Vaccination operator availability/capacity is a sweep-session fact. Load it
@@ -357,6 +378,10 @@ one product; this skill is the navigation layer.
   from clinical state: `Open -> sick`, `Extended -> under_treatment`,
   `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
   `recovering` or as a defer.
+  Accepted one-time vaccination completion history is canonical: if generation
+  recreates an active obligation for the same goat/rule during seed, the seed
+  must supersede the active duplicate and preserve the accepted completion as
+  goat history.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
@@ -554,6 +579,16 @@ one product; this skill is the navigation layer.
   tenant-default capacity; never coerce it to zero or silently leave the
   previous custom cap. Operator-cap SQL proof must be a real Postgres test for
   custom/null-default/week-off rows; a source-string guard is only a lint.
+- Date-scoped operator capacity overrides are explicit exceptions, not a new
+  normal cap source. CPT operator-drive seed uses one override for Darshan on
+  2026-07-25 so ET+TT can schedule 210 after only 114 completions on
+  2026-07-24; every other CPT operator/date remains governed by the standing
+  HRMS cap of 200 unless a future fixture explicitly declares another
+  `seed_catchup_overrides` row.
+- Adult non-repeating physical-partition campaign obligations must be
+  idempotent at campaign grain across seed replays. A corrected seed as-of may
+  realign an unbatched open obligation to the reviewed campaign day, but must
+  not create another open obligation for the same goat+dose.
 
 ## Must Not
 
@@ -584,3 +619,7 @@ one product; this skill is the navigation layer.
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
+<!-- Coupling review 2026-07-24: for CPT operator-drive reseeds, keep the canonical source/history vaccination matrix intact but run the Makefile target with GOATOS_CPT_EXCLUDE_PPR_2026=1 so the packet publishes no PPR obligations in 2026. -->
+<!-- Coupling review 2026-07-24: CPT adult campaign generation ignores entry_date/post_arrival as a strict splitter; adults group by vaccine/rule plus physical shed/partition under the configured cap, using last vaccination date when present and otherwise the partition campaign start. Kid/young schedules keep strict age/entry timing. The one-time 2026-07-25 ET+TT 210-animal allowance is represented only as an explicit seed_catchup_overrides row; normal operator cap semantics remain 200. -->
+<!-- Coupling review 2026-07-24: CPT operator-drive clean reseed may start from a freshly migrated local DB. seed-roster-real resolves only centers present in the selected source bundle and can create that required park row before HRMS import; generation history uses the full as-of business day so same-day accepted completions suppress duplicate open work before the 2026-07-25 ET+TT 210 catch-up proof runs. -->
+<!-- Coupling review 2026-07-25: Editable vaccination caps (migration 000045 + PUT /vaccination/capacity-config): the operator daily animal cap and a new nullable per-animal shot-cap override are edited on the People/vaccination-operators screen and written to vaccination_capacity_config, cascading vaccination.capacity.changed per active park to re-plan future drives. Seed leaves the override NULL (planner falls back to rule_dsl/default), so no seed fixture, roster, or SOP contract changes. The apply-leave path additionally enforces a min-1-operator-per-day coverage guard (min_operator_coverage 409). -->

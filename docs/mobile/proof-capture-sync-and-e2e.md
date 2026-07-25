@@ -170,6 +170,14 @@ in the emulator with **no physical reader and no real camera**:
   upload, role gating, and submit→verify→leadership close is covered by
   emulator and isolated-backend E2E.
 
+## STG GCS Verification
+
+Local proof capture/storage tests do not prove STG GCS wiring.
+
+For staging, verify bucket/env/IAM/signed URL/upload/DB linkage using:
+
+`docs/runbooks/stg-gcs-video-upload-wiring.md`
+
 ## 7. Anti-pattern guardrails this must respect
 
 - No visible or invisible `EditText` on the scan surface (`rfid-keyboard-reader.md`).

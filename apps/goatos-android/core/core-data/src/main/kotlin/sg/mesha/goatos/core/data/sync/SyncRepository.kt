@@ -165,6 +165,11 @@ interface SyncRepository {
     suspend fun enqueueVerificationSubmissionClose(
         submissionId: String,
     ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
+
+    /** Queues one atomic leadership closure for a fully reviewed vaccination batch/drive. */
+    suspend fun enqueueVerificationBatchClose(
+        batchId: String,
+    ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
     /**
      * Enqueues an operator-reported shifting/movement write (`POST /app/counts/shifting-events`).
      *
@@ -543,6 +548,20 @@ class DefaultSyncRepository(
             idempotencyKey = idempotencyKey,
             payloadJson = syncJson.encodeToString(
                 VerificationCloseSubmissionPayload(submissionId = submissionId),
+            ),
+        )
+    }
+
+    override suspend fun enqueueVerificationBatchClose(
+        batchId: String,
+    ): AppResult<String> {
+        val idempotencyKey = "$batchId-drive-close"
+        return enqueue(
+            opType = OutboxOpType.VERIFICATION_CLOSE_BATCH,
+            groupKey = batchId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                VerificationCloseBatchPayload(batchId = batchId),
             ),
         )
     }

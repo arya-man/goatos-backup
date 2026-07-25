@@ -201,6 +201,10 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
+    --min-instances=2 \
+    --max-instances=2 \
+    --no-cpu-throttling \
+    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
 

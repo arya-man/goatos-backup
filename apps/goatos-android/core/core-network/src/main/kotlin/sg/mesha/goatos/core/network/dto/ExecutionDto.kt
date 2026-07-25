@@ -51,6 +51,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("proofStatus") val proofStatus: String = "",
     @SerialName("verificationStatus") val verificationStatus: String = "",
     @SerialName("nextAction") val nextAction: String = "",
+    @SerialName("primaryActionKey") val primaryActionKey: String = "",
     @SerialName("obligationId") val obligationId: String? = null,
     @SerialName("batchId") val batchId: String? = null,
     @SerialName("sopTaskId") val sopTaskId: String? = null,
@@ -82,6 +83,44 @@ data class VaccinationExecutionResponseDto(
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
     @SerialName("totalCount") val totalCount: Int = 0,
     @SerialName("nextCursor") val nextCursor: String? = null,
+    // Backend marks a leadership OVERSIGHT read (park-scoped, all sheds, not operator-assigned):
+    // the client shows the shed list read-only and must NOT open a shed into the scan/execute
+    // loop. Operators get false and keep the normal open→scan flow.
+    @SerialName("viewerReadOnly") val viewerReadOnly: Boolean = false,
+    // Backend-owned "vaccines to carry" totals, per business day, over the WHOLE day (not the
+    // paginated page). The client renders these verbatim — it never sums shed rows.
+    @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,
+    @SerialName("filterOptions") val filterOptions: ExecutionFilterOptionsDto? = null,
+)
+
+@Serializable
+data class ExecutionFilterOptionsDto(
+    @SerialName("parks") val parks: List<ExecutionParkOptionDto> = emptyList(),
+)
+
+@Serializable
+data class ExecutionParkOptionDto(
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("code") val code: String = "",
+    @SerialName("name") val name: String = "",
+)
+
+@Serializable
+data class VaccineCarrySummaryDto(
+    @SerialName("vaccineLabel") val vaccineLabel: String = "",
+    @SerialName("remainingDoses") val remainingDoses: Int = 0,
+)
+
+@Serializable
+data class CarryDayDto(
+    @SerialName("date") val date: String = "",
+    @SerialName("vaccineBreakdown") val vaccineBreakdown: List<VaccineCarrySummaryDto> = emptyList(),
+    @SerialName("totalRemaining") val totalRemaining: Int = 0,
+)
+
+@Serializable
+data class CarrySummaryDto(
+    @SerialName("carryByDay") val carryByDay: List<CarryDayDto> = emptyList(),
 )
 
 @Serializable

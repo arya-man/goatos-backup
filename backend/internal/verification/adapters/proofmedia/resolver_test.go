@@ -202,4 +202,35 @@ func (r *memoryProofRepo) CompleteProof(_ context.Context, in proofdomain.Comple
 	return proof, nil
 }
 
+func (r *memoryProofRepo) ApplyRetention(_ context.Context, _ string, proofIDs []string, policy string, expiresAt *time.Time) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	updated := 0
+	for _, proofID := range proofIDs {
+		proof, ok := r.proofs[proofID]
+		if !ok {
+			continue
+		}
+		proof.RetentionPolicy = policy
+		proof.RetentionExpiresAt = expiresAt
+		proof.UpdatedAt = time.Date(2026, 7, 17, 10, 2, 0, 0, time.UTC)
+		proof.RowVersion++
+		r.proofs[proofID] = proof
+		updated++
+	}
+	return updated, nil
+}
+
+func (r *memoryProofRepo) BackfillSubmissionRetention(_ context.Context, _ time.Time, _ int) (int, error) {
+	return 0, nil
+}
+
+func (r *memoryProofRepo) PurgeExpired(_ context.Context, _ time.Time, _ int) (int, error) {
+	return 0, nil
+}
+
+func (r *memoryProofRepo) PurgeAbandonedUploads(_ context.Context, _ time.Time, _ int) (int, error) {
+	return 0, nil
+}
+
 var _ ports.Repository = (*memoryProofRepo)(nil)

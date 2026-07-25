@@ -62,6 +62,11 @@ interface ScanCaptureRepository {
         capturedAtMs: Long? = null,
     )
 
+    /** Re-enqueues already-durable Room scan rows as backend draft captures. This is idempotent
+     *  and exists for app/process re-entry after a prior build or crash left local evidence without
+     *  a matching outbox row. */
+    suspend fun enqueuePendingScans(taskId: String, fieldKey: String)
+
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
      *  shed-submit answer payload. */
     suspend fun tagsForTask(taskId: String): List<String>
@@ -112,19 +117,68 @@ class DefaultScanCaptureRepository(
             )
         }
         if (inserted <= 0L) return
-        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, trimmed)
-        syncRepository?.enqueueScanCapture(
+        enqueueScanCapture(
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = trimmed,
+            goatId = goatId,
+            obligationId = obligationId,
+            capturedAtMs = durableCapturedAtMs,
+        )
+    }
+
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
+        if (syncRepository == null) return
+        val rows = withContext(dispatchers.io) {
+            dao.listForField(taskId, fieldKey)
+        }
+        rows.forEach { row ->
+            enqueueScanCapture(
+                taskId = row.taskId,
+                fieldKey = row.fieldKey,
+                tag = row.tag,
+                goatId = row.goatId,
+                obligationId = row.obligationId,
+                capturedAtMs = row.capturedAtMs,
+            )
+        }
+    }
+
+    private suspend fun enqueueScanCapture(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        capturedAtMs: Long,
+    ) {
+        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, tag)
+        when (val result = syncRepository?.enqueueScanCapture(
             taskId = taskId,
             groupKey = taskId,
             idempotencyKey = syncKey,
             request = ScanCaptureRequestDto(
                 fieldKey = fieldKey,
-                tag = trimmed,
+                tag = tag,
                 goatId = goatId?.takeIf { it.isNotBlank() },
                 obligationId = obligationId?.takeIf { it.isNotBlank() },
-                capturedAtMs = durableCapturedAtMs,
+                capturedAtMs = capturedAtMs,
             ),
-        )
+        )) {
+            is AppResult.Ok -> retryFailedScanCaptureIfNeeded(result.value)
+            is AppResult.Err -> Unit
+            null -> Unit
+        }
+    }
+
+    private suspend fun retryFailedScanCaptureIfNeeded(outboxItemId: String) {
+        val repo = syncRepository ?: return
+        val item = when (val result = repo.findOutboxItem(outboxItemId)) {
+            is AppResult.Ok -> result.value
+            is AppResult.Err -> null
+        } ?: return
+        if (item.status != SyncItemStatus.FAILED) return
+        repo.retry(outboxItemId)
     }
 
     override suspend fun tagsForTask(taskId: String): List<String> = withContext(dispatchers.io) {

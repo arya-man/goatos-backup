@@ -47,6 +47,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -600,6 +601,38 @@ type operatorRosterLeadership struct {
 	Emails        []string `json:"emails"`
 }
 
+// operatorRosterVerifier is a tenant-scoped verifier login declared by the CPT
+// seed packet. Verifiers review proof and never add vaccination execution
+// capacity, so the roster seeder only seeds the approved-email grant path.
+type operatorRosterVerifier struct {
+	Code                    string   `json:"code"`
+	DisplayName             string   `json:"display_name"`
+	Email                   string   `json:"email"`
+	Role                    string   `json:"role"`
+	IdentityProvider        string   `json:"identity_provider"`
+	ParkScope               []string `json:"park_scope"`
+	CanExecuteVaccinaton    bool     `json:"can_execute_vaccination"`
+	AddsVaccinationCapacity bool     `json:"adds_vaccination_capacity"`
+	Notes                   []string `json:"notes"`
+}
+
+// operatorRosterAndroidLogin is the post-DB-seed mobile provisioning contract for
+// field executors. The roster seeder validates it so the block cannot be silently
+// ignored, but it deliberately does not create Firebase users: cloud identity
+// provisioning happens after DB seed through the Auth/Firebase runbook.
+type operatorRosterAndroidLogin struct {
+	RequiredAfterDatabaseSeed           bool     `json:"required_after_database_seed"`
+	IdentityProvider                    string   `json:"identity_provider"`
+	SourceEmailField                    string   `json:"source_email_field"`
+	UniqueEmailPerOperator              bool     `json:"unique_email_per_operator"`
+	UniqueTemporaryPasswordPerOperator  bool     `json:"unique_temporary_password_per_operator"`
+	SharedPasswordForbidden             bool     `json:"shared_password_forbidden"`
+	PlaintextPasswordsInGitForbidden    bool     `json:"plaintext_passwords_in_git_forbidden"`
+	MustSendOrRecordIndividualResetFlow bool     `json:"must_send_or_record_individual_reset_flow"`
+	AndroidLoginSmokeRequired           bool     `json:"android_login_smoke_required"`
+	Notes                               []string `json:"notes"`
+}
+
 type operatorRosterContract struct {
 	Schema           string `json:"schema"`
 	BusinessDate     string `json:"business_date"`
@@ -607,6 +640,12 @@ type operatorRosterContract struct {
 		Unit                  string `json:"unit"`
 		DefaultAnimalsPerDay  *int   `json:"default_animals_per_day"`
 		DoseCountIsNotCapaity bool   `json:"dose_count_is_not_capacity"`
+		SeedCatchupOverrides  []struct {
+			Date         string `json:"date"`
+			OperatorCode string `json:"operator_code"`
+			MaxAnimals   int    `json:"max_animals"`
+			Reason       string `json:"reason"`
+		} `json:"seed_catchup_overrides"`
 	} `json:"operator_capacity"`
 	SourceScope struct {
 		Tenant           string   `json:"tenant"`
@@ -616,7 +655,8 @@ type operatorRosterContract struct {
 		CentersForbidden []string `json:"centers_forbidden"`
 		Notes            []string `json:"notes"`
 	} `json:"source_scope"`
-	Operators []operatorRosterOperator `json:"operators"`
+	Operators            []operatorRosterOperator    `json:"operators"`
+	OperatorAndroidLogin *operatorRosterAndroidLogin `json:"operator_android_login"`
 	// DefaultOperatorAssignment is the CEO-set default operator + N-active-operators for this park
 	// (vaccination_operator_assignment_config). Optional -- absent means the seed does not author an
 	// assignment config row (never a silent default).
@@ -632,6 +672,7 @@ type operatorRosterContract struct {
 		Notes                         []string `json:"notes"`
 	} `json:"default_operator_assignment"`
 	Directors             []operatorRosterDirector  `json:"directors"`
+	Verifiers             []operatorRosterVerifier  `json:"verifiers"`
 	LeadershipFullAccess  *operatorRosterLeadership `json:"leadership_full_access"`
 	WeeklyCapacityExample []struct {
 		Weekday                    string   `json:"weekday"`
@@ -673,9 +714,24 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 	}
 	operatorCodes := make(map[string]bool, len(contract.Operators))
 	operatorKeys := make(map[string]bool, len(contract.Operators))
+	operatorEmails := make(map[string]string, len(contract.Operators))
 	for _, op := range contract.Operators {
 		operatorCodes[op.Code] = true
 		operatorKeys[operatorNameKey(op.DisplayName)] = true
+		email := strings.ToLower(strings.TrimSpace(op.EmailHint))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, fmt.Errorf("operator roster operator %s requires email_hint for Android login provisioning", op.Code)
+		}
+		if previous := operatorEmails[email]; previous != "" {
+			return nil, fmt.Errorf("operator roster operators %s and %s share email_hint %q; Android operator logins must be unique", previous, op.Code, email)
+		}
+		operatorEmails[email] = op.Code
+	}
+	if contract.OperatorAndroidLogin == nil {
+		return nil, fmt.Errorf("operator roster operator_android_login contract is required for Android login provisioning")
+	}
+	if err := validateOperatorAndroidLoginContract(contract.OperatorAndroidLogin); err != nil {
+		return nil, err
 	}
 	for _, director := range contract.Directors {
 		if strings.TrimSpace(director.Code) == "" || strings.TrimSpace(director.DisplayName) == "" {
@@ -687,6 +743,27 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 		}
 		if operatorCodes[director.Code] || operatorKeys[operatorNameKey(director.DisplayName)] {
 			return nil, fmt.Errorf("operator roster director %s is also declared as a vaccination operator", director.Code)
+		}
+	}
+	for _, verifier := range contract.Verifiers {
+		if strings.TrimSpace(verifier.Code) == "" || strings.TrimSpace(verifier.DisplayName) == "" {
+			return nil, fmt.Errorf("operator roster verifier requires code and display_name")
+		}
+		email := strings.ToLower(strings.TrimSpace(verifier.Email))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, fmt.Errorf("operator roster verifier %s requires email", verifier.Code)
+		}
+		if strings.TrimSpace(verifier.Role) != "verifier" {
+			return nil, fmt.Errorf("operator roster verifier %s role must be verifier", verifier.Code)
+		}
+		if strings.TrimSpace(verifier.IdentityProvider) != "firebase_email_password" {
+			return nil, fmt.Errorf("operator roster verifier %s identity_provider must be firebase_email_password", verifier.Code)
+		}
+		if verifier.CanExecuteVaccinaton || verifier.AddsVaccinationCapacity {
+			return nil, fmt.Errorf("operator roster verifier %s must not execute vaccination or add capacity", verifier.Code)
+		}
+		if operatorCodes[verifier.Code] || operatorKeys[operatorNameKey(verifier.DisplayName)] {
+			return nil, fmt.Errorf("operator roster verifier %s is also declared as a vaccination operator", verifier.Code)
 		}
 	}
 	if lead := contract.LeadershipFullAccess; lead != nil {
@@ -706,6 +783,37 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 		}
 	}
 	return &contract, nil
+}
+
+func validateOperatorAndroidLoginContract(login *operatorRosterAndroidLogin) error {
+	if !login.RequiredAfterDatabaseSeed {
+		return fmt.Errorf("operator roster operator_android_login.required_after_database_seed must be true")
+	}
+	if strings.TrimSpace(login.IdentityProvider) != "firebase_email_password" {
+		return fmt.Errorf("operator roster operator_android_login.identity_provider must be firebase_email_password")
+	}
+	if strings.TrimSpace(login.SourceEmailField) != "operators[].email_hint" {
+		return fmt.Errorf("operator roster operator_android_login.source_email_field must be operators[].email_hint")
+	}
+	if !login.UniqueEmailPerOperator {
+		return fmt.Errorf("operator roster operator_android_login.unique_email_per_operator must be true")
+	}
+	if !login.UniqueTemporaryPasswordPerOperator {
+		return fmt.Errorf("operator roster operator_android_login.unique_temporary_password_per_operator must be true")
+	}
+	if !login.SharedPasswordForbidden {
+		return fmt.Errorf("operator roster operator_android_login.shared_password_forbidden must be true")
+	}
+	if !login.PlaintextPasswordsInGitForbidden {
+		return fmt.Errorf("operator roster operator_android_login.plaintext_passwords_in_git_forbidden must be true")
+	}
+	if !login.MustSendOrRecordIndividualResetFlow {
+		return fmt.Errorf("operator roster operator_android_login.must_send_or_record_individual_reset_flow must be true")
+	}
+	if !login.AndroidLoginSmokeRequired {
+		return fmt.Errorf("operator roster operator_android_login.android_login_smoke_required must be true")
+	}
+	return nil
 }
 
 // operatorNameKey is the deterministic join key between a contract operator and
@@ -1109,12 +1217,48 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	defer tx.Rollback(ctx)
 
-	// Resolve center locations
+	// Resolve only the center locations actually present in this source bundle.
+	// CPT operator-drive packets are intentionally CPT-only; requiring CBE here
+	// makes a clean local DB reseed fail before vaccination import can create the
+	// source-owned park locations.
 	centerLocationID := map[string]string{}
-	for _, center := range []string{"CBE", "CPT"} {
+	requiredCenters := map[string]bool{}
+	for _, m := range members {
+		center := strings.TrimSpace(m.location)
+		if center == "CBE" || center == "CPT" {
+			requiredCenters[center] = true
+		}
+	}
+	for _, assignment := range assignments {
+		center := strings.TrimSpace(assignment.center)
+		if center == "CBE" || center == "CPT" {
+			requiredCenters[center] = true
+		}
+	}
+	for center := range requiredCenters {
 		var locationID string
 		if err := tx.QueryRow(ctx, `SELECT location_id FROM locations WHERE tenant_id=$1 AND location_type='park' AND location_code=$2 LIMIT 1`, tenantID, center).Scan(&locationID); err != nil {
-			return ist, fmt.Errorf("resolve center location %s: %w", center, err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return ist, fmt.Errorf("resolve center location %s: %w", center, err)
+			}
+			locationID = detUUID("location", tenantID, "park", center)
+			name := center
+			if center == "CPT" {
+				name = "Channapatna"
+			} else if center == "CBE" {
+				name = "Coimbatore"
+			}
+			if _, err := tx.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', $3, $4, 'active')
+ON CONFLICT (location_id) DO UPDATE
+SET location_code = EXCLUDED.location_code,
+    name = EXCLUDED.name,
+    status = EXCLUDED.status,
+    updated_at = now()`,
+				locationID, tenantID, center, name); err != nil {
+				return ist, fmt.Errorf("upsert center location %s: %w", center, err)
+			}
 		}
 		centerLocationID[center] = locationID
 	}
@@ -1188,7 +1332,19 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 			locationID = &l
 		}
 
-		roleHint := deriveRoleHint(m, grade)
+		// A member is a vaccination-executing operator if they hold any active
+		// vaccination_operator_* position (the operator-roster overlay stamps that
+		// code onto their resolved seat). Computed from the post-overlay assignments,
+		// not from bestCode/bestTier, which were frozen from the original June seat.
+		var execVaccOperator bool
+		for _, a := range assignments {
+			if a.jun26Name == key && strings.HasPrefix(a.position.code, "vaccination_operator_") {
+				execVaccOperator = true
+				break
+			}
+		}
+
+		roleHint := deriveRoleHint(m, grade, execVaccOperator)
 
 		// Deterministic department guess: use position's deptGuess for best tier
 		var deptGuess string
@@ -1389,7 +1545,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	// thrown away. Same transaction as the roster import: a roster that commits its operators
 	// without the monitoring director and the CEO/CXO grants is exactly the half-seeded HRMS
 	// state LOCAL_DB_RESEED_VALIDATION.md forbids.
-	directors, grants, err := seedContractDirectorsAndLeadership(ctx, tx, tenantID, centerLocationID, operatorRoster, resolveDept, assignments)
+	directors, grants, err := seedContractPeopleAndEmailGrants(ctx, tx, tenantID, centerLocationID, operatorRoster, resolveDept, assignments)
 	if err != nil {
 		return ist, fmt.Errorf("seed contract directors/leadership: %w", err)
 	}
@@ -1402,7 +1558,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	return ist, nil
 }
 
-// seedContractDirectorsAndLeadership seeds the operator-roster contract blocks that the seeder
+// seedContractPeopleAndEmailGrants seeds the operator-roster contract blocks that the seeder
 // previously dropped on the floor (BUG-024):
 //
 //   - `directors[]`  -> a workforce_members row per director with hr_designation_grade=director,
@@ -1413,9 +1569,11 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 //   - `leadership_full_access` -> tenant-scoped auth_pending_email_grants rows, the same table and
 //     shape backend/cmd/seed-dev-email-grants writes, so a CPT-only reseed no longer depends on
 //     GOATOS_DEV_DASHBOARD_ADMIN_EMAILS being set by hand.
+//   - `verifiers[]` -> tenant-scoped auth_pending_email_grants rows for proof
+//     reviewers. Verifiers do not get workforce_positions or vaccination capacity.
 //
 // No-ops for sources without the contract. Returns (directorsSeeded, leadershipGrantsSeeded).
-func seedContractDirectorsAndLeadership(
+func seedContractPeopleAndEmailGrants(
 	ctx context.Context,
 	tx pgx.Tx,
 	tenantID string,
@@ -1504,6 +1662,23 @@ DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now
 			grantsSeeded++
 		}
 	}
+	for _, verifier := range contract.Verifiers {
+		email := strings.ToLower(strings.TrimSpace(verifier.Email))
+		if email == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO auth_pending_email_grants (
+  tenant_id, email, normalized_email, role, scope_type, scope_id, status, valid_from, source
+) VALUES ($1, $2, $2, 'verifier', 'tenant', $1, 'active', now(), 'cpt_operator_roster_contract')
+ON CONFLICT (tenant_id, normalized_email, role, scope_type, scope_id)
+  WHERE status = 'active' AND valid_to IS NULL
+DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now()`,
+			tenantID, email); err != nil {
+			return 0, 0, fmt.Errorf("upsert verifier grant: %w", err)
+		}
+		grantsSeeded++
+	}
 	return directorsSeeded, grantsSeeded, nil
 }
 
@@ -1561,6 +1736,33 @@ ON CONFLICT (tenant_id, operator_id, park_id) DO UPDATE SET
   updated_at = now();`,
 			tenantID, mID, parkID, op.ShiftLabel, *op.ShiftStartMinute, *op.ShiftEndMinute, weekOffArg); err != nil {
 			return fmt.Errorf("upsert shift config for %s: %w", op.Code, err)
+		}
+	}
+
+	for _, override := range contract.OperatorCapacity.SeedCatchupOverrides {
+		operatorID, ok := operatorIDByCode[override.OperatorCode]
+		if !ok || operatorID == "" {
+			return fmt.Errorf("operator capacity override: operator_code %q does not resolve to a seeded shift operator", override.OperatorCode)
+		}
+		if _, err := time.Parse("2006-01-02", strings.TrimSpace(override.Date)); err != nil {
+			return fmt.Errorf("operator capacity override for %s has invalid date %q: %w", override.OperatorCode, override.Date, err)
+		}
+		if override.MaxAnimals < 1 {
+			return fmt.Errorf("operator capacity override for %s on %s has max_animals=%d", override.OperatorCode, override.Date, override.MaxAnimals)
+		}
+		if strings.TrimSpace(override.Reason) == "" {
+			return fmt.Errorf("operator capacity override for %s on %s requires reason", override.OperatorCode, override.Date)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_operator_capacity_overrides
+  (tenant_id, park_id, operator_id, capacity_date, max_animals, reason, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5, $6, now())
+ON CONFLICT (tenant_id, park_id, operator_id, capacity_date) DO UPDATE SET
+  max_animals = EXCLUDED.max_animals,
+  reason = EXCLUDED.reason,
+  updated_at = now();`,
+			tenantID, parkID, operatorID, override.Date, override.MaxAnimals, strings.TrimSpace(override.Reason)); err != nil {
+			return fmt.Errorf("upsert capacity override for %s on %s: %w", override.OperatorCode, override.Date, err)
 		}
 	}
 
@@ -1641,7 +1843,15 @@ WHERE department_module_grants.status <> 'active'`, tenantID, pairCodes, pairMod
 	return int(tag.RowsAffected()), nil
 }
 
-func deriveRoleHint(m *memberRec, grade *string) string {
+func deriveRoleHint(m *memberRec, grade *string, execVaccOperator bool) string {
+	// A vaccination-executing operator is always an "operator" for app/gate purposes,
+	// regardless of the HR capacity-tier (manager) used for roster/capacity or any
+	// higher-ranked June seat (e.g. park_head) the same person also holds. The mobile
+	// scan gate keys on primary_role_hint == "operator"; a field executor labelled
+	// supervisor/park_head would be silently locked out of scanning.
+	if execVaccOperator {
+		return "operator"
+	}
 	switch m.bestCode {
 	case "park_head":
 		return "park_head"

@@ -102,7 +102,7 @@ Business events the vaccination slice raises, and whether they notify:
 | Reminder tick | scheduler, inside the reminder window | yes — the cadence in §3 |
 | `due → in_progress` | field batch started | low-priority ack to head/manager |
 | `→ proof_pending` | execution done, proof (SOP video) uploaded | no push (interim state) |
-| `→ verification_pending` | proof queued for review | **yes — notify the verifier** (whoever can action the review for that scope) |
+| `→ verification_pending` | shed proof/video submitted for review | **yes — notify the verifier, that park head, PC director, and all CEOs** |
 | `→ rejected` / `rework_due` | **verifier rejects the proof** | **yes — notify the operator who did it (+ park head)** so they redo |
 | `→ completed` (verified/approved) | proof accepted (`vaccination_completion`) | rollup only (digest), no push spam |
 | `due → overdue` | window closed, still open | yes — high priority + escalation start |
@@ -122,16 +122,23 @@ plan + EOD report):
 
 | Offset | Fires | Slot(s) | Type | Priority |
 |---|---|---|---|---|
-| `D − 7d` | 1× | 09:00 | `advance_notice` | normal |
-| `D − 6d … D − 1d` | 2×/day | 08:00, 17:00 | `reminder` (with `reminder_number` 1..N) | normal |
-| `D − 0` (due day) | 2× | 08:00, 12:00 | `due_today` | high |
+| `D − 7d` | 1× | 08:00 | `advance_notice` | normal |
+| `D − 6d … D − 1d` | 3×/day | 08:00, 13:00, 18:00 | `reminder` (with `reminder_number` 1..N) | normal |
+| `D − 0` (due day) | 3× | 08:00, 13:00, 18:00 | `due_today` | high |
 | `D + 0` EOD not done | 1× | 18:00 | `overdue` | high → starts escalation |
 
-This is the literal encoding of "1 week before, then daily 2 reminders till the
-day arrives." Every offset/slot/count is a **rule parameter**, not a constant —
-2×/day for a full week is deliberately spammy for a low-risk drive, so the ladder
-is tunable per vaccine priority (e.g., ET+TT priority-1 keeps the full ladder;
+This is the literal encoding of "1 week before, then daily reminders till the day
+arrives," aligned to the current field rhythm of 08:00 / 13:00 / 18:00 local
+time. Every offset/slot/count is a **rule parameter**, not a constant — 3×/day
+for a full week is deliberately high-touch for low-risk drives, so the ladder is
+tunable per vaccine priority (e.g., ET+TT priority-1 keeps the full ladder;
 priority-5 HS could collapse to `D-3` + `D-0`). Tuning lives in the rule, §5.
+
+**Stop condition:** the daily reminder ladder applies only while a vaccination
+shed is scheduled/open and not yet being executed. Once the shed reaches
+`in_progress` because an operator starts scanning, no further daily reminder is
+sent for that shed. Submitted/proof/review states are handled by their separate
+submission and verification notification paths.
 
 **Quiet hours:** no push between 21:00–07:00 IST; a fire that lands in quiet
 hours defers to the next allowed slot (field staff, not on-call).
@@ -182,47 +189,47 @@ covering member. Ownership is never mutated; only the notification recipient is
 swapped for the window. (Consistent with the Backup-Manager coverage model —
 coverage of *tasks*, not a role swap.)
 
-### 4b. HQ-tier roles — all parks, but digest + escalation, not per-drive
+### 4b. HQ-tier roles — all parks
 
-PHC Director, COO, and CXO/Founders (`scope_type='tenant'`) get **all-park**
-visibility as you asked — but subscribing them to every park's per-drive reminder
-ladder would be thousands of pushes/day. So leadership receives:
+PC Director and CEOs (`scope_type='tenant'`, `position_code IN
+('pc_director','ceo_internal')`) get **all-park** visibility for vaccination
+drive notifications. The operational reminder ladder includes them because
+vaccination execution is a priority-1 daily field workflow, but the event is
+still batched/collapsed by recipient, park, date, and notification type so it
+does not become per-animal spam.
 
-- **Daily leadership digest** — 1× at 18:00 IST, one push per role: per-park
-  rollup of due / overdue / missed / completed counts across **all** parks. Tap
-  opens the all-parks calendar (read-only follow-up).
-- **Escalations only** — an individual push the moment an obligation escalates to
-  their level (§5), not before. A drive that completes on time never pushes
-  leadership individually.
+Leadership receives:
 
-> **Decision point (flagged):** "director/CXO/COO get any park notifs" is
-> implemented as *all-park digest + escalation*, not *every per-animal reminder*,
-> to keep it usable. If you truly want leadership on the raw per-drive ladder for
-> some critical vaccine, set `digest_only: false` on that rule. Default is digest.
+- the same 08:00 / 13:00 / 18:00 reminder ladder while the shed is still
+  scheduled/open,
+- the immediate shed-submitted-for-review notification, and
+- escalation/aging notifications when a drive is overdue, missed, stuck in
+  review, or repeatedly rejected.
 
 Directors also get the **operational** ladder for department-wide events (stock
 buffer low, biosecurity) per the PHC handbook SLAs, not per-drive reminders.
 
-### 4c. Verification & rework — route to whoever can act, never bomb leadership
+### 4c. Verification & rework — shed submit goes to reviewer + leadership
 
 Verification is its own loop: after execution the proof (SOP video) goes
 `proof_pending → verification_pending`, and the verifier either approves
-(`→ completed`) or rejects (`→ rejected` / `rework_due`). Notifications follow the
-**"notify the person who can action it"** rule — the recipient is resolved by
-*capability + scope*, not by seniority:
+(`→ completed`) or rejects (`→ rejected` / `rework_due`). Notifications follow
+the **"notify the people who must know/action this shed is now waiting"** rule.
+Recipients are resolved from the backend org model and active FCM devices, not
+hard-coded in clients:
 
 | Event | Who is notified | Why | Priority |
 |---|---|---|---|
-| `verification_pending` (proof waiting) | the **verifier(s)** with review capability for that park/scope (`VerifierLabel` / video-verification role, `scope_type='center'` + `scope_id=park`) | they are the only ones who can act — "N proofs waiting for you" | normal (batched per verifier per park per day) |
+| `verification_pending` (shed proof/video submitted) | **verifier(s)** with `pc.vaccination` verify duty for that park, that park's **park head**, tenant **PC director(s)**, and all tenant **CEOs** | verifier can review, park leadership tracks execution, tenant leadership sees every submitted vaccination shed | normal, deduped by shed submission id per device |
 | `rejected` / `rework_due` (verifier rejected) | the **operator who performed it** + that park's **park head** | they must redo the drive — this is the one verification event that must reach the field fast | high |
 | `→ completed` (approved) | no push | success is the default; shows in the daily rollup only | — |
 
-**Leadership (Director / COO / CXO) are excluded from routine verification and
-rework notifications** — no per-proof, no per-rejection push. This is the
-"don't bombard CXO/CEO" rule stated explicitly. They see verification only as an
-aggregate in the daily digest (e.g. "12 pending review, 3 rejected, 1 aging"),
-and receive an individual escalation **only** when the loop breaks — not on a
-single rejection:
+For `verification_pending`, the event key is submission-scoped when the producer
+carries a `submission_id`. That matters because one shed submission can create
+multiple goat-level verification items; the notification layer must queue one
+push per recipient device for the shed submission, not one push per goat.
+
+Leadership also receives an individual escalation when the loop breaks:
 
 - a proof sits in `verification_pending` past its review SLA (aging — no verifier
   acted), or
@@ -230,8 +237,20 @@ single rejection:
 - `vaccination_config_activation_review` / policy-level approvals that genuinely
   need a leader's sign-off.
 
-So a normal reject → operator + park head. A *stuck* or *looping* verification →
-escalation up the ladder (§5). Leadership gets the exception, never the routine.
+So shed submit → verifier + park head + PC director + CEOs. A normal reject →
+operator + park head. A *stuck* or *looping* verification → escalation up the
+ladder (§5).
+
+### 4d. Notification tap landing
+
+Vaccination push taps do **not** open Scan. Scan is an operator-initiated action
+from the Vaccination sheds list only.
+
+| Recipient role | Reminder tap | Shed-submitted tap |
+|---|---|---|
+| `operator`, `park_head`, `phc_manager` | Vaccination | Vaccination |
+| `verifier` | Vaccination | Verify item detail |
+| `pc_director`, `ceo_internal` | Vaccination tab | Vaccination tab |
 
 ---
 
@@ -257,23 +276,26 @@ notification_policy:
   ladder:
     - trigger: due_window_open        # obligation scheduled -> due
       fires:
-        - { offset: -7d, at: ["09:00"], type: advance_notice, priority: normal }
-        - { offset: [-6d,-1d], at: ["08:00","17:00"], type: reminder, priority: normal }
-        - { offset: 0d, at: ["08:00","12:00"], type: due_today, priority: high }
+        - { offset: -7d, at: ["08:00"], type: advance_notice, priority: normal }
+        - { offset: [-6d,-1d], at: ["08:00","13:00","18:00"], type: reminder, priority: normal }
+        - { offset: 0d, at: ["08:00","13:00","18:00"], type: due_today, priority: high }
   quiet_hours: { from: "21:00", to: "07:00", tz: Asia/Kolkata }
   batch_key: [recipient, park_id, due_date, type]   # collapse per-animal spam
   # audience
   audience:
     - roles: [operator, park_head, phc_manager]
       scope: { by: park, from: event.park_id }       # park-scoped
-    - roles: [phc_director, coo, cxo]
-      digest_only: true                               # all-park rollup, not per-drive
-      digest: { at: "18:00", group_by: park }
-  # verification loop — route by capability, never to leadership by default
+    - roles: [pc_director, ceo_internal]
+      scope: { by: tenant }                           # all parks, batched/collapsed
+  # verification loop — shed submit is backend-owned and routed by capability/position
   verification:
     - on: verification_pending
-      to: { capability: verify_vaccination, scope: { by: park, from: event.park_id } }
+      to:
+        - { capability: verify_vaccination, scope: { by: park, from: event.park_id } }
+        - { roles: [park_head], scope: { by: park, from: event.park_id } }
+        - { roles: [pc_director, ceo_internal], scope: { by: tenant } }
       priority: normal
+      idempotency: submission_id_per_device
     - on: [rejected, rework_due]
       to: { actor: event.performed_by, plus_roles: [park_head], scope: park }
       priority: high

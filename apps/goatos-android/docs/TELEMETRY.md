@@ -16,8 +16,8 @@
 
 All four Firebase deliverables are wired behind the pre-existing `AnalyticsPort` seam
 (`core/core-analytics/.../AnalyticsPort.kt`), plus a new OkHttp telemetry interceptor. Nothing
-here required editing `viewmodel/LeadershipViewModel.kt`, `RecordViewModel.kt`,
-`ScanViewModel.kt`, or `ShedsViewModel.kt` (the 4 files owned by a parallel session).
+here required editing `RecordViewModel.kt`, `ScanViewModel.kt`, or `ShedsViewModel.kt`
+(the files owned by a parallel session).
 
 | Deliverable | Real impl | Fallback (tests / `TELEMETRY_ENABLED=false`) |
 |---|---|---|
@@ -88,7 +88,7 @@ Journey: **login → bootstrap → drive-open → scan → vaccination-capture �
 
 **Why the last four stages have no call site yet**: this task's constraint list explicitly
 scoped safe edit locations to `Application`, `MainActivity`, the login flow, and navigation —
-and separately named 4 viewmodels (`LeadershipViewModel`, `RecordViewModel`, `ScanViewModel`,
+and separately named viewmodels (`RecordViewModel`, `ScanViewModel`,
 `ShedsViewModel`) as owned by a parallel session. `RecordViewModel`/`ScanViewModel` are exactly
 where `vaccination-capture`/`scan` belong, and `feature-submit`'s view model was left untouched
 for the same reason (staying out of concurrent feature-viewmodel edits). **Next step for
@@ -176,7 +176,7 @@ dependency (added to `app/build.gradle.kts`) because `core-network`'s own OkHttp
 `implementation`-scoped and not exposed transitively, so `AppModule.kt` couldn't otherwise resolve
 `okhttp3.Interceptor` when constructing `TelemetryInterceptor`. All warnings in the build output
 are pre-existing (unrelated files this task never touched — `AppNavHost.kt`, `SyncWorker.kt`,
-`Overlays.kt`, `LeadershipScreen.kt`).
+`Overlays.kt`).
 
 **Not run** (out of scope / needs a device): `assembleStgRelease` / Firebase App Distribution
 end-to-end, and any real on-device run with `TELEMETRY_ENABLED=true` hitting a live Firebase

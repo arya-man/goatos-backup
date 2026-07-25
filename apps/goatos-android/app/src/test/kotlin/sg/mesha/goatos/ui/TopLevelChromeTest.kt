@@ -15,7 +15,6 @@ import sg.mesha.goatos.core.model.nav.resolveModule
 
 class TopLevelChromeTest {
     private val roots = listOf(
-        Routes.LEADERSHIP,
         Routes.CALENDAR,
         Routes.VACCINATION,
         Routes.ALERTS,
@@ -45,6 +44,14 @@ class TopLevelChromeTest {
     fun `root path prefixes do not make a child top level`() {
         assertFalse(isTopLevelRoute("${Routes.VACCINATION}/drive", roots))
         assertFalse(isTopLevelRoute("${Routes.CALENDAR}/day", roots))
+    }
+
+    @Test
+    fun `root route patterns with query args keep root chrome`() {
+        val closerRoots = roots + Routes.VERIFY_ACTION
+
+        assertTrue(isTopLevelRoute("${Routes.VERIFY_ACTION}?actionMode={actionMode}", closerRoots))
+        assertFalse(isTopLevelRoute("${Routes.VERIFY_ACTION_DETAIL}?itemId={itemId}", closerRoots))
     }
 
     @Test
@@ -217,6 +224,59 @@ class TopLevelChromeTest {
         val resolved = twoModules.resolveModule("vaccination", "/counts/shifting")
         assertEquals(counts, resolved)
         assertTrue(isTopLevelRoute("/counts/shifting", rootsFor(twoModules, "vaccination", "/counts/shifting")))
+    }
+
+    @Test
+    fun `ceo videos root keeps its module chrome when compose reports the query route pattern`() {
+        val ceoVaccination = vaccination.copy(
+            navItems = listOf(
+                NavItem(key = "vaccination", label = "Overview", href = Routes.VACCINATION),
+                NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
+                NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+                NavItem(key = "you", label = "You", href = Routes.YOU),
+            ),
+        )
+        val ceoState = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = ceoVaccination.navItems,
+            modules = listOf(ceoVaccination, counts, soon),
+        )
+        val composeRoute = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}"
+        val roots = rootsFor(ceoState, "vaccination", composeRoute)
+
+        assertEquals(ceoVaccination, ceoState.resolveModule("vaccination", composeRoute))
+        assertTrue(isTopLevelRoute(composeRoute, roots))
+        assertTrue(drawerAvailable(ceoState.chrome, composeRoute, roots))
+    }
+
+    @Test
+    fun `operator and standalone verifier roles do not gain ceo videos drawer`() {
+        val composeRoute = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}"
+
+        val operatorState = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = vaccination.navItems,
+            modules = listOf(vaccination),
+        )
+        val operatorRoots = rootsFor(operatorState, "vaccination", Routes.VACCINATION)
+        assertFalse(isTopLevelRoute(composeRoute, operatorRoots))
+        assertFalse(drawerAvailable(operatorState.chrome, composeRoute, operatorRoots))
+
+        val verifier = NavModule(
+            key = "verify",
+            label = "Verify",
+            href = Routes.VERIFY,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(NavItem(key = "verify", label = "Verify", href = Routes.VERIFY)),
+        )
+        val verifierState = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = verifier.navItems,
+            modules = listOf(verifier),
+        )
+        val verifierRoots = rootsFor(verifierState, "verify", Routes.VERIFY)
+        assertFalse(isTopLevelRoute(composeRoute, verifierRoots))
+        assertFalse(drawerAvailable(verifierState.chrome, composeRoute, verifierRoots))
     }
 
     @Test

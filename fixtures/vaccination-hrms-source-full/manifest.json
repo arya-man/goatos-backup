@@ -6,6 +6,7 @@
   "generated_by": "tools/dev/build-vaccination-hrms-fixture.mjs",
   "sop_seed_contract_reviewed_at": "2026-07-23",
   "ceo_ai_compatibility_note": "Compatible with ceo_ai reporting view migrations 000024-000027 (read-only SQL views for leadership assistant operational screens)",
+  "capacity_config_override_note": "Compatible with migration 000045 (nullable vaccination_capacity_config.max_shots_per_animal_per_drive admin override). This fixture seeds no override value; the obligation sweeper falls back to the published rule_dsl / code default, so no fixture data or hashes change.",
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",
@@ -32,6 +33,7 @@
     "full_access_grant_role": "ceo_internal",
     "full_access_workforce_hint": "cxo",
     "source_dates_are_never_invented": true,
+    "accepted_one_time_history_supersedes_active_seed_obligations": true,
     "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
   },
   "counts": {
@@ -147,6 +149,46 @@
       "date": "2026-07-24",
       "change": "Seed pipeline hardening BUG-009/010/011/023/024: (a) new `make seed-vaccination-cpt-operator-drive` target that materializes the committed CPT packet into the normalized bundle shape both seed commands require and then runs the documented chain against it, so the documented command and the executable shape agree; (b) new read-only `make seed-checkout-staleness-gate`, run before any DB write in both seed targets, enforcing the previously documentation-only automatic-failure condition that a reseed proof must come from a clean checkout identical to origin/main (GOATOS_ALLOW_STALE_SEED_CHECKOUT=1 is a loud escape hatch that voids the proof); (c) seed-closeout now executes the packet's check-expected-drive-schedules.mjs against real DB rows when GOATOS_EXPECTED_DRIVE_SCHEDULES is set, turning a documented-but-unrun comparison into a failing gate; (d) backend/cmd/seed-roster-real decodes cpt-operator-roster.json with DisallowUnknownFields, so an unconsumed contract block is a hard named error instead of an encoding/json silent drop, and the previously discarded `directors` and `leadership_full_access` blocks are now consumed (directors seed monitoring-only workforce_members with no workforce_positions row, asserted zero field capacity; leadership_full_access seeds tenant-scoped auth_pending_email_grants); (e) the source validator's operator shift end-minute range corrected from 1..1440 to 0..1439 to match the migration 000035 CHECK and the vaccinationexecution domain validator.",
       "vaccination_hrms_source_impact": "none to the committed jun-26 fixture bytes. This bundle ships no cpt-operator-roster.json, so the loader, contract-block, and shift-minute changes are a no-op for it: every file hash, animal/shed/vaccination-cell count, and corrections-ledger entry is unchanged, and the adversarial self-test baseline is unaffected. The new make targets and the staleness/expected-drive gates operate outside the fixture. Operator-drive rehearsal bundles are affected: an end-minute of 1440 is now rejected at preflight instead of at the seed boundary, 0 is accepted, and any contract block this seeder does not consume fails the seed loudly."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT operator-roster contract gained operator_android_login and per-operator email_hint validation. After DB seed, Amit, Darshan, and Sagar must each be provisioned with a distinct Firebase/Auth email-password Android login; shared operator credentials, founder/CXO Android execution shortcuts, and plaintext passwords in git are invalid seed evidence.",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes: this bundle ships no cpt-operator-roster.json, so full-fixture hashes/counts are unchanged. The CPT operator-drive rehearsal packet is affected: materialize-source, source validation, and seed-roster-real now fail loudly when operator email hints are missing/duplicated or the Android login contract permits a shared password or skips per-operator smoke proof."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "seed-roster-real deriveRoleHint now emits primary_role_hint='operator' for any member holding an active vaccination_operator_* position, overriding the frozen June-seat bestCode/bestTier that was computed before the operator-roster overlay ran. Fixes CPT operators Amit/Darshan/Sagar being mislabelled 'supervisor' (manager capacity-tier) or 'park_head' (a leftover higher-ranked seat), which silently dropped every mobile scan because the app gate keys on primary_role_hint=='operator'. Adds TestDeriveRoleHintVaccinationOperatorAlwaysOperator and a source-validator invariant guard (OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT). Capacity tier 'manager' remains a capacity/roster attribute only, never a role.",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes: this bundle ships no cpt-operator-roster.json, so its overlay is a no-op and every non-operator member keeps its prior role hint (a real manager stays 'supervisor', a real park head stays 'park_head'). No file hash, count, or corrections-ledger entry changes; the adversarial self-test baseline is unaffected. Only members recast into vaccination_operator_* positions by a present operator-roster contract now resolve to 'operator'."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT ET+TT-only operator-drive seed sets GOATOS_CPT_EXCLUDE_PPR_2026=1 so seed-vaccination-real publishes a packet-scoped rule matrix without PPR while keeping the canonical matrix for source/history mapping.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no CPT operator-drive seed variant flag, and canonical PPR source/history mapping remains available. Only the CPT operator-drive make target publishes the no-PPR 2026 rule subset, so PPR obligations are not generated or batched in the 2026 CPT seed proof."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT adult campaign coalescing and one-time seed catch-up capacity override",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and its raw vaccination rows are unchanged. CPT operator-drive rehearsal bundles may declare an explicit seed_catchup_overrides row; only that operator/date may exceed the standing HRMS cap. Adult entry_date is never a vaccination due-date anchor: adult blank-history animals join campaign/catch-up cohorts by physical shed/partition, while kid/young schedule windows remain strict."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT clean-DB operator-drive reseed and adult same-day history cutoff hardening",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle still has no cpt-operator-roster.json, no seed_catchup_overrides row, and no raw date/hash/count change. CPT-only operator-roster bundles may seed from a clean migrated local DB by resolving only centers present in the source and upserting the required park row before HRMS members/positions. Adult campaign generation reads accepted vaccination history through the end of the as-of business day, so 2026-07-24 ET+TT completions suppress duplicate open W2 work while the explicit 2026-07-25 Darshan seed_catchup_overrides row remains the only 210-animal exception to the standing 200 cap."
+    },
+    {
+      "date": "2026-07-25",
+      "change": "Adult campaign generation now uses a stable idempotency key for non-repeating physical-partition campaign obligations and realigns unbatched open rows on replay instead of minting a second same-goat/same-dose obligation when the seed as-of date changes.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: animal, roster, SOP, and vaccination source files are unchanged. The change is generation idempotency for derived obligations only; it prevents CPT operator-drive duplicates such as ET+TT W2 or FMD W1 replay rows while preserving kid/young strict timing and repeating booster cycle fences."
+    },
+    {
+      "date": "2026-07-25",
+      "change": "CPT operator-roster contract gained verifier-only email-password grants; Jyothi jyothipvg12345@gmail.com is seeded as verifier with no vaccination execution seat, shift row, or animal capacity.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle has no cpt-operator-roster.json, so the verifier grant lane is inactive for it and all raw animal/vaccination/HRMS hashes and counts stay unchanged. CPT-only operator-drive packets with verifiers[] must consume the block as auth_pending_email_grants only; verifiers never affect drive packing capacity."
+    },
+    {
+      "date": "2026-07-25",
+      "change": "CPT operator-drive materialization now writes reviewed shed-manager mapping rows for every active CPT physical shed from cpt-operator-roster.json: Darshan Talwar is the default shed/drive owner and Sagar Mahoor is the reviewed backup. seed-vaccination-source-full always runs seed-shed-positions, and the CPT helper runs it in strict only-sheds-with-goats mode so no active source shed can remain ownerless. Shed-summary reads also resolve accepted completed drive history through the default operator when no open drive-assignment row remains.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and keeps the generic timetable/shed-manager model. The validator keeps physical-shed aggregation for the full fixture while preserving exact physical shed names for operator-roster CPT bundles, so Gandhi completed-history rows and Godel/Mandela active rows cannot regress to Operators unassigned after a reviewed CPT seed."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."

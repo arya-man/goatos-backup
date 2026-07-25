@@ -21,12 +21,12 @@ const (
 	reminderCadenceMaxLimit     = 2000
 )
 
-// reminderCadenceCandidate is one open, actionable vaccination obligation/event that MIGHT have a
-// reminder cadence fire due -- read from the canonical source_events reconstruction
+// reminderCadenceCandidate is one scheduled/open, actionable vaccination obligation/event that MIGHT
+// have a reminder cadence fire due -- read from the canonical source_events reconstruction
 // (calendarCanonicalEventsCTE), which is de-scheduling's own source of truth: an obligation that
-// transitions to completed/deferred/canceled leaves the status filter below (so it stops reminding),
-// and one that is rescheduled picks up its NEW due_at on the very next sweep (so the ladder restarts
-// from the new D) -- vaccination-notification-rules.md §3.
+// transitions to in_progress (operator scanning), completed/deferred/canceled, or submitted/review
+// states leaves the status filter below (so it stops reminding), and one that is rescheduled picks up
+// its NEW due_at on the very next sweep (so the ladder restarts from the new D).
 type reminderCadenceCandidate struct {
 	EventID    string
 	ParkID     string
@@ -227,7 +227,7 @@ SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_targ
 FROM source_events
 WHERE system = false
   AND event_type <> 'vaccination_dose_due'
-  AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
+  AND status IN ('scheduled', 'due', 'overdue')
   AND park_id IS NOT NULL
   AND ($6::text = '' OR (due_at, event_id) > ($5::timestamptz, $6::text))
 ORDER BY due_at ASC, event_id ASC

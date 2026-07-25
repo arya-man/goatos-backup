@@ -66,8 +66,11 @@ import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
+import sg.mesha.goatos.core.data.cache.CacheVersionStore
+import sg.mesha.goatos.core.data.cache.ExecutionCacheVersionGate
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
+import sg.mesha.goatos.cache.SharedPrefsCacheVersionStore
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
@@ -83,6 +86,7 @@ import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
+import sg.mesha.goatos.core.data.sync.LocalBackendConnectivityGate
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -150,6 +154,18 @@ object AppModule {
 
     @Provides
     fun provideExecutionShedCacheDao(db: GoatDatabase): ExecutionShedCacheDao = db.executionShedCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideCacheVersionStore(@ApplicationContext context: Context): CacheVersionStore =
+        SharedPrefsCacheVersionStore(context)
+
+    @Provides
+    fun provideExecutionCacheVersionGate(
+        rowsDao: ExecutionRowsCacheDao,
+        shedDao: ExecutionShedCacheDao,
+        store: CacheVersionStore,
+    ): ExecutionCacheVersionGate = ExecutionCacheVersionGate(rowsDao, shedDao, store)
 
     @Provides
     fun provideScanRosterRowDao(db: GoatDatabase): ScanRosterRowDao = db.scanRosterRowDao()
@@ -452,7 +468,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
-        AndroidConnectivityGate(context)
+        LocalBackendConnectivityGate(
+            delegate = AndroidConnectivityGate(context),
+            apiBaseUrl = BuildConfig.API_BASE_URL,
+        )
 
     @Provides
     @Singleton
@@ -465,6 +484,12 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSyncJobsScheduler(scheduler: SyncWorkScheduler): SyncJobsScheduler = scheduler
+
+    @Provides
+    @Singleton
+    fun provideSessionRelauncher(
+        impl: sg.mesha.goatos.boot.ProcessSessionRelauncher,
+    ): sg.mesha.goatos.boot.SessionRelauncher = impl
 
     @Provides
     @Singleton

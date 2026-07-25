@@ -10,10 +10,12 @@ import (
 )
 
 type verificationCompletionFake struct {
-	applyErr   error
-	applyCalls int
-	outcome    string
-	actor      string
+	applyErr             error
+	applyCalls           int
+	submissionApplyCalls int
+	outcome              string
+	actor                string
+	goatIDs              []string
 }
 
 func (f *verificationCompletionFake) AcceptExisting(context.Context, AcceptExistingInput) (AcceptResult, error) {
@@ -33,6 +35,21 @@ func (f *verificationCompletionFake) ApplyGoatVerification(_ context.Context, _,
 	return f.applyErr
 }
 
+func (f *verificationCompletionFake) ApplySubmissionVerification(_ context.Context, _, _, outcome, _ string, actorID *string) ([]string, error) {
+	f.submissionApplyCalls++
+	f.outcome = outcome
+	if actorID != nil {
+		f.actor = *actorID
+	}
+	if f.goatIDs == nil {
+		f.goatIDs = []string{
+			"73000000-0000-4000-8000-000000000004",
+			"73000000-0000-4000-8000-000000000005",
+		}
+	}
+	return f.goatIDs, f.applyErr
+}
+
 type verificationClosureFake struct {
 	calls        int
 	submissionID string
@@ -46,6 +63,27 @@ func (f *verificationClosureFake) AcceptSubmissionItemVerification(_ context.Con
 	f.goatID = goatID
 	f.actorID = actorID
 	return nil
+}
+
+func TestGenericSubmissionVerificationCloseProjectsEverySOPGoatAfterVaccinationAcceptance(t *testing.T) {
+	completion := &verificationCompletionFake{}
+	closure := &verificationClosureFake{}
+	handler := NewVerificationHandler(completion).WithClosureProjector(closure)
+	payload := genericSubmissionVerificationPayload(t)
+
+	if err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:     EventGenericVerificationClosed,
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Payload:  payload,
+	}); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if completion.submissionApplyCalls != 1 || completion.outcome != "closed" || completion.actor != "73000000-0000-4000-8000-000000000012" {
+		t.Fatalf("completion call = %#v", completion)
+	}
+	if closure.calls != 2 || closure.submissionID != "73000000-0000-4000-8000-000000000009" || closure.actorID != completion.actor {
+		t.Fatalf("closure call = %#v", closure)
+	}
 }
 
 func TestGenericVerificationCloseProjectsSOPOnlyAfterVaccinationAcceptance(t *testing.T) {
@@ -90,6 +128,23 @@ func genericVerificationPayload(t *testing.T) []byte {
 			"submission_id": "73000000-0000-4000-8000-000000000009",
 			"ref_type":      "vaccination_goat",
 			"ref_id":        "73000000-0000-4000-8000-000000000004",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func genericSubmissionVerificationPayload(t *testing.T) []byte {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"closed_by": "73000000-0000-4000-8000-000000000012",
+		"source": map[string]any{
+			"module":        "vaccination",
+			"submission_id": "73000000-0000-4000-8000-000000000009",
+			"ref_type":      "sop_submission",
+			"ref_id":        "73000000-0000-4000-8000-000000000009",
 		},
 	})
 	if err != nil {

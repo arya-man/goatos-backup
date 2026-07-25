@@ -22,7 +22,7 @@ core/
   core-testing       (android)   fakes/fixtures
 
 feature/   (feature-auth, feature-sheds, feature-scan, feature-submit,
-            feature-leadership, feature-record, feature-profile — Compose screen stubs;
+            feature-record, feature-profile — Compose screen stubs;
             feature-calendar is the wired landing)
 
 device/    device-rfid · device-camera · device-feedback  — Port interface + Fake each

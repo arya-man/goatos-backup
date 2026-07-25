@@ -29,11 +29,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
@@ -56,6 +62,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.sheds.R
 
@@ -109,6 +117,26 @@ data class ShedDayTab(
     val isSelected: Boolean,
 )
 
+@Immutable
+data class ShedParkFilter(
+    val parkId: String,
+    val label: String,
+    val isSelected: Boolean,
+)
+
+@Immutable
+data class ProtocolAdherenceSummary(
+    val expectedCount: Int,
+    val submittedCount: Int,
+    val acceptedCount: Int,
+    val reviewItemCount: Int,
+    val deferredCount: Int,
+    val acceptedPercent: Int,
+) {
+    val progressFraction: Float =
+        if (expectedCount > 0) submittedCount.toFloat() / expectedCount else 0f
+}
+
 /**
  * One shed card. Domain values come from the backend payload while localized labels
  * and count captions are app chrome;
@@ -143,6 +171,7 @@ data class ShedRow(
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
+    val opensRecordOnly: Boolean = false,
 )
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.
@@ -169,7 +198,18 @@ data class ShedsUiState(
     val caption: String? = null,
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
+    val parkFilters: List<ShedParkFilter> = emptyList(),
+    val adherence: ProtocolAdherenceSummary? = null,
     val rows: List<ShedRow> = emptyList(),
+    val hostedFromCalendar: Boolean = false,
+    // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
+    // false for a leadership oversight read (read-only shed list; the open click is blocked so
+    // CEO/Director/Park Head never reach the scan screen). Defaults true so operators are
+    // unaffected. See VaccinationExecutionResponseDto.viewerReadOnly.
+    val canOpenShed: Boolean = true,
+    // Backend-owned "vaccines to carry" for the selected day. Rendered verbatim; the screen
+    // NEVER sums shed rows to derive these (that produced a partial-page total, e.g. 111 vs 200).
+    val carry: DayCarry? = null,
     val rosterChanges: List<RosterChange> = emptyList(),
     val kernelInfo: String? = null,
     // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
@@ -187,6 +227,7 @@ data class ShedsUiState(
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
     data class SelectDay(val dateKey: String) : ShedsEvent
+    data class SelectPark(val parkId: String?) : ShedsEvent
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
@@ -242,7 +283,10 @@ fun ShedsScreen(
     onEvent: (ShedsEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
+    val canFilterHere = state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar
+    var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
@@ -259,16 +303,36 @@ fun ShedsScreen(
             .fillMaxSize()
             .background(PageBg),
     ) {
-        ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) }, onBack = { onEvent(ShedsEvent.Back) })
+        ShedsHeader(
+            state = state,
+            onRefresh = { onEvent(ShedsEvent.Refresh) },
+            onBack = { onEvent(ShedsEvent.Back) },
+            onOpenFilters = { showParkFilters = true },
+        )
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (!state.hostedFromCalendar) {
+                state.adherence?.let { adherence ->
+                    item {
+                        ProtocolAdherenceCard(
+                            summary = adherence,
+                            parkScope = state.parkFilters.firstOrNull { it.isSelected }?.label ?: "All parks",
+                        )
+                    }
+                }
+            }
             if (state.dayTabs.isNotEmpty()) {
-                item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
-                item { VaccineCarryCard(rows = state.rows) }
+                // Leadership reaches this screen from a specific drive/date on the Calendar, so
+                // the day strip is redundant for them — show it only for the operator work queue
+                // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
+                if (state.canOpenShed) {
+                    item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+                }
+                item { VaccineCarryCard(carry = state.carry) }
             } else {
                 item { DriveMeta(state) }
                 item { DayProgress(state) }
@@ -306,6 +370,16 @@ fun ShedsScreen(
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
         }
     }
+    if (showParkFilters && canFilterHere) {
+        ShedsParkFilterSheet(
+            filters = state.parkFilters,
+            onDismiss = { showParkFilters = false },
+            onSelect = {
+                onEvent(ShedsEvent.SelectPark(it))
+                showParkFilters = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -321,6 +395,84 @@ private fun InlineLoadingFooter() {
             color = Muted,
             strokeWidth = 2.dp,
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShedsParkFilterSheet(
+    filters: List<ShedParkFilter>,
+    onDismiss: () -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Surf,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = "Filter park",
+                color = Ink,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.height(14.dp))
+            ParkFilters(filters = filters, onSelect = onSelect)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun ParkFilters(filters: List<ShedParkFilter>, onSelect: (String?) -> Unit) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val anySelected = filters.any { it.isSelected }
+        FilterPill(
+            label = "All parks",
+            selected = !anySelected,
+            onClick = { onSelect(null) },
+        )
+        filters.forEach { option ->
+            FilterPill(
+                label = option.label,
+                selected = option.isSelected,
+                onClick = { onSelect(option.parkId) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) Brand else Surf2
+    val edge = if (selected) Brand else Hair
+    val fg = if (selected) PageBg else Ink
+    Card(
+        modifier = Modifier.height(36.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        border = BorderStroke(1.dp, edge),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+        }
     }
 }
 
@@ -362,10 +514,14 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
     }
 }
 
+/** Backend-owned "vaccines to carry" for the selected day. The screen renders these numbers
+ *  verbatim — it never sums shed rows (that produced a partial-page total, 111 vs 200). */
+data class CarryVaccine(val label: String, val remaining: Int)
+data class DayCarry(val totalRemaining: Int, val vaccines: List<CarryVaccine>)
+
 @Composable
-private fun VaccineCarryCard(rows: List<ShedRow>) {
-    val totals = vaccineCarryTotals(rows)
-    if (totals.isEmpty()) return
+private fun VaccineCarryCard(carry: DayCarry?) {
+    if (carry == null || carry.vaccines.isEmpty()) return
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -385,7 +541,7 @@ private fun VaccineCarryCard(rows: List<ShedRow>) {
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "${totals.values.sum()} doses",
+                    text = "${carry.totalRemaining} doses",
                     color = BrandD,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -404,35 +560,12 @@ private fun VaccineCarryCard(rows: List<ShedRow>) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                totals.forEach { (label, count) ->
-                    VaccineChip(VaccineGroup(label = label, countLabel = "$count doses"))
+                carry.vaccines.forEach { v ->
+                    VaccineChip(VaccineGroup(label = v.label, countLabel = "${v.remaining} doses"))
                 }
             }
         }
     }
-}
-
-private fun vaccineCarryTotals(rows: List<ShedRow>): Map<String, Int> {
-    return rows
-        .asSequence()
-        .flatMap { row ->
-            row.vaccineGroups.asSequence().mapNotNull { group ->
-                val remaining = remainingDoseCount(group.countLabel)
-                if (remaining > 0) group.label to remaining else null
-            }
-        }
-        .groupingBy { it.first }
-        .fold(0) { total, (_, remaining) -> total + remaining }
-}
-
-private fun remainingDoseCount(countLabel: String): Int {
-    val parts = countLabel.split("/", limit = 2)
-    if (parts.size == 2) {
-        val done = parts[0].filter(Char::isDigit).toIntOrNull() ?: 0
-        val total = parts[1].filter(Char::isDigit).toIntOrNull() ?: return 0
-        return (total - done).coerceAtLeast(0)
-    }
-    return countLabel.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
 // ---------------------------------------------------------------------------
@@ -451,11 +584,21 @@ private fun remainingDoseCount(countLabel: String): Int {
  * `/vaccination`, Up at `/calendar/drive` — with no route check anywhere in this feature module.
  */
 @Composable
-private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -> Unit) {
+private fun ShedsHeader(
+    state: ShedsUiState,
+    onRefresh: () -> Unit,
+    onBack: () -> Unit,
+    onOpenFilters: () -> Unit,
+) {
+    val headerTitle = if (!state.canOpenShed && !state.hostedFromCalendar) {
+        "Overview"
+    } else {
+        stringResource(R.string.sheds_title)
+    }
     MeshaScreenHeader(
         // Static screen title — localized client-side (the VM always bakes the
         // English "Today's sheds" chrome string; ignore it, render the screen's own).
-        title = stringResource(R.string.sheds_title),
+        title = headerTitle,
         eyebrow = listOf(state.moduleLabel, state.scopeLabel)
             .filter { it.isNotBlank() }
             .joinToString(" · "),
@@ -478,24 +621,45 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
             )
         },
         actions = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Surf2)
-                    .border(1.dp, Hair, RoundedCornerShape(12.dp))
-                    .clickable(onClick = onRefresh),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MeshaIcons.Refresh,
-                    contentDescription = stringResource(R.string.sheds_refresh_description),
-                    tint = Muted,
-                    modifier = Modifier.size(18.dp),
+            if (state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar) {
+                ShedsHeaderIconButton(
+                    onClick = onOpenFilters,
+                    icon = MeshaIcons.Filter,
+                    contentDescription = "Filter park",
                 )
+                Spacer(Modifier.size(8.dp))
             }
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = onRefresh,
+                contentDescription = stringResource(R.string.sheds_refresh_description),
+            )
         },
     )
+}
+
+@Composable
+private fun ShedsHeaderIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+) {
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Surf)
+            .border(1.dp, Hair, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Muted,
+            modifier = Modifier.size(24.dp),
+        )
+    }
 }
 
 @Composable
@@ -576,6 +740,103 @@ private fun DayProgress(state: ShedsUiState) {
 }
 
 @Composable
+private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: String) {
+    val stateLabel = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "Complete"
+        summary.reviewItemCount > 0 -> "In review"
+        summary.submittedCount > 0 -> "Submitted"
+        else -> "Open"
+    }
+    val progressLabel = "${summary.submittedCount}/${summary.expectedCount} goats submitted"
+    val progressCaption = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "${summary.acceptedPercent}% accepted"
+        summary.reviewItemCount > 0 -> "Submitted"
+        else -> "Submitted"
+    }
+    val reviewLine = when (summary.reviewItemCount) {
+        0 -> null
+        1 -> "1 shed video awaiting review"
+        else -> "${summary.reviewItemCount} shed videos awaiting review"
+    }
+    val acceptedLine = "${summary.acceptedCount}/${summary.expectedCount} goats accepted so far"
+    val tone = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
+        summary.reviewItemCount > 0 || summary.submittedCount > 0 -> toneFor(ShedStatus.PENDING)
+        else -> toneFor(ShedStatus.DELAYED)
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Protocol adherence",
+                        color = Ink,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = parkScope,
+                        color = Muted,
+                        fontSize = 11.5f.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                StatusPill(label = stateLabel, tone = tone)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = progressLabel,
+                    color = Ink,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = progressCaption,
+                    color = BrandD,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            ProgressBar(summary.progressFraction)
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                reviewLine?.let { CompactFact(it, color = tone.fg) }
+                CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactFact(text: String, color: Color) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 11.5f.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Surf2)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
 private fun RoleNote(note: String) {
     Row(
         modifier = Modifier
@@ -611,8 +872,7 @@ private fun SectionCaption(text: String) {
 @Composable
 private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
     val tone = toneFor(row.status)
-    val actionLabel = row.actionLabel
-        ?: row.taskId?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.sheds_open_shed) }
+    // The whole card is the tap target; the redundant "Open shed ›" CTA text is not rendered.
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -626,14 +886,14 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             ShedCardTop(row = row, tone = tone)
             DriveAssignmentStrip(row)
+            if (row.vaccineGroups.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                VaccineChips(row.vaccineGroups)
+            }
             Spacer(Modifier.height(14.dp))
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
             ProgressBar(row.progressFraction)
-            actionLabel?.let { label ->
-                Spacer(Modifier.height(12.dp))
-                ActionFooter(label = label, status = row.status)
-            }
         }
     }
 }
@@ -824,22 +1084,6 @@ private fun NumDivider() {
     )
 }
 
-@Composable
-private fun ActionFooter(label: String, status: ShedStatus) {
-    // Colour follows the backend-provided status (delayed = red); the label itself
-    // is whatever action the backend returned — the screen does not compose it.
-    val color = if (status == ShedStatus.DELAYED) Danger else BrandD
-    Text(
-        text = label,
-        color = color,
-        fontSize = 12.5f.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-    )
-}
-
 // ---------------------------------------------------------------------------
 // Roster changes + info box
 // ---------------------------------------------------------------------------
@@ -952,6 +1196,14 @@ private fun previewState(): ShedsUiState = ShedsUiState(
     daySummary = "Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1",
     caption = "Tap a shed for its live status · red = delayed, chase the team",
     roleNote = "Read-only · the ground team runs the drive",
+    adherence = ProtocolAdherenceSummary(
+        expectedCount = 77,
+        submittedCount = 77,
+        acceptedCount = 46,
+        reviewItemCount = 4,
+        deferredCount = 0,
+        acceptedPercent = 60,
+    ),
     rows = listOf(
         ShedRow(
             id = "mandela1",

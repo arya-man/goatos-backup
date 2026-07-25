@@ -16,13 +16,17 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"time"
 
 	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	operationsauditdomain "github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
+	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -51,12 +55,20 @@ type actionCenterLister interface {
 	ActionCenter(ctx context.Context, q processintegritydomain.Query) (processintegritydomain.ActionCenterResponse, error)
 }
 
+type vaccinationShedSummaryLister interface {
+	ShedSummary(ctx context.Context, q vaccexecd.ShedSummaryQuery) (vaccexecd.ShedSummaryResponse, error)
+}
+
 type opsKernelHealthLister interface {
 	ControlTower(ctx context.Context, q processintegritydomain.Query) (processintegritydomain.ControlTowerResponse, error)
 }
 
 type opsAuditSummarizer interface {
 	Summary(ctx context.Context, q operationsauditdomain.Query, traceID string) (operationsauditdomain.SummaryResponse, error)
+}
+
+type countsBreakdownLister interface {
+	GetBreakdown(ctx context.Context, req countsdomain.CountsBreakdownQuery) (countsdomain.CountsBreakdown, error)
 }
 
 // parkResolver resolves the planner's human park_label (e.g. "Castro 1") to
@@ -108,6 +120,62 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 		}
 	}
 	return "", false, nil
+}
+
+func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
+		if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
+			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
+			}
+			q.ParkID = &parkID
+		}
+		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
+			q.ShedID = &shedID
+		}
+		if stage, ok := params["stage"].(string); ok && stage != "" {
+			q.ManagementStage = &stage
+		}
+		if breed, ok := params["breed"].(string); ok && breed != "" {
+			q.Breed = &breed
+		}
+		if sex, ok := params["sex"].(string); ok && sex != "" {
+			q.Sex = &sex
+		}
+
+		result, err := svc.GetBreakdown(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+
+		facts := []ceodomain.Fact{{
+			Label: "Active animals",
+			Value: fmt.Sprintf("%d", result.TotalCount),
+		}}
+		if result.TotalKids > 0 || result.TotalAdults > 0 {
+			facts = append(facts, ceodomain.Fact{
+				Label: "Age bands",
+				Value: fmt.Sprintf("Kids: %d, Adults: %d", result.TotalKids, result.TotalAdults),
+			})
+		}
+		for _, row := range result.Items {
+			scope := row.ParkLabel
+			if row.ShedLabel != "" {
+				scope = fmt.Sprintf("%s / %s", row.ParkLabel, row.ShedLabel)
+			}
+			facts = append(facts, ceodomain.Fact{
+				Label: "Counts breakdown",
+				Value: fmt.Sprintf("Stage: %s, Breed: %s, Sex: %s, Count: %d", row.ManagementStage, row.Breed, row.Sex, row.Count),
+				Scope: scope,
+			})
+		}
+		return facts, nil
+	}
 }
 
 // buildProcurementReader maps ONLY "status" -- the sole advertised param
@@ -217,6 +285,63 @@ func buildVerificationReader(svc verificationQueueLister) func(ctx context.Conte
 				Scope: scope,
 			})
 		}
+		return facts, nil
+	}
+}
+
+// buildVaccinationReader maps shed_id/as_of onto the same canonical shed
+// summary service that backs GET /vaccination/sheds. park_label is advertised
+// by the executor for future planner compatibility but is intentionally not
+// read here because ShedSummaryQuery takes park_id, not a label; callers that
+// need park scoping should pass shed_id or add a park resolver before expanding
+// the advertised contract.
+func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+		asOf := biztime.BusinessDayStart(time.Now())
+		if raw, ok := params["as_of"].(string); ok && raw != "" {
+			parsed, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+			if err != nil {
+				return nil, fmt.Errorf("invalid as_of %q: %w", raw, err)
+			}
+			asOf = parsed
+		}
+		q := vaccexecd.ShedSummaryQuery{
+			TenantID:  tenantID,
+			AsOf:      asOf,
+			DueBefore: asOf.Add(45 * 24 * time.Hour),
+			Sort:      vaccexecd.ShedSortStatus,
+			Limit:     100,
+		}
+		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
+			q.ShedID = &shedID
+		}
+		result, err := svc.ShedSummary(ctx, q) // scale-guard:ignore: one-time executor-registration scan, not per-row I/O; closure calls the service once per assistant request
+		if err != nil {
+			return nil, err
+		}
+		facts := make([]ceodomain.Fact, 0, len(result.Rows)+1)
+		totalAnimals, totalDue, totalDone, totalSessions := 0, 0, 0, 0
+		for _, row := range result.Rows {
+			totalAnimals += row.Animals
+			totalDue += row.Due
+			totalDone += row.Done
+			totalSessions += row.Sessions
+			scope := row.ParkName
+			if row.ShedName != "" {
+				scope = scope + " / " + row.ShedName
+			}
+			facts = append(facts, ceodomain.Fact{
+				Label: "Vaccination shed",
+				Value: fmt.Sprintf("Animals: %d, Due: %d, Done: %d, Sessions: %d, Status: %s",
+					row.Animals, row.Due, row.Done, row.Sessions, row.Status),
+				Scope: scope,
+			})
+		}
+		facts = append([]ceodomain.Fact{{
+			Label: "Vaccination summary",
+			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
+				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
+		}}, facts...)
 		return facts, nil
 	}
 }

@@ -43,6 +43,8 @@ const (
 	piFeedException = "71000000-0000-4000-8000-000000000021"
 	piTodayBatch    = "71000000-0000-4000-8000-000000000022"
 	piTodayObl      = "71000000-0000-4000-8000-000000000023"
+	piCodedVersion  = "71000000-0000-4000-8000-000000000024"
+	piCodedRule     = "71000000-0000-4000-8000-000000000025"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -195,15 +197,37 @@ func TestListRowsLabelsVaccinationCodesAndKeepsSameBusinessDayDue(t *testing.T) 
 	defer pool.Close()
 
 	seedProcessIntegrityProjection(t, ctx, pool)
-	execPI(t, ctx, pool, "use coded ET+TT dose in source config",
-		`UPDATE protocol_rules
-		 SET dose_code = 'et_tt_adult_w2'
-		 WHERE tenant_id = $1 AND rule_id = $2`,
-		piTenant, piRule)
+	// A published protocol version is immutable by product rule (migration 000001,
+	// ensure_protocol_child_version_is_draft -> "published config is immutable"; asserted directly in
+	// internal/protocol/adapters/postgres/repository_integration_test.go:378). A config change therefore
+	// authors a NEW version: insert it as draft, add the coded rule while draft, then publish.
+	execPI(t, ctx, pool, "coded-dose protocol version (draft)",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy, sop_version_id)
+		 VALUES ($1, $2, $3, 'tenant', 2, 'draft', DATE '2026-07-01', '{}'::jsonb,
+		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
+		piCodedVersion, piTenant, piProtocol, piSOPVersion)
+	execPI(t, ctx, pool, "coded ET+TT dose rule in source config",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy, sop_version_id)
+		 VALUES ($1, $2, $3, 'et_tt_adult_w2', 1, 'birth_age', '{}'::jsonb,
+		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
+		piCodedRule, piTenant, piCodedVersion, piSOPVersion)
+	// Two published versions of the same protocol/scope may not have overlapping effective ranges
+	// (protocol_versions_published_no_overlap). The seed's baseline version is open-ended, so retire it
+	// before publishing the successor — published->retired is the one transition a published version allows.
+	execPI(t, ctx, pool, "retire baseline protocol version",
+		`UPDATE protocol_versions
+		 SET status = 'retired', updated_at = now()
+		 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		piTenant, piVersion)
+	execPI(t, ctx, pool, "publish coded-dose protocol version",
+		`UPDATE protocol_versions
+		 SET status = 'published', published_at = COALESCE(published_at, now()), updated_at = now()
+		 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		piTenant, piCodedVersion)
 	execPI(t, ctx, pool, "same business day batch",
 		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
 		 VALUES ($1, $2, $3, 'shed', $4, 'planned', DATE '2026-07-23', $5)`,
-		piTodayBatch, piTenant, piVersion, piShed, piOperator)
+		piTodayBatch, piTenant, piCodedVersion, piShed, piOperator)
 	execPI(t, ctx, pool, "same business day drive assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, DATE '2026-07-23', $3, $4, $5, 'Process Shed', 'whole', 1)`,
@@ -212,7 +236,7 @@ func TestListRowsLabelsVaccinationCodesAndKeepsSameBusinessDayDue(t *testing.T) 
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
 		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
 		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-07-22 18:30:00+00', 'scheduled', 'pi-today-assignment', 23)`,
-		piTodayObl, piTenant, piVersion, piRule, piTodayBatch, piGoat, piShed)
+		piTodayObl, piTenant, piCodedVersion, piCodedRule, piTodayBatch, piGoat, piShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	category := domain.CategoryVaccination

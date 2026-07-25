@@ -13,7 +13,6 @@
 
 import type { ReactElement } from "react";
 
-import { MESHA_LOGO_DATA_URI } from "./ceo-ai-logo";
 
 // The Twemoji goat artwork, shared by the avatar and the walking-button variant.
 function GoatArt(): ReactElement {
@@ -86,22 +85,36 @@ export function GoatWalking(): ReactElement {
 }
 
 // Mesha logo component for panel header and message avatars.
-// Renders the exported brand मे mark (PNG, not a font glyph). The image is
-// embedded as a base64 data URI (MESHA_LOGO_DATA_URI) so it ALWAYS renders even
-// where /data/logo.png can 404 (base-path/static-asset routing differences), and
-// so the mark never appears as a broken-image placeholder in the header or
-// message avatars. Kept crisp, circular, and contained at a 26-30px size.
+// Renders the brand मे mark exactly like the app-shell sidebar logo
+// (components/mesha-shell.tsx `.brand .logo`): the मे glyph in a green-soft disc
+// with a brand-green ring and bold brand-green glyph. Kept identical to the
+// sidebar so the Ask Mesha mark matches the main Mesha logo pixel-for-pixel at
+// any size (a stale PNG avatar previously diverged from the sidebar mark).
 export function MeshaLogo(props: { width?: number; height?: number; className?: string }): ReactElement {
-  const { width = 26, height = 26, className } = props;
+  const { width = 26, className } = props;
   return (
-    <img
-      src={MESHA_LOGO_DATA_URI}
-      alt="Mesha"
-      width={width}
-      height={height}
+    <span
+      aria-label="Mesha"
+      role="img"
       className={className}
-      style={{ objectFit: "contain", borderRadius: "50%" }}
-    />
+      style={{
+        width,
+        height: width,
+        flex: "none",
+        display: "grid",
+        placeItems: "center",
+        borderRadius: "50%",
+        border: "1.5px solid var(--brand)",
+        background: "var(--brand-soft)",
+        color: "var(--brand)",
+        fontWeight: 800,
+        fontSize: Math.round(width * 0.47),
+        lineHeight: 1,
+        fontFamily: "var(--f)",
+      }}
+    >
+      मे
+    </span>
   );
 }
 
@@ -127,13 +140,9 @@ export function CeoAiStyles(): ReactElement {
 @keyframes mzai-panel-open{from{opacity:0;transform:scale(.8) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .mzai-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);
   background:linear-gradient(135deg,var(--panel) 0%,var(--panel-2) 100%)}
-/* Avatar disc is WHITE with a thin green ring so the green मे logo mark reads at
-   full contrast (a green mark on a green disc was near-invisible). */
-.mzai-mark{width:36px;height:36px;border-radius:50%;background:#fff;
-  border:1.5px solid var(--brand-l);
-  color:#fff;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;
-  box-shadow:0 2px 8px rgba(0,0,0,.1)}
-.mzai-mark img{width:100%;height:100%;object-fit:contain;padding:4px}
+/* Neutral wrapper: MeshaLogo renders its own brand disc (matching the sidebar
+   brand logo), so the mark container must not add a second disc/ring. */
+.mzai-mark{display:flex;align-items:center;justify-content:center;flex:none}
 .mzai-mark .mzai-goat-icon{width:20px;height:20px}
 .mzai-htext{display:flex;flex-direction:column;min-width:0;flex:1}
 .mzai-htext b{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}
@@ -182,10 +191,9 @@ export function CeoAiStyles(): ReactElement {
 .mzai-msg.assistant{align-self:flex-start;align-items:flex-start}
 .mzai-avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
   font-size:16px;font-weight:600;overflow:hidden}
-/* Message avatar disc is WHITE with a green ring so the green मे logo mark reads
-   at full contrast (was a green mark on a green disc = invisible). */
-.mzai-msg.assistant .mzai-avatar{background:#fff;border:1.5px solid var(--brand-l);color:#fff}
-.mzai-msg.assistant .mzai-avatar img{width:100%;height:100%;object-fit:contain;padding:3px}
+/* MeshaLogo renders its own brand disc (matching the sidebar brand logo),
+   so the assistant avatar container stays a neutral, disc-free wrapper. */
+.mzai-msg.assistant .mzai-avatar{background:transparent;border:0}
 .mzai-bub{padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .mzai-msg.user .mzai-bub{background:var(--brand);color:#fff;border-bottom-right-radius:4px;
   box-shadow:0 2px 8px rgba(0,0,0,.1)}

@@ -286,7 +286,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			_ = release(ctx)
 			return plannedDate, nil, nil, err
 		}
-		cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, plannedDate, capPlanner, session)
+		cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, plannedDate, capPlanner, planner.MaxGoatsPerDrive, session)
 		if len(cappedIDs) < len(selectedIDs) {
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -303,7 +303,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 
 	var bestDate *time.Time
 	var bestIDs []string
-	bestAnimals := -1
+	bestScore := unbatchedDriveDateScore{inWindowAnimals: -1, animals: -1, obligations: -1}
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
 		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
@@ -330,19 +330,19 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 				_ = driveRelease(ctx)
 				return plannedDate, nil, nil, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
+			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, planner.MaxGoatsPerDrive, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
-			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
+			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
 			session.releaseClaims(shotClaims)
 			if err := driveRelease(ctx); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			if animals > bestAnimals || (animals == bestAnimals && len(cappedIDs) > len(bestIDs)) {
+			if score.betterThan(bestScore) {
 				chosen := day
 				bestDate = &chosen
 				bestIDs = append(bestIDs[:0], cappedIDs...)
-				bestAnimals = animals
+				bestScore = score
 			}
 		}
 		probe = probe.AddDate(0, 0, 1)
@@ -373,7 +373,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		_ = driveRelease(ctx)
 		return bestDate, nil, nil, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, session)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, planner.MaxGoatsPerDrive, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -403,14 +403,24 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
-	addRows := func(rows []domain.ParkConsolidationCandidate) {
+	groupOrder := make([]string, 0)
+	addRows := func(rows []domain.ParkConsolidationCandidate) error {
+		var err error
+		rows, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
+		if err != nil {
+			return err
+		}
 		for _, row := range rows {
 			if _, done := claimed[row.ObligationID]; done {
 				continue
 			}
-			key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+			key := parkConsolidationGroupKey(cfg, row)
+			if _, ok := groups[key]; !ok {
+				groupOrder = append(groupOrder, key)
+			}
 			groups[key] = append(groups[key], row)
 		}
+		return nil
 	}
 	if candidateIDs != nil {
 		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
@@ -418,7 +428,9 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			if err != nil {
 				return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
 			}
-			addRows(rows)
+			if err := addRows(rows); err != nil {
+				return err
+			}
 		}
 	} else {
 		var after *domain.ParkConsolidationCursor
@@ -432,7 +444,9 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			if len(rows) == 0 {
 				break
 			}
-			addRows(rows)
+			if err := addRows(rows); err != nil {
+				return err
+			}
 			if int32(len(rows)) < s.page {
 				break
 			}
@@ -450,7 +464,8 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	}
 
 	now := biztime.BusinessDayStart(asOf)
-	for _, rows := range groups {
+	for _, key := range orderParkConsolidationGroups(groupOrder, groups, cfg) {
+		rows := groups[key]
 		if len(rows) == 0 {
 			continue
 		}
@@ -522,7 +537,8 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, session)
+	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
+	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 	if len(capped) < len(selected) {
 		animalCapReached = true
 		cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})

@@ -17,7 +17,11 @@ type ComboDriveAligner interface {
 	// after == nil means start from the beginning. Returns batches ordered by
 	// (scope_type, scope_id, session, planned_date, batch_id).
 	ListPlannedComboBatchesKeyset(ctx context.Context, tenantID string, dueBefore time.Time, after *domain.ComboBatchCursor, limit int32) ([]domain.ComboDriveBatch, error)
-	UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) error
+	// UpdateBatchPlannedDate moves a planned batch to plannedDate. When the target date already holds
+	// a compatible planned batch, the source batch's obligations are MERGED into that target and its
+	// batch id is returned (non-empty) so the caller rebuilds the target's drive-assignment rows over
+	// the now-larger attached set (BUG-041). A plain same-batch move returns "".
+	UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) (string, error)
 }
 
 // comboGroupKey identifies one (scope_type, scope_id, session) combo-alignment group. Rows sharing
@@ -170,9 +174,23 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 				}
 				continue
 			}
-			if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
+			mergedIntoBatchID, err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target)
+			if err != nil {
 				_ = release(ctx)
 				return err
+			}
+			// BUG-041: when this align MERGED batch's obligations into an existing target batch, the
+			// target now holds obligations its drive-assignment rows never covered (a new shed and/or a
+			// sibling vaccine lane). Rebuild the target's rows from its FULL attached set through the
+			// real planner so every (shed, partition, vaccine lane) group gets a real operator drive
+			// lane and no moved obligation is left unbound. maxDriveCells is the per-operator animal cap
+			// distribute expects (effectiveOperatorAnimalCap sums it across operators to the park total,
+			// so it must NOT be pre-summed here).
+			if mergedIntoBatchID != "" {
+				if err := s.RebuildMergedBatchDriveAssignments(ctx, tenantID, mergedIntoBatchID, maxDriveCells, session); err != nil {
+					_ = release(ctx)
+					return err
+				}
 			}
 			session.claimComboBatchTargets(batch.TargetIDs, *target)
 			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {

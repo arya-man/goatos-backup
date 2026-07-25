@@ -1902,6 +1902,37 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: putVaccinationCapacityConfig
+      summary: >-
+        Write the tenant's daily operator animal cap + per-animal shot-cap override
+        (validate-or-reject; optimistic concurrency via rowVersion). A successful write cascades
+        vaccination.capacity.changed (one per active park) which re-plans future vaccination drives.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaccinationCapacityConfigRequest"
+      responses:
+        "200":
+          description: The updated capacity config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCapacityConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The supplied rowVersion no longer matches the stored config (concurrent edit).
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/operator-assignment/config:
     get:
       tags:
@@ -7194,6 +7225,7 @@ components:
         - upload_method
         - headers
         - expires_at
+        - upload_protocol
       properties:
         proof:
           $ref: "#/components/schemas/ProofArtifact"
@@ -7203,6 +7235,7 @@ components:
           type: string
           enum:
             - PUT
+            - POST
         headers:
           type: object
           additionalProperties:
@@ -7210,6 +7243,15 @@ components:
         expires_at:
           type: string
           format: date-time
+        upload_protocol:
+          type: string
+          enum:
+            - simple_put
+            - gcs_resumable_v1
+        chunk_size_bytes:
+          type: integer
+          format: int64
+          minimum: 262144
     ProofResponse:
       type: object
       additionalProperties: false
@@ -10985,6 +11027,7 @@ components:
         - proofStatus
         - verificationStatus
         - nextAction
+        - primaryActionKey
       properties:
         parkId:
           type: string
@@ -11040,6 +11083,12 @@ components:
           $ref: "#/components/schemas/VaccinationExecutionVerificationStatus"
         nextAction:
           type: string
+        primaryActionKey:
+          type: string
+          enum:
+            - scan
+            - none
+          description: Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
         obligationId:
           type: string
           format: uuid
@@ -12295,6 +12344,14 @@ components:
         rowVersion:
           type: integer
           description: Published capacity config row version.
+        maxShotsPerAnimalPerDrive:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Admin-editable override of the same-day per-animal shot cap enforced by the obligation
+            sweeper. null means "no override" -- the planner falls back to the published rule_dsl
+            drive_policy value / code default.
     VaccinationOperatorShift:
       type: object
       additionalProperties: false
@@ -12444,6 +12501,25 @@ components:
           type: integer
           format: int64
           description: The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
+    UpdateVaccinationCapacityConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - maxPerDay
+        - rowVersion
+      properties:
+        maxPerDay:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        maxShotsPerAnimalPerDrive:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Omit or set null to clear the override and fall back to the published rule_dsl value / code default.
+        rowVersion:
+          type: integer
+          description: The rowVersion last read by the admin.
     VaccinationShedStatus:
       type: string
       enum:
@@ -12838,7 +12914,11 @@ components:
         - workflow_row_id
         - status
         - due_at
+        - clinical_due_at
         - sequence
+        - dose_code
+        - vaccine_label
+        - display_label
       properties:
         obligation_id:
           type: string
@@ -12855,6 +12935,18 @@ components:
         due_at:
           type: string
           format: date-time
+        clinical_due_at:
+          type: string
+          format: date-time
+        scheduled_for:
+          type: string
+          format: date-time
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         sequence:
           type: integer
     VaccinationPassportHistoryItem:
@@ -12866,6 +12958,9 @@ components:
         - status
         - administered_at
         - doses
+        - dose_code
+        - vaccine_label
+        - display_label
         - adverse_reaction
       properties:
         completion_id:
@@ -12883,6 +12978,12 @@ components:
           format: date-time
         doses:
           type: integer
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         adverse_reaction:
           type: boolean
         withdrawal_until:

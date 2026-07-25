@@ -760,7 +760,8 @@ export interface paths {
         };
         /** Read the tenant's daily operator animal capacity config for the admin Config screen. */
         get: operations["getVaccinationCapacityConfig"];
-        put?: never;
+        /** Write the tenant's daily operator animal cap + per-animal shot-cap override (validate-or-reject; optimistic concurrency via rowVersion). A successful write cascades vaccination.capacity.changed (one per active park) which re-plans future vaccination drives. */
+        put: operations["putVaccinationCapacityConfig"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2737,12 +2738,16 @@ export interface components {
             proof: components["schemas"]["ProofArtifact"];
             upload_url: string;
             /** @enum {string} */
-            upload_method: "PUT";
+            upload_method: "PUT" | "POST";
             headers: {
                 [key: string]: string;
             };
             /** Format: date-time */
             expires_at: string;
+            /** @enum {string} */
+            upload_protocol: "simple_put" | "gcs_resumable_v1";
+            /** Format: int64 */
+            chunk_size_bytes?: number;
         };
         ProofResponse: {
             proof: components["schemas"]["ProofArtifact"];
@@ -4038,6 +4043,11 @@ export interface components {
             proofStatus: components["schemas"]["VaccinationExecutionProofStatus"];
             verificationStatus: components["schemas"]["VaccinationExecutionVerificationStatus"];
             nextAction: string;
+            /**
+             * @description Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
+             * @enum {string}
+             */
+            primaryActionKey: "scan" | "none";
             /** Format: uuid */
             obligationId?: string;
             /** Format: uuid */
@@ -4562,6 +4572,8 @@ export interface components {
             overflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap";
             /** @description Published capacity config row version. */
             rowVersion: number;
+            /** @description Admin-editable override of the same-day per-animal shot cap enforced by the obligation sweeper. null means "no override" -- the planner falls back to the published rule_dsl drive_policy value / code default. */
+            maxShotsPerAnimalPerDrive?: number | null;
         };
         /**
          * @description Phase 1 CONFIG-ONLY: one operator's authored shift window + week-off for a park. Start/end are
@@ -4634,6 +4646,13 @@ export interface components {
              * Format: int64
              * @description The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
              */
+            rowVersion: number;
+        };
+        UpdateVaccinationCapacityConfigRequest: {
+            maxPerDay: number;
+            /** @description Omit or set null to clear the override and fall back to the published rule_dsl value / code default. */
+            maxShotsPerAnimalPerDrive?: number | null;
+            /** @description The rowVersion last read by the admin. */
             rowVersion: number;
         };
         /**
@@ -4787,6 +4806,13 @@ export interface components {
             status: string;
             /** Format: date-time */
             due_at: string;
+            /** Format: date-time */
+            clinical_due_at: string;
+            /** Format: date-time */
+            scheduled_for?: string;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             sequence: number;
         };
         VaccinationPassportHistoryItem: {
@@ -4798,6 +4824,9 @@ export interface components {
             /** Format: date-time */
             administered_at: string;
             doses: number;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             adverse_reaction: boolean;
             /** Format: date-time */
             withdrawal_until?: string | null;
@@ -7020,6 +7049,41 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationCapacityConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated capacity config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCapacityConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The supplied rowVersion no longer matches the stored config (concurrent edit). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             500: components["responses"]["ServerError"];
         };
     };

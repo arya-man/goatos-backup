@@ -73,10 +73,6 @@ whole-app audit (6 parallel area auditors + a best-practices verification pass),
   ControlTowerRepository.observeSummary, VaccinationInsightsRepository.observe{Gaps,Coverage},
   ExecutionRepository.observe{Rows,Shed,ScanRoster}, CalendarRepository.observeEvents,
   AdherenceRepository.observeAdherence; move VM DTO→Ui maps into the flow.
-- **Review queue** (`LeadershipViewModel`): `REVIEW_LIMIT` 50→20, retain `nextCursor`, append on
-  scroll (contract already supports it — wiring only).
-- **Data-gaps overlay** (`Overlays.kt`/`LeadershipViewModel`): `forEach` Column →
-  `LazyColumn(heightIn)`; `GAPS_LIMIT` 50→20 + cursor paging.
 - **Review-queue offline cache** (`VaccinationReviewRepository`): network-only → Room + cursor.
 - **Timetable/coverage offline cache** (`RosterRepository`): network-only → Room; bound fetch to 20.
 - **Outbox** (`OutboxDao`/`SyncRepository`/`OutboxStore`): unbounded `observeAll()` + never-pruned

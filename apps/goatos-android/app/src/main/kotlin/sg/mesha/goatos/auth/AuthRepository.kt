@@ -29,6 +29,10 @@ interface AuthRepository {
 
     /** Current signed-in user's Firebase ID token, or null if nobody is signed in. */
     suspend fun currentIdToken(forceRefresh: Boolean = false): String?
+
+    /** Current signed-in user's email (Firebase Auth), or null if nobody is signed in / no email. */
+    fun currentEmail(): String?
+
     fun signOut()
 }
 
@@ -81,6 +85,8 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
             runCatching { Tasks.await(user.getIdToken(forceRefresh))?.token }.getOrNull()
         }
     }
+
+    override fun currentEmail(): String? = firebaseAuth.currentUser?.email?.ifBlank { null }
 
     override fun signOut() {
         runCatching { firebaseAuth.signOut() }

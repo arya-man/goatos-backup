@@ -25,6 +25,8 @@ type GoogleAccountsID = {
     cancel_on_tap_outside?: boolean;
     hd?: string;
     context?: "signin" | "signup" | "use";
+    itp_support?: boolean;
+    use_fedcm_for_prompt?: boolean;
   }): void;
   renderButton(
     parent: HTMLElement,
@@ -194,6 +196,16 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       cancel_on_tap_outside: true,
       hd: "mesha.sg",
       context: "signin",
+      // Without itp_support, browsers with third-party cookies blocked (Safari
+      // ITP, Chrome third-party-cookie phase-out) make GSI fall back to an
+      // intermediate storage-access popup at accounts.google.com/gsi/transform.
+      // That popup's own postMessage/close handshake with the opener can be left
+      // hanging (blank white window) once we resolve the credential. itp_support
+      // tells GSI to manage that handshake properly so the popup closes itself;
+      // use_fedcm_for_prompt routes supporting browsers through FedCM instead of
+      // any popup at all.
+      itp_support: true,
+      use_fedcm_for_prompt: true,
     });
     googleID.renderButton(buttonContainerRef.current, {
       type: "standard",

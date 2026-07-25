@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Validates vaccination HRMS source data before seeding.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
+// Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
+// part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so
+// source validation is unchanged by the caps-editable feature.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,8 +23,27 @@ import {
   SHED_PARTITION_NAME_PATTERN_CONTRACT,
   OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED,
   OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY,
+  OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER,
+  OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
+  OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT,
+  OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY,
+  OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY,
+  OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER,
+  OPERATOR_ROSTER_VERIFIER_ROLE,
+  ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
+  ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
+
+if (!ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS) {
+  throw new Error("seed source contract must preserve accepted one-time vaccination history over regenerated active obligations");
+}
+if (!OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY) {
+  throw new Error("operator-roster seed contract must bootstrap only centers present in the selected source bundle");
+}
+if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
+  throw new Error("adult campaign seed contract must include same-business-day accepted history during generation");
+}
 
 const INPUT_FILES = [
   "goats.json",
@@ -437,19 +459,48 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     ["Preventive Care Manager", "Backup Manager", "Park Head"].every((position) =>
       rosterSeats.has(`CPT\0${position}`),
     );
+  let operatorRosterOwnership = null;
+  const operatorRosterPathForOwnership = path.join(source, "cpt-operator-roster.json");
+  if (fs.existsSync(operatorRosterPathForOwnership)) {
+    const contract = JSON.parse(fs.readFileSync(operatorRosterPathForOwnership, "utf8"));
+    const byCode = new Map((contract.operators ?? []).map((operator) => [operator.code, operator]));
+    const manager = byCode.get(contract.default_operator_assignment?.default_operator_code);
+    const backup = byCode.get(contract.default_operator_assignment?.fallback_operator_code);
+    if (manager && backup) {
+      operatorRosterOwnership = { park: contract.source_scope?.park_code, manager, backup };
+    }
+  }
   for (let index = 1; index < managers.length; index += 1) {
     const row = managers[index];
     const park = cell(row, managerColumns, "park_code");
     const rawShed = cell(row, managerColumns, "shed_name");
-    const shed = normalizeShedPartitionName(rawShed).physical;
-    const key = `${park}\0${shed}`;
     const count = Number(cell(row, managerColumns, "goat_count"));
     const manager = cell(row, managerColumns, "manager_code");
     const backup = cell(row, managerColumns, "backup_manager_code");
+    const usesOperatorRosterOwnership =
+      operatorRosterOwnership &&
+      park === operatorRosterOwnership.park &&
+      manager === operatorRosterOwnership.manager.code &&
+      backup === operatorRosterOwnership.backup.code;
+    const shed = usesOperatorRosterOwnership ? rawShed.trim() : normalizeShedPartitionName(rawShed).physical;
+    const key = `${park}\0${shed}`;
     const managerSeat = rosterSeatByCode.get(manager);
     const backupSeat = rosterSeatByCode.get(backup);
     const aggregate = managerSheds.get(key) ?? { count: 0, manager, backup };
-    if (aggregate.manager !== manager || aggregate.backup !== backup || !shedCounts.has(key) || !staffCodes.has(manager) || !staffCodes.has(backup) || manager === backup || managerSeat?.center !== park || managerSeat?.position !== "Preventive Care Manager" || backupSeat?.center !== park || backupSeat?.position !== "Backup Manager" || cell(row, managerColumns, "manager_name") !== managerSeat?.candidate || cell(row, managerColumns, "backup_manager_name") !== backupSeat?.candidate || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
+    const operatorRosterOwned =
+      usesOperatorRosterOwnership &&
+      cell(row, managerColumns, "manager_name") === operatorRosterOwnership.manager.display_name &&
+      cell(row, managerColumns, "backup_manager_name") === operatorRosterOwnership.backup.display_name;
+    const timetableOwned =
+      staffCodes.has(manager) &&
+      staffCodes.has(backup) &&
+      managerSeat?.center === park &&
+      managerSeat?.position === "Preventive Care Manager" &&
+      backupSeat?.center === park &&
+      backupSeat?.position === "Backup Manager" &&
+      cell(row, managerColumns, "manager_name") === managerSeat?.candidate &&
+      cell(row, managerColumns, "backup_manager_name") === backupSeat?.candidate;
+    if (aggregate.manager !== manager || aggregate.backup !== backup || !shedCounts.has(key) || manager === backup || (!operatorRosterOwned && !timetableOwned) || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
       pushSample(managerProblems, `shed-manager row ${index + 1}`);
     }
     aggregate.count += Number.isFinite(count) ? count : 0;
@@ -488,6 +539,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       const weekdays = new Set();
       const validWeekdays = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
       const operatorCodes = new Set();
+      const operatorEmails = new Map();
+      const operatorEmailsOnly = new Set();
       let hasPMShift = false;
       for (const op of ops) {
         const label = op?.code || op?.display_name || "operator";
@@ -496,6 +549,11 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         else operatorCodes.add(code);
         if (op?.tier !== "manager") pushSample(operatorRosterProblems, `${label}: tier must be manager (equal operator)`);
         if (op?.can_execute_vaccination !== true) pushSample(operatorRosterProblems, `${label}: can_execute_vaccination must be true`);
+        // Capacity tier "manager" is NOT a role: a vaccination operator must resolve
+        // to primary_role_hint="operator" so the mobile scan gate admits them. Guard
+        // the invariant so a regression that reintroduces supervisor/park_head hints
+        // for field executors fails here (the Amit/Darshan/Sagar STG incident).
+        if (OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT !== true) pushSample(operatorRosterProblems, `${label}: vaccination operators must resolve to primary_role_hint=operator regardless of capacity tier`);
         const wk = String(op?.week_off || "").toLowerCase();
         if (!validWeekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: invalid week_off '${op?.week_off}'`);
         else if (weekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: duplicate week_off '${wk}'`);
@@ -513,6 +571,45 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         // 0..1439; a source-valid 1440 used to pass here and then fail at the seed
         // boundary, while an invalid 0 was rejected here but accepted downstream.
         if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute >= 0 && op.shift_end_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 0..1439`);
+        const email = String(op?.email_hint ?? "").trim().toLowerCase();
+        if (!email || !email.includes("@")) pushSample(operatorRosterProblems, `${label}: email_hint is required for per-operator Android login provisioning`);
+        else if (operatorEmails.has(email)) pushSample(operatorRosterProblems, `${label}: email_hint duplicates ${operatorEmails.get(email)}; Android operator logins must be unique`);
+        else {
+          operatorEmails.set(email, label);
+          operatorEmailsOnly.add(email);
+        }
+      }
+      const verifierEmails = new Map();
+      const verifiers = Array.isArray(contract?.verifiers) ? contract.verifiers : [];
+      for (const verifier of verifiers) {
+        const label = verifier?.code || verifier?.display_name || "verifier";
+        const role = String(verifier?.role || "").trim();
+        const provider = String(verifier?.identity_provider || "").trim();
+        const email = String(verifier?.email || "").trim().toLowerCase();
+        if (!/^preventive_care_verifier_[a-z0-9_]+$/.test(String(verifier?.code || ""))) pushSample(operatorRosterProblems, `${label}: verifier code must be preventive_care_verifier_<name>`);
+        if (!email || !email.includes("@")) pushSample(operatorRosterProblems, `${label}: verifier email is required`);
+        else if (operatorEmailsOnly.has(email)) pushSample(operatorRosterProblems, `${label}: verifier email must not reuse an executable operator email`);
+        else if (verifierEmails.has(email)) pushSample(operatorRosterProblems, `${label}: verifier email duplicates ${verifierEmails.get(email)}`);
+        else verifierEmails.set(email, label);
+        if (role !== OPERATOR_ROSTER_VERIFIER_ROLE) pushSample(operatorRosterProblems, `${label}: verifier role must be ${OPERATOR_ROSTER_VERIFIER_ROLE}`);
+        if (provider !== OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER) pushSample(operatorRosterProblems, `${label}: verifier identity_provider must be ${OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER}`);
+        if (verifier?.can_execute_vaccination !== false) pushSample(operatorRosterProblems, `${label}: verifier can_execute_vaccination must be false`);
+        if (verifier?.adds_vaccination_capacity !== false) pushSample(operatorRosterProblems, `${label}: verifier adds_vaccination_capacity must be false`);
+        if (OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY !== true) pushSample(operatorRosterProblems, `${label}: verifier must have zero execution capacity`);
+      }
+      const androidLogin = contract?.operator_android_login;
+      if (!androidLogin || typeof androidLogin !== "object") {
+        pushSample(operatorRosterProblems, "operator_android_login contract block is required");
+      } else {
+        if (androidLogin.required_after_database_seed !== true) pushSample(operatorRosterProblems, "operator_android_login.required_after_database_seed must be true");
+        if (androidLogin.identity_provider !== OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER) pushSample(operatorRosterProblems, `operator_android_login.identity_provider must be ${OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER}`);
+        if (androidLogin.source_email_field !== OPERATOR_ANDROID_LOGIN_EMAIL_FIELD) pushSample(operatorRosterProblems, `operator_android_login.source_email_field must be ${OPERATOR_ANDROID_LOGIN_EMAIL_FIELD}`);
+        if (androidLogin.unique_email_per_operator !== true) pushSample(operatorRosterProblems, "operator_android_login.unique_email_per_operator must be true");
+        if (androidLogin.unique_temporary_password_per_operator !== true) pushSample(operatorRosterProblems, "operator_android_login.unique_temporary_password_per_operator must be true");
+        if (androidLogin.shared_password_forbidden !== true) pushSample(operatorRosterProblems, "operator_android_login.shared_password_forbidden must be true");
+        if (androidLogin.plaintext_passwords_in_git_forbidden !== true) pushSample(operatorRosterProblems, "operator_android_login.plaintext_passwords_in_git_forbidden must be true");
+        if (androidLogin.must_send_or_record_individual_reset_flow !== true) pushSample(operatorRosterProblems, "operator_android_login.must_send_or_record_individual_reset_flow must be true");
+        if (androidLogin.android_login_smoke_required !== true) pushSample(operatorRosterProblems, "operator_android_login.android_login_smoke_required must be true");
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
@@ -552,8 +649,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
+    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, verifier grants with zero field capacity, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, a unique email_hint for Android login, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, one pm shift operator when default_operator_assignment is present, verifiers with role=verifier, Firebase email-password identity, can_execute_vaccination=false, adds_vaccination_capacity=false, and an operator_android_login block requiring Firebase email-password, unique per-operator temporary passwords/reset flow, no shared password, no plaintext passwords in git, and per-operator Android login smoke proof after DB seed.",
     operatorRosterProblems,
   ));
 
@@ -616,5 +713,18 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+// Coupling review 2026-07-24: GOATOS_CPT_EXCLUDE_PPR_2026 is a CPT operator-drive
+// publication flag only. It does not rewrite source vaccination rows or remove
+// canonical PPR history validation.
+// Coupling review 2026-07-24/25: Adult entry_date is never a vaccination
+// due-date anchor. Adult blank-history work must be generated as
+// campaign/catch-up cohort work packed by physical shed/partition, not as
+// post_arrival singleton work; source validation still preserves kid/young
+// age-window checks and does not route singleton adult rows into make-up/defer
+// logic without an explicit source reason.
+// Coupling review 2026-07-25: stable adult campaign generation keys and
+// unbatched open-row realignment prevent same-goat/same-dose duplicates in
+// derived obligations. Source validation inputs and raw fixture hashes stay
+// unchanged; kid/young date strictness is still validated here.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.

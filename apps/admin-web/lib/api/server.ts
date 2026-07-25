@@ -89,6 +89,7 @@ export type VaccinationCapacityConfig = AppApiComponents["schemas"]["Vaccination
 export type VaccinationOperatorAssignmentConfig = AppApiComponents["schemas"]["VaccinationOperatorAssignmentConfig"];
 export type VaccinationOperatorShift = AppApiComponents["schemas"]["VaccinationOperatorShift"];
 export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
+export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
@@ -1191,6 +1192,24 @@ export async function putVaccinationOperatorAssignmentConfig(
   );
 }
 
+// Admin update vaccination capacity config (common operator daily animal cap + per-animal shot-cap
+// override). Validate-or-reject, optimistic concurrency via rowVersion. The backend write emits
+// vaccination.capacity.changed per active park, which re-plans all future vaccination drives.
+export async function putVaccinationCapacityConfig(
+  body: UpdateVaccinationCapacityConfigRequest
+): Promise<ApiResult<VaccinationCapacityConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 export async function previewVaccinationImpact(body: ImpactPreviewInput): Promise<ApiResult<ImpactPreviewResult>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1967,6 +1986,7 @@ export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"][
 export type StaffLeave = AdminApiComponents["schemas"]["StaffLeave"];
 export type StaffLeaveListResponse = AdminApiComponents["schemas"]["StaffLeaveListResponse"];
 export type ApplyStaffLeaveRequest = AdminApiComponents["schemas"]["ApplyStaffLeaveRequest"];
+export type ApproveStaffLeaveRequest = AdminApiComponents["schemas"]["ApproveStaffLeaveRequest"];
 export type StaffLeaveQuery = NonNullable<AdminApiPaths["/admin/roster/leave"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
@@ -2038,6 +2058,25 @@ export async function applyStaffLeave(
     client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>("/admin/roster/leave", {
       method: "POST",
       cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function approveStaffLeave(
+  absenceId: string,
+  body: ApproveStaffLeaveRequest,
+  idempotencyKey?: string,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/leave/${encodeURIComponent(absenceId)}/approve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       body,
     }),
   );

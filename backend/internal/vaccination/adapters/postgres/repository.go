@@ -2240,6 +2240,8 @@ func (r *Repository) ListCompletionsByGoat(ctx context.Context, tenantID, goatID
 			Status:              row.Status,
 			Doses:               row.Doses,
 			RouteSite:           row.RouteSite,
+			DoseCode:            row.DoseCode,
+			VaccineLabel:        row.VaccineLabel,
 			AdverseReaction:     row.AdverseReaction,
 			WithdrawalUntilDate: pgconv.DateValue(row.WithdrawalUntilDate),
 		})
@@ -2669,7 +2671,7 @@ func eligibleGoatFromGenerationRow(
 	dob, entryDate, breedingDate, lastDeliveryDate pgtype.Date,
 	lifecycle, health, reproductive, species, originType string,
 	warmingEntryAt pgtype.Timestamptz,
-	shedID, parkID, sex, breed, stage, ageBand string,
+	shedID, parkID, partitionLabel, sex, breed, stage, ageBand string,
 	locationIsQuarantine, locationIsICU bool,
 ) domain.EligibleGoat {
 	return domain.EligibleGoat{
@@ -2686,6 +2688,7 @@ func eligibleGoatFromGenerationRow(
 		ReproductiveStatus:   reproductive,
 		ShedID:               shedID,
 		ParkID:               parkID,
+		PartitionLabel:       partitionLabel,
 		Sex:                  sex,
 		Breed:                breed,
 		Stage:                stage,
@@ -2736,7 +2739,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 			row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 			row.WarmingEntryAt,
-			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+			row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 			row.LocationIsQuarantine, row.LocationIsIcu,
 		))
 	}
@@ -2770,6 +2773,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
+       COALESCE(gsp.partition_label, '')::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -2807,6 +2811,9 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($3::text = '' OR lower(COALESCE(asl.stage_code, g.management_stage, '')) = lower($3::text))
@@ -2852,7 +2859,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 	for rows.Next() {
 		var (
 			goatID, lifecycle, health, reproductive, species, originType string
-			shedID, parkID, sex, breed, stage, ageBand                   string
+			shedID, parkID, partitionLabel, sex, breed, stage, ageBand   string
 			dob, entryDate, breedingDate, lastDeliveryDate               pgtype.Date
 			warmingEntryAt                                               pgtype.Timestamptz
 			locationIsQuarantine, locationIsICU                          bool
@@ -2871,6 +2878,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			&warmingEntryAt,
 			&shedID,
 			&parkID,
+			&partitionLabel,
 			&sex,
 			&breed,
 			&stage,
@@ -2884,7 +2892,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			goatID, dob, entryDate, breedingDate, lastDeliveryDate,
 			lifecycle, health, reproductive, species, originType,
 			warmingEntryAt,
-			shedID, parkID, sex, breed, stage, ageBand,
+			shedID, parkID, partitionLabel, sex, breed, stage, ageBand,
 			locationIsQuarantine, locationIsICU,
 		))
 	}
@@ -2917,7 +2925,7 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 		row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 		row.WarmingEntryAt,
-		row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+		row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 		row.LocationIsQuarantine, row.LocationIsIcu,
 	), true, nil
 }

@@ -124,6 +124,13 @@ the safe scheduling range is **earliest safe date through earliest safe date +
 The ET+TT 21-day booster rule applies to **adults and kids**. Do not treat adult
 ET+TT booster as optional, kid-only, or as the 182-day revaccination.
 
+Adult entry_date is never a vaccination due-date anchor. Kids and young animals
+keep strict DOB/birth-age scheduling. Adults with accepted same-vaccine history
+use the last accepted vaccination date for booster/revac timing. Adults with no
+accepted same-vaccine history join the normal adult campaign/catch-up cohort for
+that vaccine, packed by whole physical shed/partition; they must not be split
+into post_arrival singleton drives because their source entry dates differ.
+
 ### Overflow Rule For 3+ Due Vaccines
 
 If more than two vaccines are due for the same animal:

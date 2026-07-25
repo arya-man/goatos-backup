@@ -94,6 +94,20 @@ Before starting work, read **`docs/ai/agent-tool-routing.md`**:
 - **Claude Code** (`claude` in repo root) — OpenAPI, backend engine, migrations,
   sqlc, protocol/scheduling, multi-module refactors.
 
+## STG Deploy Routing
+
+When the user says "deploy STG", "push to STG", "promote STG", "ship to
+staging", or similar:
+
+- load `docs/runbooks/stg-deploy.md` (canonical contract) and
+  `context/deploy-contract.json`
+- follow `docs/runbooks/cloud-deploy-staging.md` for full Cloud Deploy mechanics
+- deploy is **manual Google Cloud Deploy** from latest approved `origin/main`
+- do NOT use generic GitHub/CI assumptions
+- do NOT offer GitHub Actions or PR-driven deploy options
+- do NOT force-push a `stg` branch
+- verify `ravi@mesha.sg` / `vgoats.com` / `goatos-stg` before any cloud command
+
 ## Context Files
 
 Always start with:

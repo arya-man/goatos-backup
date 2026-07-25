@@ -30,6 +30,11 @@ type CapacityConfig struct {
 	MaxBufferDays  int    `json:"maxBufferDays"`
 	OverflowPolicy string `json:"overflowPolicy"`
 	RowVersion     int    `json:"rowVersion"`
+	// MaxShotsPerAnimalPerDrive is an admin-editable override of the same-day per-animal shot cap
+	// (migration 000045). nil means "no override" -- the planner falls back to the published rule_dsl
+	// drive_policy value / code default (domain.DefaultMaxShotsPerAnimalPerDrive in the obligation
+	// package). Non-nil must be >= 1 (see Validate).
+	MaxShotsPerAnimalPerDrive *int `json:"maxShotsPerAnimalPerDrive"`
 }
 
 // Valid capacity-config vocabularies (mirror the DB CHECK constraints in migration 000155). Exposed so
@@ -56,6 +61,9 @@ func (c CapacityConfig) Validate() (code, message string, ok bool) {
 	}
 	if !contains(OverflowPolicies, c.OverflowPolicy) {
 		return "invalid_overflow_policy", "overflow policy must be split_within_safe_window_last_safe_may_exceed_cap", false
+	}
+	if c.MaxShotsPerAnimalPerDrive != nil && *c.MaxShotsPerAnimalPerDrive < 1 {
+		return "invalid_max_shots_per_animal_per_drive", "max shots per animal per drive must be at least 1 (or omitted to clear the override)", false
 	}
 	return "", "", true
 }

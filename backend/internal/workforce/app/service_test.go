@@ -134,10 +134,9 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 }
 
-// TestBootstrapLeadershipGetsFixedNav pins the leadership
-// loop: a leadership-tier grant (park_head here, but the role set below
-// covers every leadership tier) gets the fixed Calendar/Overview/Alerts nav
-// and expanded chrome.
+// TestBootstrapLeadershipGetsFixedNav pins that a preventive-care leader
+// (park_head) lands in the shared Vaccination area. The standalone
+// leadership/overview screen is intentionally absent.
 func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -148,8 +147,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "leadership", Label: "Overview", Href: "/leadership"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -163,7 +162,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		}
 	}
 	if got.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
+		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + feed)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -176,9 +175,17 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
-	want := []domain.BootstrapNavigationItem{{Key: "verify", Label: "Verify", Href: "/verify"}}
-	if len(got.VisibleNavigation) != len(want) || got.VisibleNavigation[0] != want[0] {
+	want := []domain.BootstrapNavigationItem{
+		{Key: "verify", Label: "Verify", Href: "/verify"},
+		{Key: "you", Label: "You", Href: "/you"},
+	}
+	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+	}
+	for i := range want {
+		if got.VisibleNavigation[i] != want[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
+		}
 	}
 	if got.NavChrome != domain.NavChromeMinimal {
 		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
@@ -253,12 +260,15 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 	})
 }
 
-// TestVisibleNavigationFor pins that leadership always gets the fixed
-// Calendar/Overview/Alerts nav, and operator gets the field execution nav; leadership keeps calendar.
+// TestVisibleNavigationFor pins that the removed thing is the synthetic
+// Leadership module/route, not the CEO's Vaccination overview tab. CEO opens
+// Vaccination from the drawer and sees Overview/Calendar/Alerts/You; operators
+// keep the field execution bar.
 func TestVisibleNavigationFor(t *testing.T) {
-	leadershipWant := []domain.BootstrapNavigationItem{
-		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+	ceoVaccinationWant := []domain.BootstrapNavigationItem{
+		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -269,10 +279,10 @@ func TestVisibleNavigationFor(t *testing.T) {
 		want    []domain.BootstrapNavigationItem
 	}{
 		{
-			name:    "leadership ignores module grants",
+			name:    "ceo vaccination module shows overview calendar alerts you",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
 			modules: []string{"vaccination", "counts"},
-			want:    leadershipWant,
+			want:    ceoVaccinationWant,
 		},
 		{
 			name:    "operator",
@@ -290,6 +300,21 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify"},
+				{Key: "you", Label: "You", Href: "/you"},
+			},
+		},
+		{
+			name: "pc director with verifier permission keeps director vaccination bar",
+			grants: []domain.GrantSummary{
+				grantWithRole(permissions.RolePCDirector),
+				grantWithRole(permissions.RoleVerifier),
+			},
+			modules: []string{"vaccination"},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+				{Key: "videos", Label: "Videos", Href: "/verify/action"},
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
@@ -355,57 +380,58 @@ func TestVisibleNavigationFor(t *testing.T) {
 	}
 }
 
-// TestNavChromeFor verifies that leadership principals get expanded chrome
-// (module drawer) while field operators get minimal chrome (bottom bar only).
+// TestNavChromeFor verifies chrome follows the composed drawer: a leadership
+// principal with >=2 available modules (CEO: vaccination + counts) gets the
+// expanded drawer; a single-module leader (PC Director / Park Head) and every
+// field operator get minimal chrome (bottom bar only). Chrome is derived from
+// the composed modules, so cases pass the real modulesFor() output.
 func TestNavChromeFor(t *testing.T) {
 	tests := []struct {
-		name    string
-		grants  []domain.GrantSummary
-		modules []string
-		want    string
+		name           string
+		grants         []domain.GrantSummary
+		grantedModules []string
+		want           string
 	}{
 		{
-			name:    "leadership expanded",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
-			modules: nil,
-			want:    domain.NavChromeExpanded,
+			name:   "ceo with vaccination+counts expands",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
+			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:    "operator minimal",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination"},
-			want:    domain.NavChromeMinimal,
+			name:           "pc director single module stays minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+			grantedModules: []string{"vaccination", "counts"},
+			want:           domain.NavChromeMinimal,
+		},
+		{
+			name:           "park head with vaccination + feed gets expanded",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
+			grantedModules: []string{"vaccination", "counts", "feed_direction"},
+			want:           domain.NavChromeExpanded,
+		},
+		{
+			name:           "operator minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination"},
+			want:           domain.NavChromeMinimal,
 		},
 		{
 			// Operator drawer rollout is disabled for now, even with multiple modules.
-			name:    "operator with two modules stays minimal",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "counts"},
-			want:    domain.NavChromeMinimal,
+			name:           "operator with two modules stays minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination", "counts"},
+			want:           domain.NavChromeMinimal,
 		},
 		{
-			// A disabled roadmap row must not promote a single-module operator.
-			name:    "soon module does not earn the drawer",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "breeding"},
-			want:    domain.NavChromeMinimal,
-		},
-		{
-			name:    "duplicate grants do not earn the drawer",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "vaccination"},
-			want:    domain.NavChromeMinimal,
-		},
-		{
-			name:    "ceo expanded",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
-			modules: nil,
-			want:    domain.NavChromeExpanded,
+			name:   "verifier minimal",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			want:   domain.NavChromeMinimal,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := navChromeFor(tc.grants, tc.modules); got != tc.want {
+			modules := modulesFor(tc.grants, tc.grantedModules, "")
+			if got := navChromeFor(tc.grants, modules); got != tc.want {
 				t.Fatalf("navChromeFor()=%q want %q", got, tc.want)
 			}
 		})
@@ -416,14 +442,14 @@ func TestNavChromeFor(t *testing.T) {
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
 // 2. Operator drawer chrome is disabled while module-specific bars still compose
-// 3. Leadership principals get overview + shared cross-module nav (expanded chrome)
-// 4. Nav items are deduplicated by shared_key (e.g., calendar appears once)
+// 3. Leadership principals use the shared Vaccination module after Overview removal
+// 4. Nav items are deduplicated by shared_key
 func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
 
 	t.Run("operator with single module gets minimal nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(operatorGrants, []string{"vaccination"})
+		chrome := navChromeFor(operatorGrants, modulesFor(operatorGrants, []string{"vaccination"}, ""))
 		if chrome != domain.NavChromeMinimal {
 			t.Fatalf("navChromeFor(operator)=%q want %q (single module = minimal)", chrome, domain.NavChromeMinimal)
 		}
@@ -432,7 +458,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
 		if len(nav) != 3 {
-			t.Fatalf("operator nav length=%d want 3 (vaccination + alerts + you)", len(nav))
+			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
@@ -458,23 +484,28 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("leadership principal gets overview + shared nav", func(t *testing.T) {
+	t.Run("preventive care leader keeps field vaccination bar", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
 		if len(nav) != 4 {
-			t.Fatalf("leadership nav length=%d want 4 (overview + calendar + alerts + you)", len(nav))
+			t.Fatalf("pc leader nav length=%d want 4 (calendar + videos + alerts + you)", len(nav))
 		}
-		if nav[0].Key != "leadership" {
-			t.Fatalf("first nav item key=%q want 'leadership'", nav[0].Key)
-		}
-		if nav[1].Key != "calendar" || nav[2].Key != "alerts" || nav[3].Key != "you" {
-			t.Fatalf("leadership nav should have calendar, alerts, and you; got %v", []string{nav[1].Key, nav[2].Key, nav[3].Key})
+		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "alerts" || nav[3].Key != "you" {
+			t.Fatalf("pc leader nav should have calendar, videos, alerts, you; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key})
 		}
 	})
 
-	t.Run("leadership gets expanded nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(leadershipGrants, nil)
+	t.Run("ceo (multi-module leader) gets expanded nav chrome", func(t *testing.T) {
+		ceoGrants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+		chrome := navChromeFor(ceoGrants, modulesFor(ceoGrants, nil, ""))
 		if chrome != domain.NavChromeExpanded {
-			t.Fatalf("navChromeFor(leadership)=%q want %q", chrome, domain.NavChromeExpanded)
+			t.Fatalf("navChromeFor(ceo)=%q want %q", chrome, domain.NavChromeExpanded)
+		}
+	})
+
+	t.Run("park head (vaccination + feed) gets expanded nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "counts", "feed_direction"}, ""))
+		if chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeExpanded)
 		}
 	})
 }
@@ -627,26 +658,32 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 }
 
 // TestCountsModuleRoleMatrix pins the maintainer-approved Counts access matrix
-// (2026-07-18; the mobile Approval tab was REMOVED 2026-07-21 — approvals moved to admin-web only).
+// (2026-07-18; the mobile Approval tab was REMOVED 2026-07-21 — approvals moved to admin-web only;
+// preventive-care leaders excluded from the Counts drawer 2026-07-24).
 // The Counts module exposes capture pages on the phone; who sees which is decided by permission
 // (counts.read / counts.write), never by a per-role nav template.
 //
-// The mobile Counts bar no longer carries an approval tab for anyone: an Operator/Park Head gets
-// exactly [birth_death, shifting], and Admin/CEO additionally get the census page.
+// The mobile Counts bar no longer carries an approval tab for anyone: an Operator gets
+// [birth_death, shifting, awaiting_rfid], and Admin/CEO additionally get the census page.
 //
-//	role          | census | birth/death | shifting | module in drawer
-//	operator      |   -    |      x      |    x     | yes
-//	park_head     |   -    |      x      |    x     | yes
-//	ceo_internal  |   x    |      x      |    x     | yes
-//	pc_director   |   -    |      -      |    -     | NO
-//	verifier      |   -    |      -      |    -     | NO
+// Whether the Counts MODULE appears in the drawer at all is decided upstream by the
+// drawer matrix: operators get it via their department grant, CEO gets it via the
+// leadership tier, and preventive-care leaders (PC Director, Park Head) do NOT —
+// their drawer is the vaccination home only (maintainer decision 2026-07-24).
+//
+//	role          | census | birth/death | shifting | awaiting_rfid | module in drawer
+//	operator      |   -    |      x      |    x     |      x        | yes
+//	park_head     |   -    |      -      |    -     |      -        | NO  (preventive-care leader)
+//	ceo_internal  |   x    |      x      |    x     |      x        | yes
+//	pc_director   |   -    |      -      |    -     |      -        | NO  (preventive-care leader)
+//	verifier      |   -    |      -      |    -     |      -        | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
-		wantItems []string // nav item keys inside the counts module, "" => module absent
+		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
 		{permissions.RoleOperator, []string{"birth_death", "shifting", "awaiting_rfid"}},
-		{permissions.RoleParkHead, []string{"birth_death", "shifting", "awaiting_rfid"}},
+		{permissions.RoleParkHead, nil},
 		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "awaiting_rfid"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
@@ -810,19 +847,17 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 		}
 	}
 
-	// ...while the modules that DO own it still emit it, so the profile surface stays reachable.
-	for _, module := range []string{"vaccination", "leadership"} {
-		grants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
-		items := composeNavigationFromModules([]string{module}, grants, "")
-		found := false
-		for _, item := range items {
-			if item.Key == "you" && item.Href == "/you" {
-				found = true
-			}
+	// ...while Vaccination still emits it, so the profile surface stays reachable.
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
+	items := composeNavigationFromModules([]string{"vaccination"}, grants, "")
+	found := false
+	for _, item := range items {
+		if item.Key == "you" && item.Href == "/you" {
+			found = true
 		}
-		if !found {
-			t.Fatalf("module %q must contribute the You tab at /you; got %#v", module, items)
-		}
+	}
+	if !found {
+		t.Fatalf("vaccination must contribute the You tab at /you; got %#v", items)
 	}
 }
 

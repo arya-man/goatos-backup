@@ -3,8 +3,189 @@ package app
 import (
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
+
+func moduleKeySet(modules []domain.BootstrapModule) map[string]string {
+	out := make(map[string]string, len(modules))
+	for _, m := range modules {
+		out[m.Key] = m.Status
+	}
+	return out
+}
+
+// TestLeadershipDrawerCompositionPerRole locks the role -> drawer matrix
+// (maintainer decision 2026-07-25, docs/decisions/role-module-nav-composition.md):
+//   - CEO/CXO: Vaccination + Counts + Feed + Breeding(soon), never the
+//     removed synthetic leadership module or Verification. Expanded drawer.
+//   - Park Head: Vaccination + Feed (park operations include feed), NO Counts.
+//     Expanded chrome. PC Director: Vaccination ONLY (preventive-care specialty),
+//     minimal chrome (single module).
+//   - Verifier: Verification only. Operator: department modules, never leadership.
+func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
+	const en = localization.DefaultTag
+
+	t.Run("ceo sees vaccination+counts+soon, no synthetic leadership module, no verification", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+		modules := modulesFor(grants, nil, en)
+		keys := moduleKeySet(modules)
+
+		if keys["vaccination"] != moduleStatusAvailable {
+			t.Fatalf("CEO must have the Vaccination module; got %v", keys)
+		}
+		if keys["counts"] != moduleStatusAvailable {
+			t.Fatalf("CEO must see Counts as available; got %v", keys)
+		}
+		if keys["feed_direction"] != moduleStatusAvailable {
+			t.Fatalf("CEO must see Feed as available (built module); got %v", keys)
+		}
+		if keys["breeding"] != moduleStatusSoon {
+			t.Fatalf("CEO must see Breeding as soon; got %v", keys)
+		}
+		if _, ok := keys["leadership"]; ok {
+			t.Fatalf("CEO must NOT see the removed leadership overview module; got %v", keys)
+		}
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("CEO must NOT see Verification (verifier-only); got %v", keys)
+		}
+		// The vaccination drawer row lands on the shared vaccination area.
+		for _, m := range modules {
+			if m.Key == "vaccination" {
+				if m.Label != "Vaccination" {
+					t.Fatalf("vaccination row label = %q, want Vaccination", m.Label)
+				}
+				if m.Href != "/vaccination" {
+					t.Fatalf("vaccination row lands on %q, want /vaccination", m.Href)
+				}
+				wantItems := []domain.BootstrapNavigationItem{
+					{Key: "overview", Label: "Overview", Href: "/vaccination"},
+					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+					{Key: "videos", Label: "Videos", Href: "/verify/action"},
+					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+					{Key: "you", Label: "You", Href: "/you"},
+				}
+				if len(m.NavItems) != len(wantItems) {
+					t.Fatalf("CEO vaccination bar=%+v want %+v", m.NavItems, wantItems)
+				}
+				for _, it := range m.NavItems {
+					if it.Key == "vaccination" || it.Href == "/leadership" {
+						t.Fatalf("CEO vaccination bar must not contain operator Drives or /leadership; got %+v", m.NavItems)
+					}
+				}
+				for i := range wantItems {
+					if m.NavItems[i] != wantItems[i] {
+						t.Fatalf("CEO vaccination bar[%d]=%+v want %+v", i, m.NavItems[i], wantItems[i])
+					}
+				}
+			}
+		}
+		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {
+			t.Fatalf("CEO chrome = %q, want expanded", got)
+		}
+	})
+
+	t.Run("pc-leader pc_director sees vaccination only", func(t *testing.T) {
+		role := permissions.RolePCDirector
+		grants := []domain.GrantSummary{grantWithRole(role)}
+		// Even with a department vaccination+counts grant, the PC Director's
+		// drawer is the vaccination home only (preventive-care specialty).
+		modules := modulesFor(grants, []string{"vaccination", "counts"}, en)
+		keys := moduleKeySet(modules)
+
+		if _, ok := keys["vaccination"]; !ok {
+			t.Fatalf("%s must have the Vaccination module; got %v", role, keys)
+		}
+		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
+			if _, ok := keys[banned]; ok {
+				t.Fatalf("%s must NOT see %q; got %v", role, banned, keys)
+			}
+		}
+		if got := navChromeFor(grants, modules); got != domain.NavChromeMinimal {
+			t.Fatalf("%s chrome = %q, want minimal (single module)", role, got)
+		}
+	})
+
+	// Park Head runs park operations, which include Feed, so unlike the PC Director
+	// they get the Feed module alongside Vaccination (maintainer decision 2026-07-25).
+	// Counts remains excluded — a park head does not run the capture/approval surfaces.
+	t.Run("park_head sees vaccination + feed, not counts", func(t *testing.T) {
+		role := permissions.RoleParkHead
+		grants := []domain.GrantSummary{grantWithRole(role)}
+		modules := modulesFor(grants, []string{"vaccination", "counts", "feed_direction"}, en)
+		keys := moduleKeySet(modules)
+
+		if keys["vaccination"] != moduleStatusAvailable {
+			t.Fatalf("park_head must have the Vaccination module; got %v", keys)
+		}
+		if keys["feed_direction"] != moduleStatusAvailable {
+			t.Fatalf("park_head must have the Feed module; got %v", keys)
+		}
+		for _, banned := range []string{"counts", "breeding", "leadership", "verification"} {
+			if _, ok := keys[banned]; ok {
+				t.Fatalf("park_head must NOT see %q; got %v", banned, keys)
+			}
+		}
+		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {
+			t.Fatalf("park_head chrome = %q, want expanded (vaccination + feed)", got)
+		}
+	})
+
+	t.Run("verifier sees verification only", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		modules := modulesFor(grants, []string{"vaccination"}, en)
+		keys := moduleKeySet(modules)
+		if _, ok := keys["verification"]; !ok {
+			t.Fatalf("verifier must see Verification; got %v", keys)
+		}
+		if _, ok := keys["leadership"]; ok {
+			t.Fatalf("verifier must NOT see leadership; got %v", keys)
+		}
+		verify := modules[0]
+		wantItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(verify.NavItems) != len(wantItems) {
+			t.Fatalf("verifier nav items = %+v want %+v", verify.NavItems, wantItems)
+		}
+		for i := range wantItems {
+			if verify.NavItems[i] != wantItems[i] {
+				t.Fatalf("verifier nav item[%d]=%+v want %+v", i, verify.NavItems[i], wantItems[i])
+			}
+		}
+	})
+
+	t.Run("pc director with verifier permission keeps director vaccination module", func(t *testing.T) {
+		grants := []domain.GrantSummary{
+			grantWithRole(permissions.RolePCDirector),
+			grantWithRole(permissions.RoleVerifier),
+		}
+		modules := modulesFor(grants, []string{"vaccination"}, en)
+		keys := moduleKeySet(modules)
+		if _, ok := keys["vaccination"]; !ok {
+			t.Fatalf("hybrid director must keep Vaccination; got %v", keys)
+		}
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("hybrid director must NOT collapse into verifier-only module; got %v", keys)
+		}
+	})
+
+	t.Run("operator keeps department modules, never leadership", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
+		keys := moduleKeySet(modulesFor(grants, []string{"vaccination", "counts"}, en))
+		if _, ok := keys["vaccination"]; !ok {
+			t.Fatalf("operator must keep the vaccination module; got %v", keys)
+		}
+		if _, ok := keys["leadership"]; ok {
+			t.Fatalf("operator must NOT get the leadership module; got %v", keys)
+		}
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("operator must NOT get verification; got %v", keys)
+		}
+	})
+}
 
 func TestBootstrapCopyCatalogCoversSupportedLocales(t *testing.T) {
 	english := bootstrapLabels[localization.DefaultTag]

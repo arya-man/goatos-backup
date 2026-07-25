@@ -55,6 +55,7 @@ func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQu
 
 // VaccinationExecutionPage returns one server-filtered keyset page plus the authoritative filtered
 // total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
+// For app/mobile requests (OperatorScopeActorID != ""), includes per-day carry summary (page-independent).
 func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
 	page, err := s.repo.ListVaccinationExecutionPage(ctx, q)
 	if err != nil {
@@ -73,7 +74,50 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}
 		next = &encoded
 	}
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness}, nil
+
+	// For app/mobile requests: fetch per-day carry summary (page-independent, full-date-range aggregation)
+	var carrySummary *domain.CarrySummary
+	if q.OperatorScopeActorID != "" {
+		carryLines, err := s.repo.VaccinationExecutionCarrySummary(ctx, q)
+		if err == nil && len(carryLines) > 0 {
+			// Group by date, aggregate per-date vaccines and totals
+			carryByDate := make(map[string][]domain.VaccineCarrySummary)
+			dayTotals := make(map[string]int64)
+			for _, line := range carryLines {
+				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
+					VaccineLabel:   line.VaccineLabel,
+					RemainingDoses: line.RemainingDoses,
+					TotalDoses:     line.TotalDoses,
+				})
+				dayTotals[line.Date] += line.RemainingDoses
+			}
+			// Build ordered CarryDay slice
+			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
+			for _, line := range carryLines {
+				// Avoid duplicates by checking if we've already seen this date
+				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
+					continue
+				}
+				carryDays = append(carryDays, domain.CarryDay{
+					Date:             line.Date,
+					VaccineBreakdown: carryByDate[line.Date],
+					TotalRemaining:   dayTotals[line.Date],
+				})
+			}
+			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}
+		}
+	}
+
+	var filterOptions *domain.ExecutionFilters
+	if q.IncludeFilterOptions {
+		parks, err := s.repo.AuthorizedParkOptions(ctx, q.TenantID, q.AuthorizedParkIDs)
+		if err != nil {
+			return domain.ExecutionResponse{}, err
+		}
+		filterOptions = &domain.ExecutionFilters{Parks: parks}
+	}
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -332,12 +376,13 @@ func operationsRank(w domain.WorkState) int {
 }
 
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
-	sopStatus := sopStatus(p.TaskState)
+	sopStatus := sopStatusFromProjection(p)
 	proofStatus := proofStatus(p)
 	verificationStatus := verificationStatus(p)
 	workState := p.WorkState
-	if workState == "" {
-		workState = workStateFromProjection(p, q)
+	computedWorkState := workStateFromProjection(p, q)
+	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
+		workState = computedWorkState
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
@@ -370,6 +415,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ProofStatus:        proofStatus,
 		VerificationStatus: verificationStatus,
 		NextAction:         nextAction(p, workState),
+		PrimaryActionKey:   primaryActionKey(p, workState, openCount),
 		ObligationID:       p.ObligationID,
 		BatchID:            p.BatchID,
 		SOPTaskID:          p.SOPTaskID,
@@ -389,6 +435,9 @@ func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done in
 	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
 	if completionEvidence > done {
 		done = completionEvidence
+	}
+	if p.ScannedCount > done {
+		done = p.ScannedCount
 	}
 	if done > target {
 		done = target
@@ -419,7 +468,7 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
-	if p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review") {
+	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
 		return domain.WorkStateVerificationPending
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
@@ -492,13 +541,28 @@ func sopStatus(state *string) domain.SOPStatus {
 	}
 }
 
+func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
+	switch {
+	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
+		return domain.SOPStatusRework
+	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
+		return domain.SOPStatusAccepted
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+		return domain.SOPStatusSubmitted
+	case taskStateIs(p, "in_progress"):
+		return domain.SOPStatusInProgress
+	default:
+		return domain.SOPStatusNotStarted
+	}
+}
+
 func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.ProofStatusRejected
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.ProofStatusAccepted
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.ProofStatusUploaded
 	default:
 		return domain.ProofStatusMissing
@@ -509,7 +573,9 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
+		return domain.VerificationStatusVerified
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
 		return domain.VerificationStatusVerified
@@ -587,6 +653,18 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "Start scheduled vaccination SOP"
 	default:
 		return "Monitor scheduled drive"
+	}
+}
+
+func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, openCount int) string {
+	if p.SOPTaskID == nil || *p.SOPTaskID == "" || openCount <= 0 {
+		return "none"
+	}
+	switch workState {
+	case domain.WorkStateDue, domain.WorkStateOverdue, domain.WorkStateInProgress, domain.WorkStateProofPending:
+		return "scan"
+	default:
+		return "none"
 	}
 }
 
@@ -943,6 +1021,10 @@ var ErrOperatorAssignmentConfigNotFound = errors.New("vaccination execution: ope
 // only need to import the app package. See ports.ErrOperatorAssignmentConfigConflict for the contract.
 var ErrOperatorAssignmentConfigConflict = ports.ErrOperatorAssignmentConfigConflict
 
+// ErrCapacityConfigConflict re-exports ports.ErrCapacityConfigConflict so HTTP callers only need to
+// import the app package. See ports.ErrCapacityConfigConflict for the contract.
+var ErrCapacityConfigConflict = ports.ErrCapacityConfigConflict
+
 // OperatorAssignmentConfigView is the combined read-model for the admin config screen: the N/default
 // config plus every operator's authored shift.
 type OperatorAssignmentConfigView struct {
@@ -1004,6 +1086,23 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
 	if err != nil {
 		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	return updated, "", "", nil
+}
+
+// UpdateCapacityConfig validates then idempotently writes the tenant's daily operator animal cap +
+// per-animal shot-cap override (validate-or-reject: an invalid maxPerDay or an out-of-range
+// maxShotsPerAnimalPerDrive returns a 400-shaped (code, message) pair, never silently clamped or
+// defaulted). Cascade (vaccination.capacity.changed, one per active park) is durably enqueued by the
+// repository within the same transaction as the config write; see UpsertCapacityConfig in the postgres
+// adapter and OperatorConfigReplanHandler, which re-plans future vaccination drives on that event.
+func (s *Service) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, string, string, error) {
+	if code, message, ok := cfg.Validate(); !ok {
+		return domain.CapacityConfig{}, code, message, nil
+	}
+	updated, err := s.repo.UpsertCapacityConfig(ctx, tenantID, cfg)
+	if err != nil {
+		return domain.CapacityConfig{}, "", "", err
 	}
 	return updated, "", "", nil
 }

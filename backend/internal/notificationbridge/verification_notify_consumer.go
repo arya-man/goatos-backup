@@ -30,6 +30,8 @@ const (
 	EventVerificationVerdictRework   = "verification.verdict.rework"
 	EventVerificationVerdictApproved = "verification.verdict.approved"
 	EventVerificationItemClosed      = "verification.item.closed"
+	EventVaccinationDriveReady       = "verification.vaccination_drive.ready"
+	EventVaccinationDriveClosed      = "verification.vaccination_drive.closed"
 )
 
 // notification_type values this consumer writes. Both are in the migration 000179
@@ -47,6 +49,8 @@ const (
 const (
 	legacyVaccinationSourceModule  = "vaccination"
 	legacyVaccinationSourceRefType = "sop_submission"
+	positionPCDirector             = "pc_director"
+	positionCEOInternal            = "ceo_internal"
 )
 
 // verificationSource is the producer's source back-reference (verificationVerdictPayload /
@@ -78,6 +82,7 @@ type VerificationEventPayload struct {
 	Reason     string             `json:"reason"`   // optional rework reason
 	VerifiedBy string             `json:"verified_by"`
 	ClosedBy   string             `json:"closed_by"`
+	BatchID    string             `json:"batch_id"`
 	CapturedAt string             `json:"captured_at"`
 	Source     verificationSource `json:"source"`
 }
@@ -131,6 +136,8 @@ func (c *VerificationEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventVerificationVerdictRework, c)
 	bus.Subscribe(EventVerificationVerdictApproved, c)
 	bus.Subscribe(EventVerificationItemClosed, c)
+	bus.Subscribe(EventVaccinationDriveReady, c)
+	bus.Subscribe(EventVaccinationDriveClosed, c)
 }
 
 // HandleEvent routes by event type. A corrupt payload → PermanentError (DLQ); a well-formed but
@@ -143,7 +150,8 @@ func (c *VerificationEventConsumer) HandleEvent(ctx context.Context, e eventbus.
 
 	switch e.Type {
 	case EventVerificationItemPending, EventVerificationVerdictRework,
-		EventVerificationVerdictApproved, EventVerificationItemClosed:
+		EventVerificationVerdictApproved, EventVerificationItemClosed,
+		EventVaccinationDriveReady, EventVaccinationDriveClosed:
 		p, err := decodePayload(e.Payload)
 		if err != nil {
 			// Poison message: unparseable JSON can never succeed on retry → DLQ.
@@ -158,10 +166,107 @@ func (c *VerificationEventConsumer) HandleEvent(ctx context.Context, e eventbus.
 		if e.Type == EventVerificationVerdictApproved {
 			return c.handleVerdictApproved(ctx, p)
 		}
-		return c.handleItemClosed(ctx, p)
+		if e.Type == EventVerificationItemClosed {
+			return c.handleItemClosed(ctx, p)
+		}
+		if e.Type == EventVaccinationDriveReady {
+			return c.handleVaccinationDriveReady(ctx, p)
+		}
+		return c.handleVaccinationDriveClosed(ctx, p)
 	default:
 		return nil
 	}
+}
+
+func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Context, p VerificationEventPayload) error {
+	tenantID := strings.TrimSpace(p.TenantID)
+	batchID := strings.TrimSpace(p.BatchID)
+	if tenantID == "" || batchID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var recipients []calendarports.NotificationRecipient
+	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
+		parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+		if err != nil {
+			return err
+		}
+		recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
+	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	if err != nil {
+		return err
+	}
+	recipients = append(recipients, toQueueRecipients(directorDevices, "pc_director")...)
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return err
+	}
+	recipients = dedupeQueueRecipients(append(recipients, toQueueRecipients(ceoDevices, "ceo")...))
+	eventKey := EventVaccinationDriveReady + ":" + batchID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  verificationCalendarEventID(batchID),
+		TargetType:       "vaccination_batch",
+		TargetID:         batchID,
+		NotificationType: "verification_approved",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Vaccination drive ready to close",
+		Body:             "All proof videos for this vaccination drive are verified.",
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":         "verification_approved",
+			"screen":       "leadership_close",
+			"batch_id":     batchID,
+			"park_id":      p.ParkID,
+			"group_key":    "verification:" + tenantID + ":vaccination_drive",
+			"collapse_key": "verification:" + tenantID + ":vaccination_drive",
+			"priority":     priorityNormal,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Context, p VerificationEventPayload) error {
+	tenantID := strings.TrimSpace(p.TenantID)
+	batchID := strings.TrimSpace(p.BatchID)
+	if tenantID == "" || batchID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return err
+	}
+	eventKey := EventVaccinationDriveClosed + ":" + batchID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  verificationCalendarEventID(batchID),
+		TargetType:       "vaccination_batch",
+		TargetID:         batchID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Vaccination drive closed",
+		Body:             "The Director closed a vaccination drive.",
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":         "verification_closed",
+			"screen":       "record",
+			"batch_id":     batchID,
+			"group_key":    "verification:" + tenantID + ":vaccination_drive",
+			"collapse_key": "verification:" + tenantID + ":vaccination_drive",
+			"priority":     priorityNormal,
+		},
+		Recipients: toQueueRecipients(ceoDevices, "ceo"),
+	})
+	return err
 }
 
 func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p VerificationEventPayload) error {
@@ -177,6 +282,20 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	if err != nil {
 		return err
 	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	if err != nil {
+		return err
+	}
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return err
+	}
+	recipients := dedupeQueueRecipients(
+		append(append(
+			toQueueRecipients(parkHeadDevices, "park_head"),
+			toQueueRecipients(directorDevices, "pc_director")...),
+			toQueueRecipients(ceoDevices, "ceo")...),
+	)
 	eventKey := EventVerificationVerdictApproved + ":" + itemID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -201,7 +320,7 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 			"collapse_key": "verification:" + parkID + ":" + p.Category,
 			"priority":     priorityNormal,
 		},
-		Recipients: toQueueRecipients(parkHeadDevices, "park_head"),
+		Recipients: recipients,
 	})
 	return err
 }
@@ -262,10 +381,11 @@ func decodePayload(raw []byte) (VerificationEventPayload, error) {
 	return p, nil
 }
 
-// handleItemPending notifies the assigned verifier — whoever holds duty_type='verify' for
-// pc.vaccination at the item's park (ResolveModuleDutyRecipients). This closes the
-// verification_pending TODO in verification_notify.go. No legacy overlap exists on the pending
-// path (the legacy notifier only fires on rejected/accepted), so no suppression applies here.
+// handleItemPending notifies everyone who must react when an operator submits a shed for review:
+// the park's vaccination verifier duty holder, that park's head, tenant PC directors, and tenant
+// CEOs. Multiple goat-level verification items can be created for one shed submission; when the
+// source carries submission_id, the idempotency key is submission-scoped so those items collapse to
+// one queued push per recipient device.
 func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p VerificationEventPayload) error {
 	tenantID := strings.TrimSpace(p.TenantID)
 	itemID := strings.TrimSpace(p.ItemID)
@@ -280,14 +400,35 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
 	}
-	if len(verifierDevices) == 0 && c.logger != nil {
+	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve park head recipients: %w", err)
+	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve pc director recipients: %w", err)
+	}
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve ceo recipients: %w", err)
+	}
+	recipients := dedupeQueueRecipients(
+		append(append(append(
+			toQueueRecipients(verifierDevices, "verifier"),
+			toQueueRecipients(parkHeadDevices, "park_head")...),
+			toQueueRecipients(directorDevices, "pc_director")...),
+			toQueueRecipients(ceoDevices, "ceo")...),
+	)
+	if len(recipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_pending_notification_no_recipients",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID)
 	}
 
-	// Idempotency: item-scoped EventKey → per-device (tenant, eventKey, device) idempotency_key.
-	// Exact replay of this same pending event is a guaranteed no-op per recipient.
-	eventKey := EventVerificationItemPending + ":" + itemID
+	eventKeySubject := itemID
+	if sourceSubmissionID := strings.TrimSpace(p.Source.SubmissionID); sourceSubmissionID != "" {
+		eventKeySubject = "submission:" + sourceSubmissionID
+	}
+	eventKey := EventVerificationItemPending + ":" + eventKeySubject
 	body := "A proof has been submitted for your review."
 	if p.Category != "" {
 		body = "A " + p.Category + " proof has been submitted for your review."
@@ -315,17 +456,14 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 			"collapse_key": "verification:" + parkID + ":" + p.Category,
 			"priority":     priorityNormal,
 		},
-		Recipients: toQueueRecipients(verifierDevices, "verifier"),
+		Recipients: recipients,
 	})
 	return err
 }
 
-// handleVerdictRework notifies the operator who submitted + the park head, mirroring the legacy
-// VerificationNotifier's rejected path. LEGACY DEDUP: if this item is a legacy-handled vaccination
-// item (Source.Module="vaccination" AND Source.RefType="sop_submission"), the legacy
-// vaccination.verify.rejected fan-out already notifies the SAME operator + park head, so this
-// generic push is SUPPRESSED to avoid a duplicate. The suppression is derived purely from the
-// item's source ref carried in the event payload — no cross-module lookup needed.
+// handleVerdictRework notifies the operator who submitted plus leadership. LEGACY DEDUP: if this
+// item is a legacy-handled vaccination SOP item, the legacy vaccination.verify.rejected fan-out
+// already notifies the same operator + park head, so the generic path only adds Director/CEO.
 func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p VerificationEventPayload) error {
 	tenantID := strings.TrimSpace(p.TenantID)
 	itemID := strings.TrimSpace(p.ItemID)
@@ -335,21 +473,11 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		return nil // Well-formed but non-routable → no-op.
 	}
 
-	// LEGACY DEDUP — suppress the duplicate rework push for a legacy vaccination SOP item.
-	if p.legacyHandledVaccination() {
-		if c.logger != nil {
-			c.logger.InfoContext(ctx, "verification_rework_notification_suppressed_legacy_vaccination",
-				"tenant_id", tenantID, "item_id", itemID, "park_id", parkID,
-				"source_module", p.Source.Module, "source_ref_type", p.Source.RefType,
-				"source_task_id", p.Source.TaskID)
-		}
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var recipients []calendarports.NotificationRecipient
-	if operatorID != "" {
+	legacyHandled := p.legacyHandledVaccination()
+	if operatorID != "" && !legacyHandled {
 		operatorDevices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
 		if err != nil {
 			return err // retryable
@@ -358,11 +486,29 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	}
 	// Park-head positions are scoped scope_type='center' for a park (see the legacy notifier's
 	// identical note): resolve against scopeCenter, never the item's park scope directly.
-	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
-	if err != nil {
-		return err // retryable
+	if !legacyHandled {
+		parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+		if err != nil {
+			return err // retryable
+		}
+		recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
+	} else if c.logger != nil {
+		c.logger.InfoContext(ctx, "verification_rework_notification_suppressed_legacy_vaccination",
+			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID,
+			"source_module", p.Source.Module, "source_ref_type", p.Source.RefType,
+			"source_task_id", p.Source.TaskID)
 	}
-	recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	if err != nil {
+		return err
+	}
+	recipients = append(recipients, toQueueRecipients(directorDevices, "pc_director")...)
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return err
+	}
+	recipients = append(recipients, toQueueRecipients(ceoDevices, "ceo")...)
+	recipients = dedupeQueueRecipients(recipients)
 
 	if len(recipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_rework_notification_no_recipients",

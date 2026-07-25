@@ -23,6 +23,9 @@ func TestBatchSessionUsesComboWhenKnown(t *testing.T) {
 	if got := batchSession("rule-ppr", "PPR"); got != "combo:PPR+Blue Tongue" {
 		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)
 	}
+	if got := batchSession("rule-bt", "BLUE_TONGUE"); got != "combo:PPR+Blue Tongue" {
+		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)
+	}
 	if got := batchSession("rule-gpox", "Goat Pox"); got != "rule:rule-gpox" {
 		t.Fatalf("session = %q, want rule:rule-gpox", got)
 	}

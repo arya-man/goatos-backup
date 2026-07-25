@@ -158,7 +158,40 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
   }));
 }
 
+function isoDayNumber(value: string): number {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) return Number.NaN;
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+}
+
+function contiguousDateRun(dates: string[], selectedDate: string): string[] {
+  const sortedDates = Array.from(new Set(dates)).sort();
+  const selectedIndex = sortedDates.indexOf(selectedDate);
+  if (selectedIndex < 0) return selectedDate ? [selectedDate] : [];
+  let start = selectedIndex;
+  while (start > 0 && isoDayNumber(sortedDates[start]) - isoDayNumber(sortedDates[start - 1]) === 1) {
+    start -= 1;
+  }
+  let end = selectedIndex;
+  while (end + 1 < sortedDates.length && isoDayNumber(sortedDates[end + 1]) - isoDayNumber(sortedDates[end]) === 1) {
+    end += 1;
+  }
+  return sortedDates.slice(start, end + 1);
+}
+
 function moveDrawerRows(rows: OperatorDayScheduleRow[], closeHref: string): ScheduleMoveDrawerRow[] {
+  const originalDatesByVaccine = new Map<string, string[]>();
+  for (const row of rows) {
+    for (const vaccineCode of row.vaccineCodes ?? []) {
+      const key = `${row.parkId}|${vaccineCode}`;
+      let dates = originalDatesByVaccine.get(key);
+      if (!dates) {
+        dates = [];
+        originalDatesByVaccine.set(key, dates);
+      }
+      dates.push(row.vaccineOriginalDates?.[vaccineCode] || row.originalPlannedDate || row.plannedDate);
+    }
+  }
   return rows.map((row) => ({
     eventId: row.key,
     plannedDate: row.plannedDate,
@@ -170,6 +203,12 @@ function moveDrawerRows(rows: OperatorDayScheduleRow[], closeHref: string): Sche
     totalDoses: row.totalDoses,
     vaccineCodes: row.vaccineCodes,
     vaccineOriginalDates: row.vaccineOriginalDates ?? {},
+    vaccineOriginalDateSets: Object.fromEntries(
+      (row.vaccineCodes ?? []).map((vaccineCode) => {
+        const originalDate = row.vaccineOriginalDates?.[vaccineCode] || row.originalPlannedDate || row.plannedDate;
+        return [vaccineCode, contiguousDateRun(originalDatesByVaccine.get(`${row.parkId}|${vaccineCode}`) ?? [], originalDate)];
+      }),
+    ),
     vaccineNames: row.vaccineNames,
     returnTo: closeHref,
   }));
@@ -247,24 +286,34 @@ async function postponeDriveDateAction(formData: FormData) {
   const parkID = String(formData.get("park_id") ?? "").trim();
   const vaccineCode = String(formData.get("vaccine_code") ?? "").trim();
   const originalDriveDate = String(formData.get("original_drive_date") ?? "").trim();
+  const originalDriveDates = String(formData.get("original_drive_dates") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   const overrideDate = String(formData.get("override_date") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
   const returnTo = String(formData.get("return_to") ?? "").trim();
   if (!parkID || !vaccineCode || !originalDriveDate || !overrideDate) {
     redirect(scheduleMoveRedirect(returnTo, { schedule_move_result: "missing" }));
   }
-  const result = await postponeVaccinationDriveDate({
-    park_id: parkID,
-    vaccine_code: vaccineCode,
-    original_drive_date: originalDriveDate,
-    override_date: overrideDate,
-    reason,
-  });
+  const moveDates = Array.from(new Set(originalDriveDates.length > 0 ? originalDriveDates : [originalDriveDate])).sort();
+  let result: Awaited<ReturnType<typeof postponeVaccinationDriveDate>> | undefined;
+  for (const moveDate of moveDates) {
+    // serial-await: allow each original-date slice must stop on the first backend conflict so later slices are not partially moved.
+    result = await postponeVaccinationDriveDate({
+      park_id: parkID,
+      vaccine_code: vaccineCode,
+      original_drive_date: moveDate,
+      override_date: overrideDate,
+      reason,
+    });
+    if (!result.ok) break;
+  }
   revalidateVaccinationCommandLenses();
-  if (!result.ok) {
+  if (!result?.ok) {
     redirect(scheduleMoveRedirect(returnTo, {
       schedule_move_result: "error",
-      schedule_move_code: result.error.code ?? result.error.kind,
+      schedule_move_code: result?.error.code ?? result?.error.kind ?? "unknown",
     }));
   }
   redirect(scheduleMoveRedirect(returnTo, {
@@ -475,7 +524,6 @@ export async function VaccinationFullSchedule({
                 <th>{copy(pageContract, "schedule.column.sheds")}</th>
                 <th>{copy(pageContract, "schedule.column.vaccines")}</th>
                 <th>{copy(pageContract, "schedule.column.workload")}</th>
-                <th>{copy(pageContract, "schedule.column.capacity")}</th>
                 <th>{copy(pageContract, "schedule.column.postpone")}</th>
               </tr>
             </thead>
@@ -557,7 +605,6 @@ export async function VaccinationFullSchedule({
                     </span>
                     </LocalOverlayLink>
                   </td>
-                  <td><LocalOverlayLink href={drawerHref} className="celllink schedule-status-link" scroll={false}><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></LocalOverlayLink></td>
                   <td>
                     <LocalOverlayLink href={scheduleMoveHref(closeHref, row)} className="celllink schedule-status-link" scroll={false}>
                       <span className="btn sm">{copy(pageContract, "schedule.move.open")}</span>

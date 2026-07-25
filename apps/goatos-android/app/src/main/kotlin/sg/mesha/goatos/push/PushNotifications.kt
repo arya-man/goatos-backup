@@ -115,7 +115,7 @@ class PushNotifications @Inject constructor(
     private companion object {
         const val BASE_NOTIFICATION_ID = 5000
         val VACCINATION_TYPES = setOf(
-            "reminder", "reschedule", "record", "verification", "verification_pending",
+            "reminder", "vaccination_reminder", "reschedule", "record", "verification", "verification_pending",
             "verification_approved", "verification_closed", "verify", "rework",
         )
     }

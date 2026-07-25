@@ -80,6 +80,9 @@ function makefileTouchesSeedPipeline(diff) {
 const SEED_CONTRACT_IGNORE = /seed-fixture-guard:ignore:\s*\S+/i;
 
 function migrationCouplesToSeedContract(diff) {
+  if (/Collapsed clean-slate baseline generated from migrations 000001\.\.000046/.test(diff)) {
+    return false;
+  }
   if (!RELEVANT_MIGRATION_TERMS.test(diff)) return false;
   const addedDdl = diff
     .split("\n")

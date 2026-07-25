@@ -46,7 +46,7 @@ async function callBackend(path: string, init: ForwardInit, accept: string): Pro
     Authorization: `Bearer ${bearerToken}`,
     Accept: accept,
   };
-  if (tenantId) headers["X-Tenant-ID"] = tenantId;
+  if (tenantId) headers["X-GoatOS-Tenant-ID"] = tenantId;
   if (traceparent) headers["traceparent"] = traceparent;
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
 

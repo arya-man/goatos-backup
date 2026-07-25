@@ -36,13 +36,13 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	svc := NewService(
 		fakeVacc{
 			history: []vaccdomain.CompletionHistoryItem{
-				{CompletionID: "c1", ObligationID: "o0", Status: "accepted", AdministeredAt: t0, Doses: 1},
+				{CompletionID: "c1", ObligationID: "o0", Status: "accepted", AdministeredAt: t0, Doses: 1, DoseCode: "et_tt_adult_w2", VaccineLabel: "ET+TT"},
 			},
 			last:  vaccdomain.LastAccepted{CompletionID: "c1", ObligationID: "o0", AdministeredAt: t0},
 			found: true,
 		},
 		fakeObl{open: []obldomain.OpenObligation{
-			{ObligationID: "o1", RuleID: "r1", ScopeType: "shed", ScopeID: "shed1", BatchID: "b1", DueAt: t0, Status: "due", Sequence: 1}, // earliest → next due
+			{ObligationID: "o1", RuleID: "r1", ScopeType: "shed", ScopeID: "shed1", BatchID: "b1", DueAt: t0, ClinicalDueAt: t0, ScheduledFor: &t1, Status: "due", Sequence: 1, DoseCode: "et_tt_adult_w1", VaccineLabel: "ET+TT"}, // earliest → next due
 			{ObligationID: "o2", DueAt: t1, Status: "scheduled", Sequence: 2},
 		}},
 	)
@@ -60,8 +60,14 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	if p.NextDue.WorkflowRowID != "batch:b1:rule:r1:shed:shed1" {
 		t.Fatalf("workflow row id: %q", p.NextDue.WorkflowRowID)
 	}
+	if p.NextDue.DisplayLabel != "ET+TT W1" || p.NextDue.ScheduledFor == nil || !p.NextDue.ScheduledFor.Equal(t1) {
+		t.Fatalf("next due display fields: %+v", p.NextDue)
+	}
 	if p.OpenObligations[1].WorkflowRowID != "obligation:o2" {
 		t.Fatalf("fallback workflow row id: %q", p.OpenObligations[1].WorkflowRowID)
+	}
+	if got := p.VaccinationHistory[0].DisplayLabel; got != "ET+TT W2" {
+		t.Fatalf("history display label: %q", got)
 	}
 	if p.LastAccepted == nil || p.LastAccepted.CompletionID != "c1" {
 		t.Fatalf("last accepted: %+v", p.LastAccepted)

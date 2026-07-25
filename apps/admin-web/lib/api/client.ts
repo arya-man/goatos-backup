@@ -104,6 +104,21 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    async putVaccinationCapacityConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationCapacityConfigRequest']) {
+      const response = await fetch('/api/vaccination/capacity-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to update vaccination capacity config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
+      return { data: body };
+    },
+
     async putVaccinationOperatorAssignmentConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationOperatorAssignmentConfigRequest']) {
       const response = await fetch('/api/vaccination/operator-assignment/config', {
         method: 'PUT',
@@ -218,7 +233,27 @@ export function getAdminApi() {
         body: JSON.stringify(requestBody),
       });
       if (!response.ok) {
-        throw new Error(`Failed to apply leave: ${response.statusText}`);
+        // Surface the backend's business message (e.g. the min-operator coverage
+        // block) instead of a bare "Conflict", so the operator sees the reason.
+        const errBody = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Failed to apply leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
+      return { data: body };
+    },
+
+    async approveStaffLeave(
+      absenceId: string,
+      requestBody: AdminApiComponents['schemas']['ApproveStaffLeaveRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch(`/api/admin/roster/leave/${encodeURIComponent(absenceId)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to approve leave: ${response.statusText}`);
       }
       const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
       return { data: body };

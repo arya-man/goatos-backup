@@ -155,7 +155,9 @@ func TestCalendarParkDriveTargetsUseOperatorAssignmentDateOneToManyPageBoundaryS
 		"legacy batch fallback":       "NOT COALESCE(assignment_presence.has_any_assignment, false)",
 		"assignment park scope":       "vda.park_id = $4::uuid",
 		"display date tied to bucket": "AND assignment.planned_date = $3::date",
-		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
+		"hybrid member path":          "target_assignment.assignment_planned_at",
+		"hybrid guess fallback":       "target_assignment_guess.assignment_planned_at",
+		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
 	}
 	for name, fragment := range checks {
 		if !strings.Contains(calendarDriveTargetsSQL, fragment) {
@@ -172,6 +174,22 @@ func TestCalendarParkDriveScheduledCountIgnoresCompletedBatchSourcesStatusBucket
 	const statusBucket = "AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')"
 	if !strings.Contains(calendarCanonicalListSQL, statusBucket) {
 		t.Fatalf("park drive scheduled_count must be filtered by active scheduled/review statuses")
+	}
+}
+
+func TestCalendarParkDriveDosesCountDistinctAnimalsNotEstimatedTargetsOneToManyMultiPageScheduledDateParkScopeStatusBuckets(t *testing.T) {
+	// Cross-surface count parity: the park-drive marker must count DISTINCT animals — the
+	// same grain the operator drive schedule uses — not obligation_batches.estimated_targets,
+	// which is an obligation-ROW estimate (e.g. 200 animals x 2 dose rows = 400) and made the
+	// mobile calendar show 400 doses where web showed 200. See
+	// docs/decisions/scale-anti-patterns.md -> "Cross-surface count parity".
+	const distinctAnimals = "GREATEST(count(DISTINCT oi.target_id), 1)::int AS target_count"
+	if !strings.Contains(calendarCanonicalListSQL, distinctAnimals) {
+		t.Fatalf("park-drive target_count must count DISTINCT animals for cross-surface parity; missing %q", distinctAnimals)
+	}
+	const rowEstimate = "GREATEST(ob.estimated_targets, 1)::int AS target_count"
+	if strings.Contains(calendarCanonicalListSQL, rowEstimate) {
+		t.Fatalf("park-drive target_count still renders estimated_targets (obligation-row estimate) as doses; use count(DISTINCT oi.target_id)")
 	}
 }
 

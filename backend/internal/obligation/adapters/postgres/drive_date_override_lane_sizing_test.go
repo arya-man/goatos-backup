@@ -242,5 +242,7 @@ VALUES ($1, $2, 'center', $3, 'lane_size_operator_a', 'manager', $4, 50, 'active
 	// The PPR work never moved: all three goats stay on the source date, one dose each.
 	assertLane("source PPR", laneRowsOnDate(t, ctx, pool, source), 3, 3)
 	// Only goatA needs FMD, so the moved lane is ONE animal and ONE dose -- not the cell's three.
-	assertLane("target FMD", laneRowsOnDate(t, ctx, pool, target), 1, 1)
+	// The selected target is this operator's week-off in the fixture, so the move starts there and
+	// lands on the next executable operator-day instead of writing an unassigned same-day row.
+	assertLane("target FMD", laneRowsOnDate(t, ctx, pool, target.AddDate(0, 0, 1)), 1, 1)
 }

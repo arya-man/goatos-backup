@@ -1,10 +1,13 @@
 package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -40,15 +43,104 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `operator shed queue window is today through the next seven days in India time`() {
+    fun `overview adherence uses execution queue totals not global adherence totals`() {
+        val summary = protocolAdherenceSummary(ExecutionCounts(target = 324, open = 210, done = 114))
+
+        assertEquals(324, summary?.expectedCount)
+        assertEquals(114, summary?.submittedCount)
+        assertEquals(114, summary?.acceptedCount)
+        assertEquals(35, summary?.acceptedPercent)
+    }
+
+    @Test
+    fun `overview adherence keeps selected drive rows and excludes unrelated completed history`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                batchId = "drive-current",
+                currentAssignmentDate = "2026-07-24",
+                targetCount = 114,
+                openCount = 0,
+                doneCount = 114,
+                sopStatus = "accepted",
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-current",
+                currentAssignmentDate = "2026-07-25",
+                targetCount = 210,
+                openCount = 210,
+                doneCount = 0,
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-future",
+                currentAssignmentDate = "2026-07-26",
+                targetCount = 324,
+                openCount = 324,
+                doneCount = 0,
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-old",
+                currentAssignmentDate = "2026-07-24",
+                targetCount = 438,
+                openCount = 0,
+                doneCount = 438,
+                sopStatus = "accepted",
+            ),
+        )
+
+        val selectedDayRows = rows.filter { it.currentScheduleDate == "2026-07-25" }
+        val counts = executionCounts(adherenceWindowRows(rows, selectedDayRows, LocalDate.parse("2026-07-25")))
+        val summary = protocolAdherenceSummary(counts)
+
+        assertEquals(ExecutionCounts(target = 324, open = 210, done = 114), counts)
+        assertEquals(324, summary?.expectedCount)
+        assertEquals(114, summary?.submittedCount)
+    }
+
+    @Test
+    fun `all animals done but draft shed proof still opens execution`() {
+        val godelOne = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 2,
+                openCount = 0,
+                doneCount = 2,
+                workState = "in_progress",
+                primaryActionKey = "submit",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertFalse(godelOne.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `submitted shed opens record only`() {
+        val submitted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 2,
+                openCount = 0,
+                doneCount = 2,
+                primaryActionKey = "record",
+                sopStatus = "submitted",
+            ),
+        )
+
+        assertTrue(submitted.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `operator shed queue window is yesterday through today plus five in India time`() {
         val window = OperatorWorkWindow.today(
             ZonedDateTime.of(2026, 7, 21, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
         )
 
         assertEquals(null, window.asOf)
-        assertEquals("2026-07-28T09:30:00+05:30", window.dueBefore)
+        // Upper bound covers lastDay (today+5 = 26 Jul).
+        assertEquals("2026-07-27T09:30:00+05:30", window.dueBefore)
         assertEquals("Today · Tue 21 Jul", window.todayLabel)
-        assertEquals("Tue 21 Jul → Mon 27 Jul", window.windowLabel)
+        // Strip: yesterday (Mon 20) → today+5 (Sun 26); landing stays on today.
+        assertEquals(java.time.LocalDate.of(2026, 7, 20), window.firstDay)
+        assertEquals(java.time.LocalDate.of(2026, 7, 26), window.lastDay)
+        assertEquals("Mon 20 Jul → Sun 26 Jul", window.windowLabel)
     }
 
     @Test

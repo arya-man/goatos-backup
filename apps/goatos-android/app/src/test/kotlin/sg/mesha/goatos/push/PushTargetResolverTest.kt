@@ -7,30 +7,30 @@ import sg.mesha.goatos.ui.Routes
 
 class PushTargetResolverTest {
     @Test
-    fun `shed reminder opens exact task scan route`() {
+    fun `shed reminder opens vaccination landing instead of scan`() {
         val route = resolvePushRoute(
             mapOf(
-                PushExtras.TYPE to "reminder",
-                PushExtras.SCREEN to "scan",
+                PushExtras.TYPE to "vaccination_reminder",
+                PushExtras.SCREEN to "vaccination",
                 PushExtras.SHED_ID to "shed-123",
                 PushExtras.TASK_ID to "task-456",
+                PushExtras.ROLE to "operator",
             ),
         )
 
-        assertTrue(route.startsWith("/scan?"))
-        assertTrue(route.contains("shedId=shed-123"))
-        assertTrue(route.contains("taskId=task-456"))
+        assertEquals(Routes.VACCINATION, route)
     }
 
     @Test
-    fun `taskless scan reminder falls back instead of showing an unresumable execution`() {
+    fun `leadership vaccination reminder opens vaccination landing`() {
         assertEquals(
             Routes.VACCINATION,
             resolvePushRoute(
                 mapOf(
-                    PushExtras.TYPE to "reminder",
-                    PushExtras.SCREEN to "scan",
+                    PushExtras.TYPE to "vaccination_reminder",
+                    PushExtras.SCREEN to "vaccination",
                     PushExtras.SHED_ID to "shed-123",
+                    PushExtras.ROLE to "pc_director",
                 ),
             ),
         )
@@ -61,17 +61,54 @@ class PushTargetResolverTest {
                 PushExtras.TYPE to "verification_pending",
                 PushExtras.ITEM_ID to "item-123",
                 PushExtras.CATEGORY to "vaccination proof",
+                PushExtras.ROLE to "verifier",
             ),
         )
 
-        assertEquals("/verify/item?itemId=item-123&category=vaccination%20proof", route)
+        assertEquals("/verify/item?itemId=item-123&category=vaccination%20proof&actionMode=false", route)
     }
 
     @Test
-    fun `verification approved opens leadership closure from type-only payload`() {
+    fun `verification pending opens vaccination for director and ceo recipients`() {
         assertEquals(
-            Routes.LEADERSHIP,
+            Routes.VACCINATION,
+            resolvePushRoute(
+                mapOf(
+                    PushExtras.TYPE to "verification_pending",
+                    PushExtras.ITEM_ID to "item-123",
+                    PushExtras.ROLE to "ceo_internal",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `verification pending opens vaccination for park head recipients`() {
+        assertEquals(
+            Routes.VACCINATION,
+            resolvePushRoute(
+                mapOf(
+                    PushExtras.TYPE to "verification_pending",
+                    PushExtras.ITEM_ID to "item-123",
+                    PushExtras.ROLE to "park_head",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `verification approved opens vaccination after leadership screen removal`() {
+        assertEquals(
+            Routes.VACCINATION,
             resolvePushRoute(mapOf(PushExtras.TYPE to "verification_approved")),
+        )
+    }
+
+    @Test
+    fun `legacy leadership close payload opens vaccination after leadership screen removal`() {
+        assertEquals(
+            Routes.VACCINATION,
+            resolvePushRoute(mapOf(PushExtras.SCREEN to "leadership_close")),
         )
     }
 

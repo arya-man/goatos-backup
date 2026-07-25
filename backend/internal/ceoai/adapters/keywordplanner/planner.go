@@ -46,6 +46,8 @@ var rules = []rule{
 	{regexp.MustCompile(`(?i)(operator|vaccinator).{0,40}(behind|overdue|late|lagging)|(behind|overdue|late|lagging).{0,40}(operator|vaccinator)`), "operator_vaccination_behind", "operator_vaccination_overdue", domain.RouteCube, "operator_label"},
 	{regexp.MustCompile(`(?i)(operator|vaccinator).{0,40}(capacity|utilization|utili[sz]ation)|(capacity|utilization|utili[sz]ation).{0,40}(operator|vaccinator)`), "operator_vaccination_capacity", "operator_vaccination_capacity", domain.RouteCube, "operator_label"},
 	{regexp.MustCompile(`(?i)operator|vaccinator|drive assignment|assigned animals|animals assigned`), "operator_vaccination_load", "operator_vaccination_load", domain.RouteCube, "operator_label"},
+	{regexp.MustCompile(`(?i)dose pickup|pickup|pick up|vaccine pickup|vaccines? need pickup`), "vaccination_dose_pickup", "mesha_vaccination_dose_pickup", domain.RouteToolbox, ""},
+	{regexp.MustCompile(`(?i)pre.?arrival|arrival history|supplier claim|history review`), "prearrival_history_review", "mesha_prearrival_history_review", domain.RouteToolbox, ""},
 	{regexp.MustCompile(`(?i)overdue|behind|late`), "vaccination_overdue_sheds", "vaccination_overdue", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)adherence|complian`), "vaccination_adherence", "vaccination_compliance", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)mortality|death`), "counts_movement_daily", "mortality_rate", domain.RouteCube, ""},
@@ -56,12 +58,17 @@ var rules = []rule{
 	// previously said "feed_direction_preview", which no executor was ever
 	// registered under, so every feed question hit registry.go's
 	// "no read-service executor" dead end (P1-1).
-	{regexp.MustCompile(`(?i)feed|ration|packing`), "feed_direction_today", "feed_direction_today", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)\b(feed|ration|packing)\b`), "feed_direction_today", "feed_direction_today", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)shift|movement|relocation|pending move`), "shifting_pending_summary", "mesha_shifting_summary", domain.RouteToolbox, ""},
+	{regexp.MustCompile(`(?i)source.?entry health|source health|import health|source issue`), "source_entry_health", "mesha_source_entry_health", domain.RouteToolbox, ""},
 	{regexp.MustCompile(`(?i)procure|intake|source.?entry|load`), "procurement_open_loads", "procurement_source_entry_loads", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)\bsop\b|standard operating|execution status|blocked sop`), "sop_execution_status", "mesha_sop_execution", domain.RouteToolbox, ""},
 	{regexp.MustCompile(`(?i)coverage|backup|staff|roster|who owns`), "workforce_coverage", "admin_roster_coverage", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)verif|proof`), "verification_queue", "verification_queue", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)action center|needs action|queue`), "action_center_queue", "action_center_obligations", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)exception|risk|broken|integrity|dlq|kernel health`), "ops_exceptions_risk", "operations_kernel_health", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)notification|delivery health|message delivery`), "notification_delivery_health", "mesha_notification_delivery_health", domain.RouteToolbox, ""},
+	{regexp.MustCompile(`(?i)inventory|stock|reorder`), "inventory_stock_summary", "mesha_inventory_stock", domain.RouteToolbox, ""},
 	{regexp.MustCompile(`(?i)audit|what happened|activity`), "audit_activity", "operations_audit_summary", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)capacity|over.?capacity|overstock`), "shed_capacity_variance", "admin_location_usage", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)count|breakdown|by (park|shed|breed|sex|stage)|how many`), "count_by_scope_dimension", "counts_breakdown", domain.RouteAPI, ""},

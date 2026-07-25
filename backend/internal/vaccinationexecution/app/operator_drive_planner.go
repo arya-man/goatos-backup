@@ -18,10 +18,11 @@ type OperatorDrivePlanner struct {
 }
 
 type DriveOperator struct {
-	ID        string
-	Name      string
-	Cap       int
-	Available bool
+	ID            string
+	Name          string
+	Cap           int
+	ConfiguredCap int
+	Available     bool
 }
 
 type DriveWorkBlock struct {
@@ -48,9 +49,10 @@ type DriveDateAvailability struct {
 }
 
 type DrivePlanRequest struct {
-	StartDate    time.Time
-	Availability []DriveDateAvailability
-	WorkBlocks   []DriveWorkBlock
+	StartDate             time.Time
+	Availability          []DriveDateAvailability
+	ConfiguredOperatorCap int
+	WorkBlocks            []DriveWorkBlock
 }
 
 type DrivePlanAssignment struct {
@@ -135,7 +137,7 @@ func (p OperatorDrivePlanner) Plan(req DrivePlanRequest) (DrivePlan, error) {
 			continue
 		}
 
-		assignments, unscheduled := p.planOneDay(date, operators, remaining)
+		assignments, unscheduled := p.planOneDay(date, operators, remaining, configuredOperatorCap(req))
 		day.Assignments = assignments
 		for _, assignment := range assignments {
 			day.Assigned += assignment.Animals
@@ -159,7 +161,7 @@ func (p OperatorDrivePlanner) Plan(req DrivePlanRequest) (DrivePlan, error) {
 	return plan, nil
 }
 
-func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator, blocks []DriveWorkBlock) ([]DrivePlanAssignment, []DriveWorkBlock) {
+func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator, blocks []DriveWorkBlock, configuredOperatorCap int) ([]DrivePlanAssignment, []DriveWorkBlock) {
 	loads := make([]operatorLoad, 0, len(operators))
 	for _, op := range operators {
 		loads = append(loads, operatorLoad{op: op, remaining: op.Cap})
@@ -174,26 +176,22 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 		}
 		choice := bestOperatorForBlock(loads, total)
 		if choice < 0 {
-			if isLatestSafeDue(group.blocks, date) {
-				assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, group.blocks)...)
-				continue
-			}
 			for _, block := range group.blocks {
 				if block.Animals <= 0 {
 					continue
 				}
 				choice = bestOperatorForBlock(loads, block.Animals)
 				if choice < 0 {
-					if isBlockLatestSafeDue(block, date) {
-						assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, []DriveWorkBlock{block})...)
-						continue
-					}
-					splitAssignments, residual := splitOversizedBlockAcrossOperators(date, loads, block)
-					for _, assignment := range splitAssignments {
-						assignments = mergeAssignment(assignments, assignment)
-					}
-					if residual.Animals > 0 {
-						unscheduled = append(unscheduled, residual)
+					if configuredOperatorCap > 0 && block.Animals > configuredOperatorCap {
+						splitAssignments, residual := splitOversizedBlockAcrossOperators(date, loads, block)
+						for _, assignment := range splitAssignments {
+							assignments = mergeAssignment(assignments, assignment)
+						}
+						if residual.Animals > 0 {
+							unscheduled = append(unscheduled, residual)
+						}
+					} else {
+						unscheduled = append(unscheduled, block)
 					}
 					continue
 				}
@@ -213,44 +211,40 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 	return assignments, unscheduled
 }
 
-func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, blocks []DriveWorkBlock) []DrivePlanAssignment {
-	assignments := make([]DrivePlanAssignment, 0, len(blocks))
-	for _, block := range blocks {
-		remaining := block.Animals
-		cursor := 0
-		for remaining > 0 {
-			choice := bestOperatorWithAnyCapacity(loads)
-			if choice < 0 {
-				break
-			}
-			chunk := loads[choice].remaining
-			if chunk > remaining {
-				chunk = remaining
-			}
-			chunkBlock := block
-			chunkBlock.Animals = chunk
-			chunkBlock.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, chunk)
-			cursor += chunk
-			assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, chunkBlock, []string{"forced_partition_split"}))
-			loads[choice].remaining -= chunk
-			loads[choice].assigned += chunk
-			remaining -= chunk
-		}
-		if remaining <= 0 {
-			continue
-		}
-		choice := lowestLoadedOperator(loads)
-		if choice < 0 {
-			continue
-		}
-		overCapBlock := block
-		overCapBlock.Animals = remaining
-		overCapBlock.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, remaining)
-		loads[choice].remaining -= remaining
-		loads[choice].assigned += remaining
-		assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, overCapBlock, []string{"over_cap_required_latest_safe", "forced_partition_split"}))
+func configuredOperatorCap(req DrivePlanRequest) int {
+	if req.ConfiguredOperatorCap > 0 {
+		return req.ConfiguredOperatorCap
 	}
-	return assignments
+	maxCap := 0
+	for _, day := range req.Availability {
+		for _, op := range day.Operators {
+			if !op.Available {
+				continue
+			}
+			if op.ConfiguredCap > maxCap {
+				maxCap = op.ConfiguredCap
+			}
+		}
+	}
+	if maxCap > 0 {
+		return maxCap
+	}
+	return maxOperatorCap(req.Availability)
+}
+
+func maxOperatorCap(availability []DriveDateAvailability) int {
+	maxCap := 0
+	for _, day := range availability {
+		for _, op := range day.Operators {
+			if !op.Available {
+				continue
+			}
+			if op.Cap > maxCap {
+				maxCap = op.Cap
+			}
+		}
+	}
+	return maxCap
 }
 
 func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block DriveWorkBlock) ([]DrivePlanAssignment, DriveWorkBlock) {
@@ -298,33 +292,6 @@ func bestOperatorWithAnyCapacity(loads []operatorLoad) int {
 		}
 	}
 	return best
-}
-
-func lowestLoadedOperator(loads []operatorLoad) int {
-	best := -1
-	for i, load := range loads {
-		if best < 0 || load.assigned < loads[best].assigned {
-			best = i
-			continue
-		}
-		if load.assigned == loads[best].assigned && load.op.Name < loads[best].op.Name {
-			best = i
-		}
-	}
-	return best
-}
-
-func isLatestSafeDue(blocks []DriveWorkBlock, date string) bool {
-	for _, block := range blocks {
-		if isBlockLatestSafeDue(block, date) {
-			return true
-		}
-	}
-	return false
-}
-
-func isBlockLatestSafeDue(block DriveWorkBlock, date string) bool {
-	return !block.LatestSafeDate.IsZero() && date >= biztime.BusinessDate(block.LatestSafeDate)
 }
 
 type physicalShedWorkGroup struct {

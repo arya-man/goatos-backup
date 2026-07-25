@@ -151,6 +151,7 @@ UPDATE obligation_batches SET conducted_by = $2 WHERE tenant_id = $1 AND batch_i
 		t.Fatalf("UpsertVaccinationDriveDateOverride: %v", err)
 	}
 
+	next := target.AddDate(0, 0, 1)
 	movedRows := driveAssignmentRowsForRule(t, ctx, pool, target, versions[0].ruleID)
 	totalMoved := 0
 	for _, row := range movedRows {
@@ -163,17 +164,29 @@ UPDATE obligation_batches SET conducted_by = $2 WHERE tenant_id = $1 AND batch_i
 			t.Fatalf("moved assignment row booked on an operator not resolvable on the target date: %+v", row)
 		}
 	}
-	if totalMoved != 3 {
-		t.Fatalf("moved animal total on target date = %d, want 3 (no work may be lost by the move)", totalMoved)
+	if totalMoved != 1 {
+		t.Fatalf("moved animal total on target date = %d, want 1 remaining-cap animal before overflow continues forward", totalMoved)
 	}
-	overCap := false
-	for _, row := range movedRows {
-		if row.capacityStatus != "within_cap" {
-			overCap = true
+	nextRows := driveAssignmentRowsForRule(t, ctx, pool, next, versions[0].ruleID)
+	totalNext := 0
+	for _, row := range nextRows {
+		totalNext += row.animalCount
+		if row.operatorID != operatorB {
+			t.Fatalf("next-day moved assignment row booked on wrong operator: %+v", row)
 		}
 	}
-	if !overCap {
-		t.Fatalf("every moved row on the target date reports within_cap, but only 1 animal slot of operator capacity remains for 3 animals: %+v", movedRows)
+	if totalNext != 2 {
+		t.Fatalf("moved animal total on next date = %d, want 2 overflow animals (no work may be lost by the move)", totalNext)
+	}
+	for _, row := range movedRows {
+		if row.capacityStatus != "within_cap" {
+			t.Fatalf("target row status = %q, want within_cap after split-forward move: %+v", row.capacityStatus, movedRows)
+		}
+	}
+	for _, row := range nextRows {
+		if row.capacityStatus != "within_cap" {
+			t.Fatalf("next row status = %q, want within_cap after split-forward move: %+v", row.capacityStatus, nextRows)
+		}
 	}
 	if left := driveAssignmentRowsForRule(t, ctx, pool, source, versions[0].ruleID); len(left) != 0 {
 		t.Fatalf("moved vaccine still has rows on the source date: %+v", left)
@@ -199,6 +212,9 @@ UPDATE obligation_batches SET conducted_by = $2 WHERE tenant_id = $1 AND batch_i
 	}
 	if leftover := driveAssignmentRowsForRule(t, ctx, pool, target, versions[0].ruleID); len(leftover) != 0 {
 		t.Fatalf("cleared override left rows on the target date: %+v", leftover)
+	}
+	if leftover := driveAssignmentRowsForRule(t, ctx, pool, next, versions[0].ruleID); len(leftover) != 0 {
+		t.Fatalf("cleared override left split-forward rows on the next date: %+v", leftover)
 	}
 }
 

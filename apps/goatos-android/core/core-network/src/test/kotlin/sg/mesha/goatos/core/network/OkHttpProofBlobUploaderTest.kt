@@ -33,7 +33,7 @@ class OkHttpProofBlobUploaderTest {
         server = MockWebServer()
         server.start()
         tempFile = File.createTempFile("proof-capture", ".mp4").apply {
-            writeBytes(ByteArray(200_000) { (it % 256).toByte() }) // large enough to span several stream chunks
+            writeBytes(ByteArray(400_000) { (it % 256).toByte() }) // large enough to span several stream chunks
             deleteOnExit()
         }
     }
@@ -56,6 +56,8 @@ class OkHttpProofBlobUploaderTest {
             uploadUrl = signedUrl,
             uploadMethod = "PUT",
             uploadHeaders = mapOf("x-goog-if-generation-match" to "0"),
+            uploadProtocol = "simple_put",
+            chunkSizeBytes = null,
             mimeType = "video/mp4",
             filePath = tempFile.absolutePath,
         )
@@ -84,6 +86,8 @@ class OkHttpProofBlobUploaderTest {
             uploadUrl = "/app/proofs/proof-1/upload?expires=1&sig=abc",
             uploadMethod = "PUT",
             uploadHeaders = mapOf("Content-Type" to "video/mp4"),
+            uploadProtocol = "simple_put",
+            chunkSizeBytes = null,
             mimeType = "video/mp4",
             filePath = tempFile.absolutePath,
         )
@@ -100,6 +104,8 @@ class OkHttpProofBlobUploaderTest {
             uploadUrl = server.url("/bucket/proofs/proof-1").toString(),
             uploadMethod = "PUT",
             uploadHeaders = emptyMap(),
+            uploadProtocol = "simple_put",
+            chunkSizeBytes = null,
             mimeType = "video/mp4",
             filePath = tempFile.absolutePath,
         )
@@ -116,6 +122,8 @@ class OkHttpProofBlobUploaderTest {
                 uploadUrl = server.url("/bucket/proofs/proof-1").toString(),
                 uploadMethod = "PUT",
                 uploadHeaders = emptyMap(),
+                uploadProtocol = "simple_put",
+                chunkSizeBytes = null,
                 mimeType = "video/mp4",
                 filePath = tempFile.absolutePath,
             )
@@ -132,6 +140,8 @@ class OkHttpProofBlobUploaderTest {
                 uploadUrl = server.url("/bucket/proofs/proof-1").toString(),
                 uploadMethod = "PUT",
                 uploadHeaders = emptyMap(),
+                uploadProtocol = "simple_put",
+                chunkSizeBytes = null,
                 mimeType = "video/mp4",
                 filePath = "${tempFile.absolutePath}.does-not-exist",
             )
@@ -140,5 +150,105 @@ class OkHttpProofBlobUploaderTest {
             // expected
         }
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `resumable protocol starts a session and uploads content-range chunks`() = runTest {
+        val sessionUrl = server.url("/upload/session-1").toString()
+        server.enqueue(MockResponse().setResponseCode(201).setHeader("Location", sessionUrl))
+        server.enqueue(MockResponse().setResponseCode(308).setHeader("Range", "bytes=0-262143"))
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        val result = uploader().putFile(
+            uploadUrl = server.url("/bucket/proofs/proof-1?X-Goog-Signature=abc").toString(),
+            uploadMethod = "POST",
+            uploadHeaders = mapOf(
+                "Content-Type" to "video/mp4",
+                "x-goog-resumable" to "start",
+                "x-goog-if-generation-match" to "0",
+            ),
+            uploadProtocol = "gcs_resumable_v1",
+            chunkSizeBytes = 262_144,
+            mimeType = "video/mp4",
+            filePath = tempFile.absolutePath,
+        )
+
+        val init = server.takeRequest()
+        assertEquals("POST", init.method)
+        assertEquals("/bucket/proofs/proof-1?X-Goog-Signature=abc", init.path)
+        assertEquals("start", init.getHeader("x-goog-resumable"))
+        assertEquals("0", init.getHeader("x-goog-if-generation-match"))
+        assertEquals(0L, init.bodySize)
+
+        val firstChunk = server.takeRequest()
+        assertEquals("PUT", firstChunk.method)
+        assertEquals("/upload/session-1", firstChunk.path)
+        assertEquals("bytes 0-262143/${tempFile.length()}", firstChunk.getHeader("Content-Range"))
+        assertArrayEquals(tempFile.readBytes().copyOfRange(0, 262_144), firstChunk.body.readByteArray())
+
+        val secondChunk = server.takeRequest()
+        assertEquals("PUT", secondChunk.method)
+        assertEquals("bytes 262144-399999/${tempFile.length()}", secondChunk.getHeader("Content-Range"))
+        assertArrayEquals(tempFile.readBytes().copyOfRange(262_144, 400_000), secondChunk.body.readByteArray())
+
+        require(result is ProofBlobPutResult.Uploaded)
+        assertEquals(tempFile.length(), result.sizeBytes)
+    }
+
+    @Test
+    fun `resumable protocol resumes from the server acknowledged Range`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201).setHeader("Location", server.url("/upload/session-range").toString()))
+        server.enqueue(MockResponse().setResponseCode(308).setHeader("Range", "bytes=0-131071"))
+        server.enqueue(MockResponse().setResponseCode(308).setHeader("Range", "bytes=0-393215"))
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        uploader().putFile(
+            uploadUrl = server.url("/bucket/proofs/proof-range").toString(),
+            uploadMethod = "POST",
+            uploadHeaders = mapOf("x-goog-resumable" to "start"),
+            uploadProtocol = "gcs_resumable_v1",
+            chunkSizeBytes = 262_144,
+            mimeType = "video/mp4",
+            filePath = tempFile.absolutePath,
+        )
+
+        server.takeRequest() // session initiation
+        val firstChunk = server.takeRequest()
+        assertEquals("bytes 0-262143/${tempFile.length()}", firstChunk.getHeader("Content-Range"))
+
+        val resumedChunk = server.takeRequest()
+        assertEquals("bytes 131072-393215/${tempFile.length()}", resumedChunk.getHeader("Content-Range"))
+        assertArrayEquals(tempFile.readBytes().copyOfRange(131_072, 393_216), resumedChunk.body.readByteArray())
+
+        val finalChunk = server.takeRequest()
+        assertEquals("bytes 393216-399999/${tempFile.length()}", finalChunk.getHeader("Content-Range"))
+        assertArrayEquals(tempFile.readBytes().copyOfRange(393_216, 400_000), finalChunk.body.readByteArray())
+    }
+
+    @Test
+    fun `local resumable protocol resolves relative session URLs and keeps app auth on API host`() = runTest {
+        val baseUrl = server.url("/").toString()
+        server.enqueue(MockResponse().setResponseCode(201).setHeader("Location", "/app/proofs/proof-1/resumable/session"))
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        uploader(baseUrl = baseUrl).putFile(
+            uploadUrl = "/app/proofs/proof-1/upload?expires=1&sig=abc",
+            uploadMethod = "POST",
+            uploadHeaders = emptyMap(),
+            uploadProtocol = "gcs_resumable_v1",
+            chunkSizeBytes = 1_000_000,
+            mimeType = "video/mp4",
+            filePath = tempFile.absolutePath,
+        )
+
+        val init = server.takeRequest()
+        assertEquals("POST", init.method)
+        assertEquals("Bearer app-bearer-token", init.getHeader("Authorization"))
+        assertEquals("start", init.getHeader("x-goog-resumable"))
+
+        val chunk = server.takeRequest()
+        assertEquals("PUT", chunk.method)
+        assertEquals("/app/proofs/proof-1/resumable/session", chunk.path)
+        assertEquals("bytes 0-399999/${tempFile.length()}", chunk.getHeader("Content-Range"))
     }
 }

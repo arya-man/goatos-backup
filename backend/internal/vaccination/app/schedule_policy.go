@@ -278,11 +278,22 @@ func hasKidCourseHistory(history []domain.RecentVaccineAdministration) bool {
 }
 
 // isPrimaryAnchorRule reports whether a rule schedules a primary dose off a birth/arrival anchor
-// (DOB or entry_date). These are exactly the rules that vaccination history outranks: once a
-// same-vaccine administration exists, after_previous_completion owns future scheduling and these
-// anchor-based primaries must be suppressed.
+// (DOB or entry_date). These anchor-based primaries are suppressed once their specific dose already
+// has accepted history.
 func isPrimaryAnchorRule(rule protodomain.Rule) bool {
 	return rule.TriggerType == "birth_age" || rule.TriggerType == "post_arrival"
+}
+
+func isPrimaryCourseRule(rule protodomain.Rule) bool {
+	if strings.EqualFold(strings.TrimSpace(rule.Repeat), "every_n_days") || strings.EqualFold(strings.TrimSpace(rule.Repeat), "yearly") {
+		return false
+	}
+	switch strings.TrimSpace(rule.TriggerType) {
+	case "birth_age", "post_arrival", "manual_campaign", "after_previous_completion":
+		return true
+	default:
+		return false
+	}
 }
 
 func ruleMatchesSchedulePath(rule protodomain.Rule, path string) bool {

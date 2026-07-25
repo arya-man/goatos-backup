@@ -1,17 +1,16 @@
 # Cloud Deploy Staging Runbook
 
-Status: `goatos-stg` deployment authority is Cloud Deploy. GitHub Actions,
-Cloud Build, or a local operator may build images and create a release, but
-Cloud Run staging services and jobs must be mutated by the Cloud Deploy rollout
-task only.
+Status: `goatos-stg` deployment authority is Cloud Deploy. GitHub Actions is
+not a Goat OS staging deploy path. A local operator may build images and create
+a release from the latest approved `origin/main`, but Cloud Run staging services
+and jobs must be mutated by the Cloud Deploy rollout task only.
 
 ## Why this exists
 
-The old staging path let one workflow build images, run migrations, update API,
-update worker jobs, update admin-web, and smoke the result. If the workflow or
-image source was stale, staging could run a mixed commit: API from one build,
+The old staging path mixed branch, workflow, and manual release assumptions. If
+the image source was stale, staging could run a mixed commit: API from one build,
 migration job from another build, and database schema from a third point in
-time.
+time. This runbook makes Cloud Deploy the only staging deployment authority.
 
 Cloud Deploy makes the release the unit of change. A staging release carries
 exactly four values:
@@ -32,7 +31,6 @@ deploy/clouddeploy/stg/clouddeploy.yaml
 deploy/clouddeploy/stg/skaffold.yaml
 tools/deploy/stg-clouddeploy-task.sh
 tools/deploy/stg-clouddeploy-release.sh
-.github/workflows/stg-deploy.yml
 ```
 
 `clouddeploy.yaml` defines a custom target because Goat OS staging deploys both
@@ -62,16 +60,22 @@ Do not move migration after service deploy. The rollout fails before migration
 if the kernel worker service is absent. Do not hand-maintain a stale manual-job
 list; the rollout discovers existing backend-image jobs and updates them.
 
-## Create A Release Locally (Break Glass Only)
+## Create A Release
 
-Normal staging releases must originate from GitHub merging the same-repository
-`main -> stg` pull request. Do not use this helper as an alternative staging
-promotion path. It exists only for an explicitly-authorized break-glass repair
-after the operator verifies the exact already-approved commit and cloud target.
+Normal staging releases originate from a clean repo checkout at the latest
+approved `origin/main`. Do not create or wait for a `main -> stg` pull request,
+GitHub Actions workflow, or remote `stg` branch update as part of staging
+deployment.
 
 Run from a clean repo checkout that points at the intended commit:
 
 ```bash
+git fetch origin main --prune
+git checkout main
+git reset --hard origin/main
+git status --short --branch
+git rev-parse HEAD
+git rev-parse origin/main
 gcloud config set project goatos-stg
 tools/deploy/stg-clouddeploy-release.sh
 ```
@@ -80,23 +84,16 @@ The script refuses a dirty working tree unless `GOATOS_ALLOW_DIRTY_RELEASE=1`
 is set. Dirty release is for emergency debugging only; do not use it for normal
 staging handoff.
 
-## GitHub Workflow Behavior
+## Forbidden Deploy Detours
 
-`.github/workflows/stg-deploy.yml` is now a release producer:
+Do not use these for Goat OS STG deployment:
 
-```text
-merged main -> stg SHA verification -> build images -> push images ->
-gcloud deploy releases create
-```
-
-The SHA verification happens before OIDC authentication. It requires the exact
-current `stg` SHA to be the merge commit of a closed, merged, same-repository
-`main -> stg` PR. Direct pushes and dispatches from `main` or agent branches
-fail before any cloud write.
-
-It must not call `gcloud run services update`, `gcloud run jobs update`, or
-`gcloud run jobs execute` directly. Those commands belong inside the Cloud
-Deploy custom target rollout task.
+- GitHub Actions or `.github/workflows/stg-deploy.yml`
+- a `main -> stg` pull request as a deployment trigger
+- a direct or forced push to remote `stg`
+- direct `gcloud run services update`, `gcloud run jobs update`, or manual
+  migration execution except documented break-glass followed by a Cloud Deploy
+  release from the same commit
 
 ## Apply Or Repair The Pipeline
 
