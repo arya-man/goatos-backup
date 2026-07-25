@@ -102,6 +102,13 @@ data class VerificationLocationOptionDto(
 @Serializable
 data class VerificationDriveClosureDto(
     @SerialName("batch_id") val batchId: String = "",
+    @SerialName("drive_key") val driveKey: String = "",
+    @SerialName("drive_label") val driveLabel: String = "",
+    @SerialName("batch_label") val batchLabel: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_label") val parkLabel: String = "",
+    @SerialName("start_date") val startDate: String = "",
+    @SerialName("end_date") val endDate: String = "",
     @SerialName("total_count") val totalCount: Int = 0,
     @SerialName("approved_count") val approvedCount: Int = 0,
     @SerialName("rejected_count") val rejectedCount: Int = 0,

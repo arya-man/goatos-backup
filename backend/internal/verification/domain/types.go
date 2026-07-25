@@ -145,6 +145,13 @@ type CloseVaccinationBatchAction struct {
 // VaccinationBatchClosure is a leadership-ready drive close candidate.
 type VaccinationBatchClosure struct {
 	BatchID        string `json:"batch_id"`
+	DriveKey       string `json:"drive_key,omitempty"`
+	DriveLabel     string `json:"drive_label,omitempty"`
+	BatchLabel     string `json:"batch_label,omitempty"`
+	ParkID         string `json:"park_id,omitempty"`
+	ParkLabel      string `json:"park_label,omitempty"`
+	StartDate      string `json:"start_date,omitempty"`
+	EndDate        string `json:"end_date,omitempty"`
 	TotalCount     int    `json:"total_count"`
 	ApprovedCount  int    `json:"approved_count"`
 	RejectedCount  int    `json:"rejected_count"`

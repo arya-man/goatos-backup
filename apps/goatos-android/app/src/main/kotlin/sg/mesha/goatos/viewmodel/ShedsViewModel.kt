@@ -217,7 +217,7 @@ class ShedsViewModel @Inject constructor(
                     val driveCounts = executionCounts(driveRows)
                     VaccineGroup(
                         label = label,
-                        countLabel = "${driveCounts.open} doses",
+                        countLabel = "${driveCounts.done}/${driveCounts.target}",
                         full = driveCounts.open == 0,
                     )
                 }

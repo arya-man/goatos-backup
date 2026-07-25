@@ -579,7 +579,8 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
         }
         // The whole card is the tap target (drillable is still driven by ctaLabel above); the
         // redundant "Open"/"Open drive ›" verb is intentionally NOT rendered.
-        val ownerLabel = drive?.ownerLabel?.takeIf { it.isNotEmpty() }
+        val ownerLabel = item.assigneeLabel?.takeIf { it.isNotEmpty() }
+            ?: drive?.ownerLabel?.takeIf { it.isNotEmpty() }
         if (ownerLabel != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

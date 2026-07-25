@@ -294,6 +294,7 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	parkID := "00000000-0000-4000-8000-000000000213"
 	shedID := "00000000-0000-4000-8000-000000000214"
 	otherShedID := "00000000-0000-4000-8000-000000000215"
+	administeredAt := time.Date(2026, time.July, 25, 5, 30, 0, 0, time.UTC)
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -318,7 +319,7 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	seedExec("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'tenant', $2::uuid, now(), 'in_progress', $7::uuid, 'verify-close-obligation')`, obligationID, tenantID, versionID, ruleID, batchID, goatID, taskID)
 	seedExec("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'verify-close-submission', '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID)
 	seedExec("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'dose', 'needs_review')`, itemID, tenantID, submissionID, taskID, goatID)
-	seedExec("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, now(), 'recorded', 'verify-close-completion', $7::uuid)`, completionID, tenantID, obligationID, batchID, goatID, itemID, actorID)
+	seedExec("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'recorded', 'verify-close-completion', $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, itemID, administeredAt, actorID)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seed vaccination close submission: %v", err)
 	}
@@ -378,11 +379,12 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	}
 
 	var completionStatus, obligationStatus, batchStatus, submissionItemState, submissionState, taskState string
+	var obligationCompletedAt time.Time
 	if err := pool.QueryRow(ctx, `
-SELECT vc.status, oi.status, ob.status, si.state, ss.state, st.state
-FROM vaccination_completions vc
-JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
-JOIN obligation_batches ob ON ob.tenant_id = vc.tenant_id AND ob.batch_id = vc.batch_id
+	SELECT vc.status, oi.status, ob.status, si.state, ss.state, st.state, oi.completed_at
+	FROM vaccination_completions vc
+	JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+	JOIN obligation_batches ob ON ob.tenant_id = vc.tenant_id AND ob.batch_id = vc.batch_id
 JOIN sop_submission_items si ON si.tenant_id = vc.tenant_id AND si.item_id = vc.sop_submission_item_id
 JOIN sop_submissions ss ON ss.tenant_id = si.tenant_id AND ss.submission_id = si.submission_id
 JOIN sop_tasks st ON st.tenant_id = si.tenant_id AND st.task_id = si.task_id
@@ -394,6 +396,7 @@ WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
 		&submissionItemState,
 		&submissionState,
 		&taskState,
+		&obligationCompletedAt,
 	); err != nil {
 		t.Fatalf("read accepted completion state: %v", err)
 	}
@@ -404,6 +407,9 @@ WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
 	if submissionItemState != "accepted" || submissionState != "accepted" || taskState != "accepted" {
 		t.Fatalf("states submission_item/submission/task = %s/%s/%s, want accepted/accepted/accepted",
 			submissionItemState, submissionState, taskState)
+	}
+	if !obligationCompletedAt.Equal(administeredAt) {
+		t.Fatalf("obligation completed_at = %s, want operator administered_at %s", obligationCompletedAt, administeredAt)
 	}
 	var outboxCount int
 	if err := pool.QueryRow(ctx, `

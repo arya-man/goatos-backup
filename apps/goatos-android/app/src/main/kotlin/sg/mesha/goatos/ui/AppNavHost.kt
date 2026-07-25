@@ -254,6 +254,8 @@ object Routes {
 internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
     val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
     if (target.isNullOrBlank()) return fallbackDriveRoute
+    val normalizedTarget = target.substringBefore('?').trimEnd('/')
+    if (normalizedTarget == Routes.VACCINATION) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
