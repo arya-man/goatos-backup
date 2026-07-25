@@ -2,6 +2,7 @@ package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import android.view.KeyEvent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -391,6 +392,49 @@ class ScanViewModelTest {
         assertFalse(vm.state.value.feed.any { it.status == ScanStatus.SKIPPED && it.primaryTag == "TAG-200" })
     }
 
+    @Test
+    fun `warm cached roster stays scannable while background refresh is in flight`() = runTest(dispatcher) {
+        val refreshStarted = CompletableDeferred<Unit>()
+        val refreshGate = CompletableDeferred<Unit>()
+        val reader = FakeRfidReaderPort()
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val repo = FakeScanExecutionRepository(
+            firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-001", "obl-1"))),
+            warmCache = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-001", "obl-1"))),
+            refreshStarted = refreshStarted,
+            refreshGate = refreshGate,
+        )
+        val vm = ScanViewModel(
+            repo = repo,
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        refreshStarted.await()
+        advanceUntilIdle()
+
+        assertTrue("warm Room roster should stay visible during refresh", vm.state.value.roster.isNotEmpty())
+        assertTrue("background refresh must not disable RFID input over a warm Room roster", vm.state.value.scanEnabled)
+        assertTrue(vm.state.value.isRefreshing)
+
+        reader.emit("TAG-001")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-001"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+
+        refreshGate.complete(Unit)
+        advanceUntilIdle()
+    }
+
     // --- Submit proof gate over the FULL shed roster (option 2) -------------------------------------
 
     @Test
@@ -613,6 +657,9 @@ private class FakeRfidReaderPort : RfidReaderPort {
 private class FakeScanExecutionRepository(
     private val firstPage: ScanRosterResponseDto,
     private val continuationPages: Map<String, ScanRosterResponseDto> = emptyMap(),
+    warmCache: ScanRosterResponseDto? = null,
+    private val refreshStarted: CompletableDeferred<Unit>? = null,
+    private val refreshGate: CompletableDeferred<Unit>? = null,
 ) : ExecutionRepository {
     // In-memory per-row SSOT — the fake mirrors the production contract: refreshScanRoster walks the
     // WHOLE roster into this list (with backend seq order); every read is a bounded/aggregate query
@@ -641,6 +688,12 @@ private class FakeScanExecutionRepository(
 
     private fun statusIsDone(status: String): Boolean =
         status.lowercase().let { it.contains("done") || it.contains("complete") }
+
+    init {
+        warmCache?.let { page ->
+            rows.value = page.rows.mapIndexed { index, row -> row.toEntity("shed-1", "task-1", index.toLong()) }
+        }
+    }
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -696,6 +749,8 @@ private class FakeScanExecutionRepository(
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
+        refreshStarted?.complete(Unit)
+        refreshGate?.await()
         val staged = mutableListOf<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>()
         var seq = 0L
         var page: ScanRosterResponseDto? = firstPage
