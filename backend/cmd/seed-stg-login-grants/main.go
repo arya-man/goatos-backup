@@ -103,7 +103,6 @@ func main() {
 		grantActive    bool
 		departmentOK   bool
 		rosterBoundOK  bool
-		notifyRoutesOK bool
 		modulesGranted int
 		err            error
 	}
@@ -177,13 +176,6 @@ func main() {
 			res.rosterBoundOK = true
 		}
 
-		if err := ensureNotificationRouting(ctx, pool, tenantID, userID, acct); err != nil {
-			res.err = fmt.Errorf("ensure notification routing: %w", err)
-			results = append(results, res)
-			continue
-		}
-		res.notifyRoutesOK = true
-
 		results = append(results, res)
 	}
 
@@ -204,8 +196,8 @@ func main() {
 		if r.account.DepartmentCode != "" {
 			deptNote = fmt.Sprintf("department=%s roster_bound=%v modules_granted=%d", r.account.DepartmentCode, r.rosterBoundOK, r.modulesGranted)
 		}
-		fmt.Printf("OK    %-20s <%-35s> role=%-14s user_id=%s grant_active=%v notify_routes=%v %s\n",
-			r.account.DisplayName, r.account.Email, r.account.Role, r.userID, r.grantActive, r.notifyRoutesOK, deptNote)
+		fmt.Printf("OK    %-20s <%-35s> role=%-14s user_id=%s grant_active=%v %s\n",
+			r.account.DisplayName, r.account.Email, r.account.Role, r.userID, r.grantActive, deptNote)
 	}
 
 	fmt.Println()
@@ -217,7 +209,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
 		os.Exit(1)
 	}
-	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant, mobile profile, and notification routing where applicable\n", len(results))
+	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant and mobile profile\n", len(results))
 }
 
 func envOrDefault(key, def string) string {
@@ -414,121 +406,6 @@ WHERE NOT EXISTS (
 		return fmt.Errorf("insert auth workforce member for %s: %w", acct.DisplayName, err)
 	}
 	return nil
-}
-
-func ensureNotificationRouting(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string, acct Account) error {
-	if acct.Role != permissions.RoleVerifier {
-		return nil
-	}
-	memberID, err := lookupActiveMemberIDByUser(ctx, pool, tenantID, userID)
-	if err != nil {
-		return err
-	}
-	if err := upsertPositionModuleDuty(ctx, pool, tenantID, "preventive_care_verifier", "pc.vaccination", "verify", "proof.verify"); err != nil {
-		return err
-	}
-	parkIDs, err := lookupVaccinationParkIDs(ctx, pool, tenantID)
-	if err != nil {
-		return err
-	}
-	for _, parkID := range parkIDs {
-		if err := upsertWorkforcePosition(ctx, pool, tenantID, memberID, "center", parkID, "preventive_care_verifier", "manager"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func lookupActiveMemberIDByUser(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string) (string, error) {
-	var memberID string
-	err := pool.QueryRow(ctx, `
-SELECT workforce_member_id::text
-FROM workforce_members
-WHERE tenant_id = $1
-  AND user_id = $2
-  AND status = 'active'
-ORDER BY created_at ASC, workforce_member_id ASC
-LIMIT 1`, tenantID, userID).Scan(&memberID)
-	if isNoRows(err) {
-		return "", fmt.Errorf("active workforce member not found for user_id=%s", userID)
-	}
-	return memberID, err
-}
-
-func lookupVaccinationParkIDs(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]string, error) {
-	rows, err := pool.Query(ctx, `
-SELECT DISTINCT scope_id::text
-FROM workforce_positions
-WHERE tenant_id = $1
-  AND scope_type = 'center'
-  AND position_code LIKE 'vaccination_operator_%'
-  AND status = 'active'
-ORDER BY 1`, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("no active vaccination operator center positions found; run roster seed first")
-	}
-	return ids, nil
-}
-
-func upsertWorkforcePosition(ctx context.Context, pool *pgxpool.Pool, tenantID, memberID, scopeType, scopeID, positionCode, tier string) error {
-	_, err := pool.Exec(ctx, `
-INSERT INTO workforce_positions (
-  tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from
-) VALUES (
-  $1, $2, $3, $4, $5, $6, 'active', now()
-)
-ON CONFLICT (tenant_id, scope_type, scope_id, position_code)
-  WHERE status = 'active'
-DO UPDATE SET
-  workforce_member_id = EXCLUDED.workforce_member_id,
-  position_tier = EXCLUDED.position_tier,
-  valid_to = NULL,
-  updated_at = now(),
-  row_version = workforce_positions.row_version + 1`, tenantID, memberID, scopeType, scopeID, positionCode, tier)
-	return err
-}
-
-func upsertPositionModuleDuty(ctx context.Context, pool *pgxpool.Pool, tenantID, positionCode, moduleCode, dutyType, capabilityCode string) error {
-	tag, err := pool.Exec(ctx, `
-UPDATE position_module_duties
-SET capability_code = $5,
-    effective_to = NULL,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1
-  AND position_code = $2
-  AND module_code = $3
-  AND duty_type = $4
-  AND status = 'active'
-  AND effective_to IS NULL`, tenantID, positionCode, moduleCode, dutyType, capabilityCode)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() > 0 {
-		return nil
-	}
-	_, err = pool.Exec(ctx, `
-INSERT INTO position_module_duties (
-  tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status
-) VALUES (
-  $1, $2, $3, $4, $5, now(), 'active'
-)`, tenantID, positionCode, moduleCode, dutyType, capabilityCode)
-	return err
 }
 
 func grantDepartmentModules(ctx context.Context, pool *pgxpool.Pool, tenantID, departmentID string, moduleKeys []string) (int, error) {

@@ -4,8 +4,8 @@
 // FCM sends to device tokens; Goat OS must first resolve which active devices
 // belong to the role audience for an alert. Tenant leadership role alerts must
 // use the same active user_scope_grants truth that grants app access, not only
-// workforce_positions seats. Scoped verifier alerts additionally require the
-// verifier duty seed, otherwise shed-video submissions produce zero recipients.
+// workforce_positions seats. Seed scripts must not fabricate notification
+// routing as a side effect; routing belongs in runtime recipient resolvers.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -43,9 +43,9 @@ function findings({ rosterRepository, stgSeed }) {
     }
   }
 
-  for (const token of ["preventive_care_verifier", "pc.vaccination", "verify", "proof.verify"]) {
-    if (!stgSeed.includes(token)) {
-      out.push(`seed-stg-login-grants: missing verifier notification routing token ${token}`);
+  for (const token of ["ensureNotificationRouting", "notify_routes", "position_module_duties", "proof.verify"]) {
+    if (stgSeed.includes(token)) {
+      out.push(`seed-stg-login-grants: must not seed notification routing token ${token}`);
     }
   }
 
@@ -64,7 +64,7 @@ func (r *Repository) ResolvePositionRecipientsBatch() {
 }
 func scanNotificationRecipients() {}
 `;
-  const goodSeed = `preventive_care_verifier pc.vaccination verify proof.verify`;
+  const goodSeed = `login grants and mobile profile only`;
   if (findings({ rosterRepository: goodRoster, stgSeed: goodSeed }).length !== 0) {
     throw new Error("self-test: compliant sources produced findings");
   }
@@ -74,9 +74,9 @@ func scanNotificationRecipients() {}
     throw new Error(`self-test: missed grants-only routing regression: ${JSON.stringify(noGrants)}`);
   }
 
-  const noVerifierDuty = findings({ rosterRepository: goodRoster, stgSeed: `preventive_care_verifier` });
-  if (!noVerifierDuty.some((x) => x.includes("proof.verify"))) {
-    throw new Error(`self-test: missed verifier duty seed regression: ${JSON.stringify(noVerifierDuty)}`);
+  const seedCoupling = findings({ rosterRepository: goodRoster, stgSeed: `ensureNotificationRouting proof.verify position_module_duties notify_routes` });
+  if (!seedCoupling.some((x) => x.includes("must not seed notification routing"))) {
+    throw new Error(`self-test: missed seed notification coupling regression: ${JSON.stringify(seedCoupling)}`);
   }
   pass("fcm-recipient-routing self-test");
 }
@@ -94,4 +94,4 @@ const result = findings({
 if (result.length > 0) {
   fail(result.join("\n"));
 }
-pass("FCM recipient routing uses app-role truth and verifier duty seed is present");
+pass("FCM recipient routing uses app-role truth and seed-time notification routing is absent");
