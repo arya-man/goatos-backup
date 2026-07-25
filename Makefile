@@ -776,11 +776,7 @@ seed-vaccination-source-full: vaccination-hrms-seed-fixture-guard
 	$(MAKE) seed-dev-email-grants
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -strict
 	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -expect-null-false-dob=0
-	@if [ -f "$(GOATOS_VACCINATION_SOURCE_DIR)/cpt-operator-roster.json" ]; then \
-		echo "operator-roster source detected ($(GOATOS_VACCINATION_SOURCE_DIR)/cpt-operator-roster.json): shed vaccination ownership derives from the CPT operator roster (equal vaccination operators), so shed-manager seat seeding is skipped to match the operator-drive model"; \
-	else \
-		cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats; \
-	fi
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	$(MAKE) seed-closeout
 	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
@@ -841,6 +837,7 @@ seed-vaccination-cpt-operator-drive:
 	node tools/dev/validate-vaccination-hrms-source.mjs --source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" --as-of "$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)" --strict
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -strict
 	cd backend && GOATOS_CPT_EXCLUDE_PPR_2026=1 go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -expect-null-false-dob=0
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
 	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_only_no_ppr" \

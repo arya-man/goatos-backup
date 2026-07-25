@@ -459,11 +459,22 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     ["Preventive Care Manager", "Backup Manager", "Park Head"].every((position) =>
       rosterSeats.has(`CPT\0${position}`),
     );
+  let operatorRosterOwnership = null;
+  const operatorRosterPathForOwnership = path.join(source, "cpt-operator-roster.json");
+  if (fs.existsSync(operatorRosterPathForOwnership)) {
+    const contract = JSON.parse(fs.readFileSync(operatorRosterPathForOwnership, "utf8"));
+    const byCode = new Map((contract.operators ?? []).map((operator) => [operator.code, operator]));
+    const manager = byCode.get(contract.default_operator_assignment?.default_operator_code);
+    const backup = byCode.get(contract.default_operator_assignment?.fallback_operator_code);
+    if (manager && backup) {
+      operatorRosterOwnership = { park: contract.source_scope?.park_code, manager, backup };
+    }
+  }
   for (let index = 1; index < managers.length; index += 1) {
     const row = managers[index];
     const park = cell(row, managerColumns, "park_code");
     const rawShed = cell(row, managerColumns, "shed_name");
-    const shed = normalizeShedPartitionName(rawShed).physical;
+    const shed = rawShed.trim();
     const key = `${park}\0${shed}`;
     const count = Number(cell(row, managerColumns, "goat_count"));
     const manager = cell(row, managerColumns, "manager_code");
@@ -471,7 +482,23 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     const managerSeat = rosterSeatByCode.get(manager);
     const backupSeat = rosterSeatByCode.get(backup);
     const aggregate = managerSheds.get(key) ?? { count: 0, manager, backup };
-    if (aggregate.manager !== manager || aggregate.backup !== backup || !shedCounts.has(key) || !staffCodes.has(manager) || !staffCodes.has(backup) || manager === backup || managerSeat?.center !== park || managerSeat?.position !== "Preventive Care Manager" || backupSeat?.center !== park || backupSeat?.position !== "Backup Manager" || cell(row, managerColumns, "manager_name") !== managerSeat?.candidate || cell(row, managerColumns, "backup_manager_name") !== backupSeat?.candidate || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
+    const operatorRosterOwned =
+      operatorRosterOwnership &&
+      park === operatorRosterOwnership.park &&
+      manager === operatorRosterOwnership.manager.code &&
+      backup === operatorRosterOwnership.backup.code &&
+      cell(row, managerColumns, "manager_name") === operatorRosterOwnership.manager.display_name &&
+      cell(row, managerColumns, "backup_manager_name") === operatorRosterOwnership.backup.display_name;
+    const timetableOwned =
+      staffCodes.has(manager) &&
+      staffCodes.has(backup) &&
+      managerSeat?.center === park &&
+      managerSeat?.position === "Preventive Care Manager" &&
+      backupSeat?.center === park &&
+      backupSeat?.position === "Backup Manager" &&
+      cell(row, managerColumns, "manager_name") === managerSeat?.candidate &&
+      cell(row, managerColumns, "backup_manager_name") === backupSeat?.candidate;
+    if (aggregate.manager !== manager || aggregate.backup !== backup || !shedCounts.has(key) || manager === backup || (!operatorRosterOwned && !timetableOwned) || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
       pushSample(managerProblems, `shed-manager row ${index + 1}`);
     }
     aggregate.count += Number.isFinite(count) ? count : 0;

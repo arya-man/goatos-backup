@@ -293,11 +293,11 @@ func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPag
 	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-partition-second")
 	execProjectionSQL(t, ctx, pool, "first goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-		 VALUES ($1, $2, $3, 'Part 1', 'K1 Shed - Part 1')`,
+		 VALUES ($1, $2, $3, '1', 'K1 Shed - Part 1')`,
 		testTenant, testGoat, testShed)
 	execProjectionSQL(t, ctx, pool, "second goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed - Part 2')`,
+		 VALUES ($1, $2, $3, '2', 'K1 Shed - Part 2')`,
 		testTenant, secondGoat, testShed)
 	execProjectionSQL(t, ctx, pool, "operator a partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
@@ -396,6 +396,49 @@ func TestShedSummaryDriveOperatorsOneToManyPageBoundaryScheduledDateParkScopeSta
 	}
 	if strings.Join(got.DriveOperatorNames, ",") != "Operator A,Operator B" {
 		t.Fatalf("drive operators = %#v, want distinct operators collapsed across partition assignments", got.DriveOperatorNames)
+	}
+}
+
+func TestShedSummaryDriveOperatorsIncludesAcceptedCompletedDefaultOperator(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "remove persisted drive assignment rows",
+		`DELETE FROM vaccination_drive_assignments WHERE tenant_id=$1`, testTenant)
+	execProjectionSQL(t, ctx, pool, "default drive operator config",
+		`INSERT INTO vaccination_operator_assignment_config (tenant_id, park_id, active_operators_per_day, default_operator_id)
+		 VALUES ($1, $2, 1, $3)
+		 ON CONFLICT (tenant_id, park_id) DO UPDATE SET default_operator_id=EXCLUDED.default_operator_id`,
+		testTenant, testPark, testOperator)
+	execProjectionSQL(t, ctx, pool, "accepted completed drive history",
+		`UPDATE obligation_instances SET status='completed', completed_at=TIMESTAMPTZ '2026-06-24 09:00:00+00' WHERE tenant_id=$1 AND obligation_id=$2`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "accepted completion history",
+		`UPDATE vaccination_completions SET status='accepted', administered_at=TIMESTAMPTZ '2026-06-24 09:00:00+00' WHERE tenant_id=$1 AND obligation_id=$2`,
+		testTenant, testObl)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		AsOf:      time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d shed rows want 1: %#v", len(rows), rows)
+	}
+	if rows[0].DueAnimals != 0 || rows[0].Sessions != 0 || rows[0].Status != domain.ShedStatusOnTrack {
+		t.Fatalf("completed shed state = due %d sessions %d status %s, want completed/no open work", rows[0].DueAnimals, rows[0].Sessions, rows[0].Status)
+	}
+	if strings.Join(rows[0].DriveOperatorNames, ",") != "Operator A" {
+		t.Fatalf("drive operators = %#v, want completed history assigned to default operator", rows[0].DriveOperatorNames)
 	}
 }
 

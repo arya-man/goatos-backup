@@ -2859,18 +2859,53 @@ classified AS (
   FROM scored
 ),
 drive_ops AS (
-  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1 and DISTINCT operator names prevents partition rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
+  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
   SELECT
-    vda.park_id::text AS park_id,
-    vda.physical_shed AS shed_name,
+    operator_sources.park_id,
+    operator_sources.shed_name,
     STRING_AGG(DISTINCT wm.display_name, ', ' ORDER BY wm.display_name) AS drive_operator_names
-  FROM vaccination_drive_assignments vda
+  FROM (
+    SELECT
+      vda.park_id::text AS park_id,
+      vda.physical_shed AS shed_name,
+      vda.operator_id
+    FROM vaccination_drive_assignments vda
+    WHERE vda.tenant_id = $1::uuid
+
+    UNION ALL
+
+    SELECT
+      park.location_id::text AS park_id,
+      shed.name AS shed_name,
+      cfg.default_operator_id AS operator_id
+    FROM vaccination_completions vc
+    JOIN goats g
+      ON g.tenant_id = vc.tenant_id
+     AND g.goat_id = vc.goat_id
+     AND g.lifecycle_status = 'alive'
+     AND g.merged_into_goat_id IS NULL
+    JOIN locations shed
+      ON shed.tenant_id = vc.tenant_id
+     AND shed.location_id = g.shed_id
+     AND shed.location_type = 'shed'
+     AND shed.status = 'active'
+    JOIN locations park
+      ON park.tenant_id = vc.tenant_id
+     AND park.location_id = shed.parent_location_id
+     AND park.location_type = 'park'
+     AND park.status = 'active'
+    JOIN vaccination_operator_assignment_config cfg
+      ON cfg.tenant_id = vc.tenant_id
+     AND cfg.park_id = park.location_id
+    WHERE vc.tenant_id = $1::uuid
+      AND vc.status = 'accepted'
+      AND COALESCE(vc.administered_at, vc.created_at) <= $2::timestamptz
+  ) operator_sources
   JOIN workforce_members wm
-    ON wm.tenant_id = vda.tenant_id
-   AND wm.workforce_member_id = vda.operator_id
+    ON wm.tenant_id = $1::uuid
+   AND wm.workforce_member_id = operator_sources.operator_id
    AND wm.status = 'active'
-  WHERE vda.tenant_id = $1::uuid
-  GROUP BY vda.park_id, vda.physical_shed
+  GROUP BY operator_sources.park_id, operator_sources.shed_name
 )
 SELECT
   park_id, park_name, shed_id, shed_name,

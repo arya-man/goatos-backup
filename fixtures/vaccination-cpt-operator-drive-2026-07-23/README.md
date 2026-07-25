@@ -116,6 +116,11 @@ given whole partitions where possible.
 
 ## Expected Fresh-Seed Shape
 
+The vaccination shed board must show the resolved drive operator for both
+planned drive rows and accepted completed drive history. The `2026-07-24`
+completed Gandhi/Channapatna ET+TT history belongs to Darshan through the CPT
+default drive assignment; it must not render `Operators unassigned`.
+
 ## Local Reseed Instruction For This Scenario
 
 Read `LOCAL_DB_RESEED_VALIDATION.md` first. That file is the exhaustive local DB
