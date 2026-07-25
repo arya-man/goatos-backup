@@ -189,13 +189,8 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       env {
-        name = "MESHA_MCP_TOOLSET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.container["mesha_mcp_toolset"].secret_id
-            version = "latest"
-          }
-        }
+        name  = "MESHA_MCP_TOOLSET"
+        value = "mesha_ceo_toolset"
       }
 
       env {
