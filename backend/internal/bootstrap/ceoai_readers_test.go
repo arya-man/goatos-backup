@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
@@ -80,7 +81,57 @@ func (f *fakeVaccinationShedSummaryLister) ShedSummary(ctx context.Context, q va
 	return f.response, nil
 }
 
+type fakeCountsBreakdownLister struct {
+	captured countsdomain.CountsBreakdownQuery
+	response countsdomain.CountsBreakdown
+}
+
+func (f *fakeCountsBreakdownLister) GetBreakdown(ctx context.Context, q countsdomain.CountsBreakdownQuery) (countsdomain.CountsBreakdown, error) {
+	f.captured = q
+	return f.response, nil
+}
+
 // --- tests ---
+
+func TestCountsReader_UsesCanonicalCountsBreakdown(t *testing.T) {
+	fakeSvc := &fakeCountsBreakdownLister{
+		response: countsdomain.CountsBreakdown{
+			TotalCount:  972,
+			TotalKids:   240,
+			TotalAdults: 732,
+			Items: []countsdomain.CountsBreakdownRow{{
+				ParkLabel:       "Channapatna",
+				ShedLabel:       "Gandhi",
+				ManagementStage: "Adult",
+				Breed:           "Osmanabadi",
+				Sex:             "female",
+				Count:           114,
+			}},
+		},
+	}
+	resolver := &fakeParkResolver{labelToID: map[string]string{"Channapatna": "park-uuid-channapatna"}}
+	reader := buildCountsReader(fakeSvc, resolver)
+
+	facts, err := reader(context.Background(), "tenant-1", map[string]any{
+		"park_label": "Channapatna",
+		"shed_id":    "shed-uuid-gandhi",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.TenantID != "tenant-1" {
+		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
+	}
+	if fakeSvc.captured.ParkID == nil || *fakeSvc.captured.ParkID != "park-uuid-channapatna" {
+		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkID)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi" {
+		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.ShedID)
+	}
+	if len(facts) == 0 || facts[0].Label != "Active animals" || facts[0].Value != "972" {
+		t.Fatalf("missing active animals fact: %+v", facts)
+	}
+}
 
 // TestActionCenterReader_ParkLabelReachesQuery is the flagship P1 regression
 // test: before the fix, buildActionCenterReader's predecessor (the inline

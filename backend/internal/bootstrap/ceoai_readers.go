@@ -19,6 +19,7 @@ import (
 	"time"
 
 	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	operationsauditdomain "github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
@@ -64,6 +65,10 @@ type opsKernelHealthLister interface {
 
 type opsAuditSummarizer interface {
 	Summary(ctx context.Context, q operationsauditdomain.Query, traceID string) (operationsauditdomain.SummaryResponse, error)
+}
+
+type countsBreakdownLister interface {
+	GetBreakdown(ctx context.Context, req countsdomain.CountsBreakdownQuery) (countsdomain.CountsBreakdown, error)
 }
 
 // parkResolver resolves the planner's human park_label (e.g. "Castro 1") to
@@ -115,6 +120,62 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 		}
 	}
 	return "", false, nil
+}
+
+func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
+		if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
+			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
+			}
+			q.ParkID = &parkID
+		}
+		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
+			q.ShedID = &shedID
+		}
+		if stage, ok := params["stage"].(string); ok && stage != "" {
+			q.ManagementStage = &stage
+		}
+		if breed, ok := params["breed"].(string); ok && breed != "" {
+			q.Breed = &breed
+		}
+		if sex, ok := params["sex"].(string); ok && sex != "" {
+			q.Sex = &sex
+		}
+
+		result, err := svc.GetBreakdown(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+
+		facts := []ceodomain.Fact{{
+			Label: "Active animals",
+			Value: fmt.Sprintf("%d", result.TotalCount),
+		}}
+		if result.TotalKids > 0 || result.TotalAdults > 0 {
+			facts = append(facts, ceodomain.Fact{
+				Label: "Age bands",
+				Value: fmt.Sprintf("Kids: %d, Adults: %d", result.TotalKids, result.TotalAdults),
+			})
+		}
+		for _, row := range result.Items {
+			scope := row.ParkLabel
+			if row.ShedLabel != "" {
+				scope = fmt.Sprintf("%s / %s", row.ParkLabel, row.ShedLabel)
+			}
+			facts = append(facts, ceodomain.Fact{
+				Label: "Counts breakdown",
+				Value: fmt.Sprintf("Stage: %s, Breed: %s, Sex: %s, Count: %d", row.ManagementStage, row.Breed, row.Sex, row.Count),
+				Scope: scope,
+			})
+		}
+		return facts, nil
+	}
 }
 
 // buildProcurementReader maps ONLY "status" -- the sole advertised param
