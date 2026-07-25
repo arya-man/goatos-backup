@@ -601,6 +601,12 @@ Do:
   `gcloud run jobs update`, or manual migration execution is break-glass only
   and must be followed by a Cloud Deploy release from the same commit; see
   `docs/runbooks/cloud-deploy-staging.md`.
+- Never amend an already-applied Postgres migration or baseline to repair a
+  shared environment. Ship the next numbered forward migration, because STG
+  records migration checksums and will fail before pending repairs if an earlier
+  applied file changed. Before declaring any migration-backed STG fix complete,
+  verify `public.goatos_schema_migrations`, the live table/column/data contract,
+  and `/readyz`; see `docs/runbooks/stg-deploy.md`.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.
