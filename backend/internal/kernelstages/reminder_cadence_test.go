@@ -80,7 +80,7 @@ func TestReminderCadenceStageRunsAgainstRealPostgres(t *testing.T) {
 //     D+7 relative to biztime.BusinessDayStart(time.Now()) — anchored to the business day, NO fixed
 //     calendar dates (india-date-guard / time-bomb safe).
 //
-// The stage is evaluated at a pinned evening instant (19:30 IST today, after every ladder slot and
+// The stage is evaluated at a pinned evening instant (19:45 IST today, after every ladder slot and
 // before quiet hours) so each obligation lands exactly one ladder rung ON today's fire day:
 //   - the D+7 obligation -> advance_notice (D-7 rung)
 //   - the D+3 obligation -> reminder      (D-6..D-1 rung)
@@ -102,7 +102,7 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 
 	// ---- Anchor everything to the business day, never a fixed date. -----------------------------
 	dayStart := biztime.BusinessDayStart(time.Now())          // midnight IST today
-	evalNow := dayStart.Add(19*time.Hour + 30*time.Minute)    // 19:30 IST today (after all slots, before quiet hours)
+	evalNow := dayStart.Add(19*time.Hour + 45*time.Minute)    // 19:45 IST today (after all slots, before quiet hours)
 	dueToday := dayStart.Add(10 * time.Hour)                  // today 10:00 IST  -> due_today rung fires today
 	duePlus3 := dayStart.AddDate(0, 0, 3).Add(10 * time.Hour) // today+3          -> reminder rung fires today
 	duePlus7 := dayStart.AddDate(0, 0, 7).Add(10 * time.Hour) // today+7          -> advance_notice rung fires today
@@ -120,24 +120,36 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 		t.Fatalf("first stage run failed: %v", err)
 	}
 
-	// ---- Assert: a notification_requests row per ladder slot, to the seeded recipients. ---------
-	expectedTokens := []string{rcOperatorToken, rcParkHeadToken, rcManagerToken, rcDirectorToken, rcCEOToken}
-	for _, slot := range []string{"advance_notice", "reminder", "due_today"} {
+	// ---- Assert: a notification_requests row per ladder slot, to the intended hierarchy. --------
+	fieldTokens := []string{rcOperatorToken, rcParkHeadToken, rcManagerToken}
+	leadershipExceptionTokens := []string{rcOperatorToken, rcParkHeadToken, rcManagerToken, rcDirectorToken, rcCEOToken}
+	for _, slot := range []string{"advance_notice", "reminder"} {
 		tokens := reminderRecipientTokensForType(t, ctx, pool, slot)
 		if len(tokens) == 0 {
 			t.Fatalf("ladder slot %q produced NO notification_requests rows — the rung does not fire", slot)
 		}
-		if !sameStringSet(tokens, expectedTokens) {
-			t.Fatalf("ladder slot %q recipients = %v, want the seeded park roster %v", slot, tokens, expectedTokens)
+		if !sameStringSet(tokens, fieldTokens) {
+			t.Fatalf("ladder slot %q recipients = %v, want field roster %v", slot, tokens, fieldTokens)
 		}
 		t.Logf("LADDER SLOT %-14s -> %d notification_requests rows, recipients=%v", slot, len(tokens), tokens)
 	}
+	dueTodayTokens := reminderRecipientTokensForType(t, ctx, pool, "due_today")
+	if len(dueTodayTokens) == 0 {
+		t.Fatalf("7:30 due_today slot produced NO notification_requests rows")
+	}
+	if !sameStringSet(dueTodayTokens, leadershipExceptionTokens) {
+		t.Fatalf("7:30 due_today recipients = %v, want field + leadership %v", dueTodayTokens, leadershipExceptionTokens)
+	}
+	if title, body := notificationTitleBodyForType(t, ctx, pool, "due_today"); title != "Vaccination EOD exception" ||
+		body != "1 scheduled vaccination shed(s) still not submitted by 7:30 PM" {
+		t.Fatalf("7:30 due_today title/body = %q/%q, want EOD exception copy", title, body)
+	}
 
 	firstTotal := reminderNotificationCount(t, ctx, pool)
-	if firstTotal != 15 { // 3 ladder slots x 5 recipient devices
-		t.Fatalf("first run total notification_requests = %d, want 15 (3 slots x 5 recipients)", firstTotal)
+	if firstTotal != 11 { // 2 routine slots x 3 field devices + 1 EOD slot x 5 field/leadership devices
+		t.Fatalf("first run total notification_requests = %d, want 11", firstTotal)
 	}
-	t.Logf("FIRST RUN total notification_requests = %d (expected 3 slots x 5 recipients)", firstTotal)
+	t.Logf("FIRST RUN total notification_requests = %d", firstTotal)
 
 	// ---- Assert idempotency: a second run at the same instant must NOT duplicate. ---------------
 	if err := stage.Run(ctx); err != nil {
@@ -350,6 +362,21 @@ func reminderNotificationCount(t *testing.T, ctx context.Context, pool *pgxpool.
 		t.Fatalf("count notifications: %v", err)
 	}
 	return count
+}
+
+func notificationTitleBodyForType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, notifType string) (string, string) {
+	t.Helper()
+	var title, body string
+	if err := pool.QueryRow(ctx, `
+SELECT title, body
+FROM notification_requests
+WHERE tenant_id = $1::uuid AND notification_type = $2
+ORDER BY notification_request_id
+LIMIT 1`,
+		rcTenant, notifType).Scan(&title, &body); err != nil {
+		t.Fatalf("query title/body for %s: %v", notifType, err)
+	}
+	return title, body
 }
 
 func sameStringSet(got, want []string) bool {

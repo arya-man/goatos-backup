@@ -123,12 +123,12 @@ plan + EOD report):
 | Offset | Fires | Slot(s) | Type | Priority |
 |---|---|---|---|---|
 | `D − 7d` | 1× | 08:00 | `advance_notice` | normal |
-| `D − 6d … D − 1d` | 3×/day | 08:00, 13:00, 18:00 | `reminder` (with `reminder_number` 1..N) | normal |
-| `D − 0` (due day) | 3× | 08:00, 13:00, 18:00 | `due_today` | high |
-| `D + 0` EOD not done | 1× | 18:00 | `overdue` | high → starts escalation |
+| `D − 6d … D − 1d` | 3×/day | 08:00, 13:00, 19:30 | `reminder` (with `reminder_number` 1..N) | normal |
+| `D − 0` (due day) | 3× | 08:00, 13:00, 19:30 | `due_today` | high |
+| `D + 0` EOD not done | 1× | 19:30 | `due_today` + escalation state | high → leadership exception |
 
 This is the literal encoding of "1 week before, then daily reminders till the day
-arrives," aligned to the current field rhythm of 08:00 / 13:00 / 18:00 local
+arrives," aligned to the current field rhythm of 08:00 / 13:00 / 19:30 local
 time. Every offset/slot/count is a **rule parameter**, not a constant — 3×/day
 for a full week is deliberately high-touch for low-risk drives, so the ladder is
 tunable per vaccine priority (e.g., ET+TT priority-1 keeps the full ladder;
@@ -193,15 +193,16 @@ coverage of *tasks*, not a role swap.)
 
 PC Director and CEOs (`scope_type='tenant'`, `position_code IN
 ('pc_director','ceo_internal')`) get **all-park** visibility for vaccination
-drive notifications. The operational reminder ladder includes them because
-vaccination execution is a priority-1 daily field workflow, but the event is
-still batched/collapsed by recipient, park, date, and notification type so it
-does not become per-animal spam.
+drive exceptions and EOD risk. Routine operator nudges remain field-owned; the
+19:30 slot becomes the leadership-visible checkpoint when scheduled shed work is
+still not submitted, stuck in review, or otherwise at risk. Events are still
+batched/collapsed by recipient, park, date, and notification type so they do not
+become per-animal spam.
 
 Leadership receives:
 
-- the same 08:00 / 13:00 / 18:00 reminder ladder while the shed is still
-  scheduled/open,
+- 19:30 exception summaries while sheds scheduled for that business day are
+  still scheduled/open and not submitted,
 - the immediate shed-submitted-for-review notification, and
 - escalation/aging notifications when a drive is overdue, missed, stuck in
   review, or repeatedly rejected.
@@ -277,8 +278,8 @@ notification_policy:
     - trigger: due_window_open        # obligation scheduled -> due
       fires:
         - { offset: -7d, at: ["08:00"], type: advance_notice, priority: normal }
-        - { offset: [-6d,-1d], at: ["08:00","13:00","18:00"], type: reminder, priority: normal }
-        - { offset: 0d, at: ["08:00","13:00","18:00"], type: due_today, priority: high }
+        - { offset: [-6d,-1d], at: ["08:00","13:00","19:30"], type: reminder, priority: normal }
+        - { offset: 0d, at: ["08:00","13:00","19:30"], type: due_today, priority: high }
   quiet_hours: { from: "21:00", to: "07:00", tz: Asia/Kolkata }
   batch_key: [recipient, park_id, due_date, type]   # collapse per-animal spam
   # audience
@@ -375,7 +376,7 @@ pipeline change.
    write `notification_requests` rows; schedule future fires via the sweeper
    window (index `000102`) — Cloud Tasks pre-scheduling optional later.
 3. **Reminder sweeper pass** — extend the scheduler-driven sweeper to emit
-   today's due reminder fires and flip `reminder_state`.
+   today's 08:00, 13:00, and 19:30 due reminder fires and flip `reminder_state`.
 4. **Escalation ladder** — wire `obligation_escalations` level advance + ack to
    the §5 timing; leadership digest job at 18:00 IST.
 5. **FCM credentials** — provision `goatos-prod` Firebase in the `vgoats.com`
