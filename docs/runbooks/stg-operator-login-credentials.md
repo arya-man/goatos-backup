@@ -21,7 +21,7 @@ Leadership passwords (in addition to SSO):
 | Person | Firebase password | Role | Adds vaccination capacity? |
 |---|---|---|---|
 | Ravi | `Ravi@2026` | ceo_internal | **no** |
-| Manohar (Manohark) | `Manohark@2026` | ceo_internal | **no** |
+| Manohar (Manohark) | `Manohar@2026` | ceo_internal | **no** |
 | Manju | `Manju@2026` | ceo_internal | **no** |
 | Abhishek | `Abhishek@2026` | ceo_internal | **no** |
 | Aryaman | `Aryaman@2026` | ceo_internal | **no** |
@@ -33,8 +33,8 @@ Field roles and vaccination capacity:
 | Amit Kumar | `Amit@2026` | operator | **yes** |
 | Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | **yes** |
 | Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | **yes** |
-| Chandrakant | `Chandra@2026` | **director** | **no** |
-| Jyothi | `Jyothi@2025` | **verifier** | **no** |
+| Chandrakant | `Chandrakant@2026` | **director** | **no** |
+| Jyothi | `Jyothi@2026` | **verifier** | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
@@ -67,8 +67,8 @@ Canonical current STG credentials:
 | Amit | amit797069@gmail.com | `Amit@2026` |
 | Darshan | darshantalawar033@gmail.com | `Darshan@2026` |
 | Sagar | sagarmahoor143@gmail.com | `Sagar@2026` |
-| Chandrakant | chandrakant119527@gmail.com | `Chandra@2026` |
-| Jyothi | jyothipvg12345@gmail.com | `Jyothi@2025` |
+| Chandrakant | chandrakanth119527@gmail.com | `Chandrakant@2026` |
+| Jyothi | jyothipvg12345@gmail.com | `Jyothi@2026` |
 
 Do not invent random passwords for these STG accounts.
 Do not use a shared password.
@@ -86,7 +86,7 @@ materializes into a real, active `user_scope_grants` row on a runtime sign-in
 claim event, which admin-web SSO and mobile logins do not reliably trigger on
 a fresh STG seed. Run `make seed-stg-9-person-login` (backend/cmd/
 seed-stg-login-grants) every time STG is seeded: it materializes the ACTIVE
-grant directly for the 9 UID-backed canonical accounts (this file's 4 field
+grant directly for the 10 UID-backed canonical accounts (this file's 4 field
 users plus the 5 `ceo_internal` leadership accounts) and binds
 Amit/Darshan/Sagar/Chandrakant onto their existing named `workforce_members`
 roster row with `department_id = preventive_care`, so the vaccination module

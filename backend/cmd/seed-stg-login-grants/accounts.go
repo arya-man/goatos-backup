@@ -1,4 +1,4 @@
-// Package main: committed roster of the 9 canonical STG login accounts.
+// Package main: committed roster of the 10 canonical STG login accounts.
 //
 // WHY A COMMITTED GO TABLE, NOT A RUNTIME FIREBASE LOOKUP: StableSubjectID
 // (backend/internal/platform/auth/jwt.go) is a one-way hash of
@@ -41,7 +41,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
-// Account is one of the 9 canonical STG login identities.
+// Account is one of the 10 canonical STG login identities.
 type Account struct {
 	// DisplayName is a human label for log output only.
 	DisplayName string
@@ -70,7 +70,7 @@ type Account struct {
 	RosterDisplayNameMatch string
 }
 
-// stgLoginAccounts is the canonical 9-person STG roster. Source of truth for
+// stgLoginAccounts is the canonical 10-person STG roster. Source of truth for
 // names/emails/roles: docs/runbooks/stg-login-seed-contract.md and
 // docs/runbooks/stg-operator-login-credentials.md (do not let this list and
 // those docs drift — update both in the same change).
@@ -118,6 +118,9 @@ var stgLoginAccounts = []Account{
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Chandrakant",
 	},
+
+	// --- 1 verifier: Firebase email/password, proof-review only, no vaccination capacity ---
+	{DisplayName: "Jyothi", Email: "jyothipvg12345@gmail.com", FirebaseUID: "4I9AoXA3KKf1DA3UrIEauxdagzn2", Role: permissions.RoleVerifier},
 }
 
 // requireFirebaseUIDs fails loudly, listing every account still missing its

@@ -286,7 +286,7 @@ func cloudSQLConnectionNameFromHost(host string) (string, bool) {
 	if host == "" {
 		return "", false
 	}
-	if strings.HasPrefix(host, "/cloudsql/") {
+	if strings.HasPrefix(path.Clean(host), "/") && strings.Contains(path.Clean(host), "/cloudsql/") {
 		return cloudSQLConnectionNameFromPath(host)
 	}
 	if isConnectionNameShape(host) {
@@ -297,10 +297,11 @@ func cloudSQLConnectionNameFromHost(host string) (string, bool) {
 
 func cloudSQLConnectionNameFromPath(value string) (string, bool) {
 	cleaned := path.Clean(strings.TrimSpace(value))
-	connectionName := strings.TrimPrefix(cleaned, "/cloudsql/")
-	if connectionName == cleaned {
+	idx := strings.LastIndex(cleaned, "/cloudsql/")
+	if idx < 0 {
 		return "", false
 	}
+	connectionName := cleaned[idx+len("/cloudsql/"):]
 	if !isConnectionNameShape(connectionName) {
 		return "", false
 	}

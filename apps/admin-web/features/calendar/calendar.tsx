@@ -26,7 +26,7 @@ import {
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer, type CalendarDrawerLoadResult } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
-import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window";
+import { calendarDateKeyParts, calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedDateKey, shiftedMonthStartKey, weekWindow } from "./calendar-window";
 import {
   calendarEventDateKey,
   calendarEventWeekday,
@@ -91,24 +91,21 @@ function dateKey(iso: string): string {
 }
 
 function dateHeading(key: string, today: string, pageContract: AdminUiPageContract): string {
-  const d = new Date(`${key}T00:00:00+05:30`);
-  if (Number.isNaN(d.getTime())) return key;
-  const wd = optionLabel(pageContract, "calendar_weekdays", String(d.getDay())).toUpperCase();
+  const parts = calendarDateKeyParts(key);
+  if (!parts) return key;
+  const wd = optionLabel(pageContract, "calendar_weekdays", String(parts.weekday)).toUpperCase();
   if (key === today) return `${wd} · ${copy(pageContract, "label.today")}`;
-  return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
+  return `${wd} · ${optionLabel(pageContract, "calendar_months", String(parts.month)).slice(0, 3).toUpperCase()} ${parts.day}`;
 }
 
 function compactDateLabel(key: string, pageContract: AdminUiPageContract): string {
-  const d = new Date(`${key}T00:00:00+05:30`);
-  if (Number.isNaN(d.getTime())) return key;
-  return `${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3)} ${d.getDate()}`;
+  const parts = calendarDateKeyParts(key);
+  if (!parts) return key;
+  return `${optionLabel(pageContract, "calendar_months", String(parts.month)).slice(0, 3)} ${parts.day}`;
 }
 
 function addDaysKey(key: string, days: number): string {
-  const d = new Date(`${key}T00:00:00+05:30`);
-  if (Number.isNaN(d.getTime())) return key;
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return shiftedDateKey(key, days);
 }
 
 function EventRow({
@@ -597,7 +594,7 @@ function WeekView({
   // Selected-day Sunday check drives the rest-day empty copy — derived from the actual date,
   // not a weekday string literal (which the admin-ui contract-literal guard forbids).
   const selectedDate = dayFilter ? weekDays.find((d) => weekdayOf(`${d}T00:00:00+05:30`) === dayFilter) : undefined;
-  const selectedIsSunday = selectedDate ? new Date(`${selectedDate}T00:00:00+05:30`).getDay() === 0 : false;
+  const selectedIsSunday = selectedDate ? calendarDateKeyParts(selectedDate)?.weekday === 0 : false;
 
   // Per-day buckets — only consumed by the all-week vertical list.
   const byDate = new Map<string, CalendarEvent[]>();
@@ -649,7 +646,7 @@ function WeekView({
             {allWeek ? (
               weekDays.map((dayDate) => {
                 const rows = byDate.get(dateKey(dayDate)) ?? [];
-                const isSunday = new Date(`${dayDate}T00:00:00+05:30`).getDay() === 0;
+                const isSunday = calendarDateKeyParts(dayDate)?.weekday === 0;
                 return (
                   <div key={dayDate}>
                     <div className={dayDate === today ? "dh today" : "dh"}>{dateHeading(dateKey(dayDate), today, pageContract)}</div>
