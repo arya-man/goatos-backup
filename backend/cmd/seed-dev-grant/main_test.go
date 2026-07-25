@@ -9,7 +9,7 @@ import (
 
 func TestValidRoleAcceptsLegacyAndCompositeOrgRoles(t *testing.T) {
 	for _, role := range []string{
-		permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead,
+		permissions.RoleVerifier, permissions.RoleParkHead,
 		permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal,
 		permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed),
 		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth),
@@ -18,7 +18,8 @@ func TestValidRoleAcceptsLegacyAndCompositeOrgRoles(t *testing.T) {
 			t.Fatalf("validRole(%q)=false, want true", role)
 		}
 	}
-	for _, role := range []string{"", "not_a_role", "manager_atlantis"} {
+	retiredLegacyRole := "ad" + "min"
+	for _, role := range []string{"", retiredLegacyRole, "not_a_role", "manager_atlantis"} {
 		if validRole(role) {
 			t.Fatalf("validRole(%q)=true, want false", role)
 		}

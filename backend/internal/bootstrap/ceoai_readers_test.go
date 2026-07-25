@@ -1,0 +1,303 @@
+package bootstrap
+
+// Proves the P1 fix on the real path: a scoped question carrying park_label
+// (or shed_id) in sub.Params must reach the underlying service query, not get
+// silently dropped by the reader closure. Each fake below captures the exact
+// query it received; the assertions fail if that query is unscoped.
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
+	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
+	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
+	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
+	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+)
+
+// --- fakes ---
+
+type fakeParkResolver struct {
+	labelToID map[string]string
+}
+
+func (f *fakeParkResolver) ResolveParkID(ctx context.Context, tenantID, parkLabel string) (string, bool, error) {
+	id, ok := f.labelToID[parkLabel]
+	return id, ok, nil
+}
+
+type fakeLocationsLister struct {
+	// byName simulates the locations read model: only these parks exist.
+	byName map[string]string // name -> location_id
+}
+
+func (f *fakeLocationsLister) ListLocations(ctx context.Context, params locationsports.ListParams, traceID string) (*locationsdomain.LocationListResponse, error) {
+	id, ok := f.byName[params.Search]
+	if !ok {
+		return &locationsdomain.LocationListResponse{}, nil
+	}
+	return &locationsdomain.LocationListResponse{
+		Items: []locationsdomain.LocationSummary{{LocationID: id, LocationType: "park", Name: params.Search}},
+	}, nil
+}
+
+type fakeActionCenterLister struct {
+	captured processintegritydomain.Query
+}
+
+func (f *fakeActionCenterLister) ActionCenter(ctx context.Context, q processintegritydomain.Query) (processintegritydomain.ActionCenterResponse, error) {
+	f.captured = q
+	return processintegritydomain.ActionCenterResponse{}, nil
+}
+
+type fakeOpsKernelHealthLister struct {
+	captured processintegritydomain.Query
+}
+
+func (f *fakeOpsKernelHealthLister) ControlTower(ctx context.Context, q processintegritydomain.Query) (processintegritydomain.ControlTowerResponse, error) {
+	f.captured = q
+	return processintegritydomain.ControlTowerResponse{}, nil
+}
+
+type fakeProcurementLoadLister struct {
+	captured procurementdomain.LoadQuery
+}
+
+func (f *fakeProcurementLoadLister) ListLoads(ctx context.Context, q procurementdomain.LoadQuery) (procurementdomain.LoadListResult, error) {
+	f.captured = q
+	return procurementdomain.LoadListResult{}, nil
+}
+
+type fakeVaccinationShedSummaryLister struct {
+	captured vaccexecd.ShedSummaryQuery
+	response vaccexecd.ShedSummaryResponse
+}
+
+func (f *fakeVaccinationShedSummaryLister) ShedSummary(ctx context.Context, q vaccexecd.ShedSummaryQuery) (vaccexecd.ShedSummaryResponse, error) {
+	f.captured = q
+	return f.response, nil
+}
+
+type fakeCountsBreakdownLister struct {
+	captured countsdomain.CountsBreakdownQuery
+	response countsdomain.CountsBreakdown
+}
+
+func (f *fakeCountsBreakdownLister) GetBreakdown(ctx context.Context, q countsdomain.CountsBreakdownQuery) (countsdomain.CountsBreakdown, error) {
+	f.captured = q
+	return f.response, nil
+}
+
+// --- tests ---
+
+func TestCountsReader_UsesCanonicalCountsBreakdown(t *testing.T) {
+	fakeSvc := &fakeCountsBreakdownLister{
+		response: countsdomain.CountsBreakdown{
+			TotalCount:  972,
+			TotalKids:   240,
+			TotalAdults: 732,
+			Items: []countsdomain.CountsBreakdownRow{{
+				ParkLabel:       "Channapatna",
+				ShedLabel:       "Gandhi",
+				ManagementStage: "Adult",
+				Breed:           "Osmanabadi",
+				Sex:             "female",
+				Count:           114,
+			}},
+		},
+	}
+	resolver := &fakeParkResolver{labelToID: map[string]string{"Channapatna": "park-uuid-channapatna"}}
+	reader := buildCountsReader(fakeSvc, resolver)
+
+	facts, err := reader(context.Background(), "tenant-1", map[string]any{
+		"park_label": "Channapatna",
+		"shed_id":    "shed-uuid-gandhi",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.TenantID != "tenant-1" {
+		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
+	}
+	if fakeSvc.captured.ParkID == nil || *fakeSvc.captured.ParkID != "park-uuid-channapatna" {
+		t.Fatalf("park id did not reach counts query: %+v", fakeSvc.captured.ParkID)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi" {
+		t.Fatalf("shed id did not reach counts query: %+v", fakeSvc.captured.ShedID)
+	}
+	if len(facts) == 0 || facts[0].Label != "Active animals" || facts[0].Value != "972" {
+		t.Fatalf("missing active animals fact: %+v", facts)
+	}
+}
+
+// TestActionCenterReader_ParkLabelReachesQuery is the flagship P1 regression
+// test: before the fix, buildActionCenterReader's predecessor (the inline
+// closure in api.go) never read params["park_label"] at all, so q.ParkID
+// stayed nil and the question silently ran tenant-wide. This test fails
+// against that old behavior and passes against the fix.
+func TestActionCenterReader_ParkLabelReachesQuery(t *testing.T) {
+	fakeSvc := &fakeActionCenterLister{}
+	resolver := &fakeParkResolver{labelToID: map[string]string{"Castro 1": "park-uuid-castro-1"}}
+	reader := buildActionCenterReader(fakeSvc, resolver)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"park_label": "Castro 1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if fakeSvc.captured.ParkID == nil {
+		t.Fatal("park_label did NOT reach the service query: q.ParkID is nil -- scoped question would silently run tenant-wide")
+	}
+	if *fakeSvc.captured.ParkID != "park-uuid-castro-1" {
+		t.Fatalf("q.ParkID = %q, want resolved park-uuid-castro-1", *fakeSvc.captured.ParkID)
+	}
+}
+
+// TestActionCenterReader_UnresolvableParkLabelFailsClosed proves the reader
+// does NOT fall back to tenant-wide data when the label can't be resolved --
+// it must error instead of silently answering unscoped.
+func TestActionCenterReader_UnresolvableParkLabelFailsClosed(t *testing.T) {
+	fakeSvc := &fakeActionCenterLister{}
+	resolver := &fakeParkResolver{labelToID: map[string]string{}}
+	reader := buildActionCenterReader(fakeSvc, resolver)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"park_label": "Nonexistent Park"})
+	if err == nil {
+		t.Fatal("expected an error when park_label does not resolve, got nil (would silently answer tenant-wide)")
+	}
+}
+
+// TestActionCenterReader_ShedIDReachesQuery covers the shed/partition follow-up:
+// shed_id is a plain shed-location ID field on processintegritydomain.Query and
+// must reach q.ShedID directly (no resolver needed, unlike park_label).
+func TestActionCenterReader_ShedIDReachesQuery(t *testing.T) {
+	fakeSvc := &fakeActionCenterLister{}
+	resolver := &fakeParkResolver{}
+	reader := buildActionCenterReader(fakeSvc, resolver)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"shed_id": "shed-uuid-gandhi-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi-1" {
+		t.Fatal("shed_id did NOT reach the service query: q.ShedID is nil/mismatched")
+	}
+}
+
+// TestActionCenterReader_WorkStateStillMapped is a regression guard: the
+// pre-existing work_state mapping (the one param that was never dropped)
+// must keep working after the refactor into buildActionCenterReader.
+func TestActionCenterReader_WorkStateStillMapped(t *testing.T) {
+	fakeSvc := &fakeActionCenterLister{}
+	resolver := &fakeParkResolver{}
+	reader := buildActionCenterReader(fakeSvc, resolver)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"work_state": "overdue"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.WorkState == nil || string(*fakeSvc.captured.WorkState) != "overdue" {
+		t.Fatal("work_state did not reach the service query")
+	}
+}
+
+// TestOpsKernelHealthReader_ShedIDReachesQuery: same shed-scoping discipline
+// for the newly-wired operations_kernel_health tool.
+func TestOpsKernelHealthReader_ShedIDReachesQuery(t *testing.T) {
+	fakeSvc := &fakeOpsKernelHealthLister{}
+	reader := buildOpsKernelHealthReader(fakeSvc)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"shed_id": "shed-uuid-gandhi-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-gandhi-1" {
+		t.Fatal("shed_id did NOT reach operations_kernel_health's service query")
+	}
+}
+
+// TestProcurementReader_StatusReachesQuery_NoParkField proves procurement's
+// LoadQuery has no park field to drop in the first place: park_label in
+// params must be silently ignored (not erroring, not crashing), while status
+// (the one real, honored param) reaches the query.
+func TestProcurementReader_StatusReachesQuery_NoParkField(t *testing.T) {
+	fakeSvc := &fakeProcurementLoadLister{}
+	reader := buildProcurementReader(fakeSvc)
+
+	_, err := reader(context.Background(), "tenant-1", map[string]any{"status": "in_transit", "park_label": "Castro 1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.Status != "in_transit" {
+		t.Fatalf("status = %q, want in_transit", fakeSvc.captured.Status)
+	}
+	// procurementdomain.LoadQuery has no park field at all, so there is
+	// nothing further to assert -- this documents the limitation rather than
+	// faking scoping the pipeline cannot honor.
+}
+
+func TestVaccinationReader_UsesCanonicalShedSummary(t *testing.T) {
+	fakeSvc := &fakeVaccinationShedSummaryLister{
+		response: vaccexecd.ShedSummaryResponse{Rows: []vaccexecd.ShedSummaryRow{{
+			ParkName: "Channapatna",
+			ShedName: "Godel 1",
+			Animals:  120,
+			Due:      120,
+			Done:     0,
+			Status:   vaccexecd.ShedStatusDue,
+		}}},
+	}
+	reader := buildVaccinationReader(fakeSvc)
+
+	facts, err := reader(context.Background(), "tenant-1", map[string]any{
+		"as_of":   "2026-07-25",
+		"shed_id": "shed-uuid-godel-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.TenantID != "tenant-1" {
+		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-godel-1" {
+		t.Fatal("shed_id did NOT reach vaccination ShedSummary query")
+	}
+	if got := fakeSvc.captured.AsOf.Format("2006-01-02"); got != "2026-07-25" {
+		t.Fatalf("as_of = %s, want 2026-07-25", got)
+	}
+	if fakeSvc.captured.DueBefore.Sub(fakeSvc.captured.AsOf) != 45*24*time.Hour {
+		t.Fatalf("due horizon = %s, want 45d", fakeSvc.captured.DueBefore.Sub(fakeSvc.captured.AsOf))
+	}
+	if len(facts) < 2 {
+		t.Fatalf("expected summary + row facts, got %+v", facts)
+	}
+	if facts[0].Label != "Vaccination summary" || facts[0].Value == "" {
+		t.Fatalf("missing summary fact: %+v", facts[0])
+	}
+}
+
+// TestLocationsParkResolver_ExactNameMatch exercises the resolver used by
+// action_center_obligations against a fake locations read model.
+func TestLocationsParkResolver_ExactNameMatch(t *testing.T) {
+	lister := &fakeLocationsLister{byName: map[string]string{"Castro 1": "park-uuid-castro-1"}}
+	resolver := newLocationsParkResolver(lister)
+
+	id, ok, err := resolver.ResolveParkID(context.Background(), "tenant-1", "Castro 1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok || id != "park-uuid-castro-1" {
+		t.Fatalf("got id=%q ok=%v, want park-uuid-castro-1/true", id, ok)
+	}
+
+	_, ok, err = resolver.ResolveParkID(context.Background(), "tenant-1", "Nonexistent Park")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected ok=false for an unknown park label")
+	}
+}

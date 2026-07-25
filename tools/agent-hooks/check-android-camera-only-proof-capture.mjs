@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // check-android-camera-only-proof-capture.mjs — proof/verification media in the Android app
-// must be produced by the in-app CameraX recorder, never by gallery/file picker imports or
-// external media capture intents. Diff-scoped by default; --all scans production Android sources.
+// must be produced by the in-app CameraX recorder, except the single SOP-gated shed-level
+// gallery picker in VideoCaptureLauncher. Never use external media capture intents. Diff-scoped by
+// default; --all scans production Android sources.
 
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -80,6 +81,7 @@ function scanText(rel, text) {
     if (lineIsComment(line, wasInBlockComment) || line.includes("camera-only:ignore")) return;
     for (const banned of BANNED) {
       if (banned.re.test(line)) {
+        if (isAllowedShedLevelGalleryPicker(rel, line)) continue;
         findings.push({
           rel,
           line: index + 1,
@@ -90,6 +92,11 @@ function scanText(rel, text) {
     }
   });
   return findings;
+}
+
+function isAllowedShedLevelGalleryPicker(rel, line) {
+  if (rel !== `${ROOT}/app/src/main/kotlin/sg/mesha/goatos/capture/VideoCaptureLauncher.kt`) return false;
+  return line.includes("ActivityResultContracts.GetContent()");
 }
 
 function scanFile(rel) {
@@ -108,13 +115,15 @@ function selfTest() {
   const badExternalCapture = "Intent(MediaStore.ACTION_VIDEO_CAPTURE)";
   const goodPermission = "rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}";
   const goodCameraX = "val recorder = Recorder.Builder().build()";
+  const allowedShedGallery = "val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> }";
 
   const ok =
     scanText("bad-picker.kt", badPicker).length > 0 &&
     scanText("bad-intent.kt", badIntent).length > 0 &&
     scanText("bad-capture.kt", badExternalCapture).length > 0 &&
     scanText("good-permission.kt", goodPermission).length === 0 &&
-    scanText("good-camerax.kt", goodCameraX).length === 0;
+    scanText("good-camerax.kt", goodCameraX).length === 0 &&
+    scanText(`${ROOT}/app/src/main/kotlin/sg/mesha/goatos/capture/VideoCaptureLauncher.kt`, allowedShedGallery).length === 0;
 
   console.log(ok ? "android-camera-only self-test: ok" : "android-camera-only self-test: FAIL");
   process.exit(ok ? 0 : 1);
@@ -133,7 +142,7 @@ if (!targets.length) {
 
 const findings = targets.flatMap(scanFile);
 if (findings.length) {
-  console.error("android-camera-only-proof-capture guard FAILED — Android proof/verification capture must use the in-app CameraX recorder only:");
+  console.error("android-camera-only-proof-capture guard FAILED — Android proof/verification capture must use in-app CameraX except the SOP-gated shed-level gallery picker:");
   for (const finding of findings) {
     console.error(`  ${finding.rel}:${finding.line}  ${finding.reason} (${finding.snippet})`);
   }

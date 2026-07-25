@@ -18,6 +18,7 @@ const CONTRACT_SOURCES = [
   "backend/cmd/seed-position-duties/main.go",
   "backend/internal/vaccination/app/schedule_policy.go",
   "backend/internal/vaccination/app/generation.go",
+  "Makefile",
 ];
 const REQUIRED_COMPANIONS = [
   "fixtures/vaccination-hrms-source-full/manifest.json",
@@ -44,17 +45,107 @@ function changedFilesAndDiffs() {
   const files = [...new Set([...trackedChanges, ...untracked])];
   const diffs = new Map();
   for (const file of trackedChanges) {
-    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) continue;
+    // Capture diffs for migrations AND the Makefile so couplingProblems can
+    // decide whether the Makefile change actually touches the seed pipeline
+    // (vs an unrelated edit like registering a new CI guard target).
+    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file) && file !== "Makefile") continue;
     diffs.set(file, execFileSync("git", ["diff", "--unified=0", base, "--", file], { cwd: repo, encoding: "utf8" }));
   }
   return { files, diffs };
 }
 
+// A Makefile edit only couples to the vaccination-seed contract when it actually
+// touches the seed PIPELINE (a seed target's recipe/prereqs) — NOT when it merely
+// adds an unrelated name to the giant `.PHONY:` manifest line (which lists every
+// target, seed ones included) or registers a new CI guard target.
+const SEED_MAKEFILE_TERMS = /seed-vaccination|seed-roster|seed-shed-positions|seed-position-duties|vaccination-hrms|seed-closeout/;
+
+function makefileTouchesSeedPipeline(diff) {
+  return diff
+    .split("\n")
+    .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line)) // added lines only
+    .filter((line) => !/^\+\s*\.PHONY\b/.test(line)) // ignore the .PHONY manifest line
+    .some((line) => SEED_MAKEFILE_TERMS.test(line));
+}
+
+// A migration couples to the vaccination-seed/config/SOP contract only when it
+// actually does DDL on a CANONICAL (public) seed table. A migration that ONLY
+// creates/alters/drops ceo_ai.* reporting views does not change that contract,
+// even though its view SELECTs necessarily reference canonical table names
+// (goats/species/vaccination/...) that match RELEVANT_MIGRATION_TERMS. Without
+// this, adding a read-only ceo_ai reporting view falsely demands seed fixture +
+// runbook companions (e.g. migration 000030 cube source views).
+// Declared opt-out marker for operational (runtime-producer-written) tables that
+// carry no seed-data contract. Must state a reason.
+const SEED_CONTRACT_IGNORE = /seed-fixture-guard:ignore:\s*\S+/i;
+
+function migrationCouplesToSeedContract(diff) {
+  if (/Collapsed clean-slate baseline generated from migrations 000001\.\.000046/.test(diff)) {
+    return false;
+  }
+  if (!RELEVANT_MIGRATION_TERMS.test(diff)) return false;
+  const addedDdl = diff
+    .split("\n")
+    .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line))
+    .filter((line) =>
+      /\b(CREATE\s+(OR\s+REPLACE\s+)?(TABLE|VIEW|MATERIALIZED\s+VIEW)|ALTER\s+TABLE|DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW))\b/i.test(line),
+    );
+  // No canonical-table DDL at all → not a seed/config/SOP contract change, even
+  // though a term matched. This covers operational-infra migrations that only
+  // CREATE INDEX / CREATE OR REPLACE FUNCTION / add a trigger on a non-seed table
+  // (e.g. outbox_messages) and merely NAME a canonical table in a comment, index
+  // predicate, or validation-function body (event-type strings like
+  // 'vaccination.leave.changed'). An index or trigger-function change carries no
+  // seed data contract, so it needs no fixture/runbook companions.
+  if (addedDdl.length === 0) return false;
+  // Only-ceo_ai reporting-view DDL → not a seed contract change.
+  if (addedDdl.length > 0 && addedDdl.every((line) => /\bceo_ai\./i.test(line))) return false;
+  // EXPLICIT, AUDITABLE opt-out for a canonical-schema table that is purely
+  // OPERATIONAL: written only by a runtime producer (scheduler/worker), never
+  // authored as seed data and never rebuilt by seed closeout. Such a table
+  // carries no seed-data contract, so fixtures/manifest/runbook companions would
+  // be noise. This is deliberately a declared marker rather than a widened
+  // heuristic: the reason is reviewable in the migration itself and cannot be
+  // acquired accidentally. Mirrors the `scale-guard:ignore:` convention.
+  // A migration that ALSO does DDL on a real seed table still couples, because
+  // the marker only excuses the lines it annotates -- every added DDL line must
+  // be covered by the marker for the migration to opt out.
+  // The marker is only honoured when EVERY added DDL line is a CREATE TABLE (a
+  // brand-new operational table). An ALTER/DROP of an already-seeded table can
+  // never be excused this way, so the marker cannot launder a real seed-schema
+  // change sitting in the same file.
+  if (SEED_CONTRACT_IGNORE.test(diff)) {
+    const created = new Set(
+      addedDdl
+        .map((line) => /\bCREATE\s+TABLE\b(?:\s+IF\s+NOT\s+EXISTS)?\s+([\w.]+)/i.exec(line)?.[1])
+        .filter(Boolean)
+        .map((name) => name.replace(/^public\./i, "").toLowerCase()),
+    );
+    // Every added DDL line must be either the CREATE of a brand-new table, or the
+    // matching DROP of a table this same migration creates (the goose Down block).
+    // An ALTER of any table, or a DROP of a table this migration did not create,
+    // is a real schema change on existing (possibly seeded) data and can never be
+    // excused by the marker.
+    const onlyNewTableDdl = addedDdl.every((line) => {
+      if (/\bALTER\s+TABLE\b/i.test(line)) return false;
+      if (/\bCREATE\s+TABLE\b/i.test(line)) return true;
+      const dropped = /\bDROP\s+TABLE\b(?:\s+IF\s+EXISTS)?\s+([\w.]+)/i.exec(line)?.[1];
+      if (!dropped) return false;
+      return created.has(dropped.replace(/^public\./i, "").toLowerCase());
+    });
+    if (onlyNewTableDdl) return false;
+  }
+  return true;
+}
+
 export function couplingProblems(files, diffs = new Map()) {
-  const relevant = files.some((file) => CONTRACT_SOURCES.includes(file)) || files.some((file) => {
-    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
-    return RELEVANT_MIGRATION_TERMS.test(diffs.get(file) ?? "");
-  });
+  const relevant =
+    files.some((file) => file !== "Makefile" && CONTRACT_SOURCES.includes(file)) ||
+    (files.includes("Makefile") && makefileTouchesSeedPipeline(diffs.get("Makefile") ?? "")) ||
+    files.some((file) => {
+      if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
+      return migrationCouplesToSeedContract(diffs.get(file) ?? "");
+    });
   if (!relevant) return [];
   return REQUIRED_COMPANIONS
     .filter((file) => !files.includes(file))
@@ -112,7 +203,15 @@ function runSelfTest() {
   mutate("missing backup", (b) => { b.shedManagers[1][b.shedManagers[0].indexOf("backup_manager_code")] = ""; }, "unknown backup");
   mutate("provisional owner", (b) => { b.shedManagers[1][b.shedManagers[0].indexOf("needs_review")] = "true"; }, "needs_review must be false");
   mutate("PII header", (b) => { b.attendance.values[0][1] = "Bank Account Number"; }, "forbidden PII/payroll header");
-  mutate("proof grain", (b) => { b.manifest.contracts.video_proof_subject_scope = "shed"; }, "video proof must be per goat");
+  mutate("proof mode", (b) => { b.manifest.contracts.proof_mode = "per_goat_video"; }, "proof_mode must be shed_level_video");
+  mutate("proof grain", (b) => { b.manifest.contracts.video_proof_subject_scope = "goat"; }, "video proof subject must be shed");
+  mutate("proof capture source", (b) => { b.manifest.contracts.video_capture_sources = ["in_app_camera"]; }, "camera and gallery picker");
+  mutate("closed health case mapping", (b) => {
+    b.manifest.contracts.health_case_log_normalization.Closed = "recovering";
+  }, "Closed->healthy");
+  mutate("fine health case mapping", (b) => {
+    b.manifest.contracts.health_case_log_normalization.Fine = "recovering";
+  }, "Fine->healthy");
   mutate("stale days in stage", (b) => {
     const headers = b.goats.values[0];
     const index = b.goats.values.findIndex((row, i) => i > 0 && row[headers.indexOf("stage_entry_date")] && row[headers.indexOf("days_in_stage")]);
@@ -148,6 +247,66 @@ function runSelfTest() {
   );
   if (coupled.length !== REQUIRED_COMPANIONS.length) throw new Error("contract coupling self-test failed to require all companions");
   if (couplingProblems(["README.md"]).length !== 0) throw new Error("contract coupling self-test flagged unrelated docs");
+  // ceo_ai-only reporting-view migration must NOT couple, even when its view
+  // SELECT references canonical seed table names.
+  const ceoAiOnlyMigration = new Map([[
+    "backend/migrations/postgres/000999_ceo_ai_view.sql",
+    "+CREATE OR REPLACE VIEW ceo_ai.vaccination_obligations_base AS\n+SELECT g.species FROM obligation_instances o LEFT JOIN goats g ON g.goat_id = o.target_id;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000999_ceo_ai_view.sql"], ceoAiOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a ceo_ai-only reporting-view migration");
+  }
+  // An OPERATIONAL table declaring the explicit opt-out marker must NOT couple.
+  const operationalMigration = new Map([[
+    "backend/migrations/postgres/000996_members.sql",
+    "+-- seed-fixture-guard:ignore: operational scheduler-written membership; no seed data contract\n+CREATE TABLE public.vaccination_drive_assignment_members (tenant_id uuid NOT NULL);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000996_members.sql"], operationalMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a marker-declared operational table migration");
+  }
+  // ADVERSARIAL: the same operational DDL WITHOUT the marker must still couple,
+  // so the opt-out can never be acquired by accident.
+  const operationalNoMarker = new Map([[
+    "backend/migrations/postgres/000995_members_nomarker.sql",
+    "+CREATE TABLE public.vaccination_drive_assignment_members (tenant_id uuid NOT NULL);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000995_members_nomarker.sql"], operationalNoMarker).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let an UNMARKED operational-table migration skip its companions");
+  }
+  // ADVERSARIAL: a marker must not launder a REAL seed-table alter in the same file.
+  const markerLaunderingSeedAlter = new Map([[
+    "backend/migrations/postgres/000994_launder.sql",
+    "+-- seed-fixture-guard:ignore: pretending this is operational\n+ALTER TABLE goats ADD COLUMN species text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000994_launder.sql"], markerLaunderingSeedAlter).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let a marker launder an ALTER of a real seed table");
+  }
+  // A migration that ALTERs a canonical (public) seed table must still couple.
+  const canonicalMigration = new Map([[
+    "backend/migrations/postgres/000998_alter_goats.sql",
+    "+ALTER TABLE goats ADD COLUMN species text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000998_alter_goats.sql"], canonicalMigration).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test missed a canonical seed-table migration");
+  }
+  // An index-only migration that merely NAMES a canonical table in its predicate
+  // (e.g. a partial unique index keyed on a vaccination event_type) must NOT couple.
+  const indexOnlyMigration = new Map([[
+    "backend/migrations/postgres/000997_cascade_index.sql",
+    "+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_leave_idx\n+  ON public.outbox_messages (tenant_id, idempotency_key)\n+  WHERE (event_type = 'vaccination.leave.changed');\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000997_cascade_index.sql"], indexOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged an index-only migration naming a vaccination event_type");
+  }
+  // A trigger-function-replace migration that references canonical tables in its
+  // body (referential-integrity checks) but does no seed-table DDL must NOT couple.
+  const functionOnlyMigration = new Map([[
+    "backend/migrations/postgres/000996_validate_fn.sql",
+    "+CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger AS $$\n+BEGIN\n+  IF NEW.aggregate_type = 'absence' THEN\n+    IF NOT EXISTS (SELECT 1 FROM workforce_absences WHERE absence_id = NEW.aggregate_id) THEN\n+      RAISE EXCEPTION 'vaccination cascade absence missing';\n+    END IF;\n+  END IF;\n+  RETURN NEW;\n+END; $$ LANGUAGE plpgsql;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000996_validate_fn.sql"], functionOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a trigger-function-only migration referencing canonical tables");
+  }
   const makefile = fs.readFileSync(path.join(repo, "Makefile"), "utf8");
   if (seedOrderingProblems(makefile).length) throw new Error(`baseline seed ordering invalid: ${seedOrderingProblems(makefile).join("; ")}`);
   const bypass = makefile.replace(

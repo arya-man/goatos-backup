@@ -239,6 +239,64 @@ class CountsViewModelFilterTest {
         job.cancelAndJoin()
     }
 
+    /**
+     * Shed subtotals must render on the all-parks view even when the cascaded shed dropdown is empty.
+     *
+     * The cascaded [sheds] are narrowed to the selected park for correctness — an operator who picks
+     * a park must see only sheds in that park. On the default all-parks view, [sheds] is empty
+     * because no park is selected. But the [shedSubtotals] field carries the FULL shed list
+     * regardless, so the screen can look up per-shed head counts for the subtotal divider.
+     */
+    @Test
+    fun `shed subtotals are available on the all-parks view even when the cascaded sheds list is empty`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository()
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // On the default view, no park is selected.
+        assertEquals("", vm.state.value.filters.selectedParkId)
+        // The cascaded shed dropdown is empty because there's no unambiguous shed vocabulary without a park.
+        assertTrue(
+            "cascaded sheds must be empty on all-parks view (no park selected)",
+            vm.state.value.filters.sheds.isEmpty(),
+        )
+        // But the full subtotals list must still carry both sheds for display lookups.
+        assertEquals(
+            "shedSubtotals must contain the FULL list for subtotal display regardless of park selection",
+            setOf(SHED_CBE_CASTRO1, SHED_CPT_CASTRO1),
+            vm.state.value.filters.shedSubtotals.map { it.key }.toSet(),
+        )
+
+        // Verify the counts are correct.
+        assertEquals(63, vm.state.value.filters.shedSubtotals.find { it.key == SHED_CBE_CASTRO1 }?.count)
+        assertEquals(32, vm.state.value.filters.shedSubtotals.find { it.key == SHED_CPT_CASTRO1 }?.count)
+        job.cancelAndJoin()
+    }
+
+    /** Shed subtotals stay complete even after selecting a park (whose cascaded sheds may be narrowed). */
+    @Test
+    fun `shed subtotals remain complete after selecting a park`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository()
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(CountsEvent.SelectPark(PARK_CBE))
+        advanceUntilIdle()
+
+        // The cascaded sheds are now narrowed to CBE only.
+        assertEquals(listOf(SHED_CBE_CASTRO1), vm.state.value.filters.sheds.map { it.key })
+        // But the full subtotals list still contains both sheds, so the screen can render subtotals
+        // for any shed that appears in the paged rows, even if that shed belongs to a different park.
+        assertEquals(
+            "shedSubtotals must stay complete even with a park selection",
+            setOf(SHED_CBE_CASTRO1, SHED_CPT_CASTRO1),
+            vm.state.value.filters.shedSubtotals.map { it.key }.toSet(),
+        )
+        job.cancelAndJoin()
+    }
+
     // -----------------------------------------------------------------------
     // 3. Vocabulary survives a cold filtered scope
     // -----------------------------------------------------------------------
@@ -266,6 +324,79 @@ class CountsViewModelFilterTest {
         )
         assertEquals(1, vm.state.value.filters.breeds.size)
         assertTrue(vm.state.value.filters.isShedFilterEnabled)
+        job.cancelAndJoin()
+    }
+
+    // -----------------------------------------------------------------------
+    // 3b. Lifecycle facet — the new Live/Sold/Culled/Dead/Transferred dimension
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `selecting a lifecycle status re-queries the backend and does not reset park or shed`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository()
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(CountsEvent.SelectPark(PARK_CBE))
+        vm.onEvent(CountsEvent.SelectShed(SHED_CBE_CASTRO1))
+        vm.onEvent(CountsEvent.SelectLifecycle(LIFECYCLE_SOLD))
+        advanceUntilIdle()
+
+        val query = repo.totalsQueries.last()
+        assertEquals(LIFECYCLE_SOLD, query.lifecycleStatus)
+        assertEquals("lifecycle is independent of park/shed, unlike the park->shed cascade", PARK_CBE, query.parkId)
+        assertEquals(SHED_CBE_CASTRO1, query.shedId)
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun `lifecycle facet options and label resolve from the backend vocabulary`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository()
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.filters.lifecycleFilterSupported)
+        assertEquals(
+            listOf("alive", "sold", "dead", "culled"),
+            vm.state.value.filters.lifecycles.map { it.key },
+        )
+
+        vm.onEvent(CountsEvent.SelectLifecycle(LIFECYCLE_SOLD))
+        advanceUntilIdle()
+        assertEquals("Sold", vm.state.value.filters.selectedLifecycleLabel)
+        job.cancelAndJoin()
+    }
+
+    /** Clearing lifecycle omits the parameter, returning to the backend's live-herd default. */
+    @Test
+    fun `clearing lifecycle omits the parameter`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository()
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(CountsEvent.SelectLifecycle(LIFECYCLE_SOLD))
+        advanceUntilIdle()
+        vm.onEvent(CountsEvent.SelectLifecycle(""))
+        advanceUntilIdle()
+
+        assertNull(repo.totalsQueries.last().lifecycleStatus)
+        assertFalse(vm.state.value.filters.hasActiveFilter)
+        job.cancelAndJoin()
+    }
+
+    /** A backend that has not shipped the `lifecycle` facet degrades to unsupported, never a crash. */
+    @Test
+    fun `missing lifecycle facet degrades to unsupported`() = runTest(dispatcher) {
+        val repo = FakeCountsRepository(facets = FACETS.copy(lifecycle = emptyList()))
+        val vm = newViewModel(repo)
+        val job = launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.filters.lifecycleFilterSupported)
+        assertTrue(vm.state.value.filters.lifecycles.isEmpty())
         job.cancelAndJoin()
     }
 
@@ -369,8 +500,15 @@ class CountsViewModelFilterTest {
         const val BREED = "Beetal"
         const val HERD_TOTAL = 1682
         const val CBE_TOTAL = 951
+        const val LIFECYCLE_SOLD = "sold"
 
         val FACETS = CountsBreakdownFacetsDto(
+            lifecycle = listOf(
+                CountsBreakdownSeriesPointDto(key = "alive", label = "Live", count = 1682),
+                CountsBreakdownSeriesPointDto(key = LIFECYCLE_SOLD, label = "Sold", count = 40),
+                CountsBreakdownSeriesPointDto(key = "dead", label = "Dead", count = 12),
+                CountsBreakdownSeriesPointDto(key = "culled", label = "Culled", count = 6),
+            ),
             parks = listOf(
                 CountsBreakdownSeriesPointDto(key = PARK_CBE, label = "CBE", count = 951),
                 CountsBreakdownSeriesPointDto(key = PARK_CPT, label = "CPT", count = 731),

@@ -64,6 +64,50 @@ test -f "$tmp/candidate/candidate.txt"
 test -f "$tmp/candidate/main.txt"
 test -f "$tmp/candidate/race.txt"
 
+git clone "$tmp/origin.git" "$tmp/reuse-candidate" >/dev/null 2>&1
+git clone "$tmp/origin.git" "$tmp/reuse-publisher" >/dev/null 2>&1
+for checkout in reuse-candidate reuse-publisher; do
+  git -C "$tmp/$checkout" config user.name "GoatOS Test"
+  git -C "$tmp/$checkout" config user.email "goatos-test@example.invalid"
+done
+
+git -C "$tmp/reuse-candidate" switch -c reuse-feature >/dev/null
+printf 'reuse candidate\n' >"$tmp/reuse-candidate/reuse-candidate.txt"
+git -C "$tmp/reuse-candidate" add reuse-candidate.txt
+git -C "$tmp/reuse-candidate" commit -m reuse-candidate >/dev/null
+
+cat >"$tmp/fake-ci-with-receipt.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+git merge-base --is-ancestor origin/main HEAD
+[ -z "\$(git status --porcelain --untracked-files=all)" ]
+count=0
+[ ! -f "$tmp/reuse-ci-count" ] || count="\$(cat "$tmp/reuse-ci-count")"
+count=\$((count + 1))
+printf '%s\n' "\$count" >"$tmp/reuse-ci-count"
+sha="\$(git rev-parse HEAD)"
+node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "\$sha" --mode all
+if [ "\$count" -eq 1 ]; then
+  printf 'reuse race\n' >"$tmp/reuse-publisher/reuse-race.txt"
+  git -C "$tmp/reuse-publisher" add reuse-race.txt
+  git -C "$tmp/reuse-publisher" commit -m reuse-race >/dev/null
+  git -C "$tmp/reuse-publisher" push origin main >/dev/null
+fi
+EOF
+chmod +x "$tmp/fake-ci-with-receipt.sh"
+
+(
+  cd "$tmp/reuse-candidate"
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/fake-ci-with-receipt.sh" \
+    bash "$script"
+)
+
+test "$(cat "$tmp/reuse-ci-count")" = "1"
+git -C "$tmp/reuse-candidate" merge-base --is-ancestor origin/main HEAD
+test -f "$tmp/reuse-candidate/reuse-candidate.txt"
+test -f "$tmp/reuse-candidate/reuse-race.txt"
+
 printf 'dirty\n' >>"$tmp/candidate/candidate.txt"
 if (
   cd "$tmp/candidate"

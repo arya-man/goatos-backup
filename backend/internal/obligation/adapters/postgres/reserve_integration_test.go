@@ -406,10 +406,15 @@ func TestReserveRollsUpToAncestorWhenNearestLocationInsufficient(t *testing.T) {
 		t.Fatalf("seed stock: %v", err)
 	}
 
+	// A vaccination obligation always targets an ANIMAL and is shed-scoped; the drive batch it
+	// feeds is park-scoped, so the animal must resolve to a real park (AGENTS.md). A shed-TARGET
+	// obligation has no goat row, hence no park_id, and batching fails closed.
+	const rollupGoat = "10000000-0000-4000-8000-0000000000e1"
+	seedReserveGoats(t, ctx, pool, shed, cbePark, rollupGoat)
 	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.rollup")
 	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "shed", TargetID: shed, ScopeType: "shed", ScopeID: shed,
+		TargetType: "goat", TargetID: rollupGoat, ScopeType: "shed", ScopeID: shed,
 		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "ru1", Sequence: 1,
 	}); err != nil || !applied {
 		t.Fatalf("insert obligation: %v", err)

@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HRMS · Vaccination Operators (mock)</title>
+<style>
+:root{
+  --bg:#0E1512;--panel:#161F1A;--panel-2:#1D2820;--ink:#E9F1EA;--muted:#94A89A;--faint:#6E8377;
+  --line:#26332B;--line2:#1C261F;--brand:#7CCB45;--brand-d:#69BA37;--brand-soft:rgba(124,203,69,.15);
+  --ok:#7CCB45;--okx:rgba(124,203,69,.17);--warn:#E0A53A;--warnx:rgba(224,165,58,.16);
+  --danger:#F0635F;--dangerx:rgba(240,99,95,.16);--info:#5B9BE8;--infox:rgba(91,155,232,.16);
+  --teal:#34C2A6;--tealx:rgba(52,194,166,.16);--purple:#A78BF5;--purplex:rgba(167,139,245,.16);
+  --amber:#E0A53A;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36);--ring:rgba(124,203,69,.32);
+  --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--f);-webkit-font-smoothing:antialiased;padding:22px}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:21px;margin:0 0 2px}
+.crumb{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.crumb b{color:var(--brand)}
+.sub{color:var(--muted);font-size:12.5px;max-width:820px}
+.phead{display:flex;align-items:flex-start;gap:16px}
+.phead .sp{flex:1}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;position:relative;overflow:hidden}
+.kpi .acc{position:absolute;top:0;left:0;width:100%;height:3px}
+.kpi .lab{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+.kpi .val{font-size:26px;font-weight:800;margin-top:6px}
+.kpi .dl{font-size:11px;color:var(--faint);margin-top:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:16px;overflow:hidden}
+.card .hd{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.card .hd h3{margin:0;font-size:14.5px}
+.card .hd .sp{flex:1}
+.card .bd{padding:6px 16px 16px}
+.pill{background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--muted);font-weight:600}
+.pill.b{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
+.tag{border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;white-space:nowrap;display:inline-block}
+.t-ok{background:var(--okx);color:var(--ok)}.t-info{background:var(--infox);color:var(--info)}
+.t-teal{background:var(--tealx);color:var(--teal)}.t-warn{background:var(--warnx);color:var(--warn)}
+.t-danger{background:var(--dangerx);color:var(--danger)}
+.btn{border:1px solid var(--line);background:var(--panel-2);color:var(--ink);border-radius:9px;padding:8px 13px;font:inherit;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.btn:hover{border-color:var(--brand)}
+.btn.b{background:var(--brand);color:#08130B;border-color:var(--brand)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn.ghost{background:transparent}
+/* roster table */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:12px 12px;border-bottom:1px solid var(--line2);white-space:nowrap;vertical-align:middle}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.person{display:flex;align-items:center;gap:10px}
+.person .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);font-weight:800;border:1px solid var(--brand);font-size:12px}
+.person b{display:block}.person span{font-size:11px;color:var(--muted)}
+/* common cap control */
+.capctl{display:flex;align-items:center;gap:8px}
+.capctl-lab{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.capctl b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.capin{width:82px;background:var(--bg);border:1px solid var(--brand);color:var(--ink);border-radius:8px;padding:6px 8px;font:inherit;font-weight:700;text-align:right}
+.capunit{font-size:11px;color:var(--faint)}
+/* leave cell (compact, fixed height) */
+.leavecell{display:flex;gap:8px;align-items:center}
+.lsum{font-size:12px;color:var(--ink)}
+.lsum b{color:var(--warn)}
+.lsum small{display:block;color:var(--faint);font-size:10.5px}
+.laddbtn{border:1px dashed var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:4px 11px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.laddbtn:hover{border-color:var(--brand);color:var(--brand)}
+/* leave list in modal — compact chips */
+.llist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;max-height:84px;overflow:auto}
+.lrow{display:inline-flex;align-items:center;gap:6px;background:var(--warnx);border:1px solid var(--warn);border-radius:999px;padding:3px 6px 3px 11px;font-size:11.5px;color:var(--warn);font-weight:600}
+.lrow button{border:0;background:transparent;color:var(--warn);cursor:pointer;font-size:14px;line-height:1;padding:0 2px}
+.lnone{color:var(--faint);font-size:12px;margin-bottom:12px}
+/* weekly grid inside row */
+.wk{display:grid;grid-template-columns:repeat(7,minmax(36px,1fr));gap:4px;min-width:300px}
+.wc{border:1px solid var(--line);border-radius:7px;padding:5px 0;text-align:center;font-size:10px}
+.wc span{display:block;color:var(--faint);font-size:9px}.wc b{font-size:10.5px}
+.wc.on{background:var(--okx);border-color:transparent}.wc.on b{color:var(--ok)}
+.wc.off{background:var(--infox);border-color:transparent}.wc.off b{color:var(--info)}
+/* right-side leave drawer */
+.dscrim{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:140}
+.dscrim.on{display:block}
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(380px,92vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--shadow);transform:translateX(100%);transition:.22s;display:flex;flex-direction:column;z-index:141}
+.dscrim.on .drawer{transform:translateX(0)}
+.drawer .dh{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.drawer .dh .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);font-weight:800;border:1px solid var(--brand);font-size:12px}
+.drawer .dh h3{margin:0;font-size:15px}.drawer .dh span{font-size:11.5px;color:var(--muted)}
+.drawer .db{flex:1;overflow:auto;padding:14px 18px}
+.drawer .dgrp{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:6px 0 8px}
+.drawer .df{padding:14px 18px;border-top:1px solid var(--line);background:var(--panel-2)}
+.lvitem{display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.lvitem .lvdate{font-weight:700;font-size:13px}
+.lvitem .lvdays{font-size:11px;color:var(--muted)}
+.lvitem.past{opacity:.55}
+.lvitem .rm{border:1px solid var(--line);background:transparent;color:var(--danger);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:15px}
+.lvitem .rm:hover{border-color:var(--danger);background:var(--dangerx)}
+.lvempty{color:var(--faint);font-size:12.5px;padding:10px 0}
+.lsum{cursor:pointer}.lsum:hover b{text-decoration:underline}
+/* modal */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:150}
+.scrim.on{display:flex}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);width:min(440px,92vw);overflow:hidden}
+.modal .mh{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.modal .mh .av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);font-weight:800;border:1px solid var(--brand);font-size:12px}
+.modal .mh h3{margin:0;font-size:15px}.modal .mh span{font-size:11.5px;color:var(--muted)}
+.modal .mb{padding:18px}
+.modal label{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.rangelab{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12.5px}
+.rangelab b{color:var(--brand)}
+/* calendar */
+.cal{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--bg)}
+.cal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-h .mlab{font-weight:700;font-size:13.5px}
+.cal-nav{border:1px solid var(--line);background:var(--panel-2);color:var(--ink);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:14px;line-height:1}
+.cal-nav:hover{border-color:var(--brand)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-dow{text-align:center;font-size:10px;color:var(--faint);padding:4px 0;text-transform:uppercase}
+.cal-day{aspect-ratio:1;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;display:grid;place-items:center}
+.cal-day:hover:not(.dis):not(.muted){border-color:var(--brand)}
+.cal-day.muted{color:var(--faint);opacity:.4;cursor:default}
+.cal-day.dis{color:var(--danger);background:var(--dangerx);cursor:not-allowed;text-decoration:line-through;opacity:.7}
+.cal-day.own{color:var(--warn);background:var(--warnx);cursor:not-allowed;font-weight:700}
+.cal-day.inrange{background:var(--brand-soft)}
+.cal-day.end{background:var(--brand);color:#08130B;font-weight:800}
+.legendcal{display:flex;gap:14px;font-size:10.5px;color:var(--muted);margin-top:10px}
+.legendcal i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:middle}
+.modal .err{margin-top:12px;font-size:12px;color:var(--danger);background:var(--dangerx);border:1px solid var(--danger);border-radius:9px;padding:9px 11px;display:none}
+.modal .err.on{display:block}
+.modal .mf{display:flex;justify-content:flex-end;gap:9px;padding:14px 18px;border-top:1px solid var(--line);background:var(--panel-2)}
+/* assignment */
+.ctl{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 4px}
+.fld{display:flex;flex-direction:column;gap:5px}
+.fld label{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+select{background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 10px;font:inherit;min-width:170px}
+select:disabled{opacity:.45}
+.chain{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0}
+.cnode{display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:var(--panel-2);border-radius:10px;padding:8px 12px;min-width:150px}
+.cnode .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:11px;background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand)}
+.cnode b{font-size:12.5px}.cnode small{display:block;color:var(--muted);font-size:10.5px}
+.cnode.default{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
+.cnode.down{opacity:.4;filter:grayscale(.5)}
+.carrow{color:var(--faint);font-weight:800}
+.badge-def{font-size:9px;background:var(--brand);color:#08130B;border-radius:999px;padding:1px 6px;font-weight:800;letter-spacing:.4px}
+.op{display:inline-flex;align-items:center;gap:7px;font-weight:700}
+.op .dot{width:8px;height:8px;border-radius:50%}
+.why{color:var(--muted);font-size:12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.uline{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:14px 0 6px}
+.banner{border:1px solid var(--line);border-left:3px solid var(--info);background:var(--infox);border-radius:10px;padding:10px 13px;font-size:12px;margin-top:12px}
+.banner.warn{border-left-color:var(--warn);background:var(--warnx)}
+.banner b{color:var(--info)}.banner.warn b{color:var(--warn)}
+/* toast */
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--brand);border-left:3px solid var(--brand);color:var(--ink);padding:12px 16px;border-radius:10px;box-shadow:var(--shadow);font-size:12.5px;opacity:0;pointer-events:none;transition:.2s;max-width:460px;z-index:200}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--danger);border-left-color:var(--danger)}
+.note{color:var(--muted);font-size:12px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phead">
+    <div>
+      <div class="crumb">Team / <b>Vaccination operators</b></div>
+      <h1>Vaccination operators</h1>
+      <div class="sub">CPT · Channapatna. Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
+    </div>
+    <div class="sp"></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid g4" style="margin-top:14px">
+    <div class="kpi"><span class="acc" style="background:var(--brand)"></span><div class="lab">Operators</div><div class="val">3</div><div class="dl">active vaccination seats</div></div>
+    <div class="kpi"><span class="acc" style="background:var(--amber)"></span><div class="lab">Cap / operator</div><div class="val" id="kpiCap">200</div><div class="dl" id="kpiCapDl">default · 0 custom</div></div>
+    <div class="kpi"><span class="acc" style="background:var(--teal)"></span><div class="lab">Operators / day</div><div class="val" id="kpiCount">1</div><div class="dl" id="kpiCountDl">single + fallback</div></div>
+    <div class="kpi"><span class="acc" style="background:var(--info)"></span><div class="lab">Daily capacity</div><div class="val" id="kpiDaily">200</div><div class="dl">at full availability</div></div>
+  </div>
+
+  <!-- Roster + caps + leave + weekly, one card -->
+  <div class="card">
+    <div class="hd">
+      <h3>Operator roster &amp; availability</h3>
+      <div class="sp"></div>
+      <div class="capctl">
+        <span class="capctl-lab">Cap / operator</span>
+        <b id="capText">200</b><span class="capunit" id="capUnit">animals/day</span>
+        <input class="capin" id="capInput" type="number" min="1" step="10" value="200" style="display:none">
+        <button class="btn sm" id="editBtn">✏️ Edit</button>
+        <button class="btn b sm" id="saveBtn" style="display:none">Save</button>
+        <button class="btn sm ghost" id="cancelBtn" style="display:none">Cancel</button>
+      </div>
+    </div>
+    <div class="bd" style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Person</th><th>Park</th><th>Week off</th><th>Planned leave</th><th>Weekly schedule</th><th>Status</th></tr></thead>
+        <tbody id="rosterBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Assignment rule -->
+  <div class="card">
+    <div class="hd"><h3>Drive operator assignment</h3><div class="sp"></div></div>
+    <div class="bd">
+      <div class="ctl">
+        <div class="fld">
+          <label>Active operators / day</label>
+          <select id="countSel"><option value="1">1 operator</option><option value="2">2 operators</option><option value="3">3 operators</option></select>
+        </div>
+        <div class="fld">
+          <label>Default operator</label>
+          <select id="defSel"></select>
+        </div>
+      </div>
+
+      <div class="uline" id="chainLabel">Fallback chain — first available wins</div>
+      <div class="chain" id="chain"></div>
+
+      <div class="banner" id="ceoBanner" style="display:none"></div>
+
+      <div class="uline">Weekly assignment preview — who runs the drive each day</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th style="width:80px">Day</th><th>Assigned operator</th><th>Reason</th></tr></thead>
+          <tbody id="driveBody"></tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--brand)"></i>Default</span>
+        <span><i style="background:var(--info)"></i>Week-off fallback</span>
+        <span><i style="background:var(--warn)"></i>Leave fallback</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- right-side leave drawer -->
+<div class="dscrim" id="leaveDscrim">
+  <aside class="drawer" role="dialog" aria-modal="true">
+    <div class="dh"><div class="av" id="dwAv">DT</div><div style="flex:1"><h3 id="dwName">Darshan</h3><span>Planned leave</span></div><button class="cal-nav" id="dwX" title="Close">✕</button></div>
+    <div class="db" id="dwBody"></div>
+    <div class="df"><button class="btn b" id="dwAdd" style="width:100%">＋ Add leave</button></div>
+  </aside>
+</div>
+
+<!-- add-leave modal -->
+<div class="scrim" id="leaveScrim">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mh"><div class="av" id="lmAv">DT</div><div><h3>Add planned leave</h3><span id="lmName">Darshan · Vaccination operator</span></div><div style="flex:1"></div><button class="cal-nav" id="lmX" title="Close">✕</button></div>
+    <div class="mb">
+      <div class="rangelab"><span>Pick leave dates</span><b id="lmRange">— pick a start day —</b></div>
+      <div class="cal" id="cal">
+        <div class="cal-h"><button class="cal-nav" id="calPrev">‹</button><div class="mlab" id="calMlab"></div><button class="cal-nav" id="calNext">›</button></div>
+        <div class="cal-grid" id="calDow"></div>
+        <div class="cal-grid" id="calDays"></div>
+      </div>
+      <div class="legendcal"><span><i style="background:var(--brand)"></i>Selected</span><span><i style="background:var(--warnx);border:1px solid var(--warn)"></i>Already planned</span><span><i style="background:var(--dangerx);border:1px solid var(--danger)"></i>Booked by another</span></div>
+      <div class="err" id="lmErr"></div>
+    </div>
+    <div class="mf"><button class="btn sm ghost" id="lmCancel">Cancel</button><button class="btn b sm" id="lmAdd">Add leave</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const WEEK7=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const LBL={monday:'Mon',tuesday:'Tue',wednesday:'Wed',thursday:'Thu',friday:'Fri',saturday:'Sat',sunday:'Sun'};
+const OPS=[
+  {id:'darshan',name:'Darshan Talwar',short:'Darshan',init:'DT',weekOff:'sunday',leaves:[],order:0},
+  {id:'sagar',  name:'Sagar Mahoor', short:'Sagar',  init:'SM',weekOff:'saturday',leaves:[],order:1},
+  {id:'amit',   name:'Amit Kumar',   short:'Amit',   init:'AK',weekOff:'friday',leaves:[],order:2},
+];
+let CAP=200;                 // single common cap for ALL operators
+let DEFAULT='darshan', COUNT=1;
+const byId=id=>OPS.find(o=>o.id===id);
+// recurring weekly preview considers week-off only; leave is date-specific (applies to real drive dates)
+const available=(op,dow)=>op.weekOff!==dow;
+const ordering=()=>{const d=byId(DEFAULT);return [d,...OPS.filter(o=>o.id!==DEFAULT).sort((a,b)=>a.order-b.order)];};
+// leave ranges overlap on any shared date?
+const rangesOverlap=(a,b)=>!(a.to<b.from || b.to<a.from);
+function leaveConflict(opId,range){
+  for(const o of OPS){ if(o.id===opId) continue;
+    for(const lv of o.leaves){ if(rangesOverlap(range,lv)) return {op:o,lv}; } }
+  return null;
+}
+
+function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),3400);}
+
+function pickFor(dow){
+  const ordered=ordering();
+  const avail=ordered.filter(o=>available(o,dow));
+  const chosen=avail.slice(0,COUNT);
+  if(COUNT===1){
+    if(!chosen.length) return {ops:[],reason:'no operator available',kind:'danger'};
+    const op=chosen[0],def=ordered[0];
+    if(op.id===def.id) return {ops:chosen,reason:'default',kind:'brand'};
+    return {ops:chosen,reason:`${def.short} week-off → ${op.short} fills`,kind:'info'};
+  }
+  const offToday=ordered.filter(o=>!available(o,dow));
+  return {ops:chosen,
+    reason:offToday.length?`${chosen.length} on · ${offToday.map(o=>o.short+' off').join(', ')}`:`all ${COUNT} parallel`,
+    kind:offToday.length?'info':'brand'};
+}
+
+function renderKpis(){
+  document.getElementById('kpiCap').textContent = CAP;
+  document.getElementById('kpiCapDl').textContent = 'applies to all operators';
+  document.getElementById('kpiCount').textContent=COUNT;
+  document.getElementById('kpiCountDl').textContent=COUNT===1?'single + fallback':(COUNT===3?'all parallel':'pair');
+  // daily capacity = active operators/day × common cap (reacts to cap + mode)
+  document.getElementById('kpiDaily').textContent = COUNT*CAP;
+}
+
+function fmtRange(r){
+  const f=new Date(r.from+'T00:00:00'),t=new Date(r.to+'T00:00:00');
+  const o={month:'short',day:'numeric'};
+  return r.from===r.to?f.toLocaleDateString('en-US',o):`${f.toLocaleDateString('en-US',o)} – ${t.toLocaleDateString('en-US',o)}`;
+}
+
+function renderRoster(){
+  const b=document.getElementById('rosterBody');b.innerHTML='';
+  OPS.forEach(op=>{
+    const tr=document.createElement('tr');
+    const leaveCell = leaveCellHtml(op);
+    let wk='';
+    WEEK7.forEach(dw=>{const off=op.weekOff===dw;wk+=`<div class="wc ${off?'off':'on'}"><span>${LBL[dw]}</span><b>${off?'Off':'On'}</b></div>`;});
+    tr.innerHTML=`
+      <td><div class="person"><div class="av">${op.init}</div><div><b>${op.short}</b><span>Vaccination operator</span></div></div></td>
+      <td>Channapatna</td>
+      <td><span class="tag t-info">${LBL[op.weekOff]}</span></td>
+      <td>${leaveCell}</td>
+      <td><div class="wk">${wk}</div></td>
+      <td>${statusHtml(op)}</td>`;
+    b.appendChild(tr);
+  });
+  b.querySelectorAll('[data-add]').forEach(el=>el.addEventListener('click',()=>openLeaveModal(el.dataset.add)));
+  b.querySelectorAll('[data-drawer]').forEach(el=>el.addEventListener('click',()=>openLeaveDrawer(el.dataset.drawer)));
+}
+
+// ---- right-side leave drawer ----
+let drawerTarget=null;
+const dscrim=document.getElementById('leaveDscrim');
+function openLeaveDrawer(opId){drawerTarget=opId;renderDrawer();dscrim.classList.add('on');}
+function closeLeaveDrawer(){dscrim.classList.remove('on');drawerTarget=null;}
+function daysIn(r){const d=new Date(r.from+'T00:00:00'),e=new Date(r.to+'T00:00:00');return Math.round((e-d)/86400000)+1;}
+function renderDrawer(){
+  const op=byId(drawerTarget);
+  document.getElementById('dwAv').textContent=op.init;
+  document.getElementById('dwName').textContent=op.short;
+  const t=todayISO();
+  const up=op.leaves.filter(r=>r.to>=t).sort((a,b)=>a.from<b.from?-1:1);
+  const past=op.leaves.filter(r=>r.to<t).sort((a,b)=>a.from<b.from?1:-1);
+  const item=(r,isPast)=>`<div class="lvitem ${isPast?'past':''}"><div><div class="lvdate">${fmtRange(r)}</div><div class="lvdays">${daysIn(r)} day${daysIn(r)>1?'s':''}</div></div><button class="rm" data-from="${r.from}" title="remove">×</button></div>`;
+  let html='';
+  if(!op.leaves.length) html='<div class="lvempty">No planned leave. Use “Add leave”.</div>';
+  else{
+    if(up.length){html+='<div class="dgrp">Upcoming</div>'+up.map(r=>item(r,false)).join('');}
+    if(past.length){html+='<div class="dgrp">Past</div>'+past.map(r=>item(r,true)).join('');}
+  }
+  const box=document.getElementById('dwBody');box.innerHTML=html;
+  box.querySelectorAll('.rm').forEach(btn=>btn.addEventListener('click',()=>{op.leaves=op.leaves.filter(r=>r.from!==btn.dataset.from);renderDrawer();renderAll();toast('<b style="color:var(--brand)">Leave removed</b>');}));
+}
+document.getElementById('dwX').addEventListener('click',closeLeaveDrawer);
+dscrim.addEventListener('click',e=>{if(e.target===dscrim)closeLeaveDrawer();});
+document.getElementById('dwAdd').addEventListener('click',()=>openLeaveModal(drawerTarget));
+
+function statusHtml(op){
+  const t=todayISO();
+  const onLeave=op.leaves.some(r=>t>=r.from&&t<=r.to);
+  if(onLeave) return '<span class="tag t-warn">On leave today</span>';
+  const dow=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+  if(op.weekOff===dow) return '<span class="tag t-info">Week-off today</span>';
+  return '<span class="tag t-ok">Available</span>';
+}
+
+function upcoming(op){
+  const t=todayISO();
+  return op.leaves.filter(r=>r.to>=t).sort((a,b)=>a.from<b.from?-1:1);
+}
+function leaveCellHtml(op){
+  const up=upcoming(op);
+  if(!op.leaves.length) return `<div class="leavecell"><button class="laddbtn" data-add="${op.id}">＋ Add leave</button></div>`;
+  const next=up[0];
+  const summary = next
+    ? `<div class="lsum" data-drawer="${op.id}"><b>${fmtRange(next)}</b><small>${op.leaves.length} planned${up.length>1?' · '+(up.length-1)+' more upcoming':''}</small></div>`
+    : `<div class="lsum" data-drawer="${op.id}"><b>none upcoming</b><small>${op.leaves.length} past</small></div>`;
+  return `<div class="leavecell">${summary}<button class="laddbtn" data-add="${op.id}">Manage</button></div>`;
+}
+
+// ---- leave modal + inline calendar ----
+let leaveTarget=null, viewY, viewM, selFrom=null, selTo=null;
+const scrim=document.getElementById('leaveScrim'), lmErr=document.getElementById('lmErr');
+const MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DOW=['Su','Mo','Tu','We','Th','Fr','Sa'];
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const todayISO=()=>iso(new Date());
+function expand(leaves){const s=new Set();leaves.forEach(r=>{let d=new Date(r.from+'T00:00:00'),e=new Date(r.to+'T00:00:00');while(d<=e){s.add(iso(d));d.setDate(d.getDate()+1);}});return s;}
+const nextDay=s=>{const d=new Date(s+'T00:00:00');d.setDate(d.getDate()+1);return iso(d);};
+// merge overlapping OR adjacent ranges into consolidated spans (Jul 24 + Jul 25 → Jul 24–25)
+function mergeLeaves(leaves){
+  const sorted=[...leaves].sort((a,b)=>a.from<b.from?-1:1), out=[];
+  for(const r of sorted){
+    const last=out[out.length-1];
+    if(last && r.from<=nextDay(last.to)){ if(r.to>last.to) last.to=r.to; }
+    else out.push({...r});
+  }
+  return out;
+}
+// dates booked by OTHER operators (hard-blocked, red)
+function blockedDates(opId){return expand(OPS.filter(o=>o.id!==opId).flatMap(o=>o.leaves));}
+// this operator's own planned dates (already-planned, amber, non-repick)
+function ownDates(opId){return expand(byId(opId).leaves);}
+
+function openLeaveModal(opId){
+  leaveTarget=opId;const op=byId(opId);
+  document.getElementById('lmAv').textContent=op.init;
+  document.getElementById('lmName').textContent=`${op.short} · Vaccination operator`;
+  selFrom=selTo=null;lmErr.classList.remove('on');lmErr.textContent='';
+  const now=new Date();viewY=now.getFullYear();viewM=now.getMonth();
+  renderDow();renderCal();updateRangeLabel();
+  scrim.classList.add('on');
+}
+function closeLeaveModal(){scrim.classList.remove('on');leaveTarget=null;}
+function renderDow(){document.getElementById('calDow').innerHTML=DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('');}
+function updateRangeLabel(){
+  const el=document.getElementById('lmRange');
+  if(!selFrom){el.textContent='— pick a start day —';}
+  else if(!selTo){el.innerHTML=`<b>${fmtRange({from:selFrom,to:selFrom})}</b> → pick end`;}
+  else el.innerHTML=`<b>${fmtRange({from:selFrom,to:selTo})}</b>`;
+}
+function renderCal(){
+  document.getElementById('calMlab').textContent=`${MON[viewM]} ${viewY}`;
+  const blocked=blockedDates(leaveTarget), own=ownDates(leaveTarget), today=todayISO();
+  const first=new Date(viewY,viewM,1), start=first.getDay(), days=new Date(viewY,viewM+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<start;i++)cells.push('<div class="cal-day muted"></div>');
+  for(let d=1;d<=days;d++){
+    const ds=`${viewY}-${pad(viewM+1)}-${pad(d)}`;
+    let cls='cal-day';
+    const past = ds<today;
+    if(past){cls+=' muted';}                                   // no leave in the past
+    else if(blocked.has(ds))cls+=' dis';                       // booked by another operator
+    else if(own.has(ds))cls+=' own';                           // already planned for this operator
+    else if(selFrom&&selTo&&ds>=selFrom&&ds<=selTo)cls+=(ds===selFrom||ds===selTo)?' end':' inrange';
+    else if(selFrom&&!selTo&&ds===selFrom)cls+=' end';
+    cells.push(`<div class="${cls}" data-d="${ds}">${d}</div>`);
+  }
+  const g=document.getElementById('calDays');g.innerHTML=cells.join('');
+  // amber (own) dates: click to remove that planned leave
+  g.querySelectorAll('.cal-day.own[data-d]').forEach(c=>{
+    c.title='Planned leave — click to remove';
+    c.style.cursor='pointer';
+    c.addEventListener('click',()=>{
+      const ds=c.dataset.d, op=byId(leaveTarget);
+      op.leaves=op.leaves.filter(r=>!(ds>=r.from&&ds<=r.to));
+      renderCal();renderAll();toast('<b style="color:var(--brand)">Leave removed</b>');
+    });
+  });
+  g.querySelectorAll('.cal-day[data-d]').forEach(c=>{
+    if(c.classList.contains('dis')||c.classList.contains('muted')||c.classList.contains('own'))return;
+    c.addEventListener('click',()=>{
+      const ds=c.dataset.d;
+      if(!selFrom||(selFrom&&selTo)){selFrom=ds;selTo=null;}
+      else if(ds<selFrom){selFrom=ds;}
+      else {
+        // range must not cross a blocked date belonging to another operator
+        let d=new Date(selFrom+'T00:00:00'), end=new Date(ds+'T00:00:00'),hit=false;
+        while(d<=end){const k=iso(d);if(blocked.has(k)||own.has(k)){hit=true;break;}d.setDate(d.getDate()+1);}
+        if(hit){lmErr.textContent='Range crosses a blocked or already-planned date. Pick a clear span.';lmErr.classList.add('on');return;}
+        selTo=ds;lmErr.classList.remove('on');
+      }
+      renderCal();updateRangeLabel();
+    });
+  });
+}
+document.getElementById('calPrev').addEventListener('click',()=>{viewM--;if(viewM<0){viewM=11;viewY--;}renderCal();});
+document.getElementById('calNext').addEventListener('click',()=>{viewM++;if(viewM>11){viewM=0;viewY++;}renderCal();});
+document.getElementById('lmCancel').addEventListener('click',closeLeaveModal);
+document.getElementById('lmX').addEventListener('click',closeLeaveModal);
+scrim.addEventListener('click',e=>{if(e.target===scrim)closeLeaveModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&scrim.classList.contains('on'))closeLeaveModal();});
+document.getElementById('lmAdd').addEventListener('click',()=>{
+  if(!selFrom){lmErr.textContent='Pick a start date on the calendar.';lmErr.classList.add('on');return;}
+  const range={from:selFrom,to:selTo||selFrom};
+  const clash=leaveConflict(leaveTarget,range);
+  if(clash){lmErr.innerHTML=`Blocked: <b>${clash.op.short}</b> is already on leave ${fmtRange(clash.lv)}. Only one operator may be on leave on the same date, or a drive day would have zero operators.`;lmErr.classList.add('on');return;}
+  const op=byId(leaveTarget);
+  op.leaves=mergeLeaves([...op.leaves,range]);   // merge adjacent/overlapping spans
+  closeLeaveModal();renderAll();
+  if(drawerTarget)renderDrawer();
+  toast('<b style="color:var(--brand)">Leave added</b>');
+});
+
+function renderChain(){
+  const c=document.getElementById('chain');c.innerHTML='';
+  document.getElementById('chainLabel').textContent=COUNT===1?'Fallback chain — first available wins':`Parallel — up to ${COUNT}/day run together`;
+  ordering().forEach((op,i)=>{
+    if(i>0){const a=document.createElement('span');a.className='carrow';a.textContent=COUNT===1?'→':'+';c.appendChild(a);}
+    const active=i<COUNT;
+    const n=document.createElement('div');
+    n.className='cnode'+(COUNT===1&&i===0?' default':'')+(!active?' down':'');
+    n.innerHTML=`<div class="av">${op.init}</div><div><b>${op.short} ${(COUNT===1&&i===0)?'<span class="badge-def">DEFAULT</span>':''}</b><small>off: ${LBL[op.weekOff]}</small></div>`;
+    c.appendChild(n);
+  });
+}
+
+function renderDrive(){
+  const body=document.getElementById('driveBody');body.innerHTML='';
+  const kc={brand:'var(--brand)',info:'var(--info)',warn:'var(--warn)',danger:'var(--danger)'};
+  WEEK7.forEach(dow=>{
+    const {ops,reason,kind}=pickFor(dow);
+    const html=ops.length?ops.map(o=>`<span class="op"><span class="dot" style="background:${kc[kind]}"></span>${o.short}</span>`).join(' &nbsp; '):'<span class="tag t-danger">— none —</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><b>${LBL[dow]}</b></td><td>${html}</td><td class="why">${reason}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+function renderAll(){
+  document.getElementById('defSel').disabled=COUNT!==1;
+  renderKpis();renderRoster();renderChain();renderDrive();
+}
+
+// edit common cap
+const editBtn=document.getElementById('editBtn'),saveBtn=document.getElementById('saveBtn'),cancelBtn=document.getElementById('cancelBtn');
+const capText=document.getElementById('capText'),capInput=document.getElementById('capInput'),capUnit=document.getElementById('capUnit');
+function setCapEdit(on){
+  editBtn.style.display=on?'none':'';saveBtn.style.display=on?'':'none';cancelBtn.style.display=on?'':'none';
+  capText.style.display=on?'none':'';capUnit.style.display=on?'none':'';capInput.style.display=on?'':'none';
+  if(on){capInput.value=CAP;capInput.focus();capInput.select();}
+}
+editBtn.addEventListener('click',()=>setCapEdit(true));
+cancelBtn.addEventListener('click',()=>setCapEdit(false));
+saveBtn.addEventListener('click',()=>{CAP=Math.max(1,parseInt(capInput.value||'1',10));capText.textContent=CAP;setCapEdit(false);renderAll();toast('<b style="color:var(--brand)">Saved</b> · cap set to '+CAP+'/day for all operators');});
+capInput.addEventListener('keydown',e=>{if(e.key==='Enter')saveBtn.click();if(e.key==='Escape')cancelBtn.click();});
+
+// mode + default
+document.getElementById('countSel').addEventListener('change',e=>{
+  COUNT=parseInt(e.target.value,10);
+  const b=document.getElementById('ceoBanner');
+  if(COUNT===1){b.style.display='none';}
+  else{b.className='banner';b.style.display='block';b.innerHTML=`<b>Parallel mode:</b> up to ${COUNT} available operators run together. No single default; week-off/leave just drops that operator's slice for the day.`;}
+  renderAll();
+});
+const defSel=document.getElementById('defSel');
+OPS.forEach(o=>{const opt=document.createElement('option');opt.value=o.id;opt.textContent=o.name;defSel.appendChild(opt);});
+defSel.value=DEFAULT;
+defSel.addEventListener('change',e=>{
+  const prev=byId(DEFAULT).short;DEFAULT=e.target.value;
+  const b=document.getElementById('ceoBanner');b.className='banner';b.style.display='block';
+  b.innerHTML=`<b>Default changed:</b> ${prev} → ${byId(DEFAULT).short}. New default continues the rest of the drive; week-off/leave fallback still applies on top.`;
+  renderAll();
+});
+
+renderAll();
+</script>
+</body>
+</html>

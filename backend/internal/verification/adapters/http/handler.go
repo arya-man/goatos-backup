@@ -37,6 +37,7 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/items/{item_id}/verdict", h.RecordVerdict)
 	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
 	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
+	mux.HandleFunc("POST /verification/vaccination-batches/{batch_id}/close", h.CloseVaccinationBatch)
 }
 
 type queueItemResponse struct {
@@ -73,9 +74,11 @@ type sourceResponse struct {
 }
 
 type queueListResponse struct {
-	Items      []queueItemResponse `json:"items"`
-	NextCursor *string             `json:"next_cursor"`
-	TraceID    string              `json:"trace_id"`
+	Items         []queueItemResponse              `json:"items"`
+	FilterOptions domain.QueueFilterOptions        `json:"filter_options"`
+	DriveClosures []domain.VaccinationBatchClosure `json:"drive_closures,omitempty"`
+	NextCursor    *string                          `json:"next_cursor"`
+	TraceID       string                           `json:"trace_id"`
 }
 
 func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
@@ -128,11 +131,11 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 const rfc3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
 
 func (h *Handler) ListQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
-	h.listQueue(w, r, permissions.VerificationReview, "")
+	h.listQueue(w, r, permissions.VerificationReview, "", false)
 }
 
 func (h *Handler) ListActionQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
-	h.listQueue(w, r, permissions.VerificationAct, domain.StatusApproved)
+	h.listQueue(w, r, permissions.VerificationAct, "", true)
 }
 
 func (h *Handler) listQueue(
@@ -140,6 +143,7 @@ func (h *Handler) listQueue(
 	r *nethttp.Request,
 	permission string,
 	forcedStatus string,
+	actionQueue bool,
 ) {
 	q := r.URL.Query()
 	limit, ok := parsePositiveLimit(q.Get("limit"))
@@ -161,27 +165,41 @@ func (h *Handler) listQueue(
 	if status == "" {
 		status = q.Get("status")
 	}
-	result, err := h.service.ListQueue(r.Context(), ports.ListQueueParams{
-		TenantID:        tenantID(r),
-		Category:        q.Get("category"),
-		Vertical:        q.Get("vertical"),
-		Module:          q.Get("module"),
-		Status:          status,
-		Cursor:          cursor,
-		Limit:           limit,
-		ParkIDs:         parkIDs,
-		ScopeRestricted: restricted,
-		ReadyForClosure: forcedStatus == domain.StatusApproved,
-	})
+	params := ports.ListQueueParams{
+		TenantID:             tenantID(r),
+		Category:             q.Get("category"),
+		Vertical:             q.Get("vertical"),
+		Module:               q.Get("module"),
+		Status:               status,
+		ParkID:               q.Get("park_id"),
+		ShedID:               q.Get("shed_id"),
+		Cursor:               cursor,
+		Limit:                limit,
+		ParkIDs:              parkIDs,
+		ScopeRestricted:      restricted,
+		ReadyForClosure:      forcedStatus == domain.StatusApproved,
+		IncludeAllStatuses:   actionQueue,
+		SubmissionScopedOnly: actionQueue,
+		OpenOnly:             actionQueue,
+	}
+	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {
 		h.respondError(w, r, err)
 		return
+	}
+	var closures []domain.VaccinationBatchClosure
+	if actionQueue {
+		closures, err = h.service.ListReadyVaccinationBatchClosures(r.Context(), params)
+		if err != nil {
+			h.respondError(w, r, err)
+			return
+		}
 	}
 	items := make([]queueItemResponse, len(result.Items))
 	for i, row := range result.Items {
 		items[i] = toQueueItemResponse(row)
 	}
-	httpresponse.WriteJSON(w, nethttp.StatusOK, queueListResponse{Items: items, NextCursor: result.NextCursor, TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, nethttp.StatusOK, queueListResponse{Items: items, FilterOptions: result.FilterOptions, DriveClosures: closures, NextCursor: result.NextCursor, TraceID: traceID(r)})
 }
 
 type verdictRequest struct {
@@ -296,6 +314,52 @@ func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) 
 	items, err = h.service.CloseSubmission(r.Context(), domain.CloseSubmissionAction{
 		TenantID:       tenantID(r),
 		SubmissionID:   submissionID,
+		ActorID:        actorID(r),
+		IdempotencyKey: idempotencyKey,
+	})
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	responseItems := make([]queueItemResponse, len(items))
+	for i, item := range items {
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+	}
+	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
+		Items:   responseItems,
+		TraceID: traceID(r),
+	})
+}
+
+func (h *Handler) CloseVaccinationBatch(w nethttp.ResponseWriter, r *nethttp.Request) {
+	idempotencyKey, ok := requireIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	batchID := r.PathValue("batch_id")
+	restricted, parkIDs := verificationParkScope(r, permissions.VerificationAct)
+	closures, err := h.service.ListReadyVaccinationBatchClosures(r.Context(), ports.ListQueueParams{
+		TenantID: tenantID(r), Category: "vaccination_proof",
+		ParkIDs: parkIDs, ScopeRestricted: restricted,
+	})
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	allowed := false
+	for _, closure := range closures {
+		if closure.BatchID == batchID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		h.respondError(w, r, app.NotFound("batch_not_found", "vaccination batch not found"))
+		return
+	}
+	items, err := h.service.CloseVaccinationBatch(r.Context(), domain.CloseVaccinationBatchAction{
+		TenantID:       tenantID(r),
+		BatchID:        batchID,
 		ActorID:        actorID(r),
 		IdempotencyKey: idempotencyKey,
 	})

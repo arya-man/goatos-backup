@@ -84,9 +84,11 @@ func seedParkConsolidationAnimal(t *testing.T, ctx context.Context, pool *pgxpoo
 	}
 }
 
-// TestSM4ParkConsolidationShedDriveBatchesMultipleGoatsInOneShed proves layer 1 still creates a
-// shed drive when two goats in the same shed share rule + due day.
-func TestSM4ParkConsolidationShedDriveBatchesMultipleGoatsInOneShed(t *testing.T) {
+// TestSM4ParkConsolidationSingleShedGoatsBatchIntoParkDrive proves two goats in the SAME shed
+// sharing rule + due day are clubbed into one PARK-scoped drive. Vaccination obligations are
+// shed-scoped, but park is the drive execution/grouping scope (AGENTS.md), so the drive batch is
+// park-scoped even when every member happens to sit in one shed.
+func TestSM4ParkConsolidationSingleShedGoatsBatchIntoParkDrive(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -109,13 +111,18 @@ func TestSM4ParkConsolidationShedDriveBatchesMultipleGoatsInOneShed(t *testing.T
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if res.ParkBatches != 0 {
-		t.Fatalf("park batches = %d, want 0 (shed drive should absorb both goats)", res.ParkBatches)
+	if res.ParkBatches != 1 || res.ParkObligations != 2 {
+		t.Fatalf("result = %#v, want one park drive absorbing both goats", res)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_batches
-WHERE protocol_version_id=$1 AND scope_type='shed' AND scope_id=$2`, versionID, parkShedA); got != 1 {
-		t.Fatalf("shed batches = %d, want 1", got)
+WHERE protocol_version_id=$1 AND scope_type='shed'`, versionID); got != 0 {
+		t.Fatalf("shed batches = %d, want 0 (drive execution scope is the park)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_batches
+WHERE protocol_version_id=$1 AND scope_type='park' AND scope_id=$2`, versionID, cbePark); got != 1 {
+		t.Fatalf("park batches = %d, want 1", got)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_instances
@@ -211,9 +218,10 @@ WHERE oi.protocol_version_id=$1 AND b.scope_type='park'`, versionID); got != 2 {
 	}
 }
 
-// TestSM4ParkConsolidationShedFirstThenParkLeftovers models shed A running a full drive while
-// singleton leftovers in sheds B and C merge into one park drive.
-func TestSM4ParkConsolidationShedFirstThenParkLeftovers(t *testing.T) {
+// TestSM4ParkConsolidationClubsEveryShedInThePark models four goats across three sheds of one
+// park with overlapping windows. The park planner sees the whole candidate set FIRST (max-output
+// clubbing), so they club into park drives rather than a per-shed drive plus leftovers.
+func TestSM4ParkConsolidationClubsEveryShedInThePark(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -253,17 +261,17 @@ func TestSM4ParkConsolidationShedFirstThenParkLeftovers(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_batches
-WHERE protocol_version_id=$1 AND scope_type='shed' AND scope_id=$2`, versionID, parkShedA); got != 1 {
-		t.Fatalf("shed A batches = %d, want 1", got)
+WHERE protocol_version_id=$1 AND scope_type='shed'`, versionID); got != 0 {
+		t.Fatalf("shed batches = %d, want 0 (drive execution scope is the park)", got)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 4 {
+		t.Fatalf("result = %#v, want one park drive clubbing all four goats", res)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_instances o
 JOIN obligation_batches b ON b.batch_id = o.batch_id
-WHERE o.protocol_version_id=$1 AND b.scope_type='shed' AND b.scope_id=$2`, versionID, parkShedA); got != 2 {
-		t.Fatalf("goats on shed A batch = %d, want 2", got)
-	}
-	if res.ParkBatches != 1 || res.ParkObligations != 2 {
-		t.Fatalf("result = %#v, want one park batch for B+C leftovers", res)
+WHERE o.protocol_version_id=$1 AND b.scope_type='park' AND b.scope_id=$2`, versionID, cbePark); got != 4 {
+		t.Fatalf("goats on the park drive = %d, want 4", got)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_instances
@@ -272,9 +280,10 @@ WHERE protocol_version_id=$1 AND batch_id IS NULL`, versionID); got != 0 {
 	}
 }
 
-// TestSM4ParkConsolidationFallbackCreatesSingletonShedDrive proves a lone leftover goat still
-// receives a shed drive when no cross-shed park merge is possible.
-func TestSM4ParkConsolidationFallbackCreatesSingletonShedDrive(t *testing.T) {
+// TestSM4ParkConsolidationFallbackCreatesSingletonParkDrive proves a lone leftover goat still
+// receives a drive when no cross-shed park merge is possible. The park-consolidation pass cannot
+// merge one target, so the shed fallback pass batches it -- and that batch is still park-scoped.
+func TestSM4ParkConsolidationFallbackCreatesSingletonParkDrive(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -295,12 +304,22 @@ func TestSM4ParkConsolidationFallbackCreatesSingletonShedDrive(t *testing.T) {
 		t.Fatalf("sweep: %v", err)
 	}
 	if res.ParkBatches != 0 {
-		t.Fatalf("park batches = %d, want 0 for single-shed orphan", res.ParkBatches)
+		t.Fatalf("park-consolidation batches = %d, want 0 (one target cannot merge)", res.ParkBatches)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_batches
-WHERE protocol_version_id=$1 AND scope_type='shed' AND scope_id=$2`, versionID, parkShedA); got != 1 {
-		t.Fatalf("fallback shed batches = %d, want 1 singleton drive", got)
+WHERE protocol_version_id=$1 AND scope_type='shed'`, versionID); got != 0 {
+		t.Fatalf("shed batches = %d, want 0 (drive execution scope is the park)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_batches
+WHERE protocol_version_id=$1 AND scope_type='park' AND scope_id=$2`, versionID, cbePark); got != 1 {
+		t.Fatalf("fallback park batches = %d, want 1 singleton drive", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_instances
+WHERE protocol_version_id=$1 AND batch_id IS NULL`, versionID); got != 0 {
+		t.Fatalf("unbatched obligations = %d, want 0", got)
 	}
 }
 
@@ -415,9 +434,11 @@ WHERE oi.protocol_version_id=$1 AND b.scope_type='park'`, versionID); got != 2 {
 	}
 }
 
-// TestSM4ParkConsolidationDisabledKeepsSingletonShedDrives proves disabling park consolidation
-// restores legacy per-shed singleton batching.
-func TestSM4ParkConsolidationDisabledKeepsSingletonShedDrives(t *testing.T) {
+// TestSM4ParkConsolidationDisabledStillCreatesParkScopedDrives proves that disabling park
+// consolidation only turns off the cross-shed CLUBBING PASS; it does not re-enable shed-scoped
+// drive batches. Each shed group is still batched separately, but every group resolves to the
+// same park/rule/date drive identity, so the two sheds land on one park-scoped drive.
+func TestSM4ParkConsolidationDisabledStillCreatesParkScopedDrives(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -443,11 +464,22 @@ func TestSM4ParkConsolidationDisabledKeepsSingletonShedDrives(t *testing.T) {
 		t.Fatalf("sweep: %v", err)
 	}
 	if res.ParkBatches != 0 {
-		t.Fatalf("park batches = %d, want 0 when park consolidation disabled", res.ParkBatches)
+		t.Fatalf("park-consolidation batches = %d, want 0 when park consolidation disabled", res.ParkBatches)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_batches
-WHERE protocol_version_id=$1 AND scope_type='shed'`, versionID); got != 2 {
-		t.Fatalf("shed batches = %d, want 2 singleton shed drives", got)
+WHERE protocol_version_id=$1 AND scope_type='shed'`, versionID); got != 0 {
+		t.Fatalf("shed batches = %d, want 0 (drive execution scope is the park)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_batches
+WHERE protocol_version_id=$1 AND scope_type='park' AND scope_id=$2`, versionID, cbePark); got != 1 {
+		t.Fatalf("park-scoped batches = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_instances o
+JOIN obligation_batches b ON b.batch_id = o.batch_id
+WHERE o.protocol_version_id=$1 AND b.scope_type='park' AND b.scope_id=$2`, versionID, cbePark); got != 2 {
+		t.Fatalf("goats on the park drive = %d, want 2", got)
 	}
 }

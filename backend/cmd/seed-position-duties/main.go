@@ -4,14 +4,16 @@
 // dimension is REAL and reproducible instead of ad-hoc hand-seeded rows.
 //
 // Derivation (no invented data -- every row is a projection of an existing
-// active, non-backup workforce_positions seat):
+// active workforce_positions seat):
 //   - module_code comes from the position_code PREFIX (see modulePrefixes).
-//     Backup slots (is_backup_slot=true) hold no functional duty of their own
-//     -- they cover the duty of whichever seat they stand in for -- so they are
-//     skipped. Positions whose prefix maps to no built module are skipped and
-//     reported, never guessed.
-//   - duty_type = 'manage' when the seat's position_tier is a supervisory tier
-//     (manager | head | director | cxo), else 'execute'.
+//     The reviewed CPT vaccination roster treats Amit, Darshan, and Sagar as
+//     manager-tier vaccination operators, not support-only/park-head-only
+//     users. Therefore vaccination_operator_* positions are explicit
+//     pc.vaccination execute duty rows.
+//   - duty_type = 'execute' for surfaced vaccination operator positions even
+//     when their HR/title tier is manager/head; that tier does not remove them
+//     from drive execution. Other modules still use 'manage' for supervisory
+//     tiers (manager | head | director | cxo), else 'execute'.
 //   - capability_code is the execution permission a temporary backup grant for
 //     that seat confers. Only pc.vaccination is a built + surfaced module today
 //     (scope-lock), so only the preventive_care prefix carries
@@ -64,7 +66,9 @@ type modulePrefix struct {
 // modulePrefixes is ordered longest-prefix-first so a more specific prefix
 // (e.g. "preventive_care") always wins over a shorter accidental match.
 var modulePrefixes = []modulePrefix{
+	{prefix: "vaccination_operator", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "preventive_care", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
+	{prefix: "backup_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "shed_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "park_head", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "health_kidding", moduleCode: "health.kidding"},
@@ -84,10 +88,11 @@ var manageTiers = map[string]bool{
 	"cxo":      true,
 }
 
-// positionRow is one active, non-backup seat read from workforce_positions.
+// positionRow is one active seat read from workforce_positions.
 type positionRow struct {
 	positionCode string
 	positionTier string
+	isBackupSlot bool
 }
 
 // dutyRow is one derived position_module_duties row to insert.
@@ -195,15 +200,15 @@ func checkSchemaReady(ctx context.Context, pool *pgxpool.Pool) (bool, string, er
 
 // ---- read ----
 
-// loadDistinctActivePositions returns the DISTINCT (position_code, tier) of
-// active, non-backup seats for the tenant. DISTINCT because a position_code
+// loadDistinctActivePositions returns the DISTINCT (position_code, tier, backup
+// marker) of active seats for the tenant. DISTINCT because a position_code
 // (e.g. feeding_am1) can be held at several centers -- its duty is the same
 // regardless of scope, so duties are position-code-scoped, not per-seat.
 func loadDistinctActivePositions(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]positionRow, error) {
 	rows, err := pool.Query(ctx, `
-SELECT DISTINCT position_code, position_tier
+SELECT DISTINCT position_code, position_tier, is_backup_slot
 FROM workforce_positions
-WHERE tenant_id = $1::uuid AND status = 'active' AND is_backup_slot = false
+WHERE tenant_id = $1::uuid AND status = 'active'
 ORDER BY position_code`, tenantID)
 	if err != nil {
 		return nil, err
@@ -212,7 +217,7 @@ ORDER BY position_code`, tenantID)
 	var out []positionRow
 	for rows.Next() {
 		var p positionRow
-		if err := rows.Scan(&p.positionCode, &p.positionTier); err != nil {
+		if err := rows.Scan(&p.positionCode, &p.positionTier, &p.isBackupSlot); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -227,6 +232,10 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 	var out []dutyRow
 	for _, p := range positions {
 		st.PositionCodesScanned++
+		if p.isBackupSlot && p.positionCode != "backup_manager" {
+			st.BackupSkipped++
+			continue
+		}
 		mp, ok := matchModule(p.positionCode)
 		if !ok {
 			st.UnmappedSkipped++
@@ -234,7 +243,7 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 			continue
 		}
 		dutyType := "execute"
-		if manageTiers[p.positionTier] {
+		if mp.moduleCode != "pc.vaccination" && manageTiers[p.positionTier] {
 			dutyType = "manage"
 		}
 		out = append(out, dutyRow{

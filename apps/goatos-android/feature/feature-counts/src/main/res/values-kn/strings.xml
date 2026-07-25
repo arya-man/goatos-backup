@@ -121,4 +121,20 @@
     <string name="counts_hint_reason">3 ಮತ್ತು 500 ಅಕ್ಷರಗಳ ನಡುವೆ.</string>
     <string name="counts_hint_animal_lookup">ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತದೆ.</string>
     <string name="counts_hint_death_lookup">ಮರಣವನ್ನು ದಾಖಲಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ನಿರ್ಗಮಿಸಲಾಗುತ್ತದೆ.</string>
+
+    <!-- Census hero, filter sheet + lifecycle facet, shed subtotals -->
+    <string name="counts_filter_lifecycle">ಸ್ಥಿತಿ</string>
+    <string name="counts_filter_all_lifecycles">ಜೀವಂತ ಹಿಂಡು</string>
+    <string name="counts_filter_lifecycle_unavailable">ಲಭ್ಯವಿಲ್ಲ</string>
+    <string name="counts_filters_button">ಫಿಲ್ಟರ್‌ಗಳು</string>
+    <string name="counts_filters_sheet_title">ಜನಗಣತಿಯನ್ನು ಫಿಲ್ಟರ್ ಮಾಡಿ</string>
+    <string name="counts_filters_sheet_done">ಮುಗಿದಿದೆ</string>
+    <string name="counts_hero_total_label">ಒಟ್ಟು ಹಿಂಡು</string>
+    <string name="counts_hero_adults_label">ವಯಸ್ಕರು</string>
+    <string name="counts_hero_kids_label">ಮರಿಗಳು</string>
+    <string name="counts_shed_subtotal_fmt">ಈ ಶೆಡ್‌ನಲ್ಲಿ %1$d</string>
+    <string name="counts_shed_unassigned">ಯಾವುದೇ ಶೆಡ್ ನಿಗದಿಪಡಿಸಿಲ್ಲ</string>
+    <string name="counts_shifting_from">ಇಂದ</string>
+    <string name="counts_shifting_to">ಗೆ</string>
+    <string name="counts_more_fields">ಹೆಚ್ಚಿನ ವಿವರಗಳು</string>
 </resources>

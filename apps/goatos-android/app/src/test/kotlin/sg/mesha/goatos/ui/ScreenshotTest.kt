@@ -8,14 +8,11 @@ import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
+import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.feature.calendar.CalendarScreen
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
-import sg.mesha.goatos.feature.leadership.OverdueScreen
-import sg.mesha.goatos.feature.leadership.RescheduleScreen
-import sg.mesha.goatos.feature.leadership.VerificationClosureRow
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
@@ -34,6 +31,7 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -73,31 +71,37 @@ class ScreenshotTest {
     fun calendar() = shot("calendar") { CalendarScreen(state = sampleCalendarState()) }
 
     @Test
-    fun sheds() = shot("sheds") { ShedsScreen(state = sampleShedsState()) }
+    fun sheds() = shot("sheds") {
+        CompositionLocalProvider(LocalIsTopLevelRoot provides true) {
+            ShedsScreen(state = sampleShedsState())
+        }
+    }
 
     @Test
     fun vaccination_sheds_initial_loading_uses_skeleton() = shot("vaccination_sheds_initial_loading_uses_skeleton") {
-        ShedsScreen(
-            state = sampleShedsState().copy(
-                date = "",
-                window = "",
-                shedCountLabel = "",
-                dueLabel = "",
-                dayProgressLabel = "",
-                dayProgressFraction = 0f,
-                daySummary = "",
-                shedCount = 0,
-                dueCount = 0,
-                doneCount = 0,
-                caption = "Loading…",
-                rows = emptyList(),
-                rosterChanges = emptyList(),
-                kernelInfo = null,
-                lastSyncedAt = null,
-                isInitialLoading = true,
-                isRefreshing = true,
-            ),
-        )
+        CompositionLocalProvider(LocalIsTopLevelRoot provides true) {
+            ShedsScreen(
+                state = sampleShedsState().copy(
+                    date = "",
+                    window = "",
+                    shedCountLabel = "",
+                    dueLabel = "",
+                    dayProgressLabel = "",
+                    dayProgressFraction = 0f,
+                    daySummary = "",
+                    shedCount = 0,
+                    dueCount = 0,
+                    doneCount = 0,
+                    caption = "Loading…",
+                    rows = emptyList(),
+                    rosterChanges = emptyList(),
+                    kernelInfo = null,
+                    lastSyncedAt = null,
+                    isInitialLoading = true,
+                    isRefreshing = true,
+                ),
+            )
+        }
     }
 
     @Test
@@ -133,7 +137,10 @@ class ScreenshotTest {
                     canSubmit = false,
                     syncLabel = "",
                     groups = emptyList(),
-                    goatProofTotal = 0,
+                    proofSummaryTitle = "",
+                    proofSummarySyncedLabel = "",
+                    proofSummaryFinalizeHint = "",
+                    proofTotal = 0,
                 ),
             )
         }
@@ -152,7 +159,10 @@ class ScreenshotTest {
                 date = "",
                 summaryItems = emptyList(),
                 groups = emptyList(),
-                goatProofTotal = 0,
+                proofSummaryTitle = "",
+                proofSummarySyncedLabel = "",
+                proofSummaryFinalizeHint = "",
+                proofTotal = 0,
                 formRunner = null,
                 submitLabel = "Submit",
                 canSubmit = true,
@@ -162,7 +172,8 @@ class ScreenshotTest {
                     driveName = "Vaccination · July 2026",
                     expectedCount = 50,
                     handledCount = 50,
-                    proofReadyCount = 50,
+                    proofReadyCount = 1,
+                    proofMode = "shed_level_video",
                     submitState = "draft",
                 ),
                 vaccineBreakdown = listOf(
@@ -175,9 +186,6 @@ class ScreenshotTest {
     }
 
     @Test
-    fun overview() = shot("overview") { LeadershipScreen(state = sampleLeadershipState()) }
-
-    @Test
     fun record() = shot("record") { RecordScreen(state = sampleRecordState()) }
 
     @Test
@@ -188,12 +196,6 @@ class ScreenshotTest {
 
     @Test
     fun you() = shot("you") { ProfileScreen(state = sampleProfileState()) }
-
-    @Test
-    fun overdue() = shot("overdue") { OverdueScreen(state = sampleOverdueState()) }
-
-    @Test
-    fun reschedule() = shot("reschedule") { RescheduleScreen(state = sampleRescheduleState()) }
 
     @Test
     fun timetable() = shot("timetable") { TimetableScreen(state = sampleTimetableState()) }
@@ -210,7 +212,7 @@ class ScreenshotTest {
     fun form_runner() = shot("form_runner") {
         FormRunner(
             state = sampleFormRunnerState(),
-            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = { _, _ -> }, onCaptureVideo = {}, onSubmit = {},
+            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = { _, _ -> }, onCaptureVideo = { _, _ -> }, onSubmit = {},
         )
     }
 
@@ -267,8 +269,9 @@ class ScreenshotTest {
                 syncState = sg.mesha.goatos.feature.submit.SyncState.ACKED,
                 syncProgress = 1f,
                 submitLabel = "Finalize shed",
-                goatProofSynced = 40,
-                goatProofUploading = 0,
+                proofSummarySyncedLabel = "40 of 40 goats synced",
+                proofSynced = 40,
+                proofUploading = 0,
             ),
         )
     }
@@ -301,23 +304,4 @@ class ScreenshotTest {
         )
     }
 
-    @Test
-    fun vaccination_leadership_close() = shot("vaccination_leadership_close") {
-        LeadershipScreen(
-            state = sampleLeadershipState().copy(
-                todaySheds = emptyList(),
-                backlog = emptyList(),
-                needsDecision = emptyList(),
-                verificationClosures = listOf(
-                    VerificationClosureRow(
-                        submissionId = "drive-1",
-                        title = "Coimbatore · Vaccination drive",
-                        subtitle = "18 goats verified · Gandhi 1 · Arun",
-                    ),
-                ),
-                coverageByParkTitle = null,
-                coverageByPark = emptyList(),
-            ),
-        )
-    }
 }

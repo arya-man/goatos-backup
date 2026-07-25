@@ -21,7 +21,7 @@ func TestRoleKeyAndParseRoleKeyRoundTrip(t *testing.T) {
 }
 
 func TestParseRoleKeyRejectsFlatLegacyRoles(t *testing.T) {
-	for _, role := range []string{RoleAdmin, RoleVerifier, RoleParkHead, RolePCDirector, RoleOperator, RoleCEOInternal} {
+	for _, role := range []string{RoleVerifier, RoleParkHead, RolePCDirector, RoleOperator, RoleCEOInternal} {
 		if _, _, ok := ParseRoleKey(role); ok {
 			t.Fatalf("ParseRoleKey(%q) ok=true, want false (flat legacy role has no vertical)", role)
 		}
@@ -32,7 +32,7 @@ func TestParseRoleKeyRejectsFlatLegacyRoles(t *testing.T) {
 }
 
 func TestIsKnownRoleCoversLegacyAndCompositeRoles(t *testing.T) {
-	for _, role := range []string{RoleAdmin, RoleVerifier, RoleParkHead, RolePCDirector, RoleOperator, RoleCEOInternal} {
+	for _, role := range []string{RoleVerifier, RoleParkHead, RolePCDirector, RoleOperator, RoleCEOInternal} {
 		if !IsKnownRole(role) {
 			t.Fatalf("IsKnownRole(%q)=false, want true", role)
 		}

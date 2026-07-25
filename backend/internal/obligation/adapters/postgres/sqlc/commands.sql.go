@@ -167,7 +167,25 @@ WHERE NOT EXISTS (
     AND existing.due_at = $9
     AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 )
-ON CONFLICT DO NOTHING
+ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+SET scope_type = EXCLUDED.scope_type,
+    scope_id = EXCLUDED.scope_id,
+    due_at = EXCLUDED.due_at,
+    window_start = EXCLUDED.window_start,
+    window_end = EXCLUDED.window_end,
+    status = EXCLUDED.status,
+    row_version = obligation_instances.row_version + 1,
+    updated_at = now()
+WHERE obligation_instances.batch_id IS NULL
+  AND obligation_instances.status IN ('scheduled', 'due', 'deferred')
+  AND (
+    obligation_instances.scope_type IS DISTINCT FROM EXCLUDED.scope_type
+    OR obligation_instances.scope_id IS DISTINCT FROM EXCLUDED.scope_id
+    OR obligation_instances.due_at IS DISTINCT FROM EXCLUDED.due_at
+    OR obligation_instances.window_start IS DISTINCT FROM EXCLUDED.window_start
+    OR obligation_instances.window_end IS DISTINCT FROM EXCLUDED.window_end
+    OR obligation_instances.status IS DISTINCT FROM EXCLUDED.status
+  )
 RETURNING obligation_id::text AS obligation_id
 `
 

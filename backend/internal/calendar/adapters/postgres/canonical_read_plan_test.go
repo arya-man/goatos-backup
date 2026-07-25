@@ -465,7 +465,7 @@ func TestReminderCadenceDrainAtScale(t *testing.T) {
 
 	// Evaluate the cadence as of a fixed instant a few days into the seeded range, in the EVENING IST
 	// (dueDayStart is 00:00 UTC = 05:30 IST; +4 days +14h = day+4 14:00 UTC = day+4 19:30 IST) so it
-	// sits AFTER every ladder slot (08:00/09:00/12:00/17:00 IST). At 05:30 IST no slot has fired yet and
+	// sits AFTER every ladder slot (08:00/13:00/18:00 IST). At 05:30 IST no slot has fired yet and
 	// the sweep would find zero due fires (a vacuous drain); the evening anchor guarantees a real
 	// backlog of advance-notice/reminder/due-today fires for the near-term obligations to drain.
 	now := dueDayStart.Add(4*24*time.Hour + 14*time.Hour)

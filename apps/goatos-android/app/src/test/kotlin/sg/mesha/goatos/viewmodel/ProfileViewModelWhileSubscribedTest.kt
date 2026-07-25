@@ -70,6 +70,7 @@ class ProfileViewModelWhileSubscribedTest {
             authRepository = FakeAuthRepository(),
             reader = reader,
             logoutCoordinator = buildLogoutCoordinator(),
+            relauncher = {},
         )
 
         // No UI subscriber yet -> WhileSubscribed keeps the upstream cold.
@@ -114,6 +115,7 @@ class ProfileViewModelWhileSubscribedTest {
         override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
         override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = null
+        override fun currentEmail(): String? = null
         override fun signOut() {}
     }
 

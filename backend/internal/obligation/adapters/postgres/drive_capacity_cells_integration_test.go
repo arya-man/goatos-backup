@@ -18,8 +18,8 @@ import (
 // VAXCAP-002/003/004 Postgres guards.
 //
 // These tests prove, against a real Postgres instance:
-//   - VAXCAP-002: the drive-cell counter and both combo-list projections execute valid SQL over
-//     the NUMERIC planned_quantity column, for both NULL and non-null quantities.
+//   - VAXCAP-002: the drive animal counter and both combo-list projections execute valid SQL while
+//     planned_quantity remains the dose/stock quantity column for reservation accounting.
 //   - VAXCAP-003: the batch writer persists EXACT administration-cell totals -- per-obligation
 //     cells summed over the actually-attached rows -- across mixed-rule create, partial attach,
 //     merge-attach, and same-batch retry. Never an average.
@@ -160,8 +160,8 @@ func TestCreateBatchWithObligationCellsExactTotals(t *testing.T) {
 }
 
 // TestCountDriveCellsForParkDateStatusMatrixAndNullQuantity is the VAXCAP-002 + VAXCAP-004
-// guard: the counter executes over numeric planned_quantity (NULL and non-null), counts
-// planned/in_progress/completed batches across two vaccines, and excludes canceled/superseded.
+// guard: the drive capacity counter counts distinct animals, not administration cells, across
+// planned/in_progress/completed batches and excludes canceled/superseded.
 func TestCountDriveCellsForParkDateStatusMatrixAndNullQuantity(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -216,13 +216,13 @@ func TestCountDriveCellsForParkDateStatusMatrixAndNullQuantity(t *testing.T) {
 	bSuperseded := mkBatch("hs:3", "1", ids[4:5], map[string]int32{ids[4]: 1})
 	setStatus(bSuperseded, "superseded")
 
-	// planned(2) + in_progress(1) + completed(NULL->1) = 4; canceled/superseded excluded.
+	// Distinct animals from planned + in_progress + completed = 3; canceled/superseded excluded.
 	count, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
 	if err != nil {
 		t.Fatalf("CountDriveCellsForParkDate: %v", err)
 	}
-	if count != 4 {
-		t.Fatalf("park/date cells = %d, want 4 (planned 2 + in_progress 1 + completed NULL-quantity 1; canceled+superseded excluded)", count)
+	if count != 3 {
+		t.Fatalf("park/date animals = %d, want 3 distinct animals (planned + in_progress + completed; canceled+superseded excluded)", count)
 	}
 	_ = bPlanned
 }
@@ -318,12 +318,11 @@ func insertCapacityObligation(t *testing.T, ctx context.Context, repo *Repositor
 	return id
 }
 
-// TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches is the fan-out guard for
-// countDriveCellsForParkDate: one goat joined to TWO vaccine batches on the same park/date must
-// count its CELLS twice (one administration per vaccine -- product rule 3) without the
-// obligation-row JOIN fanning out any batch's planned_quantity. The adversarial batch carries
-// planned_quantity 2 across 2 obligation rows: a per-row SUM of planned_quantity would report 4,
-// the correct per-batch GREATEST(planned_quantity, row count) reports 2.
+// TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches is the operator-capacity guard for
+// countDriveCellsForParkDate: one goat joined to TWO vaccine batches on the same park/date must consume
+// ONE animal slot, even though stock/proof planned_quantity still tracks each vaccine administration.
+// The adversarial pair batch carries planned_quantity 2 across 2 obligation rows; capacity must count
+// distinct target animals, not cells and not a planned_quantity fan-out.
 func TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -380,10 +379,9 @@ func TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountDriveCellsForParkDate: %v", err)
 	}
-	// g1's two vaccines = 2 cells (cells DO double per vaccine), pair batch = 2 cells exactly
-	// (per-row planned_quantity fan-out would have made it 4, total 6).
-	if count != 4 {
-		t.Fatalf("park/date cells = %d, want 4 (2 one-cell vaccine batches for one goat + one 2-cell batch; no JOIN fan-out)", count)
+	// g1's two vaccines = one animal slot, plus g2 and g3 = 3 slots total.
+	if count != 3 {
+		t.Fatalf("park/date animal slots = %d, want 3 (one goat with two vaccine batches still consumes one operator slot)", count)
 	}
 }
 
@@ -501,8 +499,10 @@ func TestCountDriveCellsDateShiftPlannedVsDueDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count on planned day: %v", err)
 	}
-	if onPlanned != 2 {
-		t.Fatalf("cells on PLANNED day D+7 = %d, want 2", onPlanned)
+	// Drive capacity is DISTINCT ANIMALS per park/date (the ratified operator-capacity unit);
+	// the obligation's 2 dose cells live in planned_quantity and are not the capacity unit.
+	if onPlanned != 1 {
+		t.Fatalf("animal slots on PLANNED day D+7 = %d, want 1", onPlanned)
 	}
 }
 
@@ -603,27 +603,33 @@ func TestDriveCapacityRelockObservesConcurrentCommit(t *testing.T) {
 		t.Fatalf("A probe release: %v", err)
 	}
 
-	// Worker B commits a 2-cell batch on the same park/date in the gap.
-	goatID := "34000000-0000-4000-8000-000000000001"
-	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
-	obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, "relock-1", due)
+	// Worker B commits a 2-ANIMAL batch on the same park/date in the gap. Drive capacity is
+	// counted as DISTINCT animals per operator/day (the ratified operator-capacity unit); doses
+	// live in planned_quantity and are NOT the capacity unit. So B must add two distinct goats
+	// for the count to rise by 2 -- one goat with a 2-dose obligation would raise it by only 1.
+	goatB1 := "34000000-0000-4000-8000-000000000001"
+	goatB2 := "34000000-0000-4000-8000-000000000002"
+	seedCapacityGoatInPark(t, ctx, pool, goatB1, cbePark)
+	seedCapacityGoatInPark(t, ctx, pool, goatB2, cbePark)
+	oblB1 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatB1, "relock-1", due)
+	oblB2 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatB2, "relock-2", due)
 	if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
 		TenantID: tenantID, ProtocolVersionID: versionID,
 		ScopeType: "park", ScopeID: cbePark, Session: "relock",
 		PlannedDate: &planned, Status: "planned",
-		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
-	}, []string{obl}, map[string]int32{obl: 2}); err != nil || len(attached) != 1 {
+		EstimatedTargets: 2, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{oblB1, oblB2}, map[string]int32{oblB1: 1, oblB2: 1}); err != nil || len(attached) != 2 {
 		t.Fatalf("B commit: attached=%d err=%v", len(attached), err)
 	}
 
-	// Worker A final re-lock must observe B's cells.
+	// Worker A final re-lock must observe B's two animals (fresh persisted count).
 	countA2, releaseA2, err := repo.LockDriveCapacity(ctx, tenantID, cbePark, planned)
 	if err != nil {
 		t.Fatalf("A final lock: %v", err)
 	}
 	defer func() { _ = releaseA2(ctx) }()
 	if countA2 != countA1+2 {
-		t.Fatalf("final re-lock count = %d, want %d (+2 cells committed by B in the probe gap)", countA2, countA1+2)
+		t.Fatalf("final re-lock count = %d, want %d (+2 animals committed by B in the probe gap)", countA2, countA1+2)
 	}
 }
 
@@ -666,8 +672,10 @@ func TestCancelMemberRemovesExactCellsFromBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count before: %v", err)
 	}
-	if before != 3 {
-		t.Fatalf("park/date cells before cancel = %d, want 3", before)
+	// planned_quantity is the 3-dose ledger; the park/date capacity ledger counts the 2 DISTINCT
+	// ANIMALS, since one goat's second dose does not consume a second operator slot.
+	if before != 2 {
+		t.Fatalf("park/date animal slots before cancel = %d, want 2", before)
 	}
 
 	// Cancel the 2-cell member (vaccination goat/version cancel path).
@@ -683,7 +691,7 @@ func TestCancelMemberRemovesExactCellsFromBatch(t *testing.T) {
 		t.Fatalf("count after: %v", err)
 	}
 	if after != 1 {
-		t.Fatalf("park/date cells after cancel = %d, want 1 (no phantom cells)", after)
+		t.Fatalf("park/date animal slots after cancel = %d, want 1 (no phantom slots)", after)
 	}
 }
 
@@ -775,8 +783,10 @@ func TestRemovalOneToManyCancelOneOfTwoCoDueVaccines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("park/date cells = %d, want 2 (surviving 2-cell vaccine only)", count)
+	// Both vaccines belong to the SAME goat, so the animal-grain capacity ledger counted 1 before
+	// the cancel and still counts 1 after: the goat is still on the drive for vaccine 1.
+	if count != 1 {
+		t.Fatalf("park/date animal slots = %d, want 1 (one goat, surviving vaccine)", count)
 	}
 }
 
@@ -855,13 +865,14 @@ func TestRemovalStatusMatrixCancelDeferRescopeCompletedUntouched(t *testing.T) {
 	if got := batchPlannedQuantity(t, ctx, pool, doneBatch); got != 2 {
 		t.Fatalf("completed batch planned_quantity = %v, want untouched 2", got)
 	}
-	// Counter: live batch contributes 0, completed batch still consumes its 2 cells.
+	// Counter: live batch contributes 0 animals; the completed batch still consumes its ONE
+	// animal slot (its 2 doses are quantity, not capacity).
 	count, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("park/date cells = %d, want 2 (completed batch only)", count)
+	if count != 1 {
+		t.Fatalf("park/date animal slots = %d, want 1 (completed batch's goat only)", count)
 	}
 	_ = o3
 }
@@ -893,8 +904,8 @@ func TestRemovalDateShiftHeldBatchAttributesPlannedDate(t *testing.T) {
 		t.Fatalf("create held batch: attached=%d err=%v", len(attached), err)
 	}
 	onPlannedBefore, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, plannedD7)
-	if err != nil || onPlannedBefore != 2 {
-		t.Fatalf("cells on D+7 before = %d err=%v, want 2", onPlannedBefore, err)
+	if err != nil || onPlannedBefore != 1 {
+		t.Fatalf("animal slots on D+7 before = %d err=%v, want 1 (one goat, 2 doses)", onPlannedBefore, err)
 	}
 
 	if n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", time.Date(2026, 8, 12, 8, 0, 0, 0, time.UTC)); err != nil || n != 1 {
@@ -949,8 +960,8 @@ func TestRemovalParkScopeShedBatchUpdatesParentParkCount(t *testing.T) {
 		t.Fatalf("create shed batch: attached=%d err=%v", len(attached), err)
 	}
 	before, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
-	if err != nil || before != 2 {
-		t.Fatalf("CBE cells before = %d err=%v, want 2 via shed->parent rollup", before, err)
+	if err != nil || before != 1 {
+		t.Fatalf("CBE animal slots before = %d err=%v, want 1 via shed->parent rollup", before, err)
 	}
 
 	// Defer-detach the member (site 1 removal path).

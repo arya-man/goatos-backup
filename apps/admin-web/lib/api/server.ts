@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { cache } from "react";
 import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
+import type { ParkScopeOption } from "./park-scope";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
@@ -85,6 +86,12 @@ export type VaccinationPlannedSession = AppApiComponents["schemas"]["Vaccination
 export type VaccinationShedSortKey = AppApiComponents["schemas"]["VaccinationShedSortKey"];
 export type VaccinationPageInfo = AppApiComponents["schemas"]["VaccinationPageInfo"];
 export type VaccinationCapacityConfig = AppApiComponents["schemas"]["VaccinationCapacityConfig"];
+export type VaccinationOperatorAssignmentConfig = AppApiComponents["schemas"]["VaccinationOperatorAssignmentConfig"];
+export type VaccinationOperatorShift = AppApiComponents["schemas"]["VaccinationOperatorShift"];
+export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
+export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
+export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
@@ -168,6 +175,12 @@ export type ApiUiError = {
   message: string;
   traceId?: string;
   retryable?: boolean;
+  // BUG-019: a 409 `park_scope_ambiguous` is not a plain failure — the backend is handing back
+  // the park menu a tenant-wide actor must choose from. `normalizeApiError` otherwise reshapes
+  // every error into this fixed type, which DROPPED the menu before it reached the browser and
+  // left the CEO on a dead-end screen. Park options stay backend-owned (golden frontend rule);
+  // this field only carries them through the Next.js hop intact.
+  availableParks?: ParkScopeOption[];
 };
 
 export type ApiResult<T> =
@@ -1014,6 +1027,44 @@ export async function getVaccinationSchedule(
   );
 }
 
+// Operator-cap drive ledger: one row per planned date × operator × physical shed × partition.
+export async function getVaccinationDriveAssignments(
+  params: { parkId?: string; year: number; month: number; limit?: number } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
+): Promise<ApiResult<VaccinationDriveAssignmentResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<VaccinationDriveAssignmentResponse>("/vaccination/drive-assignments", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit }),
+      }),
+    ),
+  );
+}
+
+export async function postponeVaccinationDriveDate(body: {
+  park_id: string;
+  vaccine_code: string;
+  original_drive_date: string;
+  override_date: string;
+  reason: string;
+}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<Record<string, unknown>>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<Record<string, unknown>>("/vaccination/schedule/drive-date-overrides", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
   params: { asOf?: string } = {},
@@ -1099,7 +1150,7 @@ export async function getVaccinationShedAnimals(
   );
 }
 
-// Admin daily vaccination capacity config (Config screen). Capacity is authored through protocol publish;
+// Admin daily operator animal capacity config (Config screen). Capacity is authored through protocol publish;
 // this endpoint is read-only so the planner can show the published values.
 export async function getVaccinationCapacityConfig(): Promise<ApiResult<VaccinationCapacityConfig>> {
   const config = await getServerConfig(true);
@@ -1107,6 +1158,55 @@ export async function getVaccinationCapacityConfig(): Promise<ApiResult<Vaccinat
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", { cache: "no-store" }),
+  );
+}
+
+// Admin vaccination operator assignment config (N + default operator per park, shift assignments).
+// Returns the park's active-operators-per-day + default-operator config plus every operator's shift.
+export async function getVaccinationOperatorAssignmentConfig(parkId?: string): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "GET",
+      query: parkId ? { park_id: parkId } : {},
+      cache: "no-store",
+    }),
+  );
+}
+
+// Admin update vaccination operator assignment config (validate-or-reject, optimistic concurrency via rowVersion).
+export async function putVaccinationOperatorAssignmentConfig(
+  body: UpdateVaccinationOperatorAssignmentConfigRequest
+): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+// Admin update vaccination capacity config (common operator daily animal cap + per-animal shot-cap
+// override). Validate-or-reject, optimistic concurrency via rowVersion. The backend write emits
+// vaccination.capacity.changed per active park, which re-plans all future vaccination drives.
+export async function putVaccinationCapacityConfig(
+  body: UpdateVaccinationCapacityConfigRequest
+): Promise<ApiResult<VaccinationCapacityConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
   );
 }
 
@@ -1880,8 +1980,14 @@ export type CoverageListResponse = {
   trace_id: string;
 };
 export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/positions"]["get"]["parameters"]["query"]>;
+export type UpdatePositionRequest = AdminApiComponents["schemas"]["UpdatePositionRequest"];
 export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
 export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
+export type StaffLeave = AdminApiComponents["schemas"]["StaffLeave"];
+export type StaffLeaveListResponse = AdminApiComponents["schemas"]["StaffLeaveListResponse"];
+export type ApplyStaffLeaveRequest = AdminApiComponents["schemas"]["ApplyStaffLeaveRequest"];
+export type ApproveStaffLeaveRequest = AdminApiComponents["schemas"]["ApproveStaffLeaveRequest"];
+export type StaffLeaveQuery = NonNullable<AdminApiPaths["/admin/roster/leave"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
   params: StaffPositionsQuery = {},
@@ -1907,6 +2013,73 @@ export async function getStaffPositionProfile(
   const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/roster/positions/${encodeURIComponent(positionId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<PositionProfileResponse>(path, { cache: "no-store" }));
+}
+
+export async function updateStaffPosition(
+  positionId: string,
+  body: UpdatePositionRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminApiComponents["schemas"]["PositionResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/positions/${encodeURIComponent(positionId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["PositionResponse"]>(path, {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listStaffLeave(
+  params: StaffLeaveQuery = {},
+): Promise<ApiResult<StaffLeaveListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<StaffLeaveListResponse>("/admin/roster/leave", {
+      cache: "no-store",
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function applyStaffLeave(
+  body: ApplyStaffLeaveRequest,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>("/admin/roster/leave", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function approveStaffLeave(
+  absenceId: string,
+  body: ApproveStaffLeaveRequest,
+  idempotencyKey?: string,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/leave/${encodeURIComponent(absenceId)}/approve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      body,
+    }),
+  );
 }
 
 export async function listBackupConfig(
@@ -2009,6 +2182,21 @@ function normalizeApiError(error: unknown): ApiUiError {
         retryable: envelope?.retryable,
       };
     }
+    if (error.status === 409 && code === "park_scope_ambiguous") {
+      // BUG-019: carry the backend-owned park menu through this hop. Reshaping to a bare
+      // message here is what stranded tenant-wide CEO/CXO accounts: the backend correctly
+      // refused to guess a park AND supplied the choices, but the choices were dropped, so
+      // the screen had nothing to render and threw.
+      return {
+        kind: "bad_request",
+        status: error.status,
+        code,
+        message: envelope?.message ?? "Your scope covers more than one park; choose one to continue.",
+        traceId: envelope?.trace_id,
+        retryable: envelope?.retryable,
+        availableParks: parseParkScopeOptions(envelope),
+      };
+    }
     if (error.status === 400) {
       return {
         kind: "bad_request",
@@ -2048,6 +2236,22 @@ function normalizeApiError(error: unknown): ApiUiError {
     kind: "api_error",
     message: error instanceof Error ? error.message : "Unexpected API error.",
   };
+}
+
+// parseParkScopeOptions reads the backend-owned park menu off a 409 `park_scope_ambiguous`
+// envelope. Returns undefined rather than [] when absent, so "backend sent no menu" stays
+// distinguishable from "backend sent an empty menu" — zero authorized parks is a genuinely
+// different situation from several, and the screen must not report it as "choose one".
+function parseParkScopeOptions(envelope: ErrorEnvelope | null): ParkScopeOption[] | undefined {
+  const raw = (envelope as { availableParks?: unknown } | null)?.availableParks;
+  if (!Array.isArray(raw)) return undefined;
+  const parks = raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const { parkId, code, name } = entry as Partial<ParkScopeOption>;
+    if (typeof parkId !== "string" || typeof name !== "string") return [];
+    return [{ parkId, code: typeof code === "string" ? code : "", name }];
+  });
+  return parks;
 }
 
 function parseEnvelope(body: unknown): ErrorEnvelope | null {

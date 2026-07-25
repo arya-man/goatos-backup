@@ -82,6 +82,8 @@ type ExecutionRow struct {
 	ParkName           string             `json:"parkName"`
 	ShedID             string             `json:"shedId"`
 	ShedName           string             `json:"shedName"`
+	PhysicalShed       string             `json:"physicalShed,omitempty"`
+	Partition          string             `json:"partition,omitempty"`
 	AnimalStage        string             `json:"animalStage"`
 	TargetCount        int                `json:"targetCount"`
 	OpenCount          int                `json:"openCount"`
@@ -97,6 +99,7 @@ type ExecutionRow struct {
 	ProofStatus        ProofStatus        `json:"proofStatus"`
 	VerificationStatus VerificationStatus `json:"verificationStatus"`
 	NextAction         string             `json:"nextAction"`
+	PrimaryActionKey   string             `json:"primaryActionKey"`
 	ObligationID       *string            `json:"obligationId,omitempty"`
 	BatchID            *string            `json:"batchId,omitempty"`
 	SOPTaskID          *string            `json:"sopTaskId,omitempty"`
@@ -106,11 +109,50 @@ type ExecutionRow struct {
 }
 
 type ExecutionResponse struct {
-	Source     string               `json:"source"`
-	Rows       []ExecutionRow       `json:"rows"`
-	TotalCount int64                `json:"totalCount"`
-	NextCursor *string              `json:"nextCursor,omitempty"`
-	Freshness  *ProjectionFreshness `json:"freshness,omitempty"`
+	Source     string         `json:"source"`
+	Rows       []ExecutionRow `json:"rows"`
+	TotalCount int64          `json:"totalCount"`
+	NextCursor *string        `json:"nextCursor,omitempty"`
+	// ViewerReadOnly marks this as a leadership OVERSIGHT read (park-scoped, all sheds):
+	// the caller is not an assigned operator, so the client shows the shed list but must
+	// NOT let them open a shed into the operator scan/execute loop. Operators get false.
+	ViewerReadOnly bool                 `json:"viewerReadOnly"`
+	Freshness      *ProjectionFreshness `json:"freshness,omitempty"`
+	CarrySummary   *CarrySummary        `json:"carrySummary,omitempty"`
+	FilterOptions  *ExecutionFilters    `json:"filterOptions,omitempty"`
+}
+
+type ExecutionFilters struct {
+	Parks []ParkOption `json:"parks,omitempty"`
+}
+
+// VaccineCarryLine is internal aggregation from repo layer (date + vaccine + counts).
+type VaccineCarryLine struct {
+	Date           string // ISO date YYYY-MM-DD
+	VaccineLabel   string
+	RemainingDoses int64 // count(DISTINCT goat_id) WHERE status IN (scheduled,due,in_progress)
+	TotalDoses     int64 // count(DISTINCT goat_id)
+}
+
+// VaccineCarrySummary is per-vaccine breakdown in one day's response.
+type VaccineCarrySummary struct {
+	VaccineLabel   string `json:"vaccineLabel"`
+	RemainingDoses int64  `json:"remainingDoses"`
+	TotalDoses     int64  `json:"totalDoses"`
+}
+
+// CarryDay is one business day's carry summary (date + per-vaccine breakdown + totals).
+type CarryDay struct {
+	Date             string                `json:"date"` // ISO date YYYY-MM-DD
+	VaccineBreakdown []VaccineCarrySummary `json:"vaccineBreakdown"`
+	TotalRemaining   int64                 `json:"totalRemaining"` // total remaining for day
+}
+
+// CarrySummary is page-independent daily carry aggregation (full date range, not paginated).
+// projection-review: membership=all obligations for (tenant, operator, date) scope;
+// grain=eff_date + protocol_name; parity=sum distinct goats with status IN (scheduled,due,in_progress)
+type CarrySummary struct {
+	CarryByDay []CarryDay `json:"carryByDay"` // ordered by date
 }
 
 type DriveSummary struct {
@@ -145,16 +187,24 @@ type ShedDrilldown struct {
 }
 
 type ExecutionQuery struct {
-	TenantID       string
-	ParkID         *string
-	ShedID         *string
-	WorkState      *WorkState
-	Severity       *Severity
-	Cursor         *ExecutionCursor
-	AsOf           time.Time
-	DueBefore      time.Time
-	HistoricalAsOf bool
-	Limit          int
+	TenantID string
+	ParkID   *string
+	ShedID   *string
+	// OperatorScopeActorID is set only for app/mobile execution reads. It is the
+	// authenticated actor id and the repository resolves it to the matching
+	// workforce member before returning assigned operator work. Admin reads leave
+	// it empty and keep the broader park/tenant visibility.
+	OperatorScopeActorID string
+	AuthorizedParkIDs    []string
+	WorkState            *WorkState
+	Severity             *Severity
+	Cursor               *ExecutionCursor
+	AsOf                 time.Time
+	DueBefore            time.Time
+	HistoricalAsOf       bool
+	OpenOnly             bool
+	IncludeFilterOptions bool
+	Limit                int
 }
 
 // ---- Vaccination operations read model (cohort × protocol matrix + per-cohort detail) ----
@@ -267,6 +317,40 @@ type ScheduleQuery struct {
 	Cursor     *OperationsCursor
 }
 
+type DriveAssignmentQuery struct {
+	TenantID   string
+	ParkID     *string
+	MonthStart time.Time
+	Limit      int
+}
+
+type DriveAssignmentRow struct {
+	PlannedDate          string            `json:"plannedDate"`
+	OriginalPlannedDate  string            `json:"originalPlannedDate"`
+	OperatorID           string            `json:"operatorId"`
+	OperatorName         string            `json:"operatorName"`
+	ParkID               string            `json:"parkId"`
+	ParkName             string            `json:"parkName"`
+	ShedID               *string           `json:"shedId,omitempty"`
+	PhysicalShed         string            `json:"physicalShed"`
+	PartitionLabel       string            `json:"partitionLabel"`
+	Animals              int               `json:"animals"`
+	DueAnimals           int               `json:"dueAnimals"`
+	DoneAnimals          int               `json:"doneAnimals"`
+	DeferredAnimals      int               `json:"deferredAnimals"`
+	OverdueAnimals       int               `json:"overdueAnimals"`
+	VaccineNames         []string          `json:"vaccineNames"`
+	VaccineCodes         []string          `json:"vaccineCodes"`
+	VaccineOriginalDates map[string]string `json:"vaccineOriginalDates"`
+	TotalDoses           int               `json:"totalDoses"`
+	Capacity             CapacityStatus    `json:"capacity"`
+}
+
+type DriveAssignmentResponse struct {
+	Source string               `json:"source"`
+	Rows   []DriveAssignmentRow `json:"rows"`
+}
+
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
@@ -275,6 +359,7 @@ type ScanRosterRow struct {
 	SecondaryTag   *string `json:"secondaryTag,omitempty"`
 	VaccineLabel   string  `json:"vaccineLabel"`
 	Status         string  `json:"status"`
+	ScannedAt      *string `json:"scannedAt,omitempty"`
 	ObligationID   string  `json:"obligationId"`
 	BatchID        string  `json:"batchId"`
 	TaskID         string  `json:"taskId"`
@@ -283,11 +368,12 @@ type ScanRosterRow struct {
 }
 
 type ScanRosterQuery struct {
-	TenantID string
-	ShedID   string
-	TaskID   string
-	Cursor   *ScanRosterCursor
-	Limit    int
+	TenantID             string
+	ShedID               string
+	TaskID               string
+	OperatorScopeActorID string
+	Cursor               *ScanRosterCursor
+	Limit                int
 }
 
 type ScanRosterCursor struct {
@@ -330,6 +416,8 @@ type ExecutionProjection struct {
 	ParkName             string
 	ShedID               string
 	ShedName             string
+	PhysicalShed         string
+	Partition            string
 	AnimalStage          string
 	BatchID              *string
 	ProtocolName         string
@@ -347,6 +435,8 @@ type ExecutionProjection struct {
 	CompletionAccepted   int
 	CompletionRejected   int
 	CompletionReversed   int
+	ScannedCount         int
+	ProofSubmittedCount  int
 	BatchStatus          *string
 	TaskState            *string
 	OperatorName         *string
@@ -518,20 +608,23 @@ type ShedOwner struct {
 // vaccination visits/days for the shed (usually 1; >1 when the daily cap forces a split). Capacity is
 // the machine capacity state (CEO label rendered by the UI). Status is the merged CEO headline.
 type ShedSummaryRow struct {
-	ParkID   string         `json:"parkId"`
-	ParkName string         `json:"parkName"`
-	ShedID   string         `json:"shedId"`
-	ShedName string         `json:"shedName"`
-	Animals  int            `json:"animals"`
-	Due      int            `json:"due"`
-	Done     int            `json:"done"`
-	Sessions int            `json:"sessions"`
-	LastDone *string        `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
-	NextDue  *string        `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
-	Manager  *ShedOwner     `json:"manager,omitempty"`
-	Backup   *ShedOwner     `json:"backup,omitempty"`
-	Capacity CapacityStatus `json:"capacity"`
-	Status   ShedStatus     `json:"status"`
+	ParkID   string     `json:"parkId"`
+	ParkName string     `json:"parkName"`
+	ShedID   string     `json:"shedId"`
+	ShedName string     `json:"shedName"`
+	Animals  int        `json:"animals"`
+	Due      int        `json:"due"`
+	Done     int        `json:"done"`
+	Sessions int        `json:"sessions"`
+	LastDone *string    `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
+	NextDue  *string    `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
+	Manager  *ShedOwner `json:"manager,omitempty"`
+	Backup   *ShedOwner `json:"backup,omitempty"`
+	// DriveOperatorNames are the actual vaccination operators assigned by the operator-cap planner.
+	// This is the ownership field for vaccination drives; Manager/Backup remain legacy shed-owner context.
+	DriveOperatorNames []string       `json:"driveOperatorNames,omitempty"`
+	Capacity           CapacityStatus `json:"capacity"`
+	Status             ShedStatus     `json:"status"`
 }
 
 // ShedOwnershipScope is one shed row whose owner cells need enrichment. ParkID is the center/park scope
@@ -592,24 +685,26 @@ type ShedSummaryQuery struct {
 }
 
 // ShedSummaryProjection is one aggregated shed straight from SQL, before the service attaches the
-// resolved Manager/Backup (cross-module). Sessions/Capacity/Status are computed IN SQL (so the capacity
-// and status filters can page correctly) using the tenant cap config; OpenCells is the planner input the
-// shed-detail page re-plans into per-day sessions.
+// resolved Manager/Backup (cross-module). Sessions/Capacity/Status are legacy shed-summary fields
+// computed IN SQL so older filters can page correctly. New vaccination drive scheduling must use
+// operator/date assignments from the operator-drive planner, where capacity is unique animals per
+// available operator per business date.
 type ShedSummaryProjection struct {
-	ParkID     string
-	ParkName   string
-	ShedID     string
-	ShedName   string
-	Animals    int
-	DueAnimals int
-	OpenCells  int            // open vaccination cells (overdue+due+in_progress) — session planner input
-	Sessions   int            // ceil(OpenCells / cap)
-	Capacity   CapacityStatus // from Sessions vs (buffer+1)
-	Status     ShedStatus     // merged CEO headline
-	LastDone   *time.Time
-	NextDue    *time.Time
-	TotalCount int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
-	Freshness  *ProjectionFreshness
+	ParkID             string
+	ParkName           string
+	ShedID             string
+	ShedName           string
+	Animals            int
+	DueAnimals         int
+	OpenCells          int            // legacy open obligation rows; not the new operator capacity unit
+	Sessions           int            // legacy session count
+	Capacity           CapacityStatus // from Sessions vs (buffer+1)
+	Status             ShedStatus     // merged CEO headline
+	DriveOperatorNames []string
+	LastDone           *time.Time
+	NextDue            *time.Time
+	TotalCount         int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
+	Freshness          *ProjectionFreshness
 }
 
 // ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----

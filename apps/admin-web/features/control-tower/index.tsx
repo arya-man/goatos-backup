@@ -52,6 +52,22 @@ function ownerOf(alert: ControlTowerAlert, unassignedLabel: string): string {
   return alert.owner?.operator_name ?? alert.owner?.park_head_name ?? unassignedLabel;
 }
 
+function driveCapacityLabel(alert: ControlTowerAlert): string | null {
+  switch (alert.drive_capacity_state) {
+    case "over_cap_required": {
+      const animals = alert.drive_animals_assigned ?? alert.drive_animals_required ?? 0;
+      const slots = (alert.drive_available_operators ?? 0) * (alert.drive_operator_cap ?? 0);
+      return `${animals.toLocaleString("en-IN")} animals over ${slots.toLocaleString("en-IN")} slots`;
+    }
+    case "medical_defer":
+      return alert.drive_medical_defer_reason ? `medical defer: ${alert.drive_medical_defer_reason}` : "medical defer";
+    case "terminal_animal_closed":
+      return alert.drive_medical_defer_reason ? `terminal closed: ${alert.drive_medical_defer_reason}` : "terminal animal closed";
+    default:
+      return null;
+  }
+}
+
 function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
   return optionTone(pageContract, groupId, key) as Tone;
 }
@@ -281,6 +297,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           ) : (
             band.map((alert) => {
               const fill = SEVERITY_FILL[alert.severity];
+              const capacityLabel = driveCapacityLabel(alert);
               return (
                 <LocalOverlayLink
                   key={alert.row_id}
@@ -297,6 +314,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                     <div className="mt">
                       {alert.detail} · {ownerOf(alert, ownerUnassignedLabel)} → {alert.next_action}
                     </div>
+                    {capacityLabel ? <div className="mt">{capacityLabel}</div> : null}
                   </div>
                   <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
                 </LocalOverlayLink>
@@ -346,7 +364,9 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                 </tr>
               </thead>
               <tbody>
-                {paged.items.map((alert) => (
+                {paged.items.map((alert) => {
+                  const capacityLabel = driveCapacityLabel(alert);
+                  return (
                   <tr key={alert.row_id} data-filter-row>
                     <td>
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
@@ -361,6 +381,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                     <td className="muted">
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         {alert.detail}
+                        {capacityLabel ? <span className="mt">{capacityLabel}</span> : null}
                       </LocalOverlayLink>
                     </td>
                     <td className="muted">
@@ -374,7 +395,8 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                       </LocalOverlayLink>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

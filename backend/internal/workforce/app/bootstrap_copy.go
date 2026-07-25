@@ -30,6 +30,11 @@ type moduleNavContribution struct {
 	// permissions.routePermissions requires the same permission, so an unlisted page is
 	// unreachable rather than merely invisible.
 	requiredPermission string
+	// excludedPermission suppresses a field-lens item when the principal holds a
+	// higher-level module lens. This keeps one Vaccination module reusable without
+	// turning the nav builder into a per-role template: the role table grants the
+	// lens permission, and the registry declares how that lens changes the bar.
+	excludedPermission string
 }
 
 // moduleDefinition is a module's drawer identity plus the nav items it contributes
@@ -58,7 +63,7 @@ const (
 //
 // Bottom-bar shape is MODULE-SCOPED: a module's bar is its own contributions, so
 // switching modules in the drawer switches the bar. Cross-module dedupe by shared_key
-// still applies when several modules are composed into one flat bar (leadership).
+// still applies when several modules are composed into one flat bar.
 // See docs/decisions/role-module-nav-composition.md.
 var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: this is the module registry, not a hardcoded per-role template
 	// "vaccination" is the Preventive Care (PC) Vaccination module.
@@ -69,8 +74,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    1,
 		contributions: []moduleNavContribution{
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -118,23 +125,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusSoon,
 		priority:    4,
 	},
-	// Leadership principals (overview/overdue management).
-	// This is a synthetic "module" representing the leadership nav state.
-	// When a person has >=1 leadership grant, they get overview + calendar + alerts
-	// (the shared cross-module nav) instead of the module-specific nav.
-	"leadership": {
-		key:         "leadership",
-		labelKey:    "module.leadership",
-		landingHref: "/leadership", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    0,
-		contributions: []moduleNavContribution{
-			{key: "leadership", labelKey: "nav.leadership", href: "/leadership", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
-		},
-	},
 	// The cross-vertical verifier app is intentionally standalone. Verifiers review
 	// evidence; they never inherit operator capture or leadership action navigation.
 	"verification": {
@@ -145,6 +135,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority:    0,
 		contributions: []moduleNavContribution{
 			{key: "verify", labelKey: "nav.verify", href: "/verify", shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                         //nav-composition:ignore: registry entry
 		},
 	},
 }
@@ -154,21 +145,26 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 var soonModuleKeys = []string{"feed_direction", "breeding"}
 
 // visibleNavigationFor composes navigation from the person's granted modules.
-// If the person has any leadership grant, they see the leadership nav.
+// If the person has any leadership grant, they see the shared module set for that tier.
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A verifier sees only the generic media-verification module. Keep this check
-	// ahead of leadership so a verifier grant can never expose act/capture screens.
-	if isVerifierPrincipal(grants) {
+	// A standalone verifier sees only the generic media-verification module.
+	// Leadership principals may also hold review permission, but they still land
+	// in their leadership module rather than the verifier-only app.
+	if isStandaloneVerifierPrincipal(grants) {
 		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
 	}
 
-	// Leadership principals default to the leadership bar (Overview + Calendar + Alerts).
-	// They may ALSO hold other modules -- those appear in the drawer via modulesFor and
-	// the client switches to them; the default landing bar stays Overview.
+	// Leadership principals default to their curated module set. There is no synthetic
+	// leadership/overview screen; preventive-care leaders land on the shared
+	// Vaccination module, while CEO gets Vaccination plus org-level modules.
 	if isLeadershipPrincipal(grants) {
-		return composeNavigationFromModules([]string{"leadership"}, grants, localeTag)
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			return []domain.BootstrapNavigationItem{}
+		}
+		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
 	}
 
 	// Non-leadership operators get the bar of their ACTIVE module. The bar is
@@ -203,9 +199,13 @@ func grantsHavePermission(grants []domain.GrantSummary, permission string) bool 
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
 	out := make([]moduleNavContribution, 0, len(def.contributions))
 	for _, contrib := range def.contributions {
-		if grantsHavePermission(grants, contrib.requiredPermission) {
-			out = append(out, contrib)
+		if !grantsHavePermission(grants, contrib.requiredPermission) {
+			continue
 		}
+		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
+			continue
+		}
+		out = append(out, contrib)
 	}
 	return out
 }
@@ -216,18 +216,47 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 // from them. Their access is decided by permission alone. Everyone else is limited to
 // the modules their department is granted.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
-	if isVerifierPrincipal(grants) {
+	if isStandaloneVerifierPrincipal(grants) {
 		return []string{"verification"}
 	}
 	if !isLeadershipPrincipal(grants) {
 		return grantedModules
 	}
-	keys := make([]string, 0, len(moduleNavRegistry))
-	for key := range moduleNavRegistry {
-		keys = append(keys, key)
+	return leadershipModuleKeys(grants)
+}
+
+// leadershipModuleKeys is the curated drawer set for a leadership principal, before
+// permission filtering. Leadership is org-level (not department-scoped), so the set
+// is decided by leadership TIER, not by department_module_grants:
+//
+//   - CEO/CXO (ceo_internal) is whole-org: Vaccination plus Counts, plus the
+//     roadmap "soon" modules (Feed direction, Breeding).
+//   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
+//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
+//     are not preventive-care surfaces, so they never appear. Park Head is further
+//     limited to his own park by his grant scope (data scope), not by nav.
+//
+// Verification belongs to the verifier role, not leadership nav.
+func leadershipModuleKeys(grants []domain.GrantSummary) []string {
+	if hasRole(grants, permissions.RoleCEOInternal) {
+		return []string{"vaccination", "counts", "feed_direction", "breeding"}
 	}
-	sort.Strings(keys) // deterministic; real ordering is by priority downstream
-	return keys
+	// PC Director / Park Head: preventive-care specialty, vaccination home only.
+	return []string{"vaccination"}
+}
+
+// hasRole reports whether any active grant carries the given role.
+func hasRole(grants []domain.GrantSummary, role string) bool {
+	for _, g := range grants {
+		if g.Role == role {
+			return true
+		}
+	}
+	return false
+}
+
+func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
+	return hasRole(grants, permissions.RoleCEOInternal) || hasRole(grants, permissions.RolePCDirector)
 }
 
 // countAvailableModules counts modules the principal can actually render: known,
@@ -312,9 +341,21 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 			NavItems: items,
 		})
 	}
+	// "Soon" roadmap rows advertise unbuilt modules. They are surfaced globally to
+	// non-leadership principals, but a leadership drawer only shows the "soon" rows
+	// its tier is actually offered (candidateModuleKeys): CEO sees Feed + Breeding,
+	// a preventive-care leader (PC Director, Park Head) sees none.
+	allowSoon := func(string) bool { return true }
+	if isLeadershipPrincipal(grants) {
+		offered := make(map[string]bool, len(keys))
+		for _, k := range keys {
+			offered[k] = true
+		}
+		allowSoon = func(k string) bool { return offered[k] }
+	}
 	for _, key := range soonModuleKeys {
 		def, ok := moduleNavRegistry[key]
-		if !ok || seen[def.key] {
+		if !ok || seen[def.key] || !allowSoon(key) {
 			continue
 		}
 		out = append(out, domain.BootstrapModule{
@@ -410,8 +451,8 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.leadership":  "Overview",
 		"nav.verify":      "Verify",
+		"nav.overview":    "Overview",
 		"nav.calendar":    "Calendar",
 		"nav.alerts":      "Alerts",
 		"nav.drives":      "Drives",
@@ -419,9 +460,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "Birth/Death",
 		"nav.shifting":    "Shifting",
 		"nav.approval":    "Approval",
+		"nav.videos":      "Videos",
 		"nav.you":         "You",
 
-		"module.leadership":     "Leadership",
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.counts":         "Counts",
@@ -432,8 +473,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.leadership":  "अवलोकन",
 		"nav.verify":      "सत्यापित करें",
+		"nav.overview":    "अवलोकन",
 		"nav.calendar":    "कैलेंडर",
 		"nav.alerts":      "अलर्ट",
 		"nav.drives":      "ड्राइव",
@@ -441,9 +482,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "जन्म/मृत्यु",
 		"nav.shifting":    "शिफ्टिंग",
 		"nav.approval":    "अनुमोदन",
+		"nav.videos":      "वीडियो",
 		"nav.you":         "आप",
 
-		"module.leadership":     "नेतृत्व",
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.counts":         "गिनती",
@@ -454,8 +495,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.leadership":  "ಅವಲೋಕನ",
 		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
+		"nav.overview":    "ಅವಲೋಕನ",
 		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
@@ -463,9 +504,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "ಜನನ/ಮರಣ",
 		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
 		"nav.approval":    "ಅನುಮೋದನೆ",
+		"nav.videos":      "ವೀಡಿಯೊಗಳು",
 		"nav.you":         "ನೀವು",
 
-		"module.leadership":     "ನಾಯಕತ್ವ",
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.counts":         "ಎಣಿಕೆ",
@@ -476,8 +517,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.leadership":  "అవలోకనం",
 		"nav.verify":      "ధృవీకరించండి",
+		"nav.overview":    "అవలోకనం",
 		"nav.calendar":    "క్యాలెండర్",
 		"nav.alerts":      "అలర్ట్లు",
 		"nav.drives":      "డ్రైవ్‌లు",
@@ -485,9 +526,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "జననం/మరణం",
 		"nav.shifting":    "షిఫ్టింగ్",
 		"nav.approval":    "ఆమోదం",
+		"nav.videos":      "వీడియోలు",
 		"nav.you":         "మీరు",
 
-		"module.leadership":     "నాయకత్వం",
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.counts":         "లెక్కలు",

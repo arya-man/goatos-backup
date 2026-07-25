@@ -424,24 +424,26 @@ export async function VaccinationShedDetailPage({
           <Tag tone={statusTone}>{shedStatusLabel(pageContract, detail.status)}</Tag>
           <Tag tone={capacityTone}>{optionLabel(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus)}</Tag>
         </div>
-        <div className="bd">
-          <div className="metagrid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 14 }}>
-            <Stat label={copy(pageContract, "label.animals")} value={detail.animals} />
-            <Stat label={copy(pageContract, "label.due")} value={detail.due} />
-            <Stat label={copy(pageContract, "label.done_stat")} value={detail.done} />
-            <Stat label={copy(pageContract, "label.sessions")} value={detail.sessions} />
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 14 }}>
-            <div>
-              <div className="k">{copy(pageContract, "label.manager")}</div>
-              <div className="v">
-                {detail.manager?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.manager_unassigned")}</Tag>}
-              </div>
+        <div className="bd shed-overview-body">
+          <div className="shed-overview-grid">
+            <div className="shed-overview-stats">
+              <Stat label={copy(pageContract, "label.animals")} value={detail.animals} />
+              <Stat label={copy(pageContract, "label.due")} value={detail.due} />
+              <Stat label={copy(pageContract, "label.done_stat")} value={detail.done} />
+              <Stat label={copy(pageContract, "label.sessions")} value={detail.sessions} />
             </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.backup")}</div>
-              <div className="v">
-                {detail.backup?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.backup_unassigned")}</Tag>}
+            <div className="shed-overview-owners">
+              <div className="shed-owner-cell">
+                <div className="k">{copy(pageContract, "label.manager")}</div>
+                <div className="v">
+                  {detail.manager?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.manager_unassigned")}</Tag>}
+                </div>
+              </div>
+              <div className="shed-owner-cell">
+                <div className="k">{copy(pageContract, "label.backup")}</div>
+                <div className="v">
+                  {detail.backup?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.backup_unassigned")}</Tag>}
+                </div>
               </div>
             </div>
           </div>

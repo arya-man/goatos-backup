@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -39,6 +40,548 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 	if repo.setTaskCalls != 0 {
 		t.Fatalf("batch task links = %d, want 0", repo.setTaskCalls)
+	}
+}
+
+func strPtr(value string) *string {
+	return &value
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	operatorID := "operator-1"
+	assignments := driveAssignmentsForUnbatched("batch-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+		ConductedBy: &operatorID,
+	}, []domain.UnbatchedDue{
+		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-2"},
+		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi - Part 2", TargetID: "goat-3"},
+		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Gandhi 3", TargetID: "goat-4"},
+		{ObligationID: "obl-5", ScopeType: "shed", ScopeID: "shed-4", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-5"},
+	})
+	if len(assignments) != 4 {
+		t.Fatalf("assignments = %d, want 4: %#v", len(assignments), assignments)
+	}
+	got := map[string]int32{}
+	for _, assignment := range assignments {
+		got[assignment.PhysicalShed+"|"+assignment.PartitionLabel] = assignment.AnimalCount
+	}
+	want := map[string]int32{
+		"Gandhi|Part 1":     2,
+		"Gandhi|Part 2":     1,
+		"Gandhi|3":          1,
+		"Old Yashoda|whole": 1,
+	}
+	for key, count := range want {
+		if got[key] != count {
+			t.Fatalf("assignment %s = %d, want %d; all=%#v", key, got[key], count, got)
+		}
+	}
+}
+
+func TestDriveAssignmentsForParkConsolidationPersistPartSuffixPartitions(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	assignments := driveAssignmentsForParkConsolidation("batch-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", ShedID: "shed-1", ShedName: "Godel 1 - Part 4", ParkID: "park-1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ShedID: "shed-1", ShedName: "Godel 1 - Part 4", ParkID: "park-1", TargetID: "goat-1"},
+	})
+	if len(assignments) != 1 {
+		t.Fatalf("assignments = %d, want 1: %#v", len(assignments), assignments)
+	}
+	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "Part 4" || assignments[0].AnimalCount != 1 {
+		t.Fatalf("assignment = %#v, want Godel 1 Part 4 with one distinct animal", assignments[0])
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 90, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "2", AnimalCount: 80, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "3", AnimalCount: 90, CapacityStatus: "within_cap"},
+	}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 200, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		seen[*assignment.OperatorID] = true
+	}
+	for _, operatorID := range repo.operators {
+		if !seen[operatorID] {
+			t.Fatalf("operator %s got no work; assignments=%#v", operatorID, got)
+		}
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanner(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2"}}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		ShedID:         strPtr("shed-1"),
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "1",
+		AnimalCount:    120,
+		CapacityStatus: "within_cap",
+	}}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 50, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("assignments = %d, want two operator chunks plus residual capacity action for oversized partition: %#v", len(got), got)
+	}
+	totals := map[string]int32{}
+	residualSeen := false
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			if assignment.AnimalCount != 20 || assignment.CapacityStatus != "capacity_action" {
+				t.Fatalf("unassigned residual = %#v, want 20-animal capacity_action", assignment)
+			}
+			residualSeen = true
+			continue
+		}
+		if assignment.PhysicalShed != "Gandhi" || assignment.PartitionLabel != "1" {
+			t.Fatalf("assignment lost partition grain: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+		if !containsString(assignment.Warnings, "partition split because one partition exceeded available operator capacity") {
+			t.Fatalf("assignment missing split warning: %#v", assignment)
+		}
+	}
+	if totals["op-1"] != 50 || totals["op-2"] != 50 {
+		t.Fatalf("operator totals = %#v, want both operators at cap with no over-cap top-up", totals)
+	}
+	if !residualSeen {
+		t.Fatalf("expected a capacity-action residual for the oversized partition: %#v", got)
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsCarriesWholePartitionPastResidualOperatorCaps(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		operators:     []string{"op-low", "op-high"},
+		operatorCaps:  map[string]int32{"op-low": 1, "op-high": 3},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		ShedID:         strPtr("shed-1"),
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "1",
+		AnimalCount:    4,
+		CapacityStatus: "within_cap",
+	}}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 200, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	totals := map[string]int32{}
+	residualSeen := false
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			if assignment.AnimalCount != 4 || assignment.CapacityStatus != "capacity_action" {
+				t.Fatalf("unassigned partition = %#v, want intact 4-animal capacity_action", assignment)
+			}
+			residualSeen = true
+			continue
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+	}
+	if totals["op-low"] != 0 || totals["op-high"] != 0 {
+		t.Fatalf("operator totals = %#v, want no residual-cap partition split", totals)
+	}
+	if !residualSeen {
+		t.Fatalf("expected intact unassigned partition for capacity action: %#v", got)
+	}
+}
+
+func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 600 {
+		t.Fatalf("effective animal cap = %d, want 600 for 3 operators at 200 each", planner.MaxGoatsPerDrive)
+	}
+}
+
+// Fail-closed regression (Codex P1): when a park HAS operator-assignment config but the
+// resolver yields zero executable operators (all off/leave, missing shift config, or the
+// resolved operator is not in the candidate set), availableVaccinationOperatorsForDrive
+// returns domain.ErrOperatorAssignmentConfigPresentButEmpty. operatorCapacityPlanner must
+// then fail CLOSED by scaling MaxGoatsPerDrive to 0 so driveOperatorCapacityExhausted fires
+// and the sweeper defers the day — it must NOT silently return the original base cap.
+func TestOperatorCapacityPlannerFailsClosedOnConfigPresentButEmpty(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		returnErr:     domain.ErrOperatorAssignmentConfigPresentButEmpty,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	original := domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, original, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner returned error, want fail-closed nil error: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 0 {
+		t.Fatalf("fail-closed cap = %d, want 0 (must NOT fall back to base cap 200)", planner.MaxGoatsPerDrive)
+	}
+	if !driveOperatorCapacityExhausted(original, planner) {
+		t.Fatalf("driveOperatorCapacityExhausted = false, want true so the sweeper skips this day (fail closed)")
+	}
+
+	// effectiveOperatorAnimalCap must also fail closed to zero usable capacity.
+	cap, err := svc.effectiveOperatorAnimalCap(context.Background(), "tenant-1", "park-1", &planned, 200, NewSweepSession())
+	if err != nil {
+		t.Fatalf("effectiveOperatorAnimalCap returned error, want fail-closed: %v", err)
+	}
+	if cap != 0 {
+		t.Fatalf("effectiveOperatorAnimalCap = %d, want 0 (fail closed)", cap)
+	}
+}
+
+// Config-ABSENT must stay unchanged: no config row => nil error, empty operator list =>
+// the planner keeps its base cap (least-loaded fallback), NOT fail-closed.
+func TestOperatorCapacityPlannerConfigAbsentKeepsBaseCap(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}} // no operators, no error
+	svc := NewSweeperService(repo, nil, nil)
+	original := domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, original, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 200 {
+		t.Fatalf("config-absent cap = %d, want unchanged 200 (least-loaded fallback)", planner.MaxGoatsPerDrive)
+	}
+	if driveOperatorCapacityExhausted(original, planner) {
+		t.Fatalf("driveOperatorCapacityExhausted = true for config-absent park, want false")
+	}
+}
+
+func TestOperatorCapacityPlannerHonorsSingleOperatorHRMSCap(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		operators:     []string{"op-1"},
+		operatorCaps:  map[string]int32{"op-1": 1},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 1 {
+		t.Fatalf("effective animal cap = %d, want HRMS single-operator cap 1", planner.MaxGoatsPerDrive)
+	}
+}
+
+// F1 regression: totalVaccinationOperatorCap must NOT fall back to fallbackCap when operators
+// WERE found but every one has 0 remaining capacity -- the real repository reports a fully-loaded
+// operator as present with Cap=0 (GREATEST(daily_cap-loaded,0)), never absent from the list. The
+// old code treated a summed total of 0 the same as "no operators found" and returned the full
+// fallback batch cap, letting the planner still create/lock a drive onto operators who are all
+// already at capacity.
+func TestTotalVaccinationOperatorCapAllOperatorsZeroRemainingReturnsZeroNotFallback(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 0},
+		{OperatorID: "op-2", Cap: 0},
+		{OperatorID: "op-3", Cap: 0},
+	}
+	got := totalVaccinationOperatorCap("tenant-1", "park-1", time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC), operators, 200, nil)
+	if got != 0 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 0 (all operators found but zero remaining; must NOT fall back to 200)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapOneOperatorWithRemainingReturnsThatRemaining(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 0},
+		{OperatorID: "op-2", Cap: 37},
+		{OperatorID: "op-3", Cap: 0},
+	}
+	got := totalVaccinationOperatorCap("tenant-1", "park-1", time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC), operators, 200, nil)
+	if got != 37 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 37 (only op-2's remaining capacity)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapUncappedOperatorsSumToFallbackPerOperator(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 200},
+		{OperatorID: "op-2", Cap: 200},
+		{OperatorID: "op-3", Cap: 200},
+	}
+	got := totalVaccinationOperatorCap("tenant-1", "park-1", time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC), operators, 200, nil)
+	if got != 600 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 600 (3 uncapped operators at fallback-per-operator 200 each)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapNoOperatorsFoundReturnsFallbackUnchanged(t *testing.T) {
+	got := totalVaccinationOperatorCap("tenant-1", "park-1", time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC), nil, 200, nil)
+	if got != 200 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want fallbackCap 200 unchanged when no operators were found", got)
+	}
+}
+
+// TestTotalVaccinationOperatorCapSubtractsSessionLoad is the isolated-function twin of
+// TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad: proves totalVaccinationOperatorCap
+// itself subtracts session.vaccinationOperatorLoad per operator, not just its production callers.
+func TestTotalVaccinationOperatorCapSubtractsSessionLoad(t *testing.T) {
+	planned := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	session := NewSweepSession()
+	session.rememberVaccinationOperatorLoad("tenant-1", "park-1", planned, "op-1", 190)
+	operators := []domain.DriveOperatorCapacity{{OperatorID: "op-1", Cap: 200}}
+	got := totalVaccinationOperatorCap("tenant-1", "park-1", planned, operators, 200, session)
+	if got != 10 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 10 (200 cap - 190 already reserved this session)", got)
+	}
+}
+
+// TestOperatorCapacityPlannerAllOperatorsZeroRemainingDoesNotCreateBatch reproduces the REAL
+// production caller path (operatorCapacityPlanner -> availableVaccinationOperatorsForDrive ->
+// totalVaccinationOperatorCap), not just the isolated function: 3 operators are found but every
+// one is already fully loaded (Cap 0 remaining). Before the F1 fix this returned the fallback cap
+// (200), which a real sweep would then use to admit a full batch onto exhausted operators. After
+// the fix the planner's effective MaxGoatsPerDrive is 0, so limitUnbatchedSelectionByDriveAnimals
+// admits nothing and batchDueGroup does NOT create a batch.
+func TestOperatorCapacityPlannerAllOperatorsZeroRemainingDoesNotCreateBatch(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo:    &fakeSweepRepo{},
+		operators:        []string{"op-1", "op-2", "op-3"},
+		zeroCapOperators: map[string]bool{"op-1": true, "op-2": true, "op-3": true},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 0 {
+		t.Fatalf("effective animal cap = %d, want 0 (3 operators found, all zero remaining -- must not fall back to 200)", planner.MaxGoatsPerDrive)
+	}
+
+	g := &dueGroup{
+		scopeType: "park",
+		scopeID:   "park-1",
+		ruleID:    "rule-1",
+		parkID:    "park-1",
+		ids:       []string{"obl-1"},
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned},
+		},
+	}
+	unscaledPlanner := domain.DrivePlannerSettings{Enabled: true, MaxGoatsPerDrive: 200}
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: unscaledPlanner,
+	}, unscaledPlanner, planned, planned, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if batched || obligations != 0 || len(repo.createdBatches) != 0 {
+		t.Fatalf("batched=%v obligations=%d batches=%#v, want no batch created onto fully-loaded operators", batched, obligations, repo.createdBatches)
+	}
+}
+
+func TestVaccinationOperatorAvailabilityCachedAcrossPlannerAndAssignment(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	batch := domain.NewBatch{
+		TenantID:    "tenant-1",
+		ScopeType:   "park",
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session)
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 600 {
+		t.Fatalf("effective animal cap = %d, want 600", planner.MaxGoatsPerDrive)
+	}
+	if err := svc.assignVaccinationOperator(context.Background(), &batch, 200, session); err != nil {
+		t.Fatalf("assignVaccinationOperator: %v", err)
+	}
+	if batch.ConductedBy == nil || *batch.ConductedBy != "op-1" {
+		t.Fatalf("conducted by = %#v, want op-1", batch.ConductedBy)
+	}
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "Part 1",
+		AnimalCount:    90,
+		CapacityStatus: "within_cap",
+	}}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, assignments, session); err != nil {
+		t.Fatalf("distributeVaccinationDriveAssignments: %v", err)
+	}
+	if repo.operatorListCalls != 1 {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive calls = %d, want 1 for shared park/date/cap session", repo.operatorListCalls)
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsHonorsCrossBatchOperatorDayLoad(t *testing.T) {
+	planned := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	batch := domain.NewBatch{
+		TenantID:    "tenant-1",
+		ScopeType:   "park",
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}
+	first := []domain.DriveAssignment{
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "Part 1", AnimalCount: 160, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Godel 1", PartitionLabel: "Part 1", AnimalCount: 80, CapacityStatus: "within_cap"},
+	}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, first, session); err != nil {
+		t.Fatalf("first distribute: %v", err)
+	}
+	second := []domain.DriveAssignment{{
+		BatchID:        "batch-2",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		PhysicalShed:   "Mandela 2",
+		PartitionLabel: "Part 8",
+		AnimalCount:    80,
+		CapacityStatus: "within_cap",
+	}}
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, second, session)
+	if err != nil {
+		t.Fatalf("second distribute: %v", err)
+	}
+	totals := map[string]int32{}
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+	}
+	if totals["op-1"] > 40 {
+		t.Fatalf("second batch reused op-1 beyond remaining capacity: got %#v", got)
+	}
+	if totals["op-2"] == 0 && totals["op-3"] == 0 {
+		t.Fatalf("second batch did not move work to an operator with remaining capacity: %#v", got)
+	}
+}
+
+// TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad reproduces the real production
+// over-cap bug found on a clean CPT reseed (2026-08-24, single operator Darshan cap 200, two
+// vaccine rule-versions -- blue_tongue_adult_w1 then sheep_pox_adult_w1 -- both due that date):
+// operatorCapacityPlanner/effectiveOperatorAnimalCap (the SELECTION-limiting call, which bounds
+// how many obligations a due-group is even allowed to pull into a batch) call
+// availableVaccinationOperatorsForDrive -> totalVaccinationOperatorCap, which sums the raw
+// DB-queried remaining Cap WITHOUT subtracting session.vaccinationOperatorLoad -- unlike
+// planVaccinationDriveAssignments (used by distributeVaccinationDriveAssignments, see
+// TestDistributeVaccinationDriveAssignmentsHonorsCrossBatchOperatorDayLoad above), which already
+// does this subtraction correctly. So the FIRST due-group's batch consumes 190/200 of the day's
+// only operator, session.rememberVaccinationOperatorLoad records that, but the SECOND due-group's
+// selection cap is computed from the cached (pre-session-load) DB snapshot and reports the full
+// 200 again -- letting the second due-group select up to 200 MORE obligations into its own batch,
+// over-committing the single operator's real 10-remaining capacity for that business date. With a
+// single operator (N=1, exactly the CPT production config), there is no second operator for the
+// downstream assignment-split step to move the overflow onto, so the over-selected obligations
+// stay attached to the batch and obligation_instances/vaccination_drive_assignments end up with
+// more than 200 unique animals for one operator/date.
+func TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad(t *testing.T) {
+	planned := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+
+	// First due-group (blue_tongue_adult_w1) selects and attaches 190 animals to op-1 for
+	// 2026-08-24, then the assignment-split step records the real load into the shared session --
+	// exactly what sweepVersion's real batchDueGroup -> distributeVaccinationDriveAssignments ->
+	// rememberVaccinationDriveAssignmentLoads path does for a real batch.
+	firstPlanner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session)
+	if err != nil {
+		t.Fatalf("first operatorCapacityPlanner: %v", err)
+	}
+	if firstPlanner.MaxGoatsPerDrive != 200 {
+		t.Fatalf("first due-group planner cap = %d, want 200 (nothing reserved yet)", firstPlanner.MaxGoatsPerDrive)
+	}
+	first := []domain.DriveAssignment{{
+		BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1",
+		PhysicalShed: "Gandhi", PartitionLabel: "Part 1", AnimalCount: 190, CapacityStatus: "within_cap",
+	}}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		TenantID: "tenant-1", ScopeType: "park", ScopeID: "park-1", PlannedDate: &planned,
+	}, 200, first, session); err != nil {
+		t.Fatalf("first distribute: %v", err)
+	}
+
+	// Second due-group (sheep_pox_adult_w1), same park/date/session: only 10 animals of the single
+	// operator's 200 cap remain. The SELECTION cap must reflect that -- not the full 200 again.
+	secondPlanner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session)
+	if err != nil {
+		t.Fatalf("second operatorCapacityPlanner: %v", err)
+	}
+	if secondPlanner.MaxGoatsPerDrive != 10 {
+		t.Fatalf("second due-group planner cap = %d, want 10 (200 cap - 190 already reserved this session on the same operator/date); the second due-group's SELECTION step is not accounting for load reserved by the first due-group in this sweep, which is the root cause of the 2026-08-24 >200-unique-animal production bug", secondPlanner.MaxGoatsPerDrive)
+	}
+
+	secondCap, err := svc.effectiveOperatorAnimalCap(context.Background(), "tenant-1", "park-1", &planned, 200, session)
+	if err != nil {
+		t.Fatalf("effectiveOperatorAnimalCap: %v", err)
+	}
+	if secondCap != 10 {
+		t.Fatalf("effectiveOperatorAnimalCap = %d, want 10 (same cross-version session-load gap)", secondCap)
 	}
 }
 
@@ -79,6 +622,96 @@ func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
 	key := visitShotCountKey(due, "goat-1")
 	if session.visitShotCounts[key] != 1 {
 		t.Fatalf("shot count after no-op then attach = %d, want 1", session.visitShotCounts[key])
+	}
+}
+
+func TestSweeperAppliesVaccineDriveDateOverrideBeforeCapSelection(t *testing.T) {
+	original := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	postponed := original.AddDate(0, 0, 7)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"version-ppr": {
+				{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: original, WindowEnd: &postponed},
+			},
+		},
+		attachAll: true,
+		overrides: map[string]domain.VaccineDriveDateOverride{
+			"tenant-1|park-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+			"tenant-1|park-for-shed-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-for-shed-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	g := &dueGroup{
+		scopeType: "shed",
+		scopeID:   "shed-1",
+		ruleID:    "rule-ppr",
+		parkID:    "park-1",
+		ids:       []string{"obl-ppr"},
+		rows:      repo.rowsByVersion["version-ppr"],
+	}
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-ppr", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1},
+	}, domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1}, original, postponed, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if !batched || obligations != 1 || len(repo.createdBatches) != 1 || repo.createdBatches[0].PlannedDate == nil {
+		t.Fatalf("batched=%v obligations=%d batches=%#v", batched, obligations, repo.createdBatches)
+	}
+	if got := businessDate(*repo.createdBatches[0].PlannedDate); !got.Equal(businessDate(postponed)) {
+		t.Fatalf("planned date = %s, want override %s", got.Format("2006-01-02"), businessDate(postponed).Format("2006-01-02"))
+	}
+}
+
+func TestApplyUnbatchedDriveDateOverrideUsesTwoDayCloseoutWindow(t *testing.T) {
+	original := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	postponed := original.AddDate(0, 0, 7)
+	repo := &fakeSweepRepo{
+		overrides: map[string]domain.VaccineDriveDateOverride{
+			"tenant-1|park-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	rows, err := svc.applyUnbatchedDriveDateOverrides(context.Background(), "tenant-1", "park-1", "PPR", []domain.UnbatchedDue{
+		{ObligationID: "obl-ppr", TargetID: "goat-1", RuleID: "rule-ppr", ParkID: "park-1", DueAt: original, WindowEnd: ptrTime(original.AddDate(0, 0, 14)), BatchingHoldCount: 1, FirstBatchingHoldUntil: ptrTime(original.AddDate(0, 0, 7))},
+	})
+	if err != nil {
+		t.Fatalf("applyUnbatchedDriveDateOverrides: %v", err)
+	}
+	if len(rows) != 1 || rows[0].WindowStart == nil || rows[0].WindowEnd == nil {
+		t.Fatalf("rewritten rows = %#v, want one row with override window", rows)
+	}
+	if got := businessDate(rows[0].DueAt); !got.Equal(businessDate(postponed)) {
+		t.Fatalf("due date = %s, want override %s", got.Format("2006-01-02"), businessDate(postponed).Format("2006-01-02"))
+	}
+	if got := businessDate(*rows[0].WindowEnd); !got.Equal(businessDate(postponed).AddDate(0, 0, 1)) {
+		t.Fatalf("window end = %s, want override + 1 day", got.Format("2006-01-02"))
+	}
+	if rows[0].BatchingHoldCount != 0 || rows[0].FirstBatchingHoldUntil != nil {
+		t.Fatalf("hold metadata = count %d until %v, want cleared", rows[0].BatchingHoldCount, rows[0].FirstBatchingHoldUntil)
 	}
 }
 
@@ -556,11 +1189,8 @@ func TestSweepVersionWithSessionSharesShotCapAcrossVersions(t *testing.T) {
 	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
 		t.Fatalf("dates=%#v, want ET+TT and PPR both on 2026-07-01", dates)
 	}
-	if dates["obl-fmd"] == "2026-07-01" {
-		t.Fatalf("dates=%#v, want FMD overflowed off 2026-07-01 instead of a 3rd same-day shot", dates)
-	}
-	if dates["obl-fmd"] == "" {
-		t.Fatalf("dates=%#v, want FMD batched on a later safe date, not dropped", dates)
+	if dates["obl-fmd"] != "2026-07-15" {
+		t.Fatalf("dates=%#v, want FMD overflowed to 2026-07-15 after the 14-day live-to-killed gap", dates)
 	}
 }
 
@@ -1592,11 +2222,46 @@ type fakeSweepRepo struct {
 	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
+	upsertDriveAssignments    [][]domain.DriveAssignment
+	replaceDriveAssignments   [][]domain.DriveAssignment // recorded ReplaceVaccinationDriveAssignmentsForBatch calls, in order
+	replaceDriveBatchIDs      []string
+	overrides                 map[string]domain.VaccineDriveDateOverride
 }
 
 type fakeDateVisitShotLockerRepo struct {
 	*fakeSweepRepo
 	persisted map[string]int32
+}
+
+type fakeVaccinationOperatorListRepo struct {
+	*fakeSweepRepo
+	operators         []string
+	operatorCaps      map[string]int32
+	zeroCapOperators  map[string]bool
+	returnErr         error
+	operatorListCalls int
+}
+
+func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(_ context.Context, _, _ string, _ time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
+	f.operatorListCalls++
+	if f.returnErr != nil {
+		return nil, f.returnErr
+	}
+	out := make([]domain.DriveOperatorCapacity, 0, len(f.operators))
+	for _, operatorID := range f.operators {
+		cap := capPerOperator
+		if f.operatorCaps != nil && f.operatorCaps[operatorID] > 0 {
+			cap = f.operatorCaps[operatorID]
+		}
+		if f.zeroCapOperators != nil && f.zeroCapOperators[operatorID] {
+			// Mirrors the real repository query: Cap is GREATEST(daily_cap - loaded, 0), so an
+			// operator already fully loaded for the day is reported present with remaining Cap 0,
+			// never simply absent from the list.
+			cap = 0
+		}
+		out = append(out, domain.DriveOperatorCapacity{OperatorID: operatorID, Cap: cap})
+	}
+	return out, nil
 }
 
 func (f *fakeDateVisitShotLockerRepo) CountVisitShotsForTargets(_ context.Context, _ string, targetIDs []string, date time.Time) (map[string]int32, error) {
@@ -1616,6 +2281,17 @@ func (f *fakeDateVisitShotLockerRepo) LockVisitShots(ctx context.Context, tenant
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
+
+func (f *fakeSweepRepo) ActiveVaccinationDriveDateOverride(_ context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error) {
+	if f.overrides == nil {
+		return nil, nil
+	}
+	override, ok := f.overrides[tenantID+"|"+parkID+"|"+strings.ToLower(strings.TrimSpace(vaccineCode))+"|"+businessDate(originalDate).Format("2006-01-02")]
+	if !ok {
+		return nil, nil
+	}
+	return &override, nil
+}
 
 func (f *fakeSweepRepo) InsertObligation(context.Context, domain.NewObligation) (string, bool, error) {
 	return "", false, nil
@@ -1680,6 +2356,22 @@ func (f *fakeSweepRepo) CreateBatchWithObligationsReturningAttachedIDs(_ context
 		})
 	}
 	return batchID, attachedIDs, nil
+}
+
+// UpsertVaccinationDriveAssignments and ReplaceVaccinationDriveAssignmentsForBatch let sweeper
+// tests observe exactly what the production caller (batchDueGroup) persists for drive assignments
+// without needing Postgres: they record the call, mirroring the real repository's contract
+// (replace = delete-then-insert scoped to the batch; upsert = add/update only, never removes a
+// stale key). Tests assert against these recorded slices instead of a live DB.
+func (f *fakeSweepRepo) UpsertVaccinationDriveAssignments(_ context.Context, _ string, assignments []domain.DriveAssignment) error {
+	f.upsertDriveAssignments = append(f.upsertDriveAssignments, append([]domain.DriveAssignment(nil), assignments...))
+	return nil
+}
+
+func (f *fakeSweepRepo) ReplaceVaccinationDriveAssignmentsForBatch(_ context.Context, _, batchID string, assignments []domain.DriveAssignment) error {
+	f.replaceDriveBatchIDs = append(f.replaceDriveBatchIDs, batchID)
+	f.replaceDriveAssignments = append(f.replaceDriveAssignments, append([]domain.DriveAssignment(nil), assignments...))
+	return nil
 }
 
 func (f *fakeSweepRepo) removeAttachedObligations(ids []string) {
@@ -1906,6 +2598,10 @@ func (f *fakeSweepRepo) CancelOpenForGoat(context.Context, string, string, strin
 	return 0, nil
 }
 
+func (f *fakeSweepRepo) SyncPartitionMoveForGoat(context.Context, string, string, string, string, string) (int, error) {
+	return 0, nil
+}
+
 func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent) (string, bool, error) {
 	return "", false, nil
 }
@@ -2027,15 +2723,15 @@ func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
 }
 
-// TestLimitUnbatchedSelectionAllLastSafeExceedsCap: when every selected row is on its last safe
-// day, all are admitted even beyond the cap (legitimate last-safe overflow, VAXCAP-006).
-func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
+// TestLimitUnbatchedSelectionAllLastSafeStillRespectsCap: when every selected row is on its last
+// safe day, the operator-day cap is still hard.
+func TestLimitUnbatchedSelectionAllLastSafeStillRespectsCap(t *testing.T) {
 	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.UnbatchedDue{
 		{ObligationID: "obl-1", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
@@ -2045,8 +2741,375 @@ func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 1 || out[0] != "obl-1" {
+		t.Fatalf("admitted = %#v, want only the first last-safe row inside cap 1", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionRejectsPastWindowRideAlongOverflow(t *testing.T) {
+	now := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	tightEnd := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	looseEnd := time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-blue-tongue", TargetID: "goat-1", ParkID: "park-1", DueAt: time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC), WindowEnd: &tightEnd, BatchingHoldCount: 1},
+		{ObligationID: "obl-loose", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &looseEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitUnbatchedSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 1 || out[0] != "obl-loose" {
+		t.Fatalf("admitted = %#v, want only loose-window row; past-window blue_tongue must not ride 07-31 batch", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-ettt", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-ppr", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-goat-2", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 2
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 3 {
-		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionCarriesWholePartitionPastResidualCapacity(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := make([]domain.UnbatchedDue, 0, 42)
+	selected := make([]string, 0, 42)
+	for i := 0; i < 42; i++ {
+		id := fmt.Sprintf("obl-%02d", i+1)
+		rows = append(rows, domain.UnbatchedDue{
+			ObligationID: id,
+			RuleID:       "rule-fmd",
+			ScopeType:    "shed",
+			ScopeID:      "shed-gandhi",
+			ParkID:       "park-1",
+			TargetID:     fmt.Sprintf("goat-%02d", i+1),
+			ShedName:     "Gandhi 3",
+			DueAt:        planned,
+			WindowEnd:    &movableEnd,
+		})
+		selected = append(selected, id)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 4
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, selected, &planned, planner, 200, NewSweepSession())
+	if len(out) != 0 {
+		t.Fatalf("admitted = %#v, want no 4-animal fragment from Gandhi Part 3", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionOnlySplitsPartitionLargerThanCap(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := make([]domain.UnbatchedDue, 0, 6)
+	selected := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		id := fmt.Sprintf("obl-oversized-%02d", i+1)
+		rows = append(rows, domain.UnbatchedDue{
+			ObligationID: id,
+			RuleID:       "rule-fmd",
+			ScopeType:    "shed",
+			ScopeID:      "shed-gandhi",
+			ParkID:       "park-1",
+			TargetID:     fmt.Sprintf("goat-oversized-%02d", i+1),
+			ShedName:     "Gandhi 3",
+			DueAt:        planned,
+			WindowEnd:    &movableEnd,
+		})
+		selected = append(selected, id)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 4
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, selected, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 4 {
+		t.Fatalf("admitted = %#v, want 4 rows only because the partition itself exceeds cap 4", out)
+	}
+}
+
+// TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs tests that drive assignments
+// are rebuilt to scope ONLY the obligations that actually attached to the batch.
+// This is a regression test for Bug #2: partial-attach ledger overcount.
+// TestBatchDueGroupPartialAttachDoesNotPersistStaleDriveAssignmentForUnattachedShed reproduces the
+// REAL F2 production path end to end via batchDueGroup (not the isolated driveAssignmentsForUnbatched
+// helper the old test below only exercised): 2 selected obligations in DIFFERENT sheds/partitions of
+// the same park; only 1 (obl-1, shed "Gandhi 1") attaches, obl-2 (shed "Godel 2") does not. Before the
+// F2 fix, newBatch.DriveAssignments was built from BOTH sheds and handed to the create call BEFORE
+// attachedIDs was known, so the repository's create-tx upsert would persist a row for the unattached
+// shed too. After the fix: (1) the create call must carry NO drive assignments (the unfiltered
+// pre-attach set must never reach it), and (2) the final persisted set -- via a REPLACE scoped to
+// (tenant, batch) -- must contain exactly one assignment, for the attached shed only.
+func TestBatchDueGroupPartialAttachDoesNotPersistStaleDriveAssignmentForUnattachedShed(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-gandhi-1", ParkID: "park-1", TargetID: "goat-1", ShedName: "Gandhi 1", DueAt: planned},
+		{ObligationID: "obl-2", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-godel-2", ParkID: "park-1", TargetID: "goat-2", ShedName: "Godel 2", DueAt: planned},
+	}
+	repo := &fakeSweepRepo{createBatchID: "batch-1", createBatchAttached: 1} // only the first id (obl-1) attaches
+	svc := NewSweeperService(repo, nil, nil)
+	g := &dueGroup{
+		scopeType: "shed",
+		scopeID:   "shed-gandhi-1",
+		ruleID:    "rule-ppr",
+		parkID:    "park-1",
+		ids:       []string{"obl-1", "obl-2"},
+		rows:      rows,
+	}
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1}
+
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-ppr", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: planner,
+	}, planner, planned, planned, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if !batched || obligations != 1 {
+		t.Fatalf("batched=%v obligations=%d, want batched=true obligations=1 (only obl-1 attaches)", batched, obligations)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("createdBatches = %d, want 1", len(repo.createdBatches))
+	}
+	// Root-cause assertion: the create call must never carry the unfiltered pre-attach assignment
+	// set. Before the fix this held 2 assignments (Gandhi 1 AND Godel 2).
+	if got := repo.createdBatches[0].DriveAssignments; len(got) != 0 {
+		t.Fatalf("create-call DriveAssignments = %#v, want empty -- the pre-attach set must never reach the create path", got)
+	}
+	// The final replace-scoped write must persist exactly the attached shed, nothing else.
+	if len(repo.replaceDriveAssignments) != 1 {
+		t.Fatalf("replaceDriveAssignments calls = %d, want exactly 1 replace-scoped write", len(repo.replaceDriveAssignments))
+	}
+	final := repo.replaceDriveAssignments[0]
+	if len(final) != 1 {
+		t.Fatalf("final persisted assignment set = %#v, want exactly 1 (attached shed only)", final)
+	}
+	if final[0].PhysicalShed != "Gandhi" || final[0].PartitionLabel != "1" {
+		t.Fatalf("final persisted assignment = %#v, want physical_shed=Gandhi partition=1 (obl-1's shed), not the unattached Godel/2 shed", final[0])
+	}
+	if final[0].AnimalCount != 1 {
+		t.Fatalf("final persisted assignment animal_count = %d, want 1", final[0].AnimalCount)
+	}
+	// Never any leftover legacy upsert-only call for this batch either.
+	if len(repo.upsertDriveAssignments) != 0 {
+		t.Fatalf("upsertDriveAssignments calls = %#v, want none -- the replace path must be used, not the legacy upsert-only writer", repo.upsertDriveAssignments)
+	}
+}
+
+func TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs(t *testing.T) {
+	// Setup: 2 selected obligations, but only 1 attaches.
+	// Build assignments from all selected (both), then scope to only attached (1).
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	selectedRows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", TargetID: "goat-1", ParkID: "park-1", ShedName: "shed-a", RuleID: "rule-1"},
+		{ObligationID: "obl-2", TargetID: "goat-2", ParkID: "park-1", ShedName: "shed-a", RuleID: "rule-1"},
+	}
+	attachedIDs := []string{"obl-1"} // Only obl-1 attaches; obl-2 rejected
+
+	// Initial: build assignments from all selectedRows (would include both animals before scoping)
+	newBatch := domain.NewBatch{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		ScopeType:         "park",
+		ScopeID:           "park-1",
+		PlannedDate:       &planned,
+	}
+	allAssignments := driveAssignmentsForUnbatched("batch-id-full", newBatch, selectedRows)
+	if len(allAssignments) != 1 {
+		t.Fatalf("allAssignments count = %d, want 1 (one park/shed partition)", len(allAssignments))
+	}
+	if allAssignments[0].AnimalCount != 2 {
+		t.Fatalf("allAssignments animal count = %d, want 2 (both goats before scoping)", allAssignments[0].AnimalCount)
+	}
+
+	// FIX: scope to only attached obligations
+	attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
+	scopedAssignments := driveAssignmentsForUnbatched("batch-id-scoped", newBatch, attachedRows)
+
+	// Verify: only 1 animal (for obl-1), not 2 (for both obl-1 and obl-2)
+	if len(scopedAssignments) != 1 {
+		t.Fatalf("scopedAssignments count = %d, want 1", len(scopedAssignments))
+	}
+	if scopedAssignments[0].AnimalCount != 1 {
+		t.Fatalf("scopedAssignments animal count = %d, want 1 (only obl-1's goat after scoping to attached)", scopedAssignments[0].AnimalCount)
+	}
+
+	// Verify batch ID was updated
+	if scopedAssignments[0].BatchID != "batch-id-scoped" {
+		t.Fatalf("scopedAssignments BatchID = %s, want batch-id-scoped", scopedAssignments[0].BatchID)
+	}
+}
+
+// P1 fail-closed leak (Codex): preflight.selectBestUnbatchedDriveDateWithVisitCap probe loop
+// (line ~306-310) calls operatorCapacityPlanner then lockAndRefreshDriveCapacity WITHOUT
+// checking driveOperatorCapacityExhausted, so cap 0 (exhausted) is treated as "uncapped/do not limit",
+// admitting all animals onto a no-operator day. This test reproduces that leak and asserts the fix
+// properly skips the day (admits nothing).
+func TestPreflightProbeLoopFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-test": {
+					{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned, WindowEnd: &winEnd},
+					{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-2", DueAt: planned, WindowEnd: &winEnd},
+				},
+			},
+			attachAll: true,
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty, // Config present but zero operators
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:                   true,
+		MaxGoatsPerDrive:          200, // Cap configured
+		MaxShotsPerAnimalPerDrive: 10,
+	}
+
+	// Preflight: this should NOT find and lock a best date if all dates have no-operator exhaustion.
+	// Before fix: selects obl-1 + obl-2 on planned date (cap 0 treated as unbounded → admits all).
+	// After fix: no selection (date skipped on driveOperatorCapacityExhausted check).
+	session := NewSweepSession()
+	_, selectedIDs, _, err := svc.preflightBestUnbatchedDriveDateWithVisitCap(
+		context.Background(),
+		"tenant-1", planned, repo.rowsByVersion["v-test"],
+		[]string{"goat-1", "goat-2"},
+		&planned,
+		planner,
+		RuleVaccineIdentity{VaccineCode: "Test Vaccine", VaccinePriority: 1},
+		1, // cellsPerObligation
+		session,
+	)
+	if err != nil {
+		t.Fatalf("preflightBestUnbatchedDriveDateWithVisitCap: %v", err)
+	}
+	// When operators are exhausted on all feasible dates, selectedIDs must be empty (no animals selected).
+	// The function may return plannedDate (as a reference point), but selectedIDs should be nil/empty to signal
+	// that no animals can be admitted.
+	if len(selectedIDs) != 0 {
+		t.Fatalf("leak: selectedIDs=%v, want empty (operators exhausted, must admit nothing)", selectedIDs)
+	}
+}
+
+// P1 fail-closed leak (Codex): preflight chosen-best-date path (line ~343-347) same pattern as probe loop.
+func TestPreflightBestDateFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	// Setup identical to probe test, but no other feasible dates so the best-date re-evaluation fires.
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC) // Same day, no overflow window
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-test": {
+					{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned, WindowEnd: &winEnd},
+				},
+			},
+			attachAll: true,
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:                   true,
+		MaxGoatsPerDrive:          200,
+		MaxShotsPerAnimalPerDrive: 10,
+	}
+
+	session := NewSweepSession()
+	_, selectedIDs, _, err := svc.preflightBestUnbatchedDriveDateWithVisitCap(
+		context.Background(),
+		"tenant-1", planned, repo.rowsByVersion["v-test"],
+		[]string{"goat-1"},
+		&planned,
+		planner,
+		RuleVaccineIdentity{VaccineCode: "Test Vaccine", VaccinePriority: 1},
+		1,
+		session,
+	)
+	if err != nil {
+		t.Fatalf("preflightBestUnbatchedDriveDateWithVisitCap: %v", err)
+	}
+	// When operators are exhausted on all feasible dates (including the only feasible date),
+	// selectedIDs must be empty to signal that no animals can be admitted.
+	if len(selectedIDs) != 0 {
+		t.Fatalf("leak: selectedIDs=%v, want empty (operators exhausted on only feasible date)", selectedIDs)
+	}
+}
+
+// P1 fail-closed leak (Codex): park_consolidation.parkMergeStep (line ~142) and selectBestParkDriveDateWithCapacity
+// (line ~519) call operatorCapacityPlanner then lockAndRefreshDriveCapacity WITHOUT driveOperatorCapacityExhausted check.
+func TestParkConsolidationFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			parkRows: []domain.ParkConsolidationCandidate{
+				{
+					ObligationID:      "obl-park-1",
+					RuleID:            "rule-1",
+					TargetID:          "goat-1",
+					ParkID:            "park-1",
+					ShedName:          "shed-a",
+					TargetSpecies:     "goat",
+					TargetAnimalStage: "kid",
+					DueAt:             planned,
+				},
+				{
+					ObligationID:      "obl-park-2",
+					RuleID:            "rule-1",
+					TargetID:          "goat-2",
+					ParkID:            "park-1",
+					ShedName:          "shed-a",
+					TargetSpecies:     "goat",
+					TargetAnimalStage: "kid",
+					DueAt:             planned,
+				},
+			},
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty, // Config present, zero operators
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:          true,
+		MaxGoatsPerDrive: 200,
+	}
+	cfg := SweepConfig{
+		VaccineCode:  "Test Vaccine",
+		DrivePlanner: planner,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-1": {DosesPerGoat: 1},
+		},
+		ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinParkMergeTargets: 1,
+		},
+	}
+
+	// Park consolidation should NOT admit animals when operators are exhausted.
+	result, err := svc.consolidateParkDrivesWithVisitCounts(
+		context.Background(),
+		"tenant-1", "version-1", cfg,
+		time.Time{}, planned,
+		planner,
+		NewSweepSession(),
+		time.Time{},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("consolidateParkDrivesWithVisitCounts: %v", err)
+	}
+	if result.ParkBatches != 0 || result.ParkObligations != 0 {
+		t.Fatalf("leak: park result=%#v, want 0 batches/obligations (operators exhausted, must skip day)", result)
 	}
 }

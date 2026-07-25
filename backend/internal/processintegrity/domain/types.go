@@ -98,6 +98,16 @@ const (
 	VerificationStateRejected VerificationState = "rejected"
 )
 
+type DriveCapacityState string
+
+const (
+	DriveCapacityStateNotPlanned           DriveCapacityState = "not_planned"
+	DriveCapacityStateWithinCap            DriveCapacityState = "within_cap"
+	DriveCapacityStateOverCapRequired      DriveCapacityState = "over_cap_required"
+	DriveCapacityStateMedicalDefer         DriveCapacityState = "medical_defer"
+	DriveCapacityStateTerminalAnimalClosed DriveCapacityState = "terminal_animal_closed"
+)
+
 type Owner struct {
 	OperatorID          *string `json:"operator_id,omitempty"`
 	OperatorName        *string `json:"operator_name,omitempty"`
@@ -153,6 +163,14 @@ type Row struct {
 	WindowStart   *time.Time `json:"window_start,omitempty"`
 	WindowEnd     *time.Time `json:"window_end,omitempty"`
 	ExpectedCount int        `json:"expected_count"`
+
+	DriveCapacityState      DriveCapacityState `json:"drive_capacity_state,omitempty"`
+	DriveAnimalsRequired    int                `json:"drive_animals_required,omitempty"`
+	DriveAnimalsAssigned    int                `json:"drive_animals_assigned,omitempty"`
+	DriveOperatorCap        int                `json:"drive_operator_cap,omitempty"`
+	DriveAvailableOperators int                `json:"drive_available_operators,omitempty"`
+	DriveLatestSafeDate     *time.Time         `json:"drive_latest_safe_date,omitempty"`
+	DriveMedicalDeferReason *string            `json:"drive_medical_defer_reason,omitempty"`
 
 	ObligationStatus  string            `json:"obligation_status"`
 	BatchStatus       *string           `json:"batch_status,omitempty"`
@@ -246,15 +264,22 @@ type AdherenceSummary struct {
 }
 
 type AdherenceRow struct {
-	RowID      string    `json:"row_id"`
-	Expected   string    `json:"expected"`
-	Actual     string    `json:"actual"`
-	Gap        string    `json:"gap"`
-	Severity   Severity  `json:"severity"`
-	Owner      Owner     `json:"owner"`
-	NextAction string    `json:"next_action"`
-	Evidence   Evidence  `json:"evidence"`
-	WorkState  WorkState `json:"work_state"`
+	RowID                   string             `json:"row_id"`
+	Expected                string             `json:"expected"`
+	Actual                  string             `json:"actual"`
+	Gap                     string             `json:"gap"`
+	Severity                Severity           `json:"severity"`
+	Owner                   Owner              `json:"owner"`
+	NextAction              string             `json:"next_action"`
+	Evidence                Evidence           `json:"evidence"`
+	WorkState               WorkState          `json:"work_state"`
+	DriveCapacityState      DriveCapacityState `json:"drive_capacity_state,omitempty"`
+	DriveAnimalsRequired    int                `json:"drive_animals_required,omitempty"`
+	DriveAnimalsAssigned    int                `json:"drive_animals_assigned,omitempty"`
+	DriveOperatorCap        int                `json:"drive_operator_cap,omitempty"`
+	DriveAvailableOperators int                `json:"drive_available_operators,omitempty"`
+	DriveLatestSafeDate     *time.Time         `json:"drive_latest_safe_date,omitempty"`
+	DriveMedicalDeferReason *string            `json:"drive_medical_defer_reason,omitempty"`
 }
 
 type ProtocolAdherenceResponse struct {
@@ -276,19 +301,26 @@ type ControlTowerSummary struct {
 }
 
 type ControlTowerAlert struct {
-	RowID        string    `json:"row_id"`
-	Severity     Severity  `json:"severity"`
-	WorkState    WorkState `json:"work_state"`
-	Title        string    `json:"title"`
-	Detail       string    `json:"detail"`
-	ParkID       string    `json:"park_id"`
-	ParkName     string    `json:"park_name"`
-	ShedID       string    `json:"shed_id"`
-	ShedName     string    `json:"shed_name"`
-	DriveName    *string   `json:"drive_name,omitempty"`
-	Owner        Owner     `json:"owner"`
-	NextAction   string    `json:"next_action"`
-	EvidenceLink string    `json:"evidence_link"`
+	RowID                   string             `json:"row_id"`
+	Severity                Severity           `json:"severity"`
+	WorkState               WorkState          `json:"work_state"`
+	Title                   string             `json:"title"`
+	Detail                  string             `json:"detail"`
+	ParkID                  string             `json:"park_id"`
+	ParkName                string             `json:"park_name"`
+	ShedID                  string             `json:"shed_id"`
+	ShedName                string             `json:"shed_name"`
+	DriveName               *string            `json:"drive_name,omitempty"`
+	Owner                   Owner              `json:"owner"`
+	NextAction              string             `json:"next_action"`
+	EvidenceLink            string             `json:"evidence_link"`
+	DriveCapacityState      DriveCapacityState `json:"drive_capacity_state,omitempty"`
+	DriveAnimalsRequired    int                `json:"drive_animals_required,omitempty"`
+	DriveAnimalsAssigned    int                `json:"drive_animals_assigned,omitempty"`
+	DriveOperatorCap        int                `json:"drive_operator_cap,omitempty"`
+	DriveAvailableOperators int                `json:"drive_available_operators,omitempty"`
+	DriveLatestSafeDate     *time.Time         `json:"drive_latest_safe_date,omitempty"`
+	DriveMedicalDeferReason *string            `json:"drive_medical_defer_reason,omitempty"`
 	// ObligationID lets the mobile app target a real obligation for the "reschedule this obligation"
 	// write path (POST /app/vaccination/obligations/{obligation_id}/reschedule). Propagated straight
 	// from Row.ObligationID, which is always populated (selected as a non-nullable oi.obligation_id

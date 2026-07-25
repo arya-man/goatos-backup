@@ -1,3 +1,9 @@
+// Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// (migrations 000024-000027) to load and validate vaccination source data.
+// Coupling review 2026-07-25: migration 000045 adds a nullable
+// vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture
+// seeds no override (sweeper falls back to rule_dsl/default), so its data and hashes are
+// unchanged; the loader/validator needs no new field handling.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,6 +23,130 @@ export const SEED_SOURCE_POLICY_PATH = fileURLToPath(new URL("../../contracts/va
 const seedSourcePolicyBytes = fs.readFileSync(SEED_SOURCE_POLICY_PATH);
 export const SEED_SOURCE_POLICY = JSON.parse(seedSourcePolicyBytes.toString("utf8"));
 export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seedSourcePolicyBytes).digest("hex");
+
+// Vaccination drive assignments are generated planner output, not another source file:
+// they must be derived from validated animals/vaccination rows plus timetable-backed
+// operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
+export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
+export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+// Accepted source history is canonical for one-time vaccine rules. If kernel
+// generation emits an active obligation for the same goat/rule after the seed
+// imports accepted completion history, the seed must supersede that active row
+// and keep the accepted completion visible as goat history.
+export const ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS = true;
+// An operator-drive rehearsal source may ship an authoritative operator-roster
+// contract (cpt-operator-roster.json). When present it is the source of truth
+// for that park's field capacity: seed-roster-real recasts the resolved seats
+// into equal per-person vaccination_operator_<name> positions (manager tier,
+// not a backup slot) with contract-owned week-offs, instead of the generic
+// jun-26 PC-manager/backup/park-head trio. The generic timetable model still
+// governs every other center/source that ships no such contract.
+export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
+export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
+// CPT-only operator-roster bundles must be able to start from a clean migrated
+// local/dev DB: seed-roster-real resolves only centers present in the source
+// bundle and may create that required park row before member/position import.
+export const OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY = true;
+export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
+export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
+export const OPERATOR_SHIFT_LABEL_FIELD = "shift_label";
+export const OPERATOR_SHIFT_START_MINUTE_FIELD = "shift_start_minute";
+export const OPERATOR_SHIFT_END_MINUTE_FIELD = "shift_end_minute";
+export const OPERATOR_ASSIGNMENT_CONFIG_ACTIVE_OPERATORS_FIELD = "active_operators_per_day";
+export const OPERATOR_ASSIGNMENT_CONFIG_DEFAULT_OPERATOR_FIELD = "default_operator_code";
+export const OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED = true;
+export const OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY = true;
+// Minutes-of-day are 0..1439 on BOTH bounds, for start AND end. The DB CHECK in
+// 000035_vaccination_operator_assignment_config.sql and the domain validator in
+// vaccinationexecution/domain/operator_assignment.go both use that range; the
+// source validator previously accepted 1..1440 for the end minute, so a
+// source-valid 1440 passed preflight and then failed at the seed boundary while
+// an invalid 0 was rejected at preflight and accepted downstream (BUG-011).
+export const OPERATOR_SHIFT_MINUTE_MIN = 0;
+export const OPERATOR_SHIFT_MINUTE_MAX_EXCLUSIVE = 1440;
+export const OPERATOR_SHIFT_MINUTES_ARE_SAME_RANGE_AT_SOURCE_DB_AND_DOMAIN = true;
+// The operator-roster contract is a loader contract, not just a data file:
+// backend/cmd/seed-roster-real decodes cpt-operator-roster.json with
+// DisallowUnknownFields, so a declared block with no consuming struct field is a
+// hard, named failure instead of an encoding/json silent drop (BUG-024). Any new
+// block added to the contract must be consumed by the seeder in the same change.
+export const OPERATOR_ROSTER_LOADER_REJECTS_UNKNOWN_BLOCKS = true;
+// Blocks the seeder now genuinely consumes (previously parsed and discarded):
+// `directors[]` seeds monitoring-only workforce_members with NO workforce_positions
+// row — zero vaccination_daily_animal_cap, zero shift config, zero field capacity,
+// asserted rather than assumed; `leadership_full_access` seeds tenant-scoped
+// auth_pending_email_grants through the same path as seed-dev-email-grants, so a
+// park-only rehearsal reseed produces its own CEO/CXO grants.
+export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
+export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
+export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+export const OPERATOR_ROSTER_VERIFIERS_FIELD = "verifiers";
+export const OPERATOR_ROSTER_VERIFIER_ROLE = "verifier";
+export const OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
+// A vaccination operator's app designation is its EXECUTION capability, not its HR
+// capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
+// vaccination_operator_<name> position for capacity/roster, and a person may also
+// hold a higher-ranked June seat (e.g. park_head). deriveRoleHint must still emit
+// primary_role_hint="operator" for anyone holding an active vaccination_operator_*
+// position, overriding tier/bestCode — otherwise the mobile scan gate
+// (operatorAllowed = primary_role_hint == "operator") silently drops every scan for
+// a field executor mislabelled supervisor/park_head (the Amit/Darshan/Sagar STG
+// incident). Capacity tier "manager" is NOT a role and never a non-operator hint.
+export const OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT = true;
+// The same CPT operator-roster contract also owns Android field-login setup
+// after DB seed: every executable vaccination operator must have a distinct
+// email/password identity derived from operators[].email_hint. Shared operator
+// logins, shared passwords, founder/CXO logins for field execution, and
+// plaintext passwords in git are invalid seed evidence.
+export const OPERATOR_ANDROID_LOGIN_CONTRACT_FIELD = "operator_android_login";
+export const OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ANDROID_LOGIN_EMAIL_FIELD = "operators[].email_hint";
+export const OPERATOR_ANDROID_SHARED_PASSWORD_FORBIDDEN = true;
+// CPT operator-drive materialization must emit reviewed shed-manager mapping
+// rows from cpt-operator-roster.json, not a header-only placeholder. Darshan is
+// the default reviewed shed/drive owner and Sagar is the reviewed backup for
+// every active CPT physical shed in that packet.
+export const OPERATOR_ROSTER_MATERIALIZES_REVIEWED_SHED_OWNERS = true;
+export const CPT_OPERATOR_ROSTER_DEFAULT_SHED_OWNER = "vaccination_operator_darshan";
+export const CPT_OPERATOR_ROSTER_BACKUP_SHED_OWNER = "vaccination_operator_sagar";
+// Completed accepted vaccination history is still drive work evidence: shed
+// summary/operator reads must resolve it through the scheduler default operator
+// when no open vaccination_drive_assignments row remains.
+export const ACCEPTED_COMPLETED_HISTORY_RESOLVES_DEFAULT_OPERATOR = true;
+// A reseed proof is only valid from an origin/main-identical, clean checkout:
+// `make seed-checkout-staleness-gate` runs read-only BEFORE any DB mutation in
+// both seed targets and fails closed (BUG-023). GOATOS_ALLOW_STALE_SEED_CHECKOUT=1
+// is a loud throwaway-experiment escape hatch and voids the proof.
+export const SEED_CHECKOUT_STALENESS_GATE_TARGET = "seed-checkout-staleness-gate";
+// Documented expected-drive-schedule comparison is now executable: seed-closeout
+// runs the packet's check-expected-drive-schedules.mjs against real DB rows when
+// GOATOS_EXPECTED_DRIVE_SCHEDULES points at the packet expectation file (BUG-010).
+export const EXPECTED_DRIVE_SCHEDULE_PROOF_ENV = "GOATOS_EXPECTED_DRIVE_SCHEDULES";
+export const EXPECTED_DRIVE_SCHEDULE_PROOF_IS_EXECUTED_IN_SEED_CLOSEOUT = true;
+export const HEALTH_CASE_LOG_NORMALIZATION = Object.freeze({
+  Open: "sick",
+  Extended: "under_treatment",
+  Closed: "healthy",
+  Fine: "healthy",
+});
+export const CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING = true;
+export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
+  "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
+export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
+  "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
+
+function normalizeShedName(raw) {
+  const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!name) return { physical: "", partition: "whole" };
+  const partMatch = /^(.*?)\s*-\s*Part\s+(\d+)$/i.exec(name);
+  if (partMatch) return { physical: partMatch[1].trim(), partition: `Part ${partMatch[2]}` };
+  const numberMatch = /^(.*?)\s+(\d+)$/.exec(name);
+  if (numberMatch) return { physical: numberMatch[1].trim(), partition: numberMatch[2] };
+  return { physical: name, partition: "whole" };
+}
 
 export const VACCINE_COLUMNS = SEED_SOURCE_POLICY.source_columns.map((column) => ({
   index: column.index,
@@ -181,15 +311,20 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.minimum_migration === "000008", "manifest.minimum_migration must be 000008", problems);
   expect(manifest.contracts?.source_policy_sha256 === SEED_SOURCE_POLICY_SHA256, "manifest source policy digest differs from contracts/vaccination-seed-source-policy.json", problems);
   expect(manifest.contracts?.vaccination_sop_code === "vaccination.drive", "manifest must bind vaccination.drive SOP", problems);
-  expect(manifest.contracts?.video_proof_subject_scope === "goat", "manifest video proof must be per goat", problems);
-  expect(manifest.contracts?.video_capture_source === "in_app_camera", "manifest video proof must use in_app_camera", problems);
-  expect(manifest.contracts?.minimum_video_count_per_goat === 1, "manifest must require at least one video per goat", problems);
-  expect(manifest.contracts?.maximum_video_count_per_goat === 5, "manifest must allow at most five videos per goat", problems);
+  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video so seed, SOP, Android, and verifier all use one-to-five shed videos instead of per-goat videos", problems);
+  expect(manifest.contracts?.video_proof_subject_scope === "shed", "manifest video proof subject must be shed", problems);
+  expect(Array.isArray(manifest.contracts?.video_capture_sources) && manifest.contracts.video_capture_sources.includes("in_app_camera") && manifest.contracts.video_capture_sources.includes("gallery_picker"), "manifest shed video proof must allow camera and gallery picker", problems);
+  expect(manifest.contracts?.minimum_video_count_per_shed === 1, "manifest must require at least one video per shed", problems);
+  expect(manifest.contracts?.maximum_video_count_per_shed === 5, "manifest must allow at most five videos per shed", problems);
   expect(manifest.contracts?.verifier_approval_required === true, "manifest must require verifier approval", problems);
   expect(manifest.contracts?.shed_completion === "acknowledgement_only", "shed completion must be acknowledgement_only", problems);
   expect(manifest.contracts?.local_trigger_primary_rfid_fixture === "CBE-RFID-0001", "manifest must bind the local trigger primary RFID fixture used by emulator scan E2E", problems);
   expect(manifest.contracts?.protocol_route_site === "subcutaneous", "manifest must bind vaccination matrix route_site=subcutaneous", problems);
   expect(manifest.contracts?.protocol_route_site_is_not_operator_form_field === true, "manifest route_site must remain protocol metadata, not an operator form field", problems);
+  expect(JSON.stringify(manifest.contracts?.health_case_log_normalization ?? {}) === JSON.stringify(HEALTH_CASE_LOG_NORMALIZATION), "manifest must bind health case-log normalization: Open->sick, Extended->under_treatment, Closed->healthy, Fine->healthy", problems);
+  expect(manifest.contracts?.closed_health_case_is_resolved_not_recovering === CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING, "manifest must state Closed health cases are resolved/healthy, never recovering", problems);
+  expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
+  expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
 
   if (checkHashes) {
     for (const file of REQUIRED_DATA_FILES) {
@@ -221,7 +356,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(rfid && !goatByRFID.has(rfid), `goats row ${sourceRow}: duplicate or blank RFID ${rfid}`, problems);
     goatByRFID.set(rfid, row);
     const farm = cell(row, goatColumns, "farm");
-    const shed = cell(row, goatColumns, "shed");
+    const shed = normalizeShedName(cell(row, goatColumns, "shed")).physical;
     shedCounts.set(`${farm}\0${shed}`, (shedCounts.get(`${farm}\0${shed}`) ?? 0) + 1);
 
     const species = cell(row, goatColumns, "species").toLowerCase();
@@ -366,10 +501,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
       expect(rosterByCenterPosition.has(`${center}\0${position}`), `missing ${center} ${position}`, problems);
     }
   }
+  // The full source fixture keeps the original timetable seat names. CPT-only
+  // vaccination rehearsal seeds must map those reviewed CPT seats to equal
+  // manager-tier vaccination operators: Amit Friday off, Darshan Sunday off,
+  // Sagar Saturday off.
 
   const managerHeader = headerMap(bundle.shedManagers[0] ?? []);
-  const managerSheds = new Set();
-  let mappedGoats = 0;
+  const managerSheds = new Map();
   for (let index = 1; index < bundle.shedManagers.length; index += 1) {
     const row = bundle.shedManagers[index];
     const park = cell(row, managerHeader, "park_code");
@@ -379,9 +517,10 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     const backupCode = cell(row, managerHeader, "backup_manager_code");
     const needsReview = cell(row, managerHeader, "needs_review").toLowerCase();
     const count = Number(cell(row, managerHeader, "goat_count"));
-    const key = `${park}\0${shedName}`;
-    expect(!managerSheds.has(key), `duplicate shed manager row ${park}/${shedName}`, problems);
-    managerSheds.add(key);
+    const normalizedShed = normalizeShedName(shedName);
+    const key = `${park}\0${normalizedShed.physical}`;
+    const aggregate = managerSheds.get(key) ?? { count: 0, managerCode, backupCode };
+    expect(aggregate.managerCode === managerCode && aggregate.backupCode === backupCode, `shed manager row ${index + 1}: partition manager mismatch for ${park}/${normalizedShed.physical}`, problems);
     expect(Boolean(shedCode), `shed manager row ${index + 1}: blank shed_code`, problems);
     expect(staffCodes.has(managerCode), `shed manager row ${index + 1}: unknown manager ${managerCode}`, problems);
     expect(staffCodes.has(backupCode), `shed manager row ${index + 1}: unknown backup ${backupCode}`, problems);
@@ -393,9 +532,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(cell(row, managerHeader, "manager_name") === managerSeat?.candidate, `shed manager row ${index + 1}: manager name/code mismatch`, problems);
     expect(cell(row, managerHeader, "backup_manager_name") === backupSeat?.candidate, `shed manager row ${index + 1}: backup name/code mismatch`, problems);
     expect(needsReview === "false", `shed manager row ${index + 1}: needs_review must be false`, problems);
-    expect(shedCounts.get(key) === count, `shed manager row ${index + 1}: goat_count mismatch for ${park}/${shedName}`, problems);
-    mappedGoats += count;
+    aggregate.count += Number.isFinite(count) ? count : 0;
+    managerSheds.set(key, aggregate);
   }
+  for (const [key, aggregate] of managerSheds.entries()) {
+    expect(shedCounts.get(key) === aggregate.count, `shed manager aggregate goat_count mismatch for ${key.replace("\0", "/")}`, problems);
+  }
+  const mappedGoats = [...managerSheds.values()].reduce((sum, aggregate) => sum + aggregate.count, 0);
   expect(managerSheds.size === shedCounts.size, `shed manager coverage ${managerSheds.size}/${shedCounts.size}`, problems);
   expect(mappedGoats === goatByRFID.size, `shed manager goat total ${mappedGoats}/${goatByRFID.size}`, problems);
 
@@ -428,3 +571,40 @@ export function updateManifestHashes(directory, manifest) {
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+
+// 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
+
+// Coupling review 2026-07-24 (BUG-009/010/011/023/024): the seed pipeline gained
+// `make seed-vaccination-cpt-operator-drive` (executable CPT rehearsal chain), the
+// read-only `seed-checkout-staleness-gate` ahead of every DB write, an executed
+// expected-drive-schedule proof inside seed-closeout, DisallowUnknownFields on the
+// operator-roster loader, newly consumed `directors` / `leadership_full_access`
+// blocks, and a shift end-minute range corrected to 0..1439. None of it changes the
+// committed jun-26 fixture bytes: that bundle ships no cpt-operator-roster.json, so
+// the loader/contract changes are a no-op for it and every manifest hash, row count,
+// and correction-ledger entry is unchanged. Recorded in
+// fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+
+// Coupling review 2026-07-24 (CPT no-PPR 2026 seed): the CPT operator-drive
+// Makefile target may publish a packet-scoped rule subset without PPR. The
+// canonical source fixture and validator still preserve PPR history mapping.
+
+// Coupling review 2026-07-24/25: CPT adult campaign grouping and
+// seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
+// cpt-operator-roster.json. Adult entry_date is never a vaccination due-date
+// anchor; adult blank-history rows are campaign/catch-up cohort work by physical
+// shed/partition. The committed full fixture has no such contract file, so raw
+// fixture bytes and manifest hashes remain unchanged.
+
+// Coupling review 2026-07-25: adult non-repeating physical-partition campaign
+// obligations are generation-idempotent at campaign grain. Replaying with a
+// corrected as-of date may realign unbatched derived obligations, but this
+// fixture library's raw source hashes/counts remain unchanged.
+
+// Coupling review 2026-07-25: CPT operator-roster verifiers are auth/workflow
+// reviewers only. They seed pending Firebase email-password verifier grants and
+// must never become vaccination operators, shift seats, or animal-capacity rows.
+// Coupling review 2026-07-25: selected_operator_ids is admin-authored runtime
+// assignment config over seeded operators. The committed full fixture has no
+// cpt-operator-roster.json, so fixture bytes/hashes and loader semantics remain
+// unchanged.

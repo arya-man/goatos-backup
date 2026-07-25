@@ -684,6 +684,29 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     for (const label of ["Planned sessions", "Vaccine breakdown", "Animals in shed"]) {
       await page.getByText(label, { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
     }
+    const shedOverviewMetrics = await page.getByText("Shed overview", { exact: true }).first().evaluate((heading) => {
+      const card = heading.closest("section.card");
+      if (!(card instanceof HTMLElement)) throw new Error("Shed overview heading is not inside a card");
+      const grid = card.querySelector(".shed-overview-grid");
+      const stats = card.querySelector(".shed-overview-stats");
+      const owners = card.querySelector(".shed-overview-owners");
+      if (!(grid instanceof HTMLElement) || !(stats instanceof HTMLElement) || !(owners instanceof HTMLElement)) {
+        throw new Error("Shed overview card is missing its compact grid layout");
+      }
+      return {
+        cardWidth: Math.round(card.getBoundingClientRect().width),
+        gridWidth: Math.round(grid.getBoundingClientRect().width),
+        statsWidth: Math.round(stats.getBoundingClientRect().width),
+        ownersWidth: Math.round(owners.getBoundingClientRect().width),
+        gridHeight: Math.round(grid.getBoundingClientRect().height),
+      };
+    });
+    if (shedOverviewMetrics.gridHeight < 86 || shedOverviewMetrics.ownersWidth < 240) {
+      throw new Error(`${routeName} Shed overview renders as a loose/underbuilt summary: ${JSON.stringify(shedOverviewMetrics)}`);
+    }
+    if (shedOverviewMetrics.statsWidth > shedOverviewMetrics.ownersWidth * 2.25) {
+      throw new Error(`${routeName} Shed overview stats consume the card and leave dead space: ${JSON.stringify(shedOverviewMetrics)}`);
+    }
     const plannedSessionsMetrics = await page.getByText("Planned sessions", { exact: true }).first().evaluate((heading) => {
       const card = heading.closest("section.card");
       if (!(card instanceof HTMLElement)) throw new Error("Planned sessions heading is not inside a card");

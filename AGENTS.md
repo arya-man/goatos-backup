@@ -52,6 +52,34 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## STG Deployment Contract
+
+For Goat OS, STG deploy is NOT GitHub Actions and NOT PR-driven.
+
+GitHub Actions is billing-blocked and must not be used for deployment
+(validate only via `make ci-local` on the pushed SHA).
+Do not create main→stg PRs as a deploy mechanism.
+Do not force-push a `stg` branch and wait for CI.
+Do not infer CI deployment from branch names.
+
+Authoritative STG deploy path:
+1. Read `docs/runbooks/stg-deploy.md` (short contract) →
+   `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
+2. Use the manual Google Cloud Deploy scripts under
+   `tools/deploy/stg-clouddeploy-*.sh`.
+3. Verify active account is `ravi@mesha.sg`.
+4. Verify target org is `vgoats.com` and environment is Goat OS STG
+   (`goatos-stg`).
+5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
+
+If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
+manual Google Cloud Deploy from the latest approved `origin/main`, following the
+runbook.
+
+Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
+the user explicitly asks to change deployment architecture. The machine-readable
+form of this contract lives at `context/deploy-contract.json`.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
@@ -84,6 +112,12 @@ first; it must not jump straight to the 182-day repeat. The 182-day repeat
 starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
+
+Hard seed/generation guard: after real vaccination seeding, any accepted
+`et_tt_adult_w1` completion without a same-goat `et_tt_adult_w2` obligation or
+completion is a broken database, not a warning. Do not report future drives from
+`vaccination_drive_assignments` alone; first audit missing required obligations
+against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
 
 Confirmed movement rule (maintainer decision 2026-07-19): goats never move
 between parks — shed moves exist only within one park; leaving a park is a
@@ -121,11 +155,75 @@ event, consumer, replay/DLQ behavior, and E2E proof in
 `run_common` path in `make ci-local`; an optional compatibility job or a textual
 mention elsewhere is not accepted as CI wiring.
 
+Vaccination FCM is part of that event spine, not a client feature flag. Every
+push-facing vaccination state must have an explicit contract for trigger,
+audience source, cadence/SLA, message summary, and tap route. Token delivery
+targets come from active `workforce_member_devices`; tenant leadership
+recipients (`ceo_internal`, `pc_director`, future CXO/director aliases) resolve
+from active role grants/profile truth, never from the single-seat
+`workforce_positions` table alone. Routine day-start/afternoon operator nudges
+stay field-scoped; the 20:30 IST due-today checkpoint includes PC director/CEO
+leadership when scheduled sheds are still not submitted. Shed proof submission
+immediately notifies the park verifier(s) and leadership with role-specific
+routes: verifier to video review, leadership to Vaccination overview. Run
+`make fcm-recipient-routing-guard` with local CI for any notification change.
+
 Frontend/mobile render backend-owned contracts and send idempotent commands; they
 do not create private business follow-up pipelines. Direct live-animal table
 writes are allowed only through registered canonical producers or approved seed
 closeout paths. Future shifting, dead-birth, feed-direction, procurement, and
 vaccination changes must plug into this same event spine.
+
+Register BOTH ends, every time (Claude AND Codex): a producer with no consumer
+on both durable buses is a silent drop, a consumer with no producer is dead
+code, and a payload KEY no consumer parses is an accept-and-discard that reads
+to the next author as already honored. Delete the unread key and its struct
+field, or name the handler that reads it in the registry. See
+`.agents/skills/domain-event-architecture/SKILL.md` and
+`docs/decisions/scale-anti-patterns.md` -> "Operator-cascade wiring
+anti-patterns".
+
+## Grain Predicates and Executable Gates (Mandatory, Claude AND Codex)
+
+Three defect classes recur across unrelated modules and must be checked on every
+change that reads a plan/aggregate row, writes a rule into a doc, or loads a
+committed fixture:
+
+1. **Write the grain proof down; the grain rule itself already exists.** The
+   aggregate rule above ("identify the canonical membership source, use the same
+   stable group key on producer and consumer, prove every join is 1:1 or
+   pre-aggregate the many side") is not new, and FIVE instances shipped anyway —
+   so this is an adherence failure, not a missing rule, and restating the
+   principle a sixth time fixes nothing. What is mandatory now is the written
+   proof, next to the `projection-review:` marker: (a) the producer's unique
+   column list and the consumer's match/group column list, side by side; (b) the
+   row multiplicity of every joined side; (c) for any ratio or cap check, the key
+   set each of numerator and denominator ranges over, shown identical. Check all
+   three of `WHERE`, `GROUP BY`, and the compared-against key set — a complete
+   predicate with a collapsed `GROUP BY` is the same defect one clause over
+   (BUG-027: cohort spans N dates, `GROUP BY a.operator_id` collapses cap to one
+   operator-day). If those three lines cannot be written, the query is not
+   reviewable. `ORDER BY ... LIMIT 1` over rows the producer can legitimately
+   duplicate fabricates an answer — the fix is an exact membership source, not a
+   better ranking. Both sub-shapes, all five sites, and the mandatory
+   mixed-vaccine / two-partition / two-date fixture:
+   `docs/decisions/scale-anti-patterns.md` -> "Read-model grain is not the grain
+   the consumer assumes".
+2. **A documented rule with no executable check is not a gate.** When a runbook,
+   validation doc, or fixture README states an automatic-failure condition or a
+   required step, grep for the code that enforces it in the same change. If
+   there is none, the finding is the missing check. Enforcement belongs in the
+   `make` target that performs the mutation.
+3. **Fixture/contract loaders must fail loud on unknown keys.** `encoding/json`
+   drops unmatched keys silently, so a fixture block with no struct field seeds
+   nothing and still reports success. Loaders of committed fixtures use
+   `Decoder.DisallowUnknownFields()` or an explicit schema pass.
+
+A guard is only as strong as what it can see. A literal-token grep sold as an
+architectural boundary enforces the string from the original incident, not the
+rule; when the rule is "package A must not depend on package B", check the
+import graph, and state every remaining blind spot in the guard's own header
+comment with a self-test fixture for each.
 
 ## Root-Cause Fixes Only — No Partial / Surface Fixes (Mandatory, Claude AND Codex)
 
@@ -346,14 +444,19 @@ Organization boundaries:
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`
   account is active; this workspace may also have Heva and Slice GitHub
   accounts configured, and those must not be used for Goat OS repo authority.
-- **Staging promotion is PR-only (always on).** Never push any local ref, local
-  `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
-  The only authorized staging branch update is GitHub merging a same-repository
-  `vgoats/goatos main -> stg` pull request after `stg-pr-gate` passes. A manual
-  `stg-deploy` dispatch may rerun that already-merged `stg` SHA; it may not
-  deploy `main`, an agent branch, or any SHA without the matching merged PR.
-  Run `make ai-setup` (or `make stg-promotion-guard-install`) to install the
-  machine-local pre-push block. Do not bypass it with `--no-verify`.
+- Git commits from this repo must use a Mesha identity only. Before committing
+  or landing, `git config user.email` must end in `@mesha.sg`; Heva, Slice,
+  gmail, or personal identities are blocked by `make git-identity-guard` and
+  the local CI common gate. The expected maintainer identity is
+  `Raviteja <ravi@mesha.sg>`.
+- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
+  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
+  push as a deployment mechanism. Agents must deploy from a clean checkout at
+  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
+  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
+  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
+  is not deployment authority. Run `make ai-setup` so the local guard blocks
+  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -436,6 +539,13 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+- Vaccination seed shed names must normalize raw partition labels before
+  canonical `locations` writes. `Gandhi 1`, `Gandhi 2`, `Gandhi 3` are one
+  physical shed `Gandhi` with partitions `1`, `2`, `3`; `Godel 1 - Part 3`
+  is physical shed `Godel 1` with partition `Part 3`. Never seed those raw
+  partition strings as separate physical shed buildings. Drive planning and UI
+  must show physical shed -> partition -> operator assignment, with capacity
+  counted as unique animals per assigned operator/day.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group
@@ -540,6 +650,27 @@ Do:
   acceptance case. Do not push a frontend fix until the changed screen has been
   opened locally and visually checked, or until you explicitly report why local
   rendering is blocked.
+- Raw vaccination config/protocol tokens are never API presentation copy or
+  user-facing UI copy. Codes
+  such as `et_tt`, `et_tt_adult_w2`, `ppr_booster`, `blue_tongue_first`,
+  `goat_pox`, the protocol family name `Preventive Care Vaccination Matrix`,
+  and similar backend/config identifiers may exist in backend config,
+  raw storage/contracts/DTOs, non-UI tests, or a dedicated display mapper only.
+  Backend display fields (`driveName`, `vaccineLabel`, `vaccine_labels`, card
+  titles/subtitles, alerts), admin-web, Android screens, Paparazzi screenshot
+  fixtures, cards, rows, chips, alerts, logs visible to operators, and generated
+  UI galleries must render human labels such as `ET+TT`, `PPR · Booster`,
+  `Blue Tongue`, and `Goat Pox`.
+  `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
+  path and must fail any direct UI leak.
+- Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
+  "shed level", "camera only", or "gallery allowed" in admin-web or Android.
+  Backend SOP/form DSL/proof policy decides the proof mode, subject scope,
+  minimum/maximum proof count, capture sources, and verifier instruction; clients
+  render that contract. Both modes must remain supported: per-goat video proof
+  and shed-level video proof. A change from one mode to the other must never
+  delete the unused mode, bypass GCS proof upload, skip verifier instructions,
+  or invent proof requirements in mobile/frontend state.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
@@ -638,6 +769,12 @@ Do:
     baselined debt in `tools/scale-guard/baseline.txt`). Fix by batching to a
     single `*ByIDs` / `= ANY($1)` read (as `ShedSummary` now does with
     `ShedOwnerships`), not by looping a per-item service/port call.
+    Vaccination operator availability is explicitly in this class: a sweep or
+    preflight may probe many dates, but it must share one session cache at
+    `(tenant, park, business_date, cap_per_operator)` grain across capacity
+    scoring, `ConductedBy`, effective-cap, and assignment-split helpers. Do not
+    call `AvailableVaccinationOperatorsForDrive` from those helpers independently
+    or inside park/date loops.
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.
@@ -677,6 +814,23 @@ Do:
   `.agents/skills/goatos-code-review/references/aggregates-and-projections.md`
   and run `make aggregate-projection-guard`; the required CI guard includes
   committed, staged, unstaged, and untracked changes.
+- Cross-surface count parity (Claude AND Codex): the SAME business fact must show
+  the SAME number on every surface that renders it — admin-web, the mobile app,
+  and the API. If two surfaces disagree (e.g. a drive shows 200 doses on the web
+  operator schedule but 400 on the mobile calendar), one backend read model is
+  wrong even if each query is internally consistent — the frontend/mobile is
+  usually faithfully rendering a wrong backend number, so "web fine, mobile
+  broken" is really "two backend read models of the same fact disagree". Pick ONE
+  authoritative source+grain per business count and reuse it across surfaces
+  (for "animals in a drive/day" that is `count(DISTINCT target_id)` over the real
+  `vaccination_drive_assignments`, the grain the operator schedule uses). NEVER
+  render an estimate/rollup column (`estimated_targets`, `estimated_*`,
+  `*_quantity`, cached counters) as a user-facing count while a sibling surface
+  reads the actuals. When you add or change a count shown on more than one
+  surface, prove parity in the same change next to the `projection-review:`
+  marker and add a test asserting the surfaces resolve to the same source/grain.
+  Full rule + the 200-vs-400 incident:
+  `docs/decisions/scale-anti-patterns.md` -> "Cross-surface count parity".
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The
@@ -742,6 +896,32 @@ Do:
   migrated). Full rule + the NetworkBoundResource pattern:
   `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
   architecture guides.
+- Every Android READ screen must be refresh-on-open (hard rule — Claude, Codex,
+  humans): call the shared `sg.mesha.goatos.core.ui.RefreshOnResume { onEvent(XEvent.Refresh) }`
+  composable (`core/core-ui/.../RefreshOnResume.kt`, wraps
+  `LifecycleEventEffect(Lifecycle.Event.ON_RESUME)`) near the top of the screen's
+  composable body so cached Room data shows instantly and a background refresh
+  fires automatically every time the user lands on or returns to the screen — a
+  retained ViewModel on the nav backstack must never show data that was only
+  fetched once at ViewModel creation. Never rely on a manual sync button/icon as
+  the only way to see fresh data; a visible sync affordance is allowed as a
+  supplementary manual trigger, not the primary refresh path. Skip this only for
+  screens where a resume-triggered refresh would disrupt in-progress user input
+  (scan-capture flows, forms, mid-entry screens) — the ViewModel's `refresh()`
+  itself must stay non-blocking (upsert Room on success, leave cache visible on
+  failure) so this never produces a loading wall. See
+  `docs/decisions/android-offline-first.md`.
+- Every Android READ screen's sync/refresh icon must show a spinning animation while a refresh
+  is in flight and become non-clickable to prevent duplicate refresh triggers (hard rule —
+  Claude, Codex, humans). Use the shared `SyncIconButton` composable
+  (`sg.mesha.goatos.core.ui.SyncIconButton`, `core/core-ui/.../SyncIconButton.kt`) on every
+  screen with a manual refresh affordance: pass `isSyncing = state.isRefreshing` (or
+  `refreshInFlight` if the screen names it differently) and `onSync = { onEvent(XEvent.Refresh)
+  }`. When `isSyncing` is true, the icon continuously rotates 360° and the button is disabled,
+  so duplicate taps are ignored. When false, the icon is static and clickable. Applies to all
+  read screens with visible refresh buttons: Calendar, Sheds, Counts, Approval, Verify (queue),
+  Leadership (all three screens), and any future read screens that expose manual sync. This is
+  consistent across the app and prevents race conditions from overlapping refresh requests.
 - Treat every Android Room schema change as an installed-APK upgrade contract, never just a
   fresh-install schema (hard rule — Claude, Codex, humans). Room builds a DB two ways: a fresh
   install runs `createAllTables` (every @Entity), but an in-place upgrade runs ONLY the registered
@@ -768,10 +948,23 @@ Do:
     `CalendarDateMarkerDto`). Never fetch or parse a day's events to draw the grid.
   - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
     (done/pending/skipped animals) are each a keyset page of **~20** with infinite
-    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
+    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page,
+    and never show a tappable "Load more" row/button for normal mobile work
+    queues. Pagination is app-owned viewport behavior; users should see only the
+    work list plus a passive loading footer while the next page is already in flight.
   - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
     vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
     metric, not the drive grouping.
+  - **Vaccination date moves/reverts are kernel writes, not read-model sidecars** —
+    moving a vaccine from a mixed operator-cap drive must update raw
+    `vaccination_drive_assignments` membership so the old date loses only that
+    vaccine and the target date gains it. Reverting by selecting the original
+    date must cancel the active override and restore the original raw
+    assignment membership. Never declare this fixed from frontend banners or
+    read-time `COALESCE(override_date)` behavior; E2E must assert raw DB rows
+    across move and revert while preserving all clinical rule outputs
+    (kid/adult, boosters, live/killed spacing, sick/ICU/pregnant/dead/cull
+    deferrals) and operator animal caps.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
   - **Room is the single source of truth, so pagination binds BOTH layers** — the network
@@ -867,12 +1060,11 @@ Do:
 - **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
   `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and
   scheduled workflow must not start Postgres or run Docker-backed DB tests.
-  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`; hosted DB gates
-  require the workflow's manual `run_postgres_tests` input, or the documented
-  `run-postgres-tests` label for the `main -> stg` PR gate. `MODE=all` means all
-  affected component jobs, not Postgres. `GOATOS_REQUIRE_DOCKER=1` may make an
-  explicitly requested DB run fail closed, but it must never opt a default run
-  into Postgres by itself.
+  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`. Hosted DB gates
+  are not a Goat OS staging deploy path while GitHub Actions is unavailable.
+  `MODE=all` means all affected component jobs, not Postgres.
+  `GOATOS_REQUIRE_DOCKER=1` may make an explicitly requested DB run fail closed,
+  but it must never opt a default run into Postgres by itself.
 
 - **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
   on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
@@ -908,6 +1100,29 @@ Do:
   derived from those instants — scheduling, due/missed buckets, reminder keys,
   reporting groups, audit-log display, and UI labels — must convert to
   `Asia/Kolkata` first. UTC must never define a Goat OS business day.
+- **VACCINATION TIME GRAIN IS THE BUSINESS DAY — NEVER HOURS (maintainer rule,
+  Claude AND Codex).** A vaccination drive is a business DAY in `Asia/Kolkata`.
+  It is not an instant, not a timestamp, and never "now ± N hours". This is a
+  business rule about how the farm actually works, not a test-hygiene
+  preference: operators work a day, a drive is planned for a day,
+  `planned_date` is a `DATE`, and two vaccination facts on the same business day
+  are the same day no matter how many hours separate their timestamps.
+  - Never place a drive, due value, safe window, or query window with hour or
+    minute arithmetic. No `time.Now().Add(-2 * time.Hour)`, no
+    `dueAt.Add(-1 * time.Hour)`, no `now±N` clock instants — in production code,
+    fixtures, or assertions.
+  - Anchor to `biztime.BusinessDayStart(...)` / `biztime.BusinessDate(...)`, or
+    to a fixed business date. Compare business DATES, not instants.
+  - Never widen an hour tolerance to make a same-day comparison pass. If a
+    same-day check fails because two timestamps differ by hours, the DAY is the
+    correct unit and whichever side compares instants is the defect.
+  - Why this is a hard rule: hour-anchored fixtures shipped a defect class where
+    15 calendar tests passed or failed depending on the time of day they ran — a
+    batched park drive anchors at 00:00 IST, the fixtures asked for `dueAt - 1h`,
+    and that fell outside the window except during a ~1-hour slice of each day.
+    Sub-day precision on a vaccination date is always a bug in the making.
+  - If a specific case genuinely needs sub-day precision, it needs a recorded
+    maintainer decision first. Ambiguity is not approval.
 - Pinned-clock tests must derive time-sensitive fixture fields such as
   `valid_from`, `valid_to`, due instants, and recipient eligibility from the
   same pinned anchor. Never mix a pinned application clock with SQL `now()` or
@@ -962,9 +1177,13 @@ Do not:
 - Local dev servers (`:3300` admin-web, `:8080` backend): the workspace owner has
   granted agents (Codex and Claude) STANDING authority to stop, restart, re-port,
   or `next build` over them WITHOUT asking — just do it when the work needs it
-  (clean build, or an expired local token making routes redirect to `/login`;
-  restart with `npm --prefix apps/admin-web run dev:local` to re-mint a fresh
-  token). Do not pause to ask permission for a restart/rebuild. The only
+  (clean build, or an expired local token making routes redirect to `/login`).
+  Admin-web must be restarted through the local wrapper:
+  `npm --prefix apps/admin-web run dev` / `dev:local`, including custom isolated
+  ports like `npm --prefix apps/admin-web run dev -- --port 3318`. Plain
+  `next dev` is forbidden because it bypasses `GOATOS_AUTH_*` env and makes
+  `/admin-web/bootstrap` fail with `invalid_bearer_token`. Do not pause to ask
+  permission for a restart/rebuild. The only
   discipline: restore the server on the SAME port, never silently change ports,
   don't run `next build` concurrently with a live `next dev` on the same `.next`
   (stop it first), and if you break it, restore it. See
@@ -993,12 +1212,95 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+  **A STG (or any) seed is INCOMPLETE until this grant is MATERIALIZED, not
+  merely pending.** `auth_pending_email_grants` rows only become an active
+  `user_scope_grants` row via the `/auth/session-events` runtime claim path,
+  and admin-web Google SSO does not reliably trigger that path on the first
+  login after a fresh seed — the observed failure is `403 permission_denied`.
+  For STG, run `make seed-stg-9-person-login`
+  (`backend/cmd/seed-stg-login-grants`), which materializes the ACTIVE tenant
+  grant directly for all 5 leadership accounts (plus the 3 operators + 1
+  director below), keyed by `platformauth.StableSubjectID(issuer,
+  firebase_uid)` — the same derivation the backend uses at request time. Verify
+  with `make verify-stg-9-person-login` and
+  `docs/runbooks/stg-9-person-login-verification.md` before declaring the seed
+  done. `docs/runbooks/stg-login-seed-contract.md` is the canonical personnel
+  rule this command implements.
+  **Leadership log in with Google SSO OR Firebase email/password** (maintainer
+  decision 2026-07-24; the prior SSO-only rule is retired — password convention
+  `<FirstName>@2026`, maintainer sets the Firebase password). **All 9 accounts,
+  leadership included, also need an active `workforce_members` profile**: the
+  mobile `/app/bootstrap` hard-requires a profile row and returns
+  `403 operator_profile_missing` without one, so leadership could open admin-web
+  but got "Couldn't load your workspace" on the Android app until
+  `ensureLeadershipMember` (in `seed-stg-login-grants`) created their
+  `auth:<uid>` profile. Materialized grant alone is not enough; the profile is
+  part of the completion bar.
+- CPT operator-drive rehearsal seed invariant: the committed packet at
+  `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
+  and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.
+  Seed Amit Kumar, Darshan Talwar, and Sagar Mahoor as equal vaccination
+  operators with `200` unique animals/day/operator; seed Chandrakant as
+  director-only monitoring scope. The `Adult` source filenames do not narrow
+  the vaccination kernel: kid/adult/booster/clinical/combo-spacing/safe-window
+  rules still come from backend vaccination rules.
+  **Materialized grant + department binding is part of this invariant, not a
+  separate concern.** Amit, Darshan, Sagar (operator role) and Chandrakant
+  (`pc_director` role) are only real, working STG logins once their
+  `user_scope_grants` row is `status='active'` AND their existing named
+  `workforce_members` roster row (seeded by `seed-roster-real` /
+  `seed-vaccination-cpt-operator-drive`) is bound to `user_id` with
+  `department_id = preventive_care`, so `department_module_grants` gives them
+  the vaccination bottom bar. `make seed-stg-9-person-login` is wired as a
+  required final step of `seed-vaccination-source-full` and
+  `seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg` — do not seed CPT
+  operator-drive rehearsal data on STG without it, and do not declare the
+  rehearsal seeded until `make verify-stg-9-person-login` passes.
+- Leadership assistant coverage invariant: every leadership-relevant table,
+  read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
+  domain event, or official KPI must resolve to a Cube governed metric, a
+  `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
+  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The guard
+  is STRUCTURED, not keyword-based (tightened 2026-07-23): a new `CREATE TABLE`
+  migration, a new OpenAPI `/path`, or a new exported read handler must ship a
+  real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
+  `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
+  same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
+  refactors pass without a coverage file. The
+  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
+  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
+  every tool name must resolve in the runtime registry (Cube binding, executor spec,
+  toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
+  fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
+  `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
+  `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
+  (local CI + PostToolUse nudge for Claude and Codex).
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
   `.code-review-graph/` DB are gitignored and machine-regenerated locally. Commit
   ONLY the setup docs, rules, hooks, and generation scripts — never the graph
   artifacts themselves. Run `make ai-doctor` before pushing AI-tooling changes.
+- Do not let the `ceo_ai` reporting/assistant namespace sit between the core
+  Backend <-> Frontend <-> Mobile layers. `ceo_ai` is the leadership-assistant
+  chatbot (`backend/internal/ceoai/**`, `/api/ceo-ai/*`) plus its read-only
+  reporting SQL schema (`ceo_ai.*` views/functions read by Cube and the
+  assistant). Data flows ONE way: core BE is the operator source of truth, and
+  the assistant/Cube CONSUME it via Mesha read APIs, the MCP Toolbox, or
+  read-only SQL. A core operator read path must never join `ceo_ai.*` or read a
+  `ceo_ai_*` table for its own runtime data (this once 500'd Control Tower when
+  the schema was absent — SQLSTATE 3F000). Shared display/derivation logic (e.g.
+  vaccine labels) lives in a neutral core package such as
+  `backend/internal/vaccination/domain`, read by both operator screens and the
+  assistant. Frontend/mobile core pages must not route their data through
+  `/api/ceo-ai/*` or import an assistant client module; the global assistant
+  bubble in `MeshaShell` is allowed chrome, not a data path. Machine-gated by
+  `make ceo-ai-boundary-guard` (backend SQL schema/table access, matched across
+  newlines; plus FE/mobile `/api/ceo-ai` route + assistant-import coupling
+  outside assistant-owned dirs); full rule in
+  `docs/decisions/ceo-ai-reporting-boundary.md`.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.
 - Do not modify current live dashboard repos while building Goat OS copies.

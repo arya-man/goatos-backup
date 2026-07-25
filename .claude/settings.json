@@ -21,6 +21,10 @@
           {
             "type": "command",
             "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/agent-hooks/ai-setup-guard.sh\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/agent-hooks/ai-setup-guard.sh\"; if [ -f \"$script\" ]; then bash \"$script\"; fi"
+          },
+          {
+            "type": "command",
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/ci/check-git-identity.mjs\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/ci/check-git-identity.mjs\"; if [ -f \"$script\" ]; then node \"$script\"; fi"
           }
         ]
       },
@@ -98,6 +102,10 @@
           {
             "type": "command",
             "command": "bash tools/agent-hooks/update-docs-graph.sh"
+          },
+          {
+            "type": "command",
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/agent-hooks/check-leadership-assistant-coverage.mjs\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/agent-hooks/check-leadership-assistant-coverage.mjs\"; if [ -f \"$script\" ]; then node \"$script\" 2>&1 || echo 'Reminder: update leadership assistant coverage (docs/ceo-ai + Cube/view/tool/read-API/query-class) or a documented exclusion. See .agents/skills/goatos-leadership-assistant/SKILL.md; make leadership-assistant-coverage-guard is the hard gate.'; fi; exit 0"
           }
         ]
       }

@@ -165,6 +165,11 @@ interface SyncRepository {
     suspend fun enqueueVerificationSubmissionClose(
         submissionId: String,
     ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
+
+    /** Queues one atomic leadership closure for a fully reviewed vaccination batch/drive. */
+    suspend fun enqueueVerificationBatchClose(
+        batchId: String,
+    ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
     /**
      * Enqueues an operator-reported shifting/movement write (`POST /app/counts/shifting-events`).
      *
@@ -257,6 +262,11 @@ interface SyncRepository {
      *  resume QUEUED/FAILED/SUCCEEDED state even when Android did not restore SavedState. */
     suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
         AppResult.Err("Outbox recovery is not available.")
+
+    /** Finds one outbox row by id, including terminal rows. Used by local feature stores to
+     *  reconcile their Room SSOT after process/activity churn missed a live terminal emission. */
+    suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
+        AppResult.Err("Outbox item lookup is not available.")
 
     /** Forces an immediate drain pass (pull-to-refresh, a manual "sync now", or connectivity
      *  regained). `enqueue*` already triggers this automatically — call this directly only
@@ -478,6 +488,20 @@ class DefaultSyncRepository(
             ),
         )
     }
+
+    override suspend fun enqueueVerificationBatchClose(
+        batchId: String,
+    ): AppResult<String> {
+        val idempotencyKey = "$batchId-drive-close"
+        return enqueue(
+            opType = OutboxOpType.VERIFICATION_CLOSE_BATCH,
+            groupKey = batchId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                VerificationCloseBatchPayload(batchId = batchId),
+            ),
+        )
+    }
     override suspend fun enqueueCountsShifting(
         groupKey: String,
         idempotencyKey: String,
@@ -682,6 +706,16 @@ class DefaultSyncRepository(
     ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
         try {
             AppResult.Ok(store.findByIdempotencyKey(idempotencyKey)?.toSyncQueueItem())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't recover outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.findById(itemId)?.toSyncQueueItem())
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {

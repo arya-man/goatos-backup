@@ -1,0 +1,4 @@
+-keep class sg.mesha.goatos.GoatOsApplication { *; }
+-keep class sg.mesha.goatos.Hilt_GoatOsApplication { *; }
+-keep class sg.mesha.goatos.GoatOsApplication_* { *; }
+-keep class sg.mesha.goatos.DaggerGoatOsApplication_* { *; }

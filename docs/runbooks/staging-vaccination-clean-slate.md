@@ -72,6 +72,12 @@ the Counts summary — still survive and are still recomputed here.
    Confirm their canonical-read APIs answer once the obligation write is final,
    rather than materializing and reconciling a projection.
 
+## CPT PPR Is Excluded From This Seed Packet
+
+PPR must not be seeded, scheduled, or deferred by the CPT operator-drive seed
+packet for now. This is a seed-packet rule only; it does not change the global
+vaccination protocol matrix or future explicit PPR enablement.
+
 ## Required Inputs
 
 - `source-material/vgoats-seed/goats.json`
@@ -154,6 +160,27 @@ source shed.
     then verify its operational and generation stages each run once successfully
     before handoff.
 
+## STG Seed Closeout Timeouts
+
+STG seed closeout (steps 7-10 above: `seed-vaccination-real`, embedded
+reconciliation, surviving-summary recompute, and the obligation sweeper stage)
+runs over Cloud SQL and may need a larger per-query timeout than local
+development. The normal runtime defaults (`GOATOS_PG_QUERY_TIMEOUT` is `15s` on
+the API service and `30s` on the worker) are not enough for STG Cloud SQL seed
+closeout.
+
+For the CPT reseed/closeout command only, set:
+
+```bash
+GOATOS_PG_QUERY_TIMEOUT=60s
+```
+
+This is allowed for destructive/admin seed closeout because it generates drive
+assignments, memberships, projections, and proof tables over Cloud SQL. Do not
+change normal API/runtime query timeouts just to make seed closeout pass. If
+closeout needs this timeout, report the slow step and keep it scoped to the
+seed command.
+
 ## Mandatory Postflight Invariants
 
 The seed command enforces the obligation/history subset. The operational
@@ -212,3 +239,133 @@ the dashboard look clean.
 - A successful seed is never inferred from a UI screenshot. Preserve the source
   manifest, backup ID, deployed image digest, seed reconciliation output, DB
   invariant query output, job execution status, and final API/UI evidence.
+
+## STG Vaccination Seed Closeout Contract
+
+> **STG vaccination seed is not complete when commands finish.**
+> **It is complete only when the closeout gate passes.**
+
+STG seed is complete only after a full DB reseed + expected-schedule gate +
+integrity zeros. This exists so STG stops being "seed, discover bug, patch,
+reseed" every cycle. All checks read from the DB, never from command logs.
+
+### 1. Use the right seed mode
+
+- **Normal live behavior:** default mode, no CPT override. Live/default vaccine
+  pairing (same-day combos the matrix allows) must remain unchanged.
+- **CPT initial seed/catch-up validation:** enable the seed/catch-up mode only.
+  Do not let the CPT override leak into live/default scheduling.
+
+### 2. Run full reseed, not partial patching
+
+Never hand-patch bad rows. Run the whole sequence:
+
+1. Fresh DB + migrations.
+2. Seed HRMS/source roster.
+3. Seed vaccination rules.
+4. Run sweeper/closeout.
+5. Validate from the DB, not from logs.
+
+### 3. Mandatory vaccination integrity checks (all must be zero)
+
+- unbound obligations
+- wrong-vaccine memberships
+- duplicate memberships
+- `animal_count != distinct member goats`
+- cap `> 200` per operator/day
+- `NULL operator` drive rows
+- partition mismatch
+- goats bound to the wrong target/assignment
+
+### 4. Mandatory lifecycle checks
+
+Explicitly exercise and re-validate integrity after each:
+
+- new goat added
+- goat death/exit
+- goat moved between sheds
+- goat moved between partitions inside the same shed
+- missed/cancel/reap cleanup
+- date override / postponed drive
+- operator capacity changes
+
+### 5. Mandatory read-surface checks
+
+Calendar, Control Tower (CT), Action Center (AC), Workflows (WF), Protocol
+Adherence (PA), and Vaccination L1/L2/L3 must read through exact membership where
+possible — never random `LIMIT 1` assignment guessing.
+
+### 6. Expected schedule gate
+
+For CPT seed/catch-up:
+
+- ET+TT must match the expected plan in
+  `fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`.
+- PPR must not appear anywhere in CPT seed drive rows for now.
+- Other intentional same-day combos (FMD+HS, pox pairs) must stay allowed when
+  the matrix says same-day. The PPR exclusion is a CPT seed-packet rule, not a
+  global no-combo rule.
+
+### 7. Failure rule
+
+If any closeout check fails:
+
+- Do **not** promote STG.
+- Do **not** "accept close enough".
+- Record the failed SQL/result in `review_bugs_ledgers.md`.
+- Fix code or seed config, then rerun the full reseed (section 2), not a patch.
+
+### 8. Proof artifact
+
+The closeout must save and hand off:
+
+- commit SHA
+- seed command + env
+- expected-drive-schedule result
+- integrity SQL output
+- adult goat count and shed totals
+- `tools/dev/stg-seed-postflight.sh` output, including FCM worker readiness
+- pass/fail timestamp
+
+A UI screenshot is never a substitute for these DB artifacts.
+
+The postflight is part of the seed, not an optional deploy check. In particular,
+FCM is not considered ready just because Firebase accepts a direct test message:
+`goatos-kernel-worker-stg` must have `GOATOS_WORKER_STAGES_ENABLED=true`, CPU
+allocated while idle, and a nonzero warm instance count so the backend
+notification dispatcher drains `notification_requests` after the seed.
+
+## Login Seed Contract
+
+The STG reseed must also satisfy:
+
+`docs/runbooks/stg-login-seed-contract.md`
+
+Do not stop after goat/vaccination/HRMS rows. Verify field Android users,
+leadership SSO/password users, and the verifier account.
+
+### Canonical STG Personnel Rule (10 people total)
+
+10 STG people total: **5 Mesha leadership (Google SSO and Firebase
+email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
+(Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
+(Firebase email/password, password `Jyothi@2026`, NO vaccination capacity)**.
+
+| Person | Auth | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
+| Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
+| Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
+| Chandrakant | Firebase `Chandrakant@2026` | **director** | **no** |
+| Jyothi | Firebase `Jyothi@2026` | verifier | **no** |
+| 5 Mesha leadership | Google SSO or Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
+
+- ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
+  Chandrakant (director), Jyothi (verifier), and the 5 leadership users must NOT add capacity.
+- Firebase allowlist alone is NOT enough; Firebase user existing is NOT enough:
+  backend grant AND `/app/bootstrap` context must pass for all field and leadership users.
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, Jyothi has verifier
+> login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
+> with both Google SSO and Firebase password login available.

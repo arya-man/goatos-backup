@@ -329,6 +329,103 @@ starts Mesha admin-web on `127.0.0.1:3300`. If the browser shows
 `401 invalid_bearer_token`, restart through this command instead of reusing an
 old shell token.
 
+## Leadership Assistant — Local & Staging Setup
+
+The Leadership Assistant ("CEO AI") is a read-only, tenant-scoped natural-language
+layer over Goat OS. **Status: local-runnable foundation; the backend service,
+Cube metric layer, and MCP Toolbox are being built, and the staging read-only DB
+roles are a pending deploy step.** Do not read this as "shipped" — it is the
+config/secrets on-ramp so any developer can run the pieces that exist.
+
+### Routing model (one paragraph)
+
+Every leadership question is planned server-side by **Vertex/Gemini**
+(`gemini-2.5-flash`, project `goatos-stg`, region `asia-south1`, authenticated
+via ADC — no key in env). The planner never touches the database; it only picks a
+read path in a governed hierarchy: **(1) Cube** — the governed metric layer, for
+official KPIs (active animals, vaccination due/overdue, compliance, mortality,
+feed/procurement cost); **(2) Mesha read APIs**; **(3) MCP Toolbox** curated
+`ceo_ai.*` views; **(4) validated read-only SQL** only when nothing else fits.
+Cube and Toolbox are called **only by the backend**, never by the browser. All
+credentials come from Google Secret Manager; the assistant is read-only and
+derives tenant + role from the server session, never from user text.
+
+### Prerequisites
+
+```bash
+gcloud auth login ravi@mesha.sg          # CLI creds (Mesha/VGoats org)
+gcloud auth application-default login    # ADC for Vertex + Secret Manager
+gcloud config set project goatos-stg
+docker info >/dev/null                   # Cube + Toolbox + local Postgres run in Docker
+```
+
+### Fetch config/secrets
+
+Credential VALUES live in Google Secret Manager (`goatos-stg`); config is plain.
+Pull them into a gitignored `.env.ceo-ai.local`:
+
+```bash
+tools/dev/fetch-ceo-ai-secrets.sh        # pulls Cube API secret + toolset from Secret Manager
+```
+
+For a purely-local stack (no staging access), mint throwaway read-only roles
+instead:
+
+```bash
+tools/dev/setup-ceo-ai-local-role.sh     # local mesha_ceo_readonly / mesha_cube_readonly + DSNs
+```
+
+Copy `.env.ceo-ai.local.example` if you prefer to fill values by hand. Full
+details, secret names, rotation, and the pending-staging note live in
+[`docs/runbooks/leadership-assistant-secrets.md`](docs/runbooks/leadership-assistant-secrets.md).
+
+### Start the local stack
+
+```bash
+# 1. Postgres (the canonical local DB on 127.0.0.1:5433) + migrations + seed
+make dev-local                              # API :8080, admin-web :3300, local ceo_internal grant
+# 2. Cube Core governed metric layer
+tools/dev/run-cube-local.sh                 # :4000  (MESHA_CUBE_URL)
+# 3. MCP Toolbox curated ceo_ai.* tools
+tools/dev/run-mcp-toolbox-local.sh          # :5001  (MESHA_MCP_TOOLBOX_URL)
+```
+
+The backend (`:8080`) is the only process that calls Vertex, Cube (`:4000`), and
+Toolbox (`:5001`); admin-web (`:3300`) renders the assistant contract. Health
+checks: `run-cube-local.sh status` and `run-mcp-toolbox-local.sh` (no-ops if
+already healthy).
+
+### Environment variables
+
+| Variable | Purpose | Secret vs config | Source |
+| --- | --- | --- | --- |
+| `MESHA_AI_PROVIDER` | AI provider (`vertex`) | config | env / example |
+| `MESHA_VERTEX_PROJECT` | Vertex project (`goatos-stg`) | config | env / example |
+| `MESHA_VERTEX_LOCATION` | Vertex region (`asia-south1`) | config | env / example |
+| `MESHA_VERTEX_MODEL` | Gemini model (`gemini-2.5-flash`) | config | env / example |
+| `MESHA_AI_MAX_STEPS` | bounded agent step loop | config | env / example |
+| `MESHA_AI_REVIEW` | enable self-review pass | config | env / example |
+| `MESHA_CUBE_URL` | Cube endpoint (local `127.0.0.1:4000`) | config | env / example |
+| `MESHA_CUBE_API_SECRET` | Cube JWT signing secret | **secret** | Secret Manager `mesha-cube-api-secret` |
+| `MESHA_CUBE_DB_DSN` / `MESHA_CUBE_DB_*` | Cube's readonly Postgres DSN | **secret** | Secret Manager `mesha-cube-readonly-db-url` |
+| `MESHA_MCP_TOOLBOX_URL` | Toolbox endpoint (local `127.0.0.1:5001`) | config | env / example |
+| `MESHA_MCP_TOOLSET` | curated toolset name | config | Secret Manager `mesha-mcp-toolset` |
+| `MESHA_MCP_DB_DSN` / `MESHA_MCP_DB_*` | Toolbox/SQL-fallback readonly DSN | **secret** | Secret Manager `mesha-ceo-readonly-db-url` |
+
+Vertex uses ADC — there is no Vertex API key in env.
+
+### Staging deploy pointers
+
+Staging is Cloud Run (org `vgoats.com`, project `goatos-stg`): **`mesha-cube-stg`**
+(Cube Core, internal-only) and **`mesha-mcp-toolbox-stg`** (MCP Toolbox,
+internal-only), each reading its credentials from Secret Manager with a
+least-privilege accessor grant. The live staging Cloud SQL read-only roles
+(`mesha_ceo_readonly`, `mesha_cube_readonly`) and their DSNs are **still to be
+provisioned** — the DB-url secrets currently hold clearly-marked placeholders.
+Seed / rotate the Secret Manager entries with
+`tools/dev/setup-ceo-ai-secrets.sh` (org-guarded to `ravi@mesha.sg` /
+`goatos-stg` / `vgoats.com`).
+
 ## Pushing To The Repo (Git Auth)
 
 This repo lives at `github.com/vgoats/goatos` under the Mesha/VGoats org. Push

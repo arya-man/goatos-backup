@@ -8,6 +8,50 @@ export interface CalendarMonthAnchor {
   month: number;
 }
 
+export interface CalendarDateKeyParts {
+  year: number;
+  month: number;
+  day: number;
+  weekday: number;
+}
+
+function parseDateKey(anchorKey: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(anchorKey);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+export function calendarDateKeyParts(anchorKey: string): CalendarDateKeyParts | null {
+  const parts = parseDateKey(anchorKey);
+  if (!parts) return null;
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  if (
+    date.getUTCFullYear() !== parts.year ||
+    date.getUTCMonth() !== parts.month - 1 ||
+    date.getUTCDate() !== parts.day
+  ) {
+    return null;
+  }
+  return {
+    year: parts.year,
+    month: parts.month - 1,
+    day: parts.day,
+    weekday: date.getUTCDay(),
+  };
+}
+
+export function shiftedDateKey(anchorKey: string, days: number): string {
+  const parts = parseDateKey(anchorKey);
+  if (!parts) return anchorKey;
+  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
+}
+
 export function calendarMonthAnchor(anchorKey: string, fallbackKey: string): CalendarMonthAnchor {
   const source = /^\d{4}-\d{2}-\d{2}$/.test(anchorKey) ? anchorKey : fallbackKey;
   const year = Number(source.slice(0, 4));

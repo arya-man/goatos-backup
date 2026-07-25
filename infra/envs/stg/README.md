@@ -33,9 +33,9 @@ Secret Manager:   containers only, no secret versions
 IAM:              runtime SAs, GitHub OIDC deployer, least-scope bindings
 Pub/Sub:          outbox topic, analytics/domain subscriptions, DLQ
 Cloud Tasks:      near-term kernel queue
-Cloud Run:        goatos-api-stg and goatos-admin-web-stg services
-Cloud Run Jobs:   migration, manual outbox-DLQ, manual analytics rollup
-Scheduler:        zero jobs
+Cloud Run:        goatos-api-stg, goatos-kernel-worker-stg, and goatos-admin-web-stg services
+Cloud Run Jobs:   migration, vaccination schedule projector, manual outbox-DLQ, manual analytics rollup
+Scheduler:        zero jobs; the always-on kernel worker owns cadence stages
 GCS:              goatos-stg-media bucket and goatos-proof-signer-stg
 Monitoring:       Cloud Run errors, outbox dead letters, DLQ backlog, Cloud SQL CPU
 ```
@@ -44,6 +44,13 @@ Current staging keeps both `goatos-api-stg` and `goatos-admin-web-stg` publicly
 invokable at the Cloud Run layer. Goat OS JWKS/RBAC remains the authorization
 boundary for protected app routes. `/livez` and `/readyz` are used by deployment
 smoke checks.
+
+`goatos-kernel-worker-stg` must remain an always-on service with worker stages
+enabled. FCM, reminder cadence, outbox relay, and other backend stage work do not
+run from Scheduler in staging. A valid staging deploy keeps
+`GOATOS_WORKER_STAGES_ENABLED=true`, CPU always allocated, and at least one warm
+instance. The Terraform target is a two-instance HA pair; seed postflight fails
+closed if live Cloud Run drifts to stage-disabled or scale-to-zero.
 
 ## GitHub Deployment Identity
 

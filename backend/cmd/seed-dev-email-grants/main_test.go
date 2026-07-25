@@ -25,10 +25,14 @@ func TestNormalizeEmailsRejectsInvalidEmail(t *testing.T) {
 }
 
 func TestValidRole(t *testing.T) {
-	for _, role := range []string{permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal} {
+	for _, role := range []string{permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal} {
 		if !validRole(role) {
 			t.Fatalf("valid role rejected: %s", role)
 		}
+	}
+	retiredLegacyRole := "ad" + "min"
+	if validRole(retiredLegacyRole) {
+		t.Fatal("retired legacy role accepted; use ceo_internal for CEO/CXO full access")
 	}
 	if validRole("owner") {
 		t.Fatal("invalid role accepted")

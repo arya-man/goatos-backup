@@ -360,6 +360,11 @@ def classify_lock_timeout_risk(
     """
     if not no_transaction:
         return
+    # The clean-slate baseline may be marked NO TRANSACTION because its folded
+    # history contains concurrent index statements. It creates the hot tables
+    # itself, so baseline constraint DDL is not a late hot-table operation.
+    if version < enforcement_floor:
+        return
 
     # Patterns for lock-timeout-requiring operations on hot tables
     constraint_ops = re.compile(

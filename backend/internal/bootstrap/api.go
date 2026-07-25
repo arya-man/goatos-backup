@@ -24,6 +24,9 @@ import (
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
+	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
+	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -355,7 +358,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership)
-	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log)
+	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
+		WithOperatorAssignmentConfigWriter(vaccExecService).
+		WithCapacityConfigWriter(vaccExecService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
@@ -442,21 +447,97 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
+
+	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
+	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the
+	// deterministic keyword planner, mode=fallback), the Cube governed-metric
+	// service (tier 1), the MCP Toolbox curated tools (tier 3), the safety
+	// moderator, durable conversation persistence, plus the observability
+	// adapters so a live POST /ceo-ai/ask emits the assistant_* OTel metrics and
+	// persists an internal step trace the admin-only
+	// GET /ceo-ai/admin/trace/{request_id} endpoint reads back. Each port
+	// degrades independently: an unconfigured Cube/Toolbox/Vertex is nil and the
+	// orchestrator falls to the tiers that are wired instead of failing boot.
+	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
+	ceoVertex := ceoai.NewVertexProvider(ctx, log)
+
+	// Build read tool executors. feed_direction_today does not yet have a
+	// direct DB reader in this tier, so the orchestrator's runtime fallback
+	// retries the same question through the MCP Toolbox.
+	readToolExecs := ceoreadtools.NewToolExecutors()
+
+	// Wire in-process readers for operational domains. The reader functions
+	// themselves live in ceoai_readers.go (unit-tested against fakes in
+	// ceoai_readers_test.go) so this block is just registration.
+	parkResolver := newLocationsParkResolver(locationsService)
+
+	for _, exec := range readToolExecs {
+		switch exec.Spec().Name {
+		case "counts_breakdown":
+			ceoreadtools.SetCountsDataReader(exec, buildCountsReader(herdRegisterService, parkResolver))
+		case "vaccination_shed_summary":
+			ceoreadtools.SetVaccinationDataReader(readToolExecs, buildVaccinationReader(vaccExecService))
+		case "procurement_source_entry_loads":
+			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
+		case "admin_roster_coverage":
+			ceoreadtools.SetWorkforceDataReader(exec, buildWorkforceReader(rosterService))
+		case "verification_queue":
+			ceoreadtools.SetVerificationDataReader(exec, buildVerificationReader(verificationService))
+		case "action_center_obligations":
+			ceoreadtools.SetActionCenterDataReader(exec, buildActionCenterReader(processIntegrityService, parkResolver))
+		case "operations_kernel_health":
+			ceoreadtools.SetOpsKernelHealthDataReader(exec, buildOpsKernelHealthReader(processIntegrityService))
+		case "operations_audit_summary":
+			ceoreadtools.SetOpsAuditSummaryDataReader(exec, buildOpsAuditSummaryReader(operationsAuditService))
+			// admin_location_usage is intentionally left on the Toolbox/fallback
+			// path: locationsService only exposes per-location Usage/ListCapacity
+			// reads (a single location_id argument), not a bounded listing across
+			// parks/sheds suited to a capacity-variance question. Building that
+			// would require a new read model/API, which is out of scope here.
+		}
+	}
+
+	ceoOpts := ceoai.Options{
+		Metrics:   ceoai.NewCubeMetricService(log),
+		ReadTools: readToolExecs,
+		Toolbox:   ceoai.NewToolbox(log),
+		Moderator: ceoai.NewModerator(),
+		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),
+		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
+		Telemetry: ceoobs.NewMetrics(),
+		Traces:    ceoTraceStore,
+		// Thread surface backing GET/POST /ceo-ai/conversations* and the leadership
+		// starters probe GET /ceo-ai/starters (the launcher visibility gate).
+		ConvStore: ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
+		Logger:    log,
+	}
+	if ceoVertex != nil {
+		ceoOpts.Provider = ceoVertex
+		ceoOpts.Critic = ceoVertex
+	}
+	ceoService := ceoai.Build(ceoOpts)
+
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
+	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
+	// Operator-config auto-cascade producers (backend/internal/obligation/app/operator_config_replan.go
+	// is the consumer registered above): wire the SAME in-process bus into the services whose writes
+	// change vaccination operator N/default-operator or leave, so the consumer fires without a manual
+	// recompute CLI run.
+	vaccExecService.WithBus(bus)
+	rosterService.WithBus(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
-	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): a read-only
-	// consumer of vaccination.verify.rejected/accepted events published by sopbridge.
-	// It resolves each completion_id to its obligation context via calendarService, then routes
-	// rework notifications to the executor + park head. verification_pending notifications
-	// require the submission vertical to publish a vaccination.verification.awaiting_review event
-	// (cross-session contract documented in verification_notify.go).
+	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
+	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
+	// events published by sopbridge. They resolve each completion to its obligation context, then
+	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
@@ -570,6 +651,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)
+	ceoService.Register(protectedMux)
 
 	// otelhttp owns real span creation for every protected request (server
 	// spans, W3C trace-context propagation); httpmiddleware.Metrics records

@@ -2,6 +2,7 @@ package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import android.view.KeyEvent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +40,7 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -97,6 +99,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(1L, scanCaptures.rowsForTask("task-1").single().capturedAtMs)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
 
@@ -216,7 +219,7 @@ class ScanViewModelTest {
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(2, scanVm.state.value.feed.size)
+        assertEquals(1, scanVm.state.value.feed.size)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }
 
@@ -259,7 +262,7 @@ class ScanViewModelTest {
         assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
         assertEquals(1, scanVm.state.value.doneCount)
-        assertTrue(scanVm.state.value.feed.first().vaccineLabel.contains("already scanned"))
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
     }
 
     @Test
@@ -389,6 +392,49 @@ class ScanViewModelTest {
         assertFalse(vm.state.value.feed.any { it.status == ScanStatus.SKIPPED && it.primaryTag == "TAG-200" })
     }
 
+    @Test
+    fun `warm cached roster stays scannable while background refresh is in flight`() = runTest(dispatcher) {
+        val refreshStarted = CompletableDeferred<Unit>()
+        val refreshGate = CompletableDeferred<Unit>()
+        val reader = FakeRfidReaderPort()
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val repo = FakeScanExecutionRepository(
+            firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-001", "obl-1"))),
+            warmCache = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-001", "obl-1"))),
+            refreshStarted = refreshStarted,
+            refreshGate = refreshGate,
+        )
+        val vm = ScanViewModel(
+            repo = repo,
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        refreshStarted.await()
+        advanceUntilIdle()
+
+        assertTrue("warm Room roster should stay visible during refresh", vm.state.value.roster.isNotEmpty())
+        assertTrue("background refresh must not disable RFID input over a warm Room roster", vm.state.value.scanEnabled)
+        assertTrue(vm.state.value.isRefreshing)
+
+        reader.emit("TAG-001")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-001"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+
+        refreshGate.complete(Unit)
+        advanceUntilIdle()
+    }
+
     // --- Submit proof gate over the FULL shed roster (option 2) -------------------------------------
 
     @Test
@@ -404,6 +450,33 @@ class ScanViewModelTest {
 
         assertTrue("all done animals proof-synced ⇒ submit allowed", vm.state.value.canSubmit)
         assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
+    fun `shed-level proof policy does not show per-animal camera proof actions`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(
+            doneRosterRepo(2),
+            proofRepo,
+            proofPolicy = ProofPolicy(
+                proofMode = "shed_level_video",
+                subjectScope = "shed",
+                expectedSubjects = listOf("shed"),
+                minimumCount = 1,
+                maximumCount = 5,
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.pendingCount)
+        assertTrue("shed-level policy lets scan proceed to submit once animals are done", vm.state.value.canSubmit)
+        assertTrue("shed-level proof is captured on submit screen, not per animal", vm.state.value.proofActionNeeded.isEmpty())
+        assertTrue(vm.state.value.roster.all { !it.proofRequired })
+
+        vm.onEvent(ScanEvent.CaptureProof("goat-1"))
+        advanceUntilIdle()
+        assertTrue("scan screen must not create goat proof captures for shed-level SOP", proofRepo.captureCalls.isEmpty())
     }
 
     @Test
@@ -448,7 +521,7 @@ class ScanViewModelTest {
         val vm = proofGateVm(doneRosterRepo(21), proofRepo)
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
-        assertEquals("window is bounded to one page", 20, vm.state.value.roster.size)
+        assertEquals("window plus off-page done row is visible", 21, vm.state.value.roster.size)
         assertTrue(vm.state.value.hasMore)
 
         (1..20).forEach { seedSyncedProof(proofRepo, "goat-$it") } // everyone in the window is synced
@@ -456,14 +529,51 @@ class ScanViewModelTest {
 
         assertFalse("the off-window page-N animal still blocks submit", vm.state.value.canSubmit)
         assertEquals(listOf("goat-21"), vm.state.value.proofActionNeeded.map { it.goatId })
-        assertFalse("goat-21 is not in the visible window", vm.state.value.roster.any { it.goatId == "goat-21" })
+        assertTrue("goat-21 is restored into the visible done/proof context", vm.state.value.roster.any { it.goatId == "goat-21" })
 
         seedSyncedProof(proofRepo, "goat-21")
         advanceUntilIdle()
         assertTrue("all done animals synced ⇒ submit allowed", vm.state.value.canSubmit)
     }
 
-    private fun proofGateVm(repo: ExecutionRepository, proofRepo: FakeProofCaptureRepository): ScanViewModel =
+    @Test
+    fun `persisted page-N scan restores scanned goats feed after process recreation`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "TAG-21",
+            goatId = "goat-21",
+            obligationId = "obl-21",
+            capturedAtMs = 42L,
+        )
+        val vm = ScanViewModel(
+            repo = pendingRosterRepo(21),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue("the bounded window still has more rows", vm.state.value.hasMore)
+        assertEquals(1, vm.state.value.doneCount)
+        assertTrue("persisted scan below the first page must render in Scanned goats", vm.state.value.feed.any { it.primaryTag == "TAG-21" })
+        assertEquals(ScanStatus.DONE, vm.state.value.roster.single { it.goatId == "goat-21" }.status)
+        assertEquals("scan screen re-entry must re-enqueue durable Room scans", 1, scanCaptures.enqueuePendingScansCalls)
+    }
+
+    private fun proofGateVm(
+        repo: ExecutionRepository,
+        proofRepo: FakeProofCaptureRepository,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
+    ): ScanViewModel =
         ScanViewModel(
             repo = repo,
             reader = FakeRfidReaderPort(),
@@ -472,7 +582,13 @@ class ScanViewModelTest {
             proofCaptureRepository = proofRepo,
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
+            tasksRepository = FakeTasksRepositoryForCapture(
+                TaskDetail(
+                    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                    form = FormSpec.Empty,
+                    proofPolicy = proofPolicy,
+                ),
+            ),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -489,7 +605,17 @@ class ScanViewModelTest {
 
     private fun doneRosterRepo(n: Int): FakeScanExecutionRepository {
         val done = (1..n).map { scanRow("goat-$it", "TAG-$it", "obl-$it").copy(status = "done") }
-        val pages = done.chunked(20)
+        return rosterRepo(done)
+    }
+
+    private fun pendingRosterRepo(n: Int): FakeScanExecutionRepository {
+        val pending = (1..n).map { scanRow("goat-$it", "TAG-$it", "obl-$it") }
+        return rosterRepo(pending)
+    }
+
+    private fun rosterRepo(rows: List<ScanRosterRowDto>): FakeScanExecutionRepository {
+        val pages = rows.chunked(20)
+        check(pages.isNotEmpty())
         val continuation = mutableMapOf<String, ScanRosterResponseDto>()
         pages.forEachIndexed { index, pageRows ->
             val next = if (index + 1 < pages.size) "cursor-${index + 1}" else null
@@ -531,6 +657,9 @@ private class FakeRfidReaderPort : RfidReaderPort {
 private class FakeScanExecutionRepository(
     private val firstPage: ScanRosterResponseDto,
     private val continuationPages: Map<String, ScanRosterResponseDto> = emptyMap(),
+    warmCache: ScanRosterResponseDto? = null,
+    private val refreshStarted: CompletableDeferred<Unit>? = null,
+    private val refreshGate: CompletableDeferred<Unit>? = null,
 ) : ExecutionRepository {
     // In-memory per-row SSOT — the fake mirrors the production contract: refreshScanRoster walks the
     // WHOLE roster into this list (with backend seq order); every read is a bounded/aggregate query
@@ -559,6 +688,12 @@ private class FakeScanExecutionRepository(
 
     private fun statusIsDone(status: String): Boolean =
         status.lowercase().let { it.contains("done") || it.contains("complete") }
+
+    init {
+        warmCache?.let { page ->
+            rows.value = page.rows.mapIndexed { index, row -> row.toEntity("shed-1", "task-1", index.toLong()) }
+        }
+    }
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -614,6 +749,8 @@ private class FakeScanExecutionRepository(
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
+        refreshStarted?.complete(Unit)
+        refreshGate?.await()
         val staged = mutableListOf<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>()
         var seq = 0L
         var page: ScanRosterResponseDto? = firstPage
@@ -631,19 +768,45 @@ private class FakeScanExecutionRepository(
     }
 
     override suspend fun rows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?, cursor: String?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto = error("unused")
 
     override fun observeRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Flow<Resource<VaccinationExecutionResponseDto>> = error("unused")
 
     override suspend fun refreshRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun appendRows(
-        cursor: String, parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        cursor: String,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
@@ -668,9 +831,9 @@ private class FakeTaskRepository(
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
         taskDetail.value = Resource(data = TaskDetail(task = task, form = form), lastSyncedAt = 1L)
     }
-    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
         MutableStateFlow(null)
-    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
 }
 
 private class CapturingSubmitSyncRepository : SyncRepository {

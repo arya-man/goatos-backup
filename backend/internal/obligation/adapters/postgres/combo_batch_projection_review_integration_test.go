@@ -222,8 +222,10 @@ func TestUpdateBatchPlannedDateOneToManyPageBoundaryScheduledDateParkScopeStatus
 		t.Fatalf("batch B: attached=%d err=%v", attached, err)
 	}
 
-	if err := repo.UpdateBatchPlannedDate(ctx, tenantID, batchA, day2); err != nil {
+	if mergedInto, err := repo.UpdateBatchPlannedDate(ctx, tenantID, batchA, day2); err != nil {
 		t.Fatalf("UpdateBatchPlannedDate merge: %v", err)
+	} else if mergedInto != batchB {
+		t.Fatalf("UpdateBatchPlannedDate merge returned target %q, want merged-into %q", mergedInto, batchB)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2 AND status='superseded' AND context->>'merged_into_batch_id'=$3`, tenantID, batchA, batchB); got != 1 {
 		t.Fatalf("source superseded rows = %d, want 1", got)

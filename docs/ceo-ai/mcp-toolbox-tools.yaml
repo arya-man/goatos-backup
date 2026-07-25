@@ -1,0 +1,1015 @@
+# MCP Toolbox config for the leadership-only Mesha assistant.
+#
+# This is a production-intent template, not a deployed secret. Keep secrets in
+# Google Secret Manager / runtime env and mount this file into the Toolbox
+# service (Cloud Run stg/prod) or run it locally via
+# tools/dev/run-mcp-toolbox-local.sh.
+#
+# One env-driven postgres source, so the SAME file serves local and stg:
+#   MESHA_MCP_DB_HOST      (local 127.0.0.1; stg Cloud SQL private IP / socket host)
+#   MESHA_MCP_DB_PORT      (local 5433; stg 5432)
+#   MESHA_MCP_DB_NAME      (goatos)
+#   MESHA_MCP_DB_USER      (mesha_ceo_readonly - read-only role, NOT the app user)
+#   MESHA_MCP_DB_PASSWORD  (Secret Manager)
+#
+# Every tool:
+#   * reads exactly one ceo_ai.* business-language reporting view (never a raw
+#     public.* table),
+#   * REQUIRES tenant_id ($1) which the Mesha backend binds from the server-side
+#     leadership session - NEVER from user/model text,
+#   * caps rows at the SQL level with LIMIT LEAST($n, <hard cap>),
+#   * returns aggregates / bounded top-N, never a raw per-animal dump.
+#
+# The read-only SQL fallback tool (mesha_readonly_sql) is intentionally NOT in
+# this Toolbox config. The Go backend sqlguard
+# (backend/internal/ceoai/sqlguard) validates and executes tier-4 fallback SQL
+# against the same mesha_ceo_readonly role. See
+# docs/runbooks/mcp-toolbox-local.md for why the fallback is Go-owned.
+#
+# Recommended Cloud Run args:
+#   --config=/app/tools.yaml
+#   --address=0.0.0.0
+#   --port=8080
+#   --log-level=info
+#   --telemetry-gcp
+#
+# Local args (see run-mcp-toolbox-local.sh): --config, --address 127.0.0.1,
+#   --port 5001.
+---
+sources:
+  mesha-postgres-readonly:
+    kind: postgres
+    host: ${MESHA_MCP_DB_HOST}
+    port: ${MESHA_MCP_DB_PORT}
+    database: ${MESHA_MCP_DB_NAME}
+    user: ${MESHA_MCP_DB_USER}
+    password: ${MESHA_MCP_DB_PASSWORD}
+
+tools:
+  # ----------------------------------------------------------------------------
+  # 1. Counts / herd census -> ceo_ai.animal_current_scope
+  # ----------------------------------------------------------------------------
+  mesha_count_by_scope:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Current animal census (all species) grouped by park, shed, species,
+      management stage, sex, breed, or lifecycle status. Returns aggregate
+      counts only - never individual animal rows. Use for "how many animals",
+      "goats vs sheep", "count in Castro 1", "count by breed and sex".
+      Vocabulary: animal = all species; goat = species 'goat'; sheep =
+      species 'sheep'. Never equate an animal total with a goat total.
+    statement: |
+      SELECT
+        park_label,
+        shed_label,
+        species,
+        management_stage,
+        sex,
+        lifecycle_status,
+        COUNT(*)::bigint AS animal_count
+      FROM ceo_ai.animal_current_scope
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR park_label ILIKE '%' || $2 || '%')
+        AND ($3::text IS NULL OR shed_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR species = $4)
+        AND ($5::text IS NULL OR management_stage = $5)
+        AND ($6::text IS NULL OR sex = $6)
+        AND ($7::text IS NULL OR lifecycle_status = $7)
+      GROUP BY park_label, shed_label, species, management_stage, sex, lifecycle_status
+      ORDER BY animal_count DESC, park_label, shed_label
+      LIMIT LEAST($8::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id. Bound by the backend from the leadership session, never from user text.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name from the question.
+        required: false
+      - name: shed_label
+        type: string
+        description: Optional shed name or partial shed name.
+        required: false
+      - name: species
+        type: string
+        description: Optional exact species, usually goat or sheep.
+        required: false
+      - name: management_stage
+        type: string
+        description: Optional exact management stage (kid, adult, warm-up, fattening, pregnant, lactation).
+        required: false
+      - name: sex
+        type: string
+        description: Optional exact sex.
+        required: false
+      - name: lifecycle_status
+        type: string
+        description: Optional exact lifecycle status (active, dead, sold, transferred, missing).
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows. Use 10 unless the user asks for more.
+        default: 10
+
+  # ----------------------------------------------------------------------------
+  # 2. Shed capacity variance -> ceo_ai.shed_capacity_current
+  # ----------------------------------------------------------------------------
+  mesha_capacity_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Shed occupancy vs configured capacity: animals, capacity, variance,
+      over/under status, and the shed owner and backup. Use for "which sheds
+      are over capacity", "where are we overstocked", "capacity variance".
+    statement: |
+      SELECT
+        park_label,
+        shed_label,
+        animals,
+        capacity,
+        variance,
+        status,
+        owner_label,
+        backup_label
+      FROM ceo_ai.shed_capacity_current
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR park_label ILIKE '%' || $2 || '%')
+        AND ($3::text IS NULL OR status = $3)
+      ORDER BY variance ASC, park_label, shed_label
+      LIMIT LEAST($4::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: status
+        type: string
+        description: Optional status such as over, at, or under capacity.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum shed rows.
+        default: 15
+
+  # ----------------------------------------------------------------------------
+  # 3. Vaccination shed status -> ceo_ai.vaccination_shed_status
+  # ----------------------------------------------------------------------------
+  mesha_vaccination_due_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Vaccination due / overdue / done workload by shed, with planned sessions,
+      next due date, manager, backup, and status. Counts are per-OBLIGATION
+      (vaccine tasks), not per-goat. Use for "what is due today", "which sheds
+      are overdue", "vaccination status by park". For the governed compliance %
+      the assistant should prefer Cube; use this for operational cause and top
+      sheds.
+    statement: |
+      SELECT
+        park_label,
+        shed_label,
+        animals,
+        due,
+        done,
+        planned_sessions,
+        next_due_date,
+        manager_label,
+        backup_label,
+        status
+      FROM ceo_ai.vaccination_shed_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::date IS NULL OR next_due_date <= $2)
+        AND ($3::text IS NULL OR status = $3)
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+        AND ($5::text IS NULL OR shed_label ILIKE '%' || $5 || '%')
+      ORDER BY
+        CASE status WHEN 'overdue' THEN 0 WHEN 'due' THEN 1 ELSE 2 END,
+        next_due_date NULLS LAST,
+        due DESC,
+        park_label,
+        shed_label
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: due_on_or_before
+        type: string
+        description: Optional ISO date; use today (Asia/Kolkata) for "due today" / overdue questions.
+        required: false
+      - name: status
+        type: string
+        description: Optional exact status such as overdue, due, needs_review, split, or no_work_due.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: shed_label
+        type: string
+        description: Optional shed name or partial shed name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum shed rows.
+        default: 10
+
+  # ----------------------------------------------------------------------------
+  # 3b. Vaccination OPERATOR status -> ceo_ai.vaccination_operator_status
+  # Operator-based drive model: operator load / capacity / overdue / utilization.
+  # ----------------------------------------------------------------------------
+  mesha_vaccination_operator_status:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Operator-grain vaccination drive load: assigned animals, per-operator-per-day
+      capacity, overdue, utilization, and next action, by operator × park × shed ×
+      planned date. Use for "which operators are behind on vaccination", "who is
+      overloaded / operator capacity", "operator drive assignments today", "how
+      many animals is <operator> assigned". Counts are ANIMAL slots assigned to an
+      operator, not per-goat obligation doses. utilization > 1.0 = overloaded.
+      For the governed KPI the assistant should prefer Cube (kpi_vaccination_operator);
+      use this for the operator × shed breakdown and next action.
+    statement: |
+      SELECT
+        operator_label,
+        park_label,
+        shed_label,
+        planned_date,
+        assigned_animals,
+        due,
+        done,
+        overdue,
+        daily_capacity,
+        operator_day_assigned,
+        utilization,
+        next_action
+      FROM ceo_ai.vaccination_operator_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::date IS NULL OR planned_date = $2)
+        AND ($3::text IS NULL OR operator_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+        AND ($5::boolean IS NULL OR ($5 = true AND overdue > 0) OR ($5 = false))
+      ORDER BY
+        overdue DESC,
+        utilization DESC NULLS LAST,
+        operator_label,
+        park_label,
+        shed_label
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: planned_date
+        type: string
+        description: Optional ISO date; use today (Asia/Kolkata) for "assignments today".
+        required: false
+      - name: operator_label
+        type: string
+        description: Optional operator name or partial name.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: overdue_only
+        type: boolean
+        description: When true, only operators with overdue assigned animals ("who is behind").
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum operator rows.
+        default: 10
+
+  # ----------------------------------------------------------------------------
+  # 4. Vaccination dose pickup -> ceo_ai.vaccination_dose_pickup
+  # ----------------------------------------------------------------------------
+  mesha_vaccination_dose_pickup:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Which vaccines and how many doses to pick for a business date, by park/
+      shed, with animals due, animals overdue, owner, backup, and next action.
+      vaccine_label is the HUMAN label (ET+TT, PPR Booster, Blue Tongue, Goat
+      Pox) - raw config codes never appear. Use for "what doses to pick today",
+      "which vaccines are needed this week", "dose pickup by park".
+    statement: |
+      SELECT
+        business_date,
+        park_label,
+        shed_label,
+        vaccine_label,
+        doses_to_pick,
+        animals_due,
+        animals_overdue,
+        owner_label,
+        backup_label,
+        next_action
+      FROM ceo_ai.vaccination_dose_pickup
+      WHERE tenant_id = $1::uuid
+        AND business_date = $2::date
+        AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
+      ORDER BY animals_overdue DESC, doses_to_pick DESC, park_label, shed_label, vaccine_label
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: business_date
+        type: string
+        description: ISO business date (Asia/Kolkata). Use today unless the user names another date.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: shed_label
+        type: string
+        description: Optional shed name or partial shed name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum rows.
+        default: 15
+
+  # ----------------------------------------------------------------------------
+  # 4b. Pre-arrival vaccination history trust -> ceo_ai.vaccination_prearrival_history_review
+  # Supplier-claim data quality for PROCURED animals (accepted vs rejected).
+  # ----------------------------------------------------------------------------
+  mesha_prearrival_history_review:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Pre-arrival vaccination history review outcomes for PROCURED animals:
+      how many supplier-attested vaccination claims were ACCEPTED as trusted
+      history (so the animal was not re-vaccinated from scratch) versus
+      REJECTED, with the rejection reason and the schedule path (kid /
+      adult_procurement). Counts are per CLAIM; distinct_animals counts the
+      animals behind those claims. Use for "how many procured animals arrived
+      with vaccination history we could trust", "what share of supplier
+      vaccination claims did we reject", "why are supplier vaccination claims
+      being rejected", "supplier vaccination data quality". Rejected is never a
+      silent drop - every rejected claim carries a reason. Note: raw vaccine
+      config codes are never returned by this tool.
+    statement: |
+      SELECT
+        reviewed_date_ist,
+        source_system,
+        schedule_path,
+        review_status,
+        rejection_reason,
+        claims,
+        distinct_animals,
+        earliest_administered_date,
+        latest_administered_date
+      FROM ceo_ai.vaccination_prearrival_history_review
+      WHERE tenant_id = $1::uuid
+        AND ($2::date IS NULL OR reviewed_date_ist >= $2)
+        AND ($3::date IS NULL OR reviewed_date_ist <= $3)
+        AND ($4::text IS NULL OR review_status = $4)
+      ORDER BY reviewed_date_ist DESC, claims DESC, review_status
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: reviewed_from
+        type: string
+        description: Optional inclusive ISO start date (Asia/Kolkata) of the review window.
+        required: false
+      - name: reviewed_to
+        type: string
+        description: Optional inclusive ISO end date (Asia/Kolkata) of the review window.
+        required: false
+      - name: review_status
+        type: string
+        description: Optional exact status - accepted or rejected.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 5. Feed direction -> ceo_ai.feed_direction_current
+  # ----------------------------------------------------------------------------
+  mesha_feed_direction_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Issued feed directions for a feed day: total kg by park/shed/workflow,
+      blocked-cell counts, and amendments. Blocked feed means missing
+      configuration, NEVER zero kg. Use for "what feed is needed today",
+      "which feed directions are blocked", "feed totals by session".
+    statement: |
+      SELECT
+        feed_day,
+        park_label,
+        shed_label,
+        workflow,
+        COUNT(*)::bigint AS feed_cells,
+        COUNT(*) FILTER (WHERE blocked_reason IS NOT NULL)::bigint AS blocked_cells,
+        COALESCE(SUM(quantity_kg), 0)::numeric(12, 3) AS total_quantity_kg,
+        BOOL_OR(amended) AS has_amendment
+      FROM ceo_ai.feed_direction_current
+      WHERE tenant_id = $1::uuid
+        AND feed_day = $2::date
+        AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
+        AND ($5::text IS NULL OR workflow = $5)
+      GROUP BY feed_day, park_label, shed_label, workflow
+      ORDER BY blocked_cells DESC, total_quantity_kg DESC, park_label, shed_label, workflow
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: feed_day
+        type: string
+        description: ISO date (Asia/Kolkata) for the feed direction day. Use today unless the user names another date.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: shed_label
+        type: string
+        description: Optional shed name or partial shed name.
+        required: false
+      - name: workflow
+        type: string
+        description: Optional workflow, usually normal or experiment.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows.
+        default: 10
+
+  # ----------------------------------------------------------------------------
+  # 6. Counts movement / shifting -> ceo_ai.counts_movement_daily
+  # ----------------------------------------------------------------------------
+  mesha_shifting_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Daily counts movement by park/shed for an event date: births, deaths,
+      transfers out, shifts in, shifts out, and pending approvals. Goats never
+      move between parks (leaving a park is a terminal transferred/sold exit).
+      Approval is not a completed movement. Use for "what changed in counts
+      yesterday", "which sheds gained animals", "what shifts are pending",
+      "births and deaths this week".
+    statement: |
+      SELECT
+        event_date,
+        park_label,
+        shed_label,
+        births,
+        deaths,
+        transfers_out,
+        shifts_in,
+        shifts_out,
+        approvals_pending
+      FROM ceo_ai.counts_movement_daily
+      WHERE tenant_id = $1::uuid
+        AND event_date = $2::date
+        AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
+      ORDER BY (births + deaths + transfers_out + shifts_in + shifts_out) DESC, park_label, shed_label
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: event_date
+        type: string
+        description: ISO business date (Asia/Kolkata). Use today or the named day.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: shed_label
+        type: string
+        description: Optional shed name or partial shed name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 7. Procurement pipeline -> ceo_ai.procurement_pipeline
+  # ----------------------------------------------------------------------------
+  mesha_procurement_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Procurement / source-entry loads by source and stage: animals in load,
+      vaccination pending, rejected, and entry time. Use for "what procurement
+      loads are open", "pipeline volume by source", "how many loads in
+      progress". Keep expected / received / accepted / rejected distinct.
+    statement: |
+      SELECT
+        source_label,
+        batch_label,
+        current_stage,
+        animals,
+        vaccination_pending,
+        rejected,
+        entered_at
+      FROM ceo_ai.procurement_pipeline
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR current_stage = $2)
+        AND ($3::text IS NULL OR source_label ILIKE '%' || $3 || '%')
+      ORDER BY entered_at DESC NULLS LAST, animals DESC
+      LIMIT LEAST($4::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: current_stage
+        type: string
+        description: Optional exact pipeline stage / load status.
+        required: false
+      - name: source_label
+        type: string
+        description: Optional source name or partial name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum load rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 8. Source-entry health -> ceo_ai.source_entry_health_status
+  # ----------------------------------------------------------------------------
+  mesha_source_entry_health:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Source-entry / arrival intake health by load: animals expected, received,
+      accepted, rejected, health blockers, and evidence status. Use for
+      "expected vs received this week", "which intake is blocked", intake
+      variance by source.
+    statement: |
+      SELECT
+        load_label,
+        source_label,
+        animals_expected,
+        animals_received,
+        animals_accepted,
+        animals_rejected,
+        health_blockers,
+        evidence_status
+      FROM ceo_ai.source_entry_health_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR source_label ILIKE '%' || $2 || '%')
+        AND ($3::text IS NULL OR evidence_status = $3)
+      ORDER BY animals_rejected DESC, health_blockers DESC, source_label
+      LIMIT LEAST($4::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: source_label
+        type: string
+        description: Optional source name or partial name.
+        required: false
+      - name: evidence_status
+        type: string
+        description: Optional exact evidence status.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum load rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 9. Ops exception queue -> ceo_ai.ops_exception_queue
+  # ----------------------------------------------------------------------------
+  mesha_ops_exceptions:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Highest-risk operational exceptions across modules: stalled work, pending
+      approvals, failed jobs, DLQ, and unresolved process-integrity items,
+      ordered by severity then age. Use for "what are the highest-risk
+      operational exceptions", "what's broken across operations".
+    statement: |
+      SELECT
+        area,
+        severity,
+        status,
+        park_label,
+        shed_label,
+        title,
+        opened_at,
+        owner_label,
+        source_id
+      FROM ceo_ai.ops_exception_queue
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR area = $2)
+        AND ($3::text IS NULL OR severity = $3)
+        AND ($4::text IS NULL OR status = $4)
+        AND ($5::text IS NULL OR park_label ILIKE '%' || $5 || '%')
+      ORDER BY
+        CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+        opened_at ASC
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: area
+        type: string
+        description: Optional area such as vaccination, counts, feed, procurement, inventory, sop, sync, or dlq.
+        required: false
+      - name: severity
+        type: string
+        description: Optional severity such as critical, high, medium, or low.
+        required: false
+      - name: status
+        type: string
+        description: Optional status such as open, pending, breached, or needs_review.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum exception rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 10. SOP execution -> ceo_ai.sop_execution_status
+  # ----------------------------------------------------------------------------
+  mesha_sop_execution:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      SOP task execution / shift completion status by park/shed: task label,
+      status, due, completed, and verifier. Use for "which shifts are pending
+      execution", "SOP task status by shed", "which tasks are overdue".
+    statement: |
+      SELECT
+        area,
+        park_label,
+        shed_label,
+        task_label,
+        status,
+        due_at,
+        completed_at,
+        verifier_label
+      FROM ceo_ai.sop_execution_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR area = $2)
+        AND ($3::text IS NULL OR status = $3)
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+      ORDER BY
+        CASE WHEN status IN ('overdue','breached') THEN 0 WHEN status IN ('due','pending') THEN 1 ELSE 2 END,
+        due_at NULLS LAST,
+        park_label,
+        shed_label
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: area
+        type: string
+        description: Optional area / SOP vertical.
+        required: false
+      - name: status
+        type: string
+        description: Optional exact task status.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum task rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 11. Verification queue -> ceo_ai.verification_queue_status
+  # ----------------------------------------------------------------------------
+  mesha_verification_queue:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Proof / verification backlog by area and scope: pending, rejected,
+      accepted, oldest pending time, and owner. Use for "where are proof gaps",
+      "what is pending verification", "rejected proofs by shed".
+    statement: |
+      SELECT
+        area,
+        park_label,
+        shed_label,
+        pending,
+        rejected,
+        accepted,
+        oldest_pending_at,
+        owner_label
+      FROM ceo_ai.verification_queue_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR area = $2)
+        AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
+      ORDER BY pending DESC, oldest_pending_at ASC NULLS LAST, park_label, shed_label
+      LIMIT LEAST($4::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: area
+        type: string
+        description: Optional area / vertical.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum scope rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 12. Inventory stock -> ceo_ai.inventory_stock_position
+  # ----------------------------------------------------------------------------
+  mesha_inventory_stock:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Stock on hand by item / category / park with unit, reorder flag, and last
+      reconciliation. Blocked/missing is not zero. Use for "what's our stock
+      position", "which items need reorder", "vaccine stock on hand".
+    statement: |
+      SELECT
+        item_label,
+        category,
+        stock_on_hand,
+        unit,
+        park_label,
+        reorder_flag,
+        last_reconciled_at
+      FROM ceo_ai.inventory_stock_position
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR category = $2)
+        AND ($3::text IS NULL OR item_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+      ORDER BY reorder_flag DESC NULLS LAST, category, item_label
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: category
+        type: string
+        description: Optional exact item category.
+        required: false
+      - name: item_label
+        type: string
+        description: Optional item name or partial name.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum item rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 13. Workforce coverage -> ceo_ai.workforce_coverage_status
+  # ----------------------------------------------------------------------------
+  mesha_workforce_coverage:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Ownership and backup coverage by park and role: owner, backup, coverage
+      status, active work count, and overdue work count. Return role/position/
+      status, not sensitive personal detail. Use for "who owns overdue work",
+      "which staff has no backup", "coverage gaps by park".
+    statement: |
+      SELECT
+        park_label,
+        role_label,
+        owner_label,
+        backup_label,
+        coverage_status,
+        active_work_count,
+        overdue_work_count
+      FROM ceo_ai.workforce_coverage_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR park_label ILIKE '%' || $2 || '%')
+        AND ($3::text IS NULL OR role_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR coverage_status = $4)
+      ORDER BY overdue_work_count DESC, active_work_count DESC, park_label, role_label
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: role_label
+        type: string
+        description: Optional role name or partial name.
+        required: false
+      - name: coverage_status
+        type: string
+        description: Optional exact coverage status (e.g. covered, uncovered, absent).
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum coverage rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 14. Action center -> ceo_ai.action_center_current
+  # ----------------------------------------------------------------------------
+  mesha_action_center:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Cross-module action-center queue: what needs action now, by area,
+      severity, scope, owner/backup, due, and status. Use for "what needs
+      action right now", "action center summary", "what's in my queue".
+    statement: |
+      SELECT
+        area,
+        severity,
+        park_label,
+        shed_label,
+        title,
+        owner_label,
+        backup_label,
+        due_at,
+        status
+      FROM ceo_ai.action_center_current
+      WHERE tenant_id = $1::uuid
+        AND ($2::text IS NULL OR area = $2)
+        AND ($3::text IS NULL OR severity = $3)
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+      ORDER BY
+        CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+        due_at ASC NULLS LAST
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: area
+        type: string
+        description: Optional area / module.
+        required: false
+      - name: severity
+        type: string
+        description: Optional severity such as critical, high, medium, or low.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum action rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 15. Audit activity -> ceo_ai.audit_activity_summary
+  # ----------------------------------------------------------------------------
+  mesha_audit_summary:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      What happened on a business date: actions grouped by area, actor, and
+      action, with count, result, and last activity time. Actor is sensitive -
+      surface role/label, not personal identifiers. Use for "what happened
+      today", "audit summary by operator", "activity by domain yesterday".
+    statement: |
+      SELECT
+        business_date,
+        area,
+        actor_label,
+        action_label,
+        result,
+        count,
+        last_activity_at
+      FROM ceo_ai.audit_activity_summary
+      WHERE tenant_id = $1::uuid
+        AND business_date = $2::date
+        AND ($3::text IS NULL OR area = $3)
+        AND ($4::text IS NULL OR actor_label ILIKE '%' || $4 || '%')
+      ORDER BY count DESC, last_activity_at DESC
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: business_date
+        type: string
+        description: ISO business date (Asia/Kolkata). Use today or the named day.
+      - name: area
+        type: string
+        description: Optional business area / domain.
+        required: false
+      - name: actor_label
+        type: string
+        description: Optional actor role/label or partial name.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 16. Notification delivery health -> ceo_ai.notification_delivery_health
+  # ----------------------------------------------------------------------------
+  mesha_notification_delivery_health:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Reminder / escalation notification delivery reliability for a business
+      day, grouped by channel and notification type. Returns aggregate
+      requested / sent / failed / pending counts and the oldest still-pending
+      timestamp - never individual notification rows. Use for "how is our
+      reminder delivery health today", "are escalations going out", "any failed
+      or stuck notifications", "notification backlog by channel".
+      This is an operational delivery-reliability read with no governed Cube
+      metric; it is served here, not via Cube.
+    statement: |
+      SELECT
+        business_date,
+        channel,
+        notification_type,
+        requested,
+        sent,
+        failed,
+        pending,
+        oldest_pending_at
+      FROM ceo_ai.notification_delivery_health
+      WHERE tenant_id = $1::uuid
+        AND business_date = $2::date
+        AND ($3::text IS NULL OR channel = $3)
+        AND ($4::text IS NULL OR notification_type = $4)
+      ORDER BY failed DESC, pending DESC, requested DESC
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: business_date
+        type: string
+        description: ISO business date (Asia/Kolkata). Use today or the named day.
+      - name: channel
+        type: string
+        description: Optional delivery channel (e.g. push, sms, whatsapp, email).
+        required: false
+      - name: notification_type
+        type: string
+        description: Optional notification type / category.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows.
+        default: 20
+
+toolsets:
+  # The always-on leadership toolset the Mesha backend loads via MESHA_MCP_TOOLSET.
+  # Curated coverage of every leadership-relevant ceo_ai.* reporting view that is
+  # Toolbox-owned. Two ceo_ai.* views are intentionally NOT exposed as Toolbox
+  # tools because they are GOVERNED METRIC BASES owned by the Cube semantic layer,
+  # not app-shaped reads: ceo_ai.mortality_base (feeds the governed mortality-rate
+  # KPI) and ceo_ai.feed_adherence (feeds the governed feed-adherence KPI). Any
+  # official leadership KPI/trend over those bases routes through Cube (tier 1),
+  # never through this Toolbox config. Every other ceo_ai.* view has a tool here.
+  # The read-only SQL fallback is deliberately excluded here - it is executed by
+  # the Go backend sqlguard, not exposed as a Toolbox tool.
+  mesha_ceo_toolset:
+    - mesha_count_by_scope
+    - mesha_capacity_summary
+    - mesha_vaccination_due_summary
+    - mesha_vaccination_dose_pickup
+    - mesha_prearrival_history_review
+    - mesha_feed_direction_summary
+    - mesha_shifting_summary
+    - mesha_procurement_summary
+    - mesha_source_entry_health
+    - mesha_ops_exceptions
+    - mesha_sop_execution
+    - mesha_verification_queue
+    - mesha_inventory_stock
+    - mesha_workforce_coverage
+    - mesha_action_center
+    - mesha_audit_summary
+    - mesha_notification_delivery_health

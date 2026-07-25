@@ -1,12 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate } from "@/lib/format";
+import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "@/features/counts";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
@@ -43,6 +46,21 @@ function hrefWithoutKeys(pathname: string, params: RouteSearchParams, keys: Set<
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
+function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null): string {
+  const next = new URLSearchParams();
+  for (const [paramKey, paramValue] of Object.entries(params)) {
+    if (paramKey === key) continue;
+    if (Array.isArray(paramValue)) {
+      for (const item of paramValue) if (item) next.append(paramKey, item);
+    } else if (paramValue) {
+      next.set(paramKey, paramValue);
+    }
+  }
+  if (value) next.set(key, value);
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
 export async function VaccinationDriveDetail({
   eventId,
   searchParams,
@@ -58,6 +76,7 @@ export async function VaccinationDriveDetail({
   const cursor = one(sp, "cursor");
   const targetSearch = (one(sp, "q") ?? "").trim();
   const page = boundedInt(one(sp, "page"), 1, 1, 1000000);
+  const selectedGoatId = one(sp, "goat_passport");
   const detailPath = `/calendar/drive/${eventId}`;
 
   const [detail, targets] = await Promise.all([
@@ -107,7 +126,7 @@ export async function VaccinationDriveDetail({
   }
 
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveCoveragePct(coverage.completed, coverage.total);
+  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
   const chips = driveStatusChips(summary);
   const ringRadius = 29;
   const ringCircumference = 2 * Math.PI * ringRadius;
@@ -119,6 +138,21 @@ export async function VaccinationDriveDetail({
   const nextHref = nextCursor ? hrefWithPagedCursor(detailPath, sp, "cursor", nextCursor, "page", "cursor_stack") : null;
   const prevHref = hrefPreviousPagedCursor(detailPath, sp, "cursor", "page", "cursor_stack");
   const clearSearchHref = hrefWithoutKeys(detailPath, sp, new Set(["q", "cursor", "page", "cursor_stack"]));
+  const closePassportHref = hrefWithParam(detailPath, sp, "goat_passport", null);
+  const reproductiveIdempotencyKey = randomUUID();
+  const drawerItems: HerdPassportDrawerItem[] = rosterItems.map((item) => ({
+    goatId: item.animal_id,
+    displayId: item.display_id,
+    tag1: item.animal_identifier_1,
+    tag2: item.animal_identifier_2,
+    park: summary.park_name,
+    shed: item.shed_name ?? "—",
+    breed: null,
+    sex: null,
+    lifecycleStatus: item.lifecycle_status,
+    healthStatus: item.health_status,
+    reproductiveStatus: item.stage,
+  }));
 
   return (
     <div className="screen on">
@@ -194,19 +228,26 @@ export async function VaccinationDriveDetail({
                 <table className="rostertbl">
                   <thead><tr><th>{copy(pageContract, "calendar.drive.display_id_header")}</th><th>{copy(pageContract, "calendar.drive.shed_header")}</th><th>{copy(pageContract, "calendar.drive.tag_1_header")}</th><th>{copy(pageContract, "calendar.drive.tag_2_header")}</th><th>{copy(pageContract, "calendar.drive.stage_header")}</th><th>{copy(pageContract, "calendar.drive.lifecycle_header")}</th><th>{copy(pageContract, "calendar.drive.health_header")}</th><th>{copy(pageContract, "calendar.drive.reason_header")}</th><th>{copy(pageContract, "calendar.drive.status_header")}</th></tr></thead>
                   <tbody className="mono">
-                    {rosterItems.length ? rosterItems.map((item) => (
-                      <tr key={item.animal_id}>
-                        <td>{item.display_id || "—"}</td>
-                        <td>{item.shed_name || "—"}</td>
-                        <td>{item.animal_identifier_1 || "—"}</td>
-                        <td>{item.animal_identifier_2 || "—"}</td>
-                        <td>{item.stage || "—"}</td>
-                        <td>{item.lifecycle_status || "—"}</td>
-                        <td>{item.health_status || "—"}</td>
-                        <td>{targetReason(item) || "—"}</td>
-                        <td>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</td>
-                      </tr>
-                    )) : (
+                    {rosterItems.length ? rosterItems.map((item) => {
+                      const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
+                      return (
+                        <tr key={item.animal_id}>
+                          <td>
+                            <LocalOverlayLink href={passportHref} className="celllink" scroll={false}>
+                              <span className="gid">{item.display_id || "—"}</span>
+                            </LocalOverlayLink>
+                          </td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.shed_name || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_1 || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_2 || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.stage || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.lifecycle_status || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.health_status || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{targetReason(item) || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</LocalOverlayLink></td>
+                        </tr>
+                      );
+                    }) : (
                       <tr><td colSpan={9} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>{copy(pageContract, "calendar.drive.no_animals")}</td></tr>
                     )}
                   </tbody>
@@ -237,6 +278,14 @@ export async function VaccinationDriveDetail({
           )}
         </div>
       </div>
+      <HerdPassportLocalDrawer
+        items={drawerItems}
+        initialSelectedId={selectedGoatId}
+        closeHref={closePassportHref}
+        reproductiveIdempotencyKey={reproductiveIdempotencyKey}
+        returnTo={closePassportHref}
+        pageContract={pageContract}
+      />
     </div>
   );
 }

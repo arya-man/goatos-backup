@@ -4,7 +4,6 @@ package sg.mesha.goatos.feature.counts
 // analytics events and the CrashReporter non-fatal on every queue-load and decision failure.
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +34,7 @@ import androidx.paging.compose.LazyPagingItems
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.RefreshOnResume
 
 /**
  * The approver's pending-decision queue (`/counts/approvals`) — an L0 root of the Counts module,
@@ -97,6 +98,7 @@ fun ApprovalScreen(
     onEvent: (ApprovalEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(ApprovalEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = stringResource(R.string.counts_approval_title),
@@ -152,12 +154,18 @@ fun ApprovalScreen(
 
             if (rows.loadState.append is LoadState.Loading) {
                 item(key = "appending") {
-                    Text(
-                        text = stringResource(R.string.counts_approval_loading_more),
-                        color = MeshaColors.Faint,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MeshaColors.Faint,
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
             }
 
@@ -184,10 +192,9 @@ private fun ApprovalCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .padding(12.dp),
+            .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -271,10 +278,10 @@ private fun ApprovalAction(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(if (enabled) tone else MeshaColors.Surf3)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 13.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -314,9 +321,8 @@ private fun ApprovalEmptyState(isError: Boolean, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
             .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -1,0 +1,115 @@
+[
+  {
+    "id": "vacc-due-today",
+    "class": "vaccination_due_today",
+    "question": "What vaccination work is due today?",
+    "notes": "Counts are per-obligation (vaccine tasks), not per-goat. 'today' resolves on the Asia/Kolkata business day.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
+    }
+  },
+  {
+    "id": "vacc-overdue-count",
+    "class": "vaccination_overdue_sheds",
+    "question": "How many vaccination obligations are overdue right now?",
+    "notes": "Overdue is a read-time bucket (past business-day window, not yet completed); governed Cube KPI is preferred. Aggregate, IST.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
+    }
+  },
+  {
+    "id": "vacc-overdue-sheds-list",
+    "class": "vaccination_overdue_sheds",
+    "question": "Which sheds are overdue for vaccination?",
+    "notes": "Shed list sorted by overdue; aggregate rollup, not a per-animal dump.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
+    }
+  },
+  {
+    "id": "vacc-cause-drilldown",
+    "class": "vaccination_cause_drilldown",
+    "question": "Why is Gandhi 2 overdue for vaccination?",
+    "notes": "Explain the operational cause (stale, proof missing, verification pending, capacity blocked, owner), not just a number.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": [
+        "api"
+      ]
+    }
+  },
+  {
+    "id": "vacc-adherence-week",
+    "class": "vaccination_adherence",
+    "question": "What is our vaccination adherence this week?",
+    "notes": "Compliance % with numerator/denominator and period; governed Cube KPI.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
+    }
+  },
+  {
+    "id": "vacc-dose-pickup",
+    "class": "vaccination_dose_pickup",
+    "question": "Which vaccines need to be picked today and how many doses?",
+    "notes": "Vaccine labels must be human (ET+TT, PPR Booster, Blue Tongue, Goat Pox), never raw codes.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": [
+        "api",
+        "toolbox"
+      ]
+    }
+  },
+  {
+    "id": "vacc-verification-gaps",
+    "class": "vaccination_verification_gaps",
+    "question": "Where are the vaccination proof gaps?",
+    "notes": "Proof/verification backlog by shed/owner/status.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": [
+        "api",
+        "sql"
+      ]
+    }
+  },
+  {
+    "id": "prearrival-history-rejected-share",
+    "class": "prearrival_history_review",
+    "question": "How many pre-arrival vaccination claims from suppliers did we reject, and why?",
+    "notes": "Pre-arrival supplier vaccination history for PROCURED animals. Counts are per CLAIM (an animal can carry several claims); accepted claims become trusted history and suppress a re-dose, rejected claims always carry a reason and never suppress due work. Routes to the Toolbox tool mesha_prearrival_history_review over ceo_ai.vaccination_prearrival_history_review (no governed Cube KPI for this yet); read-only SQL fallback over the same view is acceptable. Raw vaccine config codes must not appear in the answer.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "grounded": true,
+      "tiers_any_of": [
+        "toolbox",
+        "sql"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.vaccination_prearrival_history_entries WHERE tenant_id = :'tenant_id'::uuid AND review_status = 'rejected'"
+    }
+  }
+]

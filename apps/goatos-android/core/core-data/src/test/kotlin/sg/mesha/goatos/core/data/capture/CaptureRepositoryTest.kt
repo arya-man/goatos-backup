@@ -938,6 +938,177 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `retryUpload of a FAILED shed proof re-enqueues with scope_type=shed (BUG P1 fix F1a)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            // Capture a shed proof (scope_type="shed", scope_id=<shedId>)
+            val shedId = "shed-123"
+            val captured = (
+                repo.capture(
+                    taskId = "task-shed-retry",
+                    fieldKey = "vaccination_shed_proof",
+                    subject = ProofSubject.SHED,
+                    subjectId = shedId,
+                    localUri = "file://shed-retry.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "shed",
+                    scopeId = shedId,
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+            ).value
+            advanceUntilIdle()
+
+            // Manually mark it as failed and clear outboxItemId to simulate a recovery path hit
+            val entity = db.proofCaptureDao().findById(captured.id)!!
+            db.proofCaptureDao().updateStatus(entity.id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+            val outboxId = entity.outboxItemId
+            assertTrue("should have outbox item after capture", !outboxId.isNullOrBlank())
+
+            // Clear outboxItemId to force the recovery path (P1 bug site)
+            // We'll manually set it to null by re-inserting without it (simulating the race condition)
+            db.proofCaptureDao().delete(entity.id, entity.taskId)
+            db.proofCaptureDao().insert(
+                entity.copy(outboxItemId = null, syncStatus = CaptureSyncStatus.FAILED.name),
+            )
+
+            // Now retry — must use recoveryScope to re-enqueue with "shed" scope, not hardcoded "task".
+            // The outbox dedupes on the row's stable idempotencyKey, so enqueueCalls stays at one
+            // entry; the recovery re-invocation is observed via allEnqueueRequests instead.
+            val retryInvocations = sync.allEnqueueRequests.size
+            repo.retryUpload("task-shed-retry", captured.id)
+            advanceUntilIdle() // enqueueRegistration launches on appScope (UNDISPATCHED) — await it
+
+            assertEquals("retry must re-invoke enqueue", retryInvocations + 1, sync.allEnqueueRequests.size)
+            val retryRequest = sync.allEnqueueRequests.last()
+            assertEquals("retry must use scope_type=shed for shed proofs (F1a fix)", "shed", retryRequest.scopeType)
+            assertEquals("retry must use scope_id=shed_id (F1a fix)", shedId, retryRequest.scopeId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `reconcileRecoverableUploadsNow with a shed proof re-enqueues with scope_type=shed (BUG P1 fix F1a)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // Simulate a crashed recovery: proof inserted but outboxItemId never set
+            val shedId = "shed-recovery"
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-shed-orphan",
+                    taskId = "task-shed-orphan",
+                    fieldKey = "vaccination_shed_proof",
+                    idempotencyKey = "proof-upload:task-shed-orphan:proof-shed-orphan",
+                ).copy(
+                    proofSubject = ProofSubject.SHED.wireValue,
+                    subjectId = shedId,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            assertEquals("recovery must enqueue the shed proof", 1, sync.enqueueCalls.size)
+            val recoveryCall = sync.enqueueCalls.single()
+            assertEquals("recovery must derive scope_type=shed from entity (F1a fix)", "shed", recoveryCall.request.scopeType)
+            assertEquals("recovery must use the persisted subjectId as scope_id (F1a fix)", shedId, recoveryCall.request.scopeId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `reconcileOutboxTerminalState does not call updateStatus when state matches (F4 no-op guard)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val spyDao = CountingProofCaptureDao(db.proofCaptureDao())
+            val repo = DefaultProofCaptureRepository(
+                dao = spyDao,
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            // Capture a proof
+            val captured = (
+                repo.capture(
+                    taskId = "task-f4-noop",
+                    fieldKey = "shed_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://f4-noop.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-f4-noop",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+            ).value
+            advanceUntilIdle()
+
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("should have outbox item", !itemId.isNullOrBlank())
+
+            // Set the proof to FAILED with a specific error (direct DB write, not through the spy)
+            db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+
+            // The recovered outbox item is a definitive dead-letter/conflict carrying the SAME
+            // lastError the row already has. This is the churn case the F4 guard fixes: the
+            // dead-letter branch previously re-wrote FAILED+lastError on every emission.
+            sync.seedConflict(itemId!!, "network gave up")
+            val rowBefore = db.proofCaptureDao().findById(captured.id)!!
+            assertEquals(CaptureSyncStatus.FAILED.name, rowBefore.syncStatus)
+            assertEquals("network gave up", rowBefore.lastError)
+
+            // Reset the write counter so we measure ONLY reconcile-driven writes.
+            spyDao.updateStatusCalls = 0
+            repo.observeProofs("task-f4-noop").first()
+            advanceUntilIdle()
+
+            // F4: the guard must SKIP the write entirely when the recovered state already matches —
+            // proving the command-in-query no longer re-writes (and re-emits) on every emission.
+            assertEquals("matching-state reconcile must issue ZERO updateStatus writes", 0, spyDao.updateStatusCalls)
+            val rowAfter = db.proofCaptureDao().findById(captured.id)!!
+            assertEquals("state must match before and after", rowBefore.syncStatus, rowAfter.syncStatus)
+            assertEquals("error must match before and after", rowBefore.lastError, rowAfter.lastError)
+
+            // Positive control: make the ROW's lastError diverge from the recovered dead-letter
+            // item; reconcile MUST now write to reconcile it. This proves the counter detects a
+            // real write, so the ZERO assertion above is meaningful, not a dead assertion.
+            db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "stale local error")
+            spyDao.updateStatusCalls = 0
+            repo.observeProofs("task-f4-noop").first()
+            advanceUntilIdle()
+            assertTrue("changed-state reconcile must issue a write", spyDao.updateStatusCalls >= 1)
+            assertEquals("row lastError reconciled to the outbox item", "network gave up", db.proofCaptureDao().findById(captured.id)!!.lastError)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `proof completion follows specific item id even when many items terminalize (R50-029 BUG 2)`() = runTest {
         val db = newDb()
         try {
@@ -1061,6 +1232,10 @@ private class FakeSyncRepository(
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
+    // Every enqueueProofUpload invocation, recorded BEFORE the idempotency-dedup short-circuit, so a
+    // recovery re-enqueue of an already-known key is still observable (the dedup keeps enqueueCalls
+    // at one entry, but the recovery path still invokes enqueue with its derived scope).
+    val allEnqueueRequests = mutableListOf<ProofUploadRequestDto>()
     val scanCalls = mutableListOf<ScanCall>()
     val attemptCalls = mutableListOf<AttemptCall>()
     val retryCalls = mutableListOf<String>()
@@ -1070,6 +1245,24 @@ private class FakeSyncRepository(
     private var nextId = 0
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
+
+    override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
+        AppResult.Ok(status.value.items.firstOrNull { it.id == itemId })
+
+    // Turn the existing outbox row (seeded by capture()'s enqueue) into a definitively-rejected
+    // conflict/dead-letter with a controllable lastError, so the reconcile dead-letter branch is
+    // exercised. Replaces in place (never appends a duplicate id) so findOutboxItem resolves it.
+    fun seedConflict(itemId: String, lastError: String) {
+        status.value = status.value.copy(
+            items = status.value.items.map { item ->
+                if (item.id == itemId) {
+                    item.copy(status = SyncItemStatus.FAILED, conflict = true, lastError = lastError)
+                } else {
+                    item
+                }
+            },
+        )
+    }
 
     fun seed(itemId: String, itemStatus: SyncItemStatus, resultJson: String? = null) {
         status.value = status.value.copy(
@@ -1120,6 +1313,7 @@ private class FakeSyncRepository(
         localFilePath: String,
         durationMs: Long?,
     ): AppResult<String> {
+        allEnqueueRequests += request
         // Mirror the real outbox's idempotency (ON CONFLICT (tenant, idempotency_key)): a repeat
         // enqueue of the SAME proof (capture() and the init-block reconciliation both enqueue the
         // same stable idempotencyKey) returns the EXISTING outbox id instead of minting a new one.
@@ -1180,6 +1374,8 @@ private fun syncQueueItem(
     status: SyncItemStatus,
     resultJson: String? = null,
     groupKey: String = "task",
+    conflict: Boolean = false,
+    lastError: String? = null,
 ) = SyncQueueItem(
     id = id,
     opType = "PROOF_UPLOAD",
@@ -1187,9 +1383,42 @@ private fun syncQueueItem(
     status = status,
     attemptCount = 0,
     maxAttempts = 8,
-    conflict = false,
+    conflict = conflict,
     createdAt = 0L,
     updatedAt = 0L,
-    lastError = null,
+    lastError = lastError,
     resultJson = resultJson,
 )
+
+/**
+ * Delegating [ProofCaptureDao] that counts [updateStatus] invocations so a test can prove the F4
+ * guard actually SKIPS the write (command-in-query removed), not merely that row values are
+ * unchanged. All other methods pass through to the real Room DAO.
+ */
+private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : ProofCaptureDao {
+    var updateStatusCalls = 0
+
+    override suspend fun insert(entity: ProofCaptureEntity) = delegate.insert(entity)
+    override fun observeForTask(taskId: String, limit: Int): Flow<List<ProofCaptureEntity>> =
+        delegate.observeForTask(taskId, limit)
+    override suspend fun listForTask(taskId: String, limit: Int): List<ProofCaptureEntity> =
+        delegate.listForTask(taskId, limit)
+    override suspend fun listForTaskCleanupPage(taskId: String, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
+        delegate.listForTaskCleanupPage(taskId, afterCapturedAtMs, afterId, limit)
+    override suspend fun listRecoverableUploadsPage(capturedBeforeMs: Long, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
+        delegate.listRecoverableUploadsPage(capturedBeforeMs, afterCapturedAtMs, afterId, limit)
+    override suspend fun activeCountForSubject(taskId: String, subjectId: String): Int =
+        delegate.activeCountForSubject(taskId, subjectId)
+    override suspend fun activeCountForSubjectType(taskId: String, proofSubject: String): Int =
+        delegate.activeCountForSubjectType(taskId, proofSubject)
+    override suspend fun findById(id: String): ProofCaptureEntity? = delegate.findById(id)
+    override suspend fun setOutboxItemId(id: String, outboxItemId: String) = delegate.setOutboxItemId(id, outboxItemId)
+    override suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?) {
+        updateStatusCalls++
+        delegate.updateStatus(id, status, serverProofId, lastError)
+    }
+    override suspend fun delete(id: String, taskId: String) = delegate.delete(id, taskId)
+    override suspend fun updateCaption(id: String, taskId: String, caption: String) = delegate.updateCaption(id, taskId, caption)
+    override suspend fun clearForTask(taskId: String) = delegate.clearForTask(taskId)
+    override suspend fun clearAll() = delegate.clearAll()
+}

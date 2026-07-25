@@ -73,6 +73,7 @@ data class NavState(
     val chrome: NavChrome,
     val items: List<NavItem>,
     val modules: List<NavModule> = emptyList(),
+    val featureFlags: Map<String, Boolean> = emptyMap(),
 ) {
     companion object {
         /** Safe empty state before the first bootstrap resolves. */
@@ -101,8 +102,9 @@ fun NavState.availableModules(): List<NavModule> =
 fun NavState.resolveModule(selectedKey: String?, currentRoute: String?): NavModule? {
     val available = availableModules()
     val selected = available.firstOrNull { it.key == selectedKey }
-    if (selected != null && selected.navItems.any { it.href == currentRoute }) return selected
-    val owningRoute = available.firstOrNull { module -> module.navItems.any { it.href == currentRoute } }
+    val currentBaseRoute = currentRoute?.substringBefore('?')
+    if (selected != null && selected.navItems.any { it.href == currentBaseRoute }) return selected
+    val owningRoute = available.firstOrNull { module -> module.navItems.any { it.href == currentBaseRoute } }
     return owningRoute ?: selected ?: available.firstOrNull()
 }
 

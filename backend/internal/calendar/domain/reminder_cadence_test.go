@@ -13,13 +13,36 @@ func istDate(y int, m time.Month, d, hh, mm int) time.Time {
 
 func TestLatestDueReminderFireAdvanceNotice(t *testing.T) {
 	due := istDate(2026, 7, 20, 10, 0) // due July 20
-	now := istDate(2026, 7, 13, 9, 30) // exactly D-7 at 09:30, after the 09:00 slot
+	now := istDate(2026, 7, 13, 9, 30) // exactly D-7 at 09:30, after the 08:00 slot
 	fire, ok := LatestDueReminderFire(due, now, DefaultReminderLadder(), func(string) bool { return false })
 	if !ok {
 		t.Fatalf("expected a due fire at D-7")
 	}
-	if fire.Type != ReminderTypeAdvanceNotice || fire.OffsetDays != -7 || fire.Slot != "09:00" {
-		t.Fatalf("fire = %#v, want advance_notice at D-7 09:00", fire)
+	if fire.Type != ReminderTypeAdvanceNotice || fire.OffsetDays != -7 || fire.Slot != "08:00" {
+		t.Fatalf("fire = %#v, want advance_notice at D-7 08:00", fire)
+	}
+}
+
+func TestDefaultReminderLadderUsesDailyVaccinationSlots(t *testing.T) {
+	ladder := DefaultReminderLadder()
+	if len(ladder) != 3 {
+		t.Fatalf("DefaultReminderLadder returned %d steps, want 3", len(ladder))
+	}
+	wantSlots := [][]string{
+		{"08:00"},
+		{"08:00", "13:00", "20:30"},
+		{"08:00", "13:00", "20:30"},
+	}
+	for i, want := range wantSlots {
+		got := ladder[i].Slots
+		if len(got) != len(want) {
+			t.Fatalf("step %d slots = %v, want %v", i, got, want)
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("step %d slots = %v, want %v", i, got, want)
+			}
+		}
 	}
 }
 
@@ -34,42 +57,42 @@ func TestLatestDueReminderFireNoneBeforeWindow(t *testing.T) {
 
 func TestLatestDueReminderFirePicksLatestOnCatchUp(t *testing.T) {
 	due := istDate(2026, 7, 20, 10, 0)
-	// Now is D-1 at 18:00: D-1 08:00 and D-1 17:00 are both past due, but nothing has fired yet
-	// (fired always false) -- the sweeper should pick the LATEST (17:00), not burst both.
-	now := istDate(2026, 7, 19, 18, 0)
+	// Now is D-1 at 20:45: D-1 08:00, 13:00, and 20:30 are all past due, but nothing has fired
+	// yet (fired always false) -- the sweeper should pick the LATEST (20:30), not burst all three.
+	now := istDate(2026, 7, 19, 20, 45)
 	fire, ok := LatestDueReminderFire(due, now, DefaultReminderLadder(), func(string) bool { return false })
 	if !ok {
 		t.Fatalf("expected a due fire")
 	}
-	if fire.Type != ReminderTypeReminder || fire.OffsetDays != -1 || fire.Slot != "17:00" {
-		t.Fatalf("fire = %#v, want reminder D-1 17:00 (latest, not the earlier 08:00)", fire)
+	if fire.Type != ReminderTypeReminder || fire.OffsetDays != -1 || fire.Slot != "20:30" {
+		t.Fatalf("fire = %#v, want reminder D-1 20:30 (latest, not the earlier slots)", fire)
 	}
 }
 
 func TestLatestDueReminderFireSkipsAlreadyFired(t *testing.T) {
 	due := istDate(2026, 7, 20, 10, 0)
-	now := istDate(2026, 7, 19, 18, 0)
+	now := istDate(2026, 7, 19, 20, 45)
 	firedKeys := map[string]bool{
-		"2026-07-19:reminder:17:00": true,
+		"2026-07-19:reminder:20:30": true,
 	}
 	fire, ok := LatestDueReminderFire(due, now, DefaultReminderLadder(), func(k string) bool { return firedKeys[k] })
 	if !ok {
-		t.Fatalf("expected a due fire (08:00 still pending)")
+		t.Fatalf("expected a due fire (13:00 still pending)")
 	}
-	if fire.Slot != "08:00" {
-		t.Fatalf("fire = %#v, want the still-pending 08:00 slot", fire)
+	if fire.Slot != "13:00" {
+		t.Fatalf("fire = %#v, want the still-pending 13:00 slot", fire)
 	}
 }
 
 func TestLatestDueReminderFireDueToday(t *testing.T) {
 	due := istDate(2026, 7, 20, 10, 0)
-	now := istDate(2026, 7, 20, 12, 30)
+	now := istDate(2026, 7, 20, 13, 30)
 	fire, ok := LatestDueReminderFire(due, now, DefaultReminderLadder(), func(string) bool { return false })
 	if !ok {
 		t.Fatalf("expected a due_today fire")
 	}
-	if fire.Type != ReminderTypeDueToday || fire.OffsetDays != 0 || fire.Slot != "12:00" || fire.Priority != ReminderPriorityHigh {
-		t.Fatalf("fire = %#v, want due_today D-0 12:00 high", fire)
+	if fire.Type != ReminderTypeDueToday || fire.OffsetDays != 0 || fire.Slot != "13:00" || fire.Priority != ReminderPriorityHigh {
+		t.Fatalf("fire = %#v, want due_today D-0 13:00 high", fire)
 	}
 }
 

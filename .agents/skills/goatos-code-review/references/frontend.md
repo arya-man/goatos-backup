@@ -67,6 +67,19 @@ Check for:
       product strings, nav, or seeded cards that take over when the contract is
       missing (shipping a local fallback IA is a blocking product-truth bug)
 - [ ] Any temporary hardcoded exception is documented in `context/frontend/` before shipping
+- [ ] **No fabricated success (merge-blocking):** a save/submit/confirm handler
+      must invoke a real `@goatos/api-client` / `lib/api/*` method and render the
+      server result. A handler that mutates local state and shows a success toast
+      with no network round trip is a lie to the operator, even when its entry
+      point is currently disabled. Concrete failure: `saveCap` in
+      `apps/admin-web/features/people/vaccination-operators-screen.tsx:276-289`
+      sets local state and toasts `Saved · cap set to N/day`; the `Edit` button at
+      `:632-641` is correctly disabled-with-reason, but the Save/Cancel/input
+      controls stay in the DOM and keyboard-reachable, so re-enabling `Edit` alone
+      silently ships the lie. Disabled-with-reason covers the *entry point*, never
+      the handler — when there is no endpoint, delete the write markup rather than
+      leave a dormant fake. Test shape: assert the handler calls a network client
+      method (same grep-style pattern as `positions-panel.test.mjs`).
 - [ ] Backend owns canonical due/overdue/escalation/verification state; frontend renders it (no client-authoritative process state)
 - [ ] Bootstrap/admin-ui-config/feature-flag changes keep Postgres canonical:
       `/admin-web/bootstrap` and page contracts expose `contract_revision`/ETag

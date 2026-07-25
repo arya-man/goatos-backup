@@ -44,6 +44,117 @@ run_go_cmd() {
   run_cmd "$cmd" go run "./cmd/$cmd" "$@"
 }
 
+apply_expected_drive_variant_inputs() {
+  local expected="${GOATOS_EXPECTED_DRIVE_SCHEDULES:-}"
+  local variant="${GOATOS_EXPECTED_DRIVE_VARIANT:-}"
+  if [ -z "${expected// }" ] || [ -z "${variant// }" ]; then
+    return
+  fi
+  if [ "$variant" != "final_discussed_plan_et_tt_only_no_ppr" ]; then
+    return
+  fi
+  if [ ! -f "$expected" ]; then
+    echo "seed-closeout: GOATOS_EXPECTED_DRIVE_SCHEDULES=${expected} does not exist" >&2
+    exit 2
+  fi
+  echo "==> seed-closeout: apply expected-drive variant input (${variant})"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    # derive CPT ET+TT original due dates from unbatched vaccination obligations and upsert reviewed-date overrides\n'
+    return
+  fi
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "seed-closeout: DATABASE_URL is required to apply expected drive variant inputs" >&2
+    exit 2
+  fi
+  local actor_id="${GOATOS_SWEEPER_ACTOR_ID:-${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}}"
+  psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 <<SQL
+WITH park AS (
+  SELECT location_id
+  FROM locations
+  WHERE tenant_id = '${tenant_id}'::uuid
+    AND location_type = 'park'
+    AND (lower(name) = 'channapatna' OR upper(location_code) = 'CPT')
+  LIMIT 1
+),
+candidate_vaccines AS (
+  SELECT DISTINCT
+         CASE
+           WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN 'ET_TT'
+           ELSE NULL
+         END AS override_vaccine_code,
+         (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date AS original_drive_date,
+         CASE
+           WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN DATE '2026-07-24'
+           ELSE NULL
+         END AS override_date,
+         CASE
+           WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt'
+             THEN 'CPT validation override: ET+TT first on reviewed business date'
+           ELSE NULL
+         END AS reason
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = oi.tenant_id
+   AND prd.protocol_version_id = oi.protocol_version_id
+   AND prd.rule_id = oi.rule_id
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND oi.target_type = 'goat'
+  LEFT JOIN locations shed
+    ON shed.tenant_id = oi.tenant_id
+   AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+   AND shed.location_type = 'shed'
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+      NULLIF(prd.vaccine_code, '')
+    ) AS vaccine_code
+  ) v
+  WHERE oi.tenant_id = '${tenant_id}'::uuid
+    AND oi.batch_id IS NULL
+    AND oi.status IN ('scheduled', 'due', 'missed')
+    AND COALESCE(shed.parent_location_id, g.park_id, CASE WHEN oi.scope_type = 'park' THEN oi.scope_id END) = (SELECT location_id FROM park)
+),
+override_rows AS (
+  SELECT override_vaccine_code, original_drive_date, override_date, reason
+  FROM candidate_vaccines
+  WHERE override_vaccine_code IS NOT NULL
+    AND override_date > original_drive_date
+)
+,
+upserted AS (
+INSERT INTO vaccination_drive_date_overrides (
+  tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
+)
+SELECT '${tenant_id}'::uuid, park.location_id, override_rows.override_vaccine_code,
+       override_rows.original_drive_date, override_rows.override_date, override_rows.reason,
+       '${actor_id}'::uuid, now()
+FROM park
+JOIN override_rows ON true
+ON CONFLICT (tenant_id, park_id, (lower(btrim(vaccine_code))), original_drive_date)
+WHERE canceled_at IS NULL
+DO UPDATE SET
+  override_date = EXCLUDED.override_date,
+  reason = EXCLUDED.reason,
+  created_by = EXCLUDED.created_by,
+  created_at = EXCLUDED.created_at
+RETURNING 1
+)
+SELECT count(*) FROM upserted;
+SQL
+}
+
 run_goat_shed_integrity_proof() {
   echo "==> seed-closeout: goat-shed-integrity proof"
   if [ "$dry_run" -eq 1 ]; then
@@ -93,6 +204,7 @@ run_vaccination_drive_batching() {
 
   if [ "$dry_run" -eq 1 ]; then
     run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
+    apply_expected_drive_variant_inputs
     run_goat_shed_integrity_proof
     if [ -n "${as_of// }" ]; then
       run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -as-of "$as_of" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
@@ -104,19 +216,30 @@ run_vaccination_drive_batching() {
     return
   fi
 
-  run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
-  run_goat_shed_integrity_proof
   if [ -n "${as_of// }" ]; then
-    run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -as-of "$as_of" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
+    run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id" -as-of "$as_of"
   else
-    run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
+    run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
   fi
-
-  local leftover
-  leftover="$(
-    cd "$repo/backend"
-    go run ./cmd/seed-state-check -tenant-id "$tenant_id" -mode closeout >/dev/null
-    psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -c "
+  apply_expected_drive_variant_inputs
+  run_goat_shed_integrity_proof
+  local sweep_limit="${GOATOS_SEED_CLOSEOUT_SWEEP_PASSES:-8}"
+  local previous_leftover=""
+  local leftover=""
+  local pass
+  for pass in $(seq 1 "$sweep_limit"); do
+    if [ "$pass" -gt 1 ]; then
+      echo "==> seed-closeout: obligation-sweeper fixed-point pass ${pass}/${sweep_limit}"
+    fi
+    if [ -n "${as_of// }" ]; then
+      run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -as-of "$as_of" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
+    else
+      run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
+    fi
+    leftover="$(
+      cd "$repo/backend"
+      go run ./cmd/seed-state-check -tenant-id "$tenant_id" -mode closeout >/dev/null
+      psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -c "
       SELECT count(*)
       FROM obligation_instances oi
       JOIN protocol_versions pv ON pv.protocol_version_id = oi.protocol_version_id
@@ -127,7 +250,16 @@ run_vaccination_drive_batching() {
         AND oi.status IN ('scheduled', 'due')
         AND oi.due_at <= '$due_before'::timestamptz
     "
-  )"
+    )"
+    leftover="${leftover//[[:space:]]/}"
+    if [ "$leftover" = "0" ]; then
+      break
+    fi
+    if [ -n "$previous_leftover" ] && [ "$leftover" -ge "$previous_leftover" ]; then
+      break
+    fi
+    previous_leftover="$leftover"
+  done
   if [ "${leftover//[[:space:]]/}" != "0" ]; then
     echo "seed-closeout: vaccination drive batching left ${leftover} in-window scheduled obligations unbatched through ${due_before}" >&2
     exit 1
@@ -139,6 +271,63 @@ run_vaccination_drive_batching() {
       bash "$repo/tools/dev/check-vaccination-drive-clubbing-proof.sh"
   fi
   run_goat_shed_integrity_proof
+}
+
+# BUG-010: the CPT operator-drive contract documented a DB comparison against
+# expected-drive-schedules.json that nothing ever ran, so a reseed could finish "clean" while
+# breaching the per-operator animal cap, fanning out past active_operators_per_day, assigning
+# an operator outside the contract, materializing pre-business-date drive work, or presenting
+# superseded / zero-obligation shell batches as the schedule. This runs that comparison
+# against real rows and FAILS the closeout. Opt-in by expectation file, because the
+# expectation set is packet-specific: set GOATOS_EXPECTED_DRIVE_SCHEDULES (the CPT reseed
+# target does). Set GOATOS_EXPECTED_DRIVE_VARIANT=<variant id> to additionally compare the
+# exact per-date rows of one named variant after applying that variant's drive-policy input.
+run_expected_drive_schedule_proof() {
+  local expected="${GOATOS_EXPECTED_DRIVE_SCHEDULES:-}"
+  if [ -z "${expected// }" ]; then
+    echo "==> seed-closeout: skip expected-drive-schedules proof (GOATOS_EXPECTED_DRIVE_SCHEDULES not set)"
+    return
+  fi
+  if [ ! -f "$expected" ]; then
+    echo "seed-closeout: GOATOS_EXPECTED_DRIVE_SCHEDULES=${expected} does not exist" >&2
+    exit 2
+  fi
+  local checker
+  checker="$(cd "$(dirname "$expected")" && pwd)/check-expected-drive-schedules.mjs"
+  if [ ! -f "$checker" ]; then
+    echo "seed-closeout: expected-drive packet $(dirname "$expected") has no check-expected-drive-schedules.mjs" >&2
+    exit 2
+  fi
+  echo "==> seed-closeout: expected-drive-schedules proof (${expected})"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    node %q --self-test\n' "$checker"
+    printf '    GOATOS_TENANT_ID=%q node %q --expected %q\n' "$tenant_id" "$checker" "$expected"
+    return
+  fi
+  node "$checker" --self-test
+  GOATOS_TENANT_ID="$tenant_id" node "$checker" --expected "$expected"
+}
+
+run_cpt_passport_display_proof() {
+  if [ "${GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF:-0}" != "1" ]; then
+    echo "==> seed-closeout: skip CPT passport display proof (GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF=1 not set)"
+    return
+  fi
+  local checker="$repo/tools/dev/check-cpt-vaccination-passport-display.mjs"
+  if [ ! -f "$checker" ]; then
+    echo "seed-closeout: missing CPT passport display checker at ${checker}" >&2
+    exit 2
+  fi
+  if [ -z "${GOATOS_API_BASE_URL:-}" ]; then
+    echo "==> seed-closeout: skip CPT passport display proof (GOATOS_API_BASE_URL not set)"
+    return
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    GOATOS_TENANT_ID=%q node %q\n' "$tenant_id" "$checker"
+    return
+  fi
+  echo "==> seed-closeout: CPT passport display proof"
+  GOATOS_TENANT_ID="$tenant_id" node "$checker"
 }
 
 run_calendar_projectors() {
@@ -177,6 +366,8 @@ run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
 run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching
+run_expected_drive_schedule_proof
+run_cpt_passport_display_proof
 run_calendar_projectors
 run_counts_projectors
 echo "seed-closeout: complete"

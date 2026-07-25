@@ -28,6 +28,7 @@ if (!accessToken) {
 console.log(`Target project: ${options.project}`);
 console.log(`Active gcloud account: ${activeAccount || "<unset>"}`);
 console.log(`Mode: ${options.dryRun ? "dry-run" : "write"}`);
+console.log(`Require existing users: ${options.requireExisting ? "yes" : "no"}`);
 console.log(`Reset emails: ${options.sendResetEmail ? "send" : "skip"}`);
 console.log("");
 
@@ -48,6 +49,10 @@ console.table(
 
 async function seedUser(user) {
   const existing = await lookupUser(user.email);
+  const requiredProviders = options.requiredProviders.get(user.email) || [];
+  if (existing) {
+    requireProviders(user.email, existing, requiredProviders);
+  }
   if (options.dryRun) {
     return {
       email: user.email,
@@ -60,14 +65,22 @@ async function seedUser(user) {
 
   let action = "existing";
   let account = existing;
+  if (!account && options.requireExisting) {
+    throw new Error(`${user.email} does not exist in Firebase Auth; create/link it first so its UID matches the committed backend grant seed`);
+  }
   if (!account) {
     account = await createUser(user);
     action = "created";
+    requireProviders(user.email, account, requiredProviders);
   }
 
   if (!account.emailVerified) {
     account = await markEmailVerified(account.localId);
     action = action === "created" ? "created_verified" : "verified_existing";
+  }
+  if (user.password && existing) {
+    account = await setPassword(account.localId, user.password);
+    action = action === "verified_existing" ? "verified_password_set" : "password_set";
   }
 
   let resetEmail = "skipped";
@@ -85,6 +98,16 @@ async function seedUser(user) {
   };
 }
 
+function requireProviders(email, account, requiredProviders) {
+  if (requiredProviders.length === 0) return;
+  const actual = new Set((account.providerUserInfo || []).map((provider) => provider.providerId).filter(Boolean));
+  for (const providerID of requiredProviders) {
+    if (!actual.has(providerID)) {
+      throw new Error(`${email} is missing required Firebase provider ${providerID}; link/fix the account before seeding`);
+    }
+  }
+}
+
 async function lookupUser(email) {
   const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts:lookup`, {
     email: [email],
@@ -96,7 +119,7 @@ async function lookupUser(email) {
 async function createUser(user) {
   const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts`, {
     email: user.email,
-    password: randomTemporaryPassword(),
+    password: user.password || randomTemporaryPassword(),
     displayName: user.displayName,
     emailVerified: true,
     targetProjectId: options.project,
@@ -113,6 +136,20 @@ async function markEmailVerified(localId) {
   const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts:update`, {
     localId,
     emailVerified: true,
+    targetProjectId: options.project,
+  });
+  return {
+    localId: response.localId || localId,
+    email: response.email,
+    displayName: response.displayName,
+    emailVerified: response.emailVerified === true,
+  };
+}
+
+async function setPassword(localId, password) {
+  const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts:update`, {
+    localId,
+    password,
     targetProjectId: options.project,
   });
   return {
@@ -175,6 +212,8 @@ function parseArgs(args) {
     dryRun: false,
     help: false,
     project: "",
+    requiredProviders: new Map(),
+    requireExisting: false,
     sendResetEmail: false,
     users: [],
   };
@@ -184,16 +223,40 @@ function parseArgs(args) {
     if (arg === "--help" || arg === "-h") parsed.help = true;
     else if (arg === "--allow-project-mismatch") parsed.allowProjectMismatch = true;
     else if (arg === "--dry-run") parsed.dryRun = true;
+    else if (arg === "--require-existing") parsed.requireExisting = true;
     else if (arg === "--send-reset-email") parsed.sendResetEmail = true;
     else if (arg === "--project") parsed.project = nextValue(args, ++index, arg);
+    else if (arg === "--require-provider") addRequiredProvider(parsed.requiredProviders, nextValue(args, ++index, arg));
     else if (arg === "--continue-url") parsed.continueUrl = nextValue(args, ++index, arg);
     else if (arg === "--email") addEmailUsers(parsed.users, nextValue(args, ++index, arg));
     else if (arg === "--user") parsed.users.push(parseUser(nextValue(args, ++index, arg)));
+    else if (arg === "--user-password") {
+      const credential = parseUserPassword(nextValue(args, ++index, arg));
+      const existing = parsed.users.find((user) => user.email === credential.email);
+      if (existing) existing.password = credential.password;
+      else {
+        parsed.users.push({
+          email: credential.email,
+          displayName: displayNameFromEmail(credential.email),
+          password: credential.password,
+        });
+      }
+    }
     else fail(`Unknown argument: ${arg}`);
   }
 
   parsed.users = uniqueUsers(parsed.users);
   return parsed;
+}
+
+function addRequiredProvider(requiredProviders, value) {
+  const [rawEmail, ...providerParts] = value.split("=");
+  const email = normalizeEmail(rawEmail);
+  const providerID = providerParts.join("=").trim();
+  if (!email || !providerID) fail(`Invalid --require-provider value: ${value}`);
+  const current = requiredProviders.get(email) || [];
+  current.push(providerID);
+  requiredProviders.set(email, current);
 }
 
 function nextValue(args, index, flag) {
@@ -217,6 +280,15 @@ function parseUser(value) {
   if (!email) fail(`Invalid --user email: ${value}`);
   const displayName = nameParts.join("=").trim() || displayNameFromEmail(email);
   return { email, displayName };
+}
+
+function parseUserPassword(value) {
+  const [rawEmail, ...passwordParts] = value.split("=");
+  const email = normalizeEmail(rawEmail);
+  const password = passwordParts.join("=");
+  if (!email) fail(`Invalid --user-password email: ${value}`);
+  if (password.length < 6) fail(`Password for ${email} is too short.`);
+  return { email, password };
 }
 
 function uniqueUsers(users) {
@@ -253,9 +325,13 @@ function printUsage(exitCode) {
 Options:
   --project <id>              Required Google Cloud/Firebase project id.
   --user <email=Display>      Seed one user with a display name. Repeatable.
+  --user-password <email=pw>  Optional fixed temporary password for a seeded user.
   --email <a,b,c>             Seed emails with display names derived from local parts.
   --send-reset-email          Send Firebase password-reset emails after seeding.
   --continue-url <url>        Optional post-reset dashboard URL.
+  --require-existing          Fail instead of creating users; use when backend grants depend on committed Firebase UIDs.
+  --require-provider <email=providerId>
+                              Fail unless an existing Firebase user has the provider, e.g. ravi@mesha.sg=google.com.
   --dry-run                   Show planned creates/updates/emails without writes.
   --allow-project-mismatch    Override active gcloud project guard.
 `);

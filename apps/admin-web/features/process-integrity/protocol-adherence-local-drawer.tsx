@@ -3,7 +3,7 @@
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOption, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AdherenceRow } from "@/lib/api/server";
 import { Syringe, X } from "lucide-react";
 import type { Tone } from "./process-integrity";
@@ -21,6 +21,10 @@ export type ProtocolAdherenceDrawerRecord = {
 
 function adherenceRowId(record: ProtocolAdherenceDrawerRecord): string {
   return record.row.row_id;
+}
+
+function workStateTone(pageContract: AdminUiPageContract, workState: string): Tone {
+  return (optionalOption(pageContract, "work_state_filter_chips", workState)?.tone ?? "mut") as Tone;
 }
 
 export function ProtocolAdherenceLocalDrawer({
@@ -113,7 +117,7 @@ function AdherenceRecordDrawer({
         <div className="metagrid">
           <div><div className="k">{ledgerLabels[0]}</div><div className="v">{record.expectedTitle}</div><div className="mt">{row.expected}</div></div>
           <div><div className="k">{ledgerLabels[1]}</div><div className="v">{record.actual}</div></div>
-          <div><div className="k">{ledgerLabels[2]}</div><div className="v"><Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{record.gap}</Tag></div></div>
+          <div><div className="k">{ledgerLabels[2]}</div><div className="v"><Tag tone={workStateTone(pageContract, row.work_state)}>{record.gap}</Tag></div></div>
           <div><div className="k">{ledgerLabels[3]}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag></div></div>
           <div><div className="k">{ledgerLabels[4]}</div><div className="v">{record.owner}</div></div>
           <div><div className="k">{ledgerLabels[5]}</div><div className="v">{row.next_action}</div></div>

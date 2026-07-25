@@ -11,7 +11,7 @@
 #     -> outbox-relay GOATOS_OUTBOX_PUBLISHER=eventbus delivery -> generation
 #     -> obligation_instances
 #     -> obligation-sweeper -> obligation_batch + SOP task
-#     -> goat-row camera proof upload (local storage) -> SOP task submission -> vaccination_completion (recorded)
+#     -> shed-level video proof upload (local storage) -> SOP task submission -> vaccination_completion (recorded)
 #     -> verification-queue -> SOP task verify -> completion accepted + obligation completed
 #     -> CT / AC / PA / WF / vaccination ops / shed drilldown / Passport read the same Postgres truth
 #
@@ -222,32 +222,32 @@ TASK=$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'
 [ -n "$TASK" ] || { echo "FAIL step4 (no SOP task)"; exit 1; }
 echo "BATCH=$BATCH TASK=$TASK"
 
-echo; echo "### 5. goat-row camera proof upload (scope=task subject=goat)"
-mkgoatproof(){ local goat=$1 clip=${2:-1}
+echo; echo "### 5. shed-level video proof upload (scope=task subject=shed)"
+mkshedproof(){ local shed=$1 clip=${2:-1} source=${3:-in_app_camera}
   local start_ms end_ms r pid url full upload hash size complete state
   start_ms=$(date +%s000)
   end_ms=$((start_ms + 30000))
-  r=$(curl -s "${O[@]}" -H "Content-Type: application/json" -H "Idempotency-Key: proof-$STAMP-$goat-$clip" -X POST "$API/app/proofs/uploads" -d @- <<JSON
-{"proof_type":"video","mime_type":"video/mp4","scope_type":"task","scope_id":"$TASK","subject_type":"goat","subject_id":"$goat","metadata":{"capture_source":"in_app_camera","captured_start_ms":$start_ms,"captured_end_ms":$end_ms,"camera_only":true,"clip_ordinal":$clip,"vaccines_covered":["$ACTIVE_DOSE_CODE"]}}
+  r=$(curl -s "${O[@]}" -H "Content-Type: application/json" -H "Idempotency-Key: proof-$STAMP-shed-$clip" -X POST "$API/app/proofs/uploads" -d @- <<JSON
+{"proof_type":"video","mime_type":"video/mp4","scope_type":"task","scope_id":"$TASK","subject_type":"shed","subject_id":"$shed","metadata":{"capture_source":"$source","captured_start_ms":$start_ms,"captured_end_ms":$end_ms,"clip_ordinal":$clip,"vaccines_covered":["$ACTIVE_DOSE_CODE"],"proof_mode":"shed_level_video"}}
 JSON
 )
   local pid=$(echo "$r" | jqp 'd["proof"]["proof_id"]'); local url=$(echo "$r" | jqp 'd["upload_url"]')
-  [ -n "$pid" ] || { echo "  proof FAIL (goat=$goat clip=$clip): $r" >&2; return 1; }
+  [ -n "$pid" ] || { echo "  proof FAIL (shed=$shed clip=$clip source=$source): $r" >&2; return 1; }
   case "$url" in http*) full=$url;; /*) full="$API$url";; *) full="$API/$url";; esac
-  printf 'chain-goat-%s-clip-%s-%s' "$goat" "$clip" "$STAMP" >/tmp/cp_goat_$clip.bin
-  upload=$(curl -s "${O[@]}" -H "Content-Type: video/mp4" -X PUT --data-binary @/tmp/cp_goat_$clip.bin "$full")
+  printf 'chain-shed-%s-clip-%s-%s' "$shed" "$clip" "$STAMP" >/tmp/cp_shed_$clip.bin
+  upload=$(curl -s "${O[@]}" -H "Content-Type: video/mp4" -X PUT --data-binary @/tmp/cp_shed_$clip.bin "$full")
   hash=$(echo "$upload" | jqp 'd.get("proof",{}).get("content_hash","")')
   size=$(echo "$upload" | jqp 'd.get("proof",{}).get("size_bytes",0)')
-  [ -n "$hash" ] && [ "$size" != "0" ] || { echo "  proof upload FAIL (goat=$goat clip=$clip): $upload" >&2; return 1; }
+  [ -n "$hash" ] && [ "$size" != "0" ] || { echo "  proof upload FAIL (shed=$shed clip=$clip): $upload" >&2; return 1; }
   complete=$(curl -s "${O[@]}" -H "Content-Type: application/json" -X POST "$API/app/proofs/$pid/complete" -d @- <<JSON
 {"content_hash":"$hash","mime_type":"video/mp4","size_bytes":$size,"duration_ms":30000,"metadata":{"completed_by":"local_e2e","clip_ordinal":$clip}}
 JSON
 )
   state=$(echo "$complete" | jqp 'd.get("proof",{}).get("upload_state","")')
-  [ "$state" = "completed" ] || { echo "  proof upload FAIL (goat=$goat clip=$clip): $upload" >&2; return 1; }
+  [ "$state" = "completed" ] || { echo "  proof upload FAIL (shed=$shed clip=$clip): $upload" >&2; return 1; }
   echo "$pid"; }
-P_GOAT=$(mkgoatproof "$GOAT" 1)
-echo "PROOF goat=$GOAT clip1=$P_GOAT"
+P_SHED=$(mkshedproof "$SHED" 1 "in_app_camera")
+echo "PROOF shed=$SHED clip1=$P_SHED"
 
 echo; echo "### 5b. goat scan capture (server draft roster)"
 SCAN_CAPTURED_AT_MS=$(date +%s000)
@@ -257,11 +257,13 @@ JSON
 )
 SCAN_ID=$(echo "$SCAN" | jqp 'd.get("capture",{}).get("capture_id","")')
 [ -n "$SCAN_ID" ] || { echo "FAIL step5b: $SCAN"; exit 1; }
+SCAN_STORED_MS=$(psqlq "select floor(extract(epoch from captured_at) * 1000)::bigint from sop_task_scan_captures where tenant_id='$TENANT' and capture_id='$SCAN_ID'::uuid")
+[ "$SCAN_STORED_MS" = "$SCAN_CAPTURED_AT_MS" ] || fail "scan timestamp mismatch stored=$SCAN_STORED_MS expected=$SCAN_CAPTURED_AT_MS"
 echo "SCAN_CAPTURE=$SCAN_ID goat=$GOAT obligation=$OBL"
 
 echo; echo "### 6. SOP task submission  POST /app/tasks/{task}/submissions"
 SUB=$(curl -s "${O[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"goat_ids":["$GOAT"]},"proof_refs":[{"proof_id":"$P_GOAT","proof_type":"video","subject_type":"goat","subject_id":"$GOAT","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"goat_ids":["$GOAT"]},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","subject_id":"$SHED","upload_state":"completed"}]}
 JSON
 )
 SUBID=$(echo "$SUB" | jqp 'd.get("submission",{}).get("submission_id","")')

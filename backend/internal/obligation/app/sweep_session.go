@@ -20,10 +20,13 @@ import (
 // (cmd/obligation-sweeper) shares one SweepSession across every published version it sweeps in
 // one run, plus the subsequent AlignComboDrives pass, via SweepVersionWithSession.
 type SweepSession struct {
-	visitShotCounts map[string]int32
-	visitClaims     map[string]shotCapClaim
-	driveCellCounts map[string]int32
-	driveLoaded     map[string]struct{}
+	visitShotCounts              map[string]int32
+	visitClaims                  map[string]shotCapClaim
+	plannedVaccineClaims         map[string][]plannedVaccineClaim
+	vaccinationOperatorLoads     map[string]int32
+	driveCellCounts              map[string]int32
+	driveLoaded                  map[string]struct{}
+	vaccinationOperatorAvailable map[string][]domain.DriveOperatorCapacity
 	// loaded marks every visitShotCountKey whose starting count has already been resolved once
 	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
 	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
@@ -31,6 +34,40 @@ type SweepSession struct {
 	// resolved-at-zero so every group only pays the seed cost once per key per session, not once
 	// per group that happens to share a (date, target) visit.
 	loaded map[string]struct{}
+
+	// driveRebuilds records every BUG-041 merged-batch drive-assignment rebuild attempt this session
+	// made, with its outcome, so a skipped rebuild (e.g. no executable operator) is observable to the
+	// caller and to tests instead of vanishing as silent success.
+	driveRebuilds []DriveRebuildResult
+}
+
+// DriveRebuildResult is one merged-target drive-assignment rebuild outcome (BUG-041).
+type DriveRebuildResult struct {
+	BatchID string
+	// Reason is "" when the target was rebuilt; otherwise a stable skip code:
+	// "not_rebuildable" (finalized/committed/vanished), "no_attached" (no obligations),
+	// or "no_operator" (no executable operator -- rows deliberately NOT replaced with NULL operators).
+	Reason string
+}
+
+// Rebuilt reports whether this rebuild result actually replaced the target's rows.
+func (r DriveRebuildResult) Rebuilt() bool { return r.Reason == "" }
+
+func (s *SweepSession) recordDriveRebuild(batchID, reason string) {
+	if s == nil {
+		return
+	}
+	s.driveRebuilds = append(s.driveRebuilds, DriveRebuildResult{BatchID: batchID, Reason: reason})
+}
+
+// DriveRebuilds returns every merged-batch drive-assignment rebuild outcome recorded this session
+// (BUG-041), in order. Callers and tests use it to assert a rebuild happened, or that a skip was
+// surfaced with its reason rather than silently swallowed.
+func (s *SweepSession) DriveRebuilds() []DriveRebuildResult {
+	if s == nil {
+		return nil
+	}
+	return append([]DriveRebuildResult(nil), s.driveRebuilds...)
 }
 
 // shotCapClaim records the vaccine/priority that most recently filled a visit's LAST cap slot,
@@ -41,11 +78,20 @@ type shotCapClaim struct {
 	priority    int32
 }
 
+type plannedVaccineClaim struct {
+	date        time.Time
+	vaccineCode string
+	class       vaccineMatrixClass
+	combos      []string
+}
+
 type shotCapReservation struct {
 	obligationID string
 	key          string
 	vaccineCode  string
 	priority     int32
+	targetID     string
+	date         time.Time
 }
 
 type driveCapacityReservation struct {
@@ -57,12 +103,72 @@ type driveCapacityReservation struct {
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
 func NewSweepSession() *SweepSession {
 	return &SweepSession{
-		visitShotCounts: make(map[string]int32),
-		visitClaims:     make(map[string]shotCapClaim),
-		driveCellCounts: make(map[string]int32),
-		driveLoaded:     make(map[string]struct{}),
-		loaded:          make(map[string]struct{}),
+		visitShotCounts:              make(map[string]int32),
+		visitClaims:                  make(map[string]shotCapClaim),
+		plannedVaccineClaims:         make(map[string][]plannedVaccineClaim),
+		vaccinationOperatorLoads:     make(map[string]int32),
+		driveCellCounts:              make(map[string]int32),
+		driveLoaded:                  make(map[string]struct{}),
+		vaccinationOperatorAvailable: make(map[string][]domain.DriveOperatorCapacity),
+		loaded:                       make(map[string]struct{}),
 	}
+}
+
+func vaccinationOperatorLoadKey(tenantID, parkID string, plannedDate time.Time, operatorID string) string {
+	return strings.Join([]string{
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(parkID),
+		businessDate(plannedDate).Format("2006-01-02"),
+		strings.TrimSpace(operatorID),
+	}, "\x00")
+}
+
+func vaccinationOperatorAvailabilityKey(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) string {
+	return strings.Join([]string{
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(parkID),
+		businessDate(plannedDate).Format("2006-01-02"),
+		fmt.Sprint(capPerOperator),
+	}, "\x00")
+}
+
+func cloneDriveOperatorCapacities(values []domain.DriveOperatorCapacity) []domain.DriveOperatorCapacity {
+	if len(values) == 0 {
+		return nil
+	}
+	return append([]domain.DriveOperatorCapacity(nil), values...)
+}
+
+func (s *SweepSession) cachedVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, bool) {
+	if s == nil {
+		return nil, false
+	}
+	values, ok := s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)]
+	if !ok {
+		return nil, false
+	}
+	return cloneDriveOperatorCapacities(values), true
+}
+
+func (s *SweepSession) rememberVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []domain.DriveOperatorCapacity) {
+	if s == nil {
+		return
+	}
+	s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)] = cloneDriveOperatorCapacities(operators)
+}
+
+func (s *SweepSession) vaccinationOperatorLoad(tenantID, parkID string, plannedDate time.Time, operatorID string) int32 {
+	if s == nil {
+		return 0
+	}
+	return s.vaccinationOperatorLoads[vaccinationOperatorLoadKey(tenantID, parkID, plannedDate, operatorID)]
+}
+
+func (s *SweepSession) rememberVaccinationOperatorLoad(tenantID, parkID string, plannedDate time.Time, operatorID string, animals int32) {
+	if s == nil || animals <= 0 || strings.TrimSpace(operatorID) == "" {
+		return
+	}
+	s.vaccinationOperatorLoads[vaccinationOperatorLoadKey(tenantID, parkID, plannedDate, operatorID)] += animals
 }
 
 // unresolvedTargets returns the distinct, non-blank target IDs in targetIDs whose (date, target)
@@ -168,9 +274,24 @@ func (s *SweepSession) claim(key, vaccineCode string, priority int32) {
 	s.visitClaims[key] = shotCapClaim{vaccineCode: vaccineCode, priority: priority}
 }
 
+func (s *SweepSession) rememberPlannedVaccine(targetID string, date time.Time, identity RuleVaccineIdentity) {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" || date.IsZero() {
+		return
+	}
+	s.plannedVaccineClaims[targetID] = append(s.plannedVaccineClaims[targetID], plannedVaccineClaim{
+		date:        businessDate(date),
+		vaccineCode: vaccineCode,
+		class:       vaccineIdentityImmunoClass(identity),
+		combos:      vaccineComboSessionsForCode(vaccineCode),
+	})
+}
+
 func (s *SweepSession) releaseClaims(claims []shotCapReservation) {
 	for i := len(claims) - 1; i >= 0; i-- {
 		claim := claims[i]
+		s.releasePlannedVaccine(claim.targetID, claim.date, claim.vaccineCode)
 		if s.visitShotCounts[claim.key] > 0 {
 			s.visitShotCounts[claim.key]--
 		}
@@ -183,6 +304,284 @@ func (s *SweepSession) releaseClaims(claims []shotCapReservation) {
 		if ok && strings.EqualFold(last.vaccineCode, claim.vaccineCode) && last.priority == claim.priority {
 			delete(s.visitClaims, claim.key)
 		}
+	}
+}
+
+func (s *SweepSession) releasePlannedVaccine(targetID string, date time.Time, vaccineCode string) {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode = strings.TrimSpace(vaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" || date.IsZero() {
+		return
+	}
+	claims := s.plannedVaccineClaims[targetID]
+	if len(claims) == 0 {
+		return
+	}
+	date = businessDate(date)
+	for i := len(claims) - 1; i >= 0; i-- {
+		claim := claims[i]
+		if claim.date.Equal(date) && strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			claims = append(claims[:i], claims[i+1:]...)
+			break
+		}
+	}
+	if len(claims) == 0 {
+		delete(s.plannedVaccineClaims, targetID)
+		return
+	}
+	s.plannedVaccineClaims[targetID] = claims
+}
+
+func (s *SweepSession) overflowSafeRange(targetID string, identity RuleVaccineIdentity) (time.Time, time.Time, bool) {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" {
+		return time.Time{}, time.Time{}, false
+	}
+	nextClass := vaccineIdentityImmunoClass(identity)
+	var earliest time.Time
+	for _, claim := range s.plannedVaccineClaims[targetID] {
+		if claim.date.IsZero() || strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			continue
+		}
+		gapDays := crossVaccineSessionGapDays(claim.class, nextClass)
+		if gapDays <= 0 {
+			continue
+		}
+		candidate := businessDate(claim.date).AddDate(0, 0, int(gapDays))
+		if earliest.IsZero() || candidate.After(earliest) {
+			earliest = candidate
+		}
+	}
+	if earliest.IsZero() {
+		return time.Time{}, time.Time{}, false
+	}
+	return earliest, earliest.AddDate(0, 0, int(domain.DefaultMaxBatchingHoldDays)), true
+}
+
+func (s *SweepSession) overflowSafeRangeForDate(targetID string, identity RuleVaccineIdentity, day time.Time) (time.Time, time.Time, bool) {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" {
+		return time.Time{}, time.Time{}, false
+	}
+	nextClass := vaccineIdentityImmunoClass(identity)
+	day = businessDate(day)
+	var earliest time.Time
+	for _, claim := range s.plannedVaccineClaims[targetID] {
+		if claim.date.IsZero() || !businessDate(claim.date).Before(day) || strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			continue
+		}
+		gapDays := crossVaccineSessionGapDays(claim.class, nextClass)
+		if gapDays <= 0 {
+			continue
+		}
+		candidate := businessDate(claim.date).AddDate(0, 0, int(gapDays))
+		if earliest.IsZero() || candidate.After(earliest) {
+			earliest = candidate
+		}
+	}
+	if earliest.IsZero() {
+		return time.Time{}, time.Time{}, false
+	}
+	return earliest, earliest.AddDate(0, 0, int(domain.DefaultMaxBatchingHoldDays)), true
+}
+
+func (s *SweepSession) sameDayPlannedVaccineCount(targetID string, identity RuleVaccineIdentity, day time.Time) int {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || day.IsZero() {
+		return 0
+	}
+	if vaccineIdentityImmunoClass(identity) == vaccineClassUnknown {
+		return 0
+	}
+	day = businessDate(day)
+	count := 0
+	for _, claim := range s.plannedVaccineClaims[targetID] {
+		if claim.date.IsZero() || !businessDate(claim.date).Equal(day) {
+			continue
+		}
+		if strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			continue
+		}
+		if claim.class == vaccineClassUnknown {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func (s *SweepSession) sameDayCompatibleWithPlannedVaccines(targetID string, identity RuleVaccineIdentity, day time.Time) bool {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" || day.IsZero() {
+		return true
+	}
+	combos := vaccineComboSessionsForCode(vaccineCode)
+	if len(combos) == 0 {
+		return s.sameDayPlannedVaccineCount(targetID, identity, day) == 0
+	}
+	day = businessDate(day)
+	for _, claim := range s.plannedVaccineClaims[targetID] {
+		if claim.date.IsZero() || !businessDate(claim.date).Equal(day) {
+			continue
+		}
+		if strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			continue
+		}
+		if !comboSessionListsOverlap(combos, claim.combos) {
+			return false
+		}
+	}
+	return true
+}
+
+func vaccineComboSessionsForCode(vaccineCode string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 2)
+	add := func(session string) {
+		session = strings.TrimSpace(session)
+		if session == "" {
+			return
+		}
+		if _, ok := seen[session]; ok {
+			return
+		}
+		seen[session] = struct{}{}
+		out = append(out, session)
+	}
+	if session := domain.VaccineComboSession(vaccineCode); session != "" {
+		add(session)
+	}
+	switch normalizedVaccineMatrixCode(vaccineCode) {
+	case "et tt", "et+tt":
+		add("combo:ET+TT+PPR")
+	case "ppr":
+		add("combo:ET+TT+PPR")
+		add("combo:PPR+Blue Tongue")
+	case "blue tongue":
+		add("combo:PPR+Blue Tongue")
+	case "goat pox":
+		add(domain.VaccineComboSession("Goat Pox"))
+	case "sheep pox":
+		add("combo:Sheep Pox+Blue Tongue")
+	}
+	return out
+}
+
+func comboSessionListsOverlap(left, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, session := range left {
+		seen[session] = struct{}{}
+	}
+	for _, session := range right {
+		if _, ok := seen[session]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *SweepSession) vaccineFeasibleOnPlannerDate(now, day time.Time, row driveCandidate, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) bool {
+	if !s.sameDayCompatibleWithPlannedVaccines(row.TargetID, identity, day) {
+		return false
+	}
+	if s.sameDayPlannedVaccineCount(row.TargetID, identity, day) >= 2 {
+		return false
+	}
+	if driveCandidateFeasibleOnPlannerDate(now, day, row, planner) {
+		if start, _, ok := s.overflowSafeRangeForDate(row.TargetID, identity, day); ok && businessDate(day).Before(start) {
+			return false
+		}
+		return true
+	}
+	start, end, ok := s.overflowSafeRangeForDate(row.TargetID, identity, day)
+	if !ok {
+		return false
+	}
+	day = businessDate(day)
+	return !day.Before(start) && !day.After(end)
+}
+
+func (s *SweepSession) latestUnbatchedDriveDateWithOverflow(rows []domain.UnbatchedDue, identity RuleVaccineIdentity) time.Time {
+	latest := latestUnbatchedDriveDate(driveCandidatesFromUnbatched(rows))
+	for _, row := range rows {
+		_, end, ok := s.overflowSafeRange(row.TargetID, identity)
+		if ok && (latest.IsZero() || end.After(latest)) {
+			latest = end
+		}
+	}
+	return latest
+}
+
+func (s *SweepSession) unbatchedObligationsFeasibleOnDateForVaccine(now, day time.Time, rows []domain.UnbatchedDue, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) []string {
+	day = businessDate(day)
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if !s.vaccineFeasibleOnPlannerDate(now, day, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}, planner, identity) {
+			continue
+		}
+		ids = append(ids, row.ObligationID)
+	}
+	return ids
+}
+
+type vaccineMatrixClass int
+
+const (
+	vaccineClassUnknown vaccineMatrixClass = iota
+	vaccineClassLive
+	vaccineClassKilled
+)
+
+func vaccineMatrixImmunoClass(vaccineCode string) vaccineMatrixClass {
+	switch normalizedVaccineMatrixCode(vaccineCode) {
+	case "ppr", "goat pox", "sheep pox":
+		return vaccineClassLive
+	case "et+tt", "et tt", "blue tongue", "fmd", "hs":
+		return vaccineClassKilled
+	default:
+		return vaccineClassUnknown
+	}
+}
+
+func vaccineIdentityImmunoClass(identity RuleVaccineIdentity) vaccineMatrixClass {
+	switch strings.ToLower(strings.TrimSpace(identity.VaccineType)) {
+	case "live":
+		return vaccineClassLive
+	case "killed", "toxoid":
+		return vaccineClassKilled
+	default:
+		return vaccineMatrixImmunoClass(identity.VaccineCode)
+	}
+}
+
+func crossVaccineSessionGapDays(previous, next vaccineMatrixClass) int32 {
+	switch {
+	case previous == vaccineClassLive && next == vaccineClassLive:
+		return 28
+	case previous == vaccineClassLive && next == vaccineClassKilled:
+		return 14
+	case previous == vaccineClassKilled && next == vaccineClassLive:
+		return 14
+	case previous == vaccineClassKilled && next == vaccineClassKilled:
+		return 14
+	default:
+		return 0
 	}
 }
 
@@ -279,7 +678,7 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // swept in this run) instead of a private per-call map, and it surfaces
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
-func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.UnbatchedDue, plannedDate *time.Time, planner domain.DrivePlannerSettings, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
+func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.UnbatchedDue, plannedDate *time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
@@ -289,8 +688,59 @@ func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Unbatche
 	}
 	selected := make([]string, 0, len(rows))
 	claims := make([]shotCapReservation, 0, len(rows))
+	for _, group := range unbatchedShotCapGroups(now, rows, *plannedDate, planner, identity, session) {
+		groupClaims := make([]shotCapReservation, 0, len(group.rows))
+		groupSelected := make([]string, 0, len(group.rows))
+		groupFits := true
+		for _, row := range group.rows {
+			ids, nextClaims, ok, err := session.tryClaimUnbatchedShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(groupClaims)
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				groupFits = false
+				break
+			}
+			groupSelected = append(groupSelected, ids...)
+			groupClaims = append(groupClaims, nextClaims...)
+		}
+		if groupFits {
+			selected = append(selected, groupSelected...)
+			claims = append(claims, groupClaims...)
+			continue
+		}
+		session.releaseClaims(groupClaims)
+		if planner.MaxGoatsPerDrive <= 0 || int32(group.targetCount) <= planner.MaxGoatsPerDrive {
+			continue
+		}
+		for _, row := range group.rows {
+			ids, nextClaims, ok, err := session.tryClaimUnbatchedShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			selected = append(selected, ids...)
+			claims = append(claims, nextClaims...)
+		}
+	}
+	return selected, claims, nil
+}
+
+type unbatchedShotCapGroup struct {
+	rows        []domain.UnbatchedDue
+	targetCount int
+}
+
+func unbatchedShotCapGroups(now time.Time, rows []domain.UnbatchedDue, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity, session *SweepSession) []unbatchedShotCapGroup {
+	byKey := make(map[string]int)
+	groups := make([]unbatchedShotCapGroup, 0)
 	for _, row := range rows {
-		if !driveCandidateFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
+		if !session.vaccineFeasibleOnPlannerDate(now, plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -299,30 +749,42 @@ func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Unbatche
 			WindowEnd:                row.WindowEnd,
 			BatchingHoldCount:        row.BatchingHoldCount,
 			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
-		}, planner) {
+		}, planner, identity) {
 			continue
 		}
-		if planner.MaxShotsPerAnimalPerDrive <= 0 {
-			selected = append(selected, row.ObligationID)
-			continue
+		key := unbatchedRouteGroupKey(row)
+		idx, ok := byKey[key]
+		if !ok {
+			idx = len(groups)
+			byKey[key] = idx
+			groups = append(groups, unbatchedShotCapGroup{})
 		}
-		if strings.TrimSpace(row.TargetID) == "" {
-			selected = append(selected, row.ObligationID)
-			continue
-		}
-		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
-			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
-				session.releaseClaims(claims)
-				return nil, nil, err
-			}
-			continue
-		}
-		session.claim(key, vaccineCode, priority)
-		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: vaccineCode, priority: priority})
-		selected = append(selected, row.ObligationID)
+		groups[idx].rows = append(groups[idx].rows, row)
 	}
-	return selected, claims, nil
+	for i := range groups {
+		groups[i].targetCount = uniqueUnbatchedTargetCount(groups[i].rows)
+	}
+	return groups
+}
+
+func (s *SweepSession) tryClaimUnbatchedShotCap(row domain.UnbatchedDue, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) ([]string, []shotCapReservation, bool, error) {
+	if planner.MaxShotsPerAnimalPerDrive <= 0 {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	if strings.TrimSpace(row.TargetID) == "" {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	key := visitShotCountKey(plannedDate, row.TargetID)
+	if s.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
+		if err := s.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, plannedDate); err != nil {
+			return nil, nil, false, err
+		}
+		return nil, nil, false, nil
+	}
+	s.claim(key, identity.VaccineCode, identity.VaccinePriority)
+	s.rememberPlannedVaccine(row.TargetID, plannedDate, identity)
+	claim := shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: plannedDate}
+	return []string{row.ObligationID}, []shotCapReservation{claim}, true, nil
 }
 
 // ruleVaccineIdentityResolver resolves a park-consolidation candidate's OWN rule to its vaccine
@@ -349,11 +811,65 @@ func selectParkIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Park
 	}
 	out := make([]string, 0, len(selected))
 	claims := make([]shotCapReservation, 0, len(selected))
+	for _, group := range parkShotCapGroups(now, rows, selectedSet, *plannedDate, planner, identityFor, session) {
+		groupClaims := make([]shotCapReservation, 0, len(group.rows))
+		groupSelected := make([]string, 0, len(group.rows))
+		groupFits := true
+		for _, row := range group.rows {
+			identity := identityFor(row.RuleID)
+			ids, nextClaims, ok, err := session.tryClaimParkShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(groupClaims)
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				groupFits = false
+				break
+			}
+			groupSelected = append(groupSelected, ids...)
+			groupClaims = append(groupClaims, nextClaims...)
+		}
+		if groupFits {
+			out = append(out, groupSelected...)
+			claims = append(claims, groupClaims...)
+			continue
+		}
+		session.releaseClaims(groupClaims)
+		if planner.MaxGoatsPerDrive <= 0 || int32(group.targetCount) <= planner.MaxGoatsPerDrive {
+			continue
+		}
+		for _, row := range group.rows {
+			identity := identityFor(row.RuleID)
+			ids, nextClaims, ok, err := session.tryClaimParkShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			out = append(out, ids...)
+			claims = append(claims, nextClaims...)
+		}
+	}
+	return out, claims, nil
+}
+
+type parkShotCapGroup struct {
+	rows        []domain.ParkConsolidationCandidate
+	targetCount int
+}
+
+func parkShotCapGroups(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, identityFor ruleVaccineIdentityResolver, session *SweepSession) []parkShotCapGroup {
+	byKey := make(map[string]int)
+	groups := make([]parkShotCapGroup, 0)
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
 			continue
 		}
-		if !driveCandidateFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
+		identity := identityFor(row.RuleID)
+		if !session.vaccineFeasibleOnPlannerDate(now, plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -362,31 +878,43 @@ func selectParkIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Park
 			WindowEnd:                row.WindowEnd,
 			BatchingHoldCount:        row.BatchingHoldCount,
 			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
-		}, planner) {
+		}, planner, identity) {
 			continue
 		}
-		if planner.MaxShotsPerAnimalPerDrive <= 0 {
-			out = append(out, row.ObligationID)
-			continue
+		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+		key := strings.TrimSpace(row.ParkID) + "\x00" + strings.TrimSpace(row.ShedID) + "\x00" + physicalShed + "\x00" + partition + "\x00" + strings.TrimSpace(row.RuleID)
+		idx, ok := byKey[key]
+		if !ok {
+			idx = len(groups)
+			byKey[key] = idx
+			groups = append(groups, parkShotCapGroup{})
 		}
-		if strings.TrimSpace(row.TargetID) == "" {
-			out = append(out, row.ObligationID)
-			continue
-		}
-		identity := identityFor(row.RuleID)
-		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
-			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
-				session.releaseClaims(claims)
-				return nil, nil, err
-			}
-			continue
-		}
-		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
-		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority})
-		out = append(out, row.ObligationID)
+		groups[idx].rows = append(groups[idx].rows, row)
 	}
-	return out, claims, nil
+	for i := range groups {
+		groups[i].targetCount = distinctParkTargetCount(groups[i].rows)
+	}
+	return groups
+}
+
+func (s *SweepSession) tryClaimParkShotCap(row domain.ParkConsolidationCandidate, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) ([]string, []shotCapReservation, bool, error) {
+	if planner.MaxShotsPerAnimalPerDrive <= 0 {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	if strings.TrimSpace(row.TargetID) == "" {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	key := visitShotCountKey(plannedDate, row.TargetID)
+	if s.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
+		if err := s.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, plannedDate); err != nil {
+			return nil, nil, false, err
+		}
+		return nil, nil, false, nil
+	}
+	s.claim(key, identity.VaccineCode, identity.VaccinePriority)
+	s.rememberPlannedVaccine(row.TargetID, plannedDate, identity)
+	claim := shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: plannedDate}
+	return []string{row.ObligationID}, []shotCapReservation{claim}, true, nil
 }
 
 // SweepVersionPriority pairs a protocol version with its resolved sweep config, letting a

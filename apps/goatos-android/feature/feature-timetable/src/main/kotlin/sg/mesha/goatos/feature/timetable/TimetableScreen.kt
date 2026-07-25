@@ -1,4 +1,5 @@
 package sg.mesha.goatos.feature.timetable
+// telemetry:exempt refresh-on-open wiring only (RefreshOnResume); no new user-facing surface — parent list telemetry unchanged
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +31,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // ---------------------------------------------------------------------------
@@ -134,6 +136,7 @@ fun TimetableScreen(
     onEvent: (TimetableEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(TimetableEvent.Refresh) }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()

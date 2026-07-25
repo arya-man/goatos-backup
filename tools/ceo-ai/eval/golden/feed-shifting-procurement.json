@@ -1,0 +1,72 @@
+[
+  {
+    "id": "feed-today",
+    "class": "feed_direction_today",
+    "question": "What feed is needed today?",
+    "notes": "Totals by feed item/session. Blocked cells are missing configuration, never '0 kg'.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["api", "toolbox"]
+    }
+  },
+  {
+    "id": "feed-blocked",
+    "class": "feed_blocked_config_gaps",
+    "question": "Which feed directions are blocked today?",
+    "notes": "Group blocked cells by shed/ration/feed item; blocked = missing config, not zero.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "toolbox", "sql"]
+    }
+  },
+  {
+    "id": "feed-packing",
+    "class": "feed_packing_worklist",
+    "question": "What is the feed packing worklist for today?",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "shift-pending",
+    "class": "shifting_pending",
+    "question": "Which shed movements are pending execution?",
+    "notes": "Report requested/authorized/completed/canceled distinctly; approval is not a completed movement.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "shift-impact",
+    "class": "shifting_impact",
+    "question": "Which sheds gained animals from movements today?",
+    "notes": "Goats never move between parks; leaving a park is a terminal exit.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "proc-open-loads",
+    "class": "procurement_open_loads",
+    "question": "What procurement loads are open?",
+    "notes": "Separate expected/received/accepted/rejected/holding counts.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "cube", "sql"]
+    }
+  },
+  {
+    "id": "proc-variance",
+    "class": "procurement_variance",
+    "question": "What is the expected versus received variance for this week's intake?",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  }
+]

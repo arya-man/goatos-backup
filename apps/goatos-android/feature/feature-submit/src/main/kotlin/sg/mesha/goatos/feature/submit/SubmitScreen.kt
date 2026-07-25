@@ -91,11 +91,15 @@ data class SubmitUiState(
     val canSubmit: Boolean,
     /** 0f..1f, rendered as a bar while [syncState] is [SyncState.SYNCING]. */
     val syncProgress: Float = 0f,
-    /** Room-first per-goat camera-proof progress for this shed. Finalize never uploads these. */
-    val goatProofTotal: Int = 0,
-    val goatProofSynced: Int = 0,
-    val goatProofUploading: Int = 0,
-    val goatProofFailed: Int = 0,
+    /** Room-first proof progress for this shed. In per-goat mode these are goat clips; in
+     *  shed-level mode these are shed videos required by SOP. Finalize never uploads files. */
+    val proofSummaryTitle: String = "",
+    val proofSummarySyncedLabel: String = "",
+    val proofSummaryFinalizeHint: String = "",
+    val proofTotal: Int = 0,
+    val proofSynced: Int = 0,
+    val proofUploading: Int = 0,
+    val proofFailed: Int = 0,
     /** Current retry attempt count (used in format strings for localization). */
     val attemptCount: Int = 0,
     /** Maximum retry attempts allowed (used in format strings for localization). */
@@ -136,6 +140,7 @@ data class ShedCompletionSummary(
     val expectedCount: Int,
     val handledCount: Int,
     val proofReadyCount: Int,
+    val proofMode: String,
     val submitState: String,
 )
 
@@ -153,7 +158,7 @@ sealed interface SubmitEvent {
      *  (MOB-002, docs/mobile/proof-capture-sync-and-e2e.md §1). */
     data class ScanToggled(val key: String) : SubmitEvent
     /** Tapped a `video_proof` field's proof box — launches one video capture (MOB-002 §2). */
-    data class CaptureVideoRequested(val key: String) : SubmitEvent
+    data class CaptureVideoRequested(val key: String, val source: String = "in_app_camera") : SubmitEvent
     /** Edited the caption of an operator-added EXTRA proof video. */
     data class ProofCaptionChanged(val key: String, val proofId: String, val caption: String) : SubmitEvent
     /** Removed an operator-added EXTRA proof video (named/mandatory subjects cannot be removed). */
@@ -232,6 +237,10 @@ fun SubmitScreen(
     onEvent: (SubmitEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val proofFields = state.formRunner?.fields.orEmpty().filter { it.kind == FieldKindUi.VIDEO_PROOF }
+    val recordingFields = state.formRunner?.fields.orEmpty()
+        .filterNot { it.kind == FieldKindUi.VIDEO_PROOF }
+        .filterNot { state.shedCompletionSummary != null && it.kind == FieldKindUi.GOAT_SCAN }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -266,62 +275,90 @@ fun SubmitScreen(
                 items(state.vaccineBreakdown, key = { "${it.vaccine}|${it.count}" }, contentType = { "vaccine_breakdown" }) { item ->
                     VaccineBreakdownRow(item)
                 }
-                state.blockingReason?.let { reason ->
-                    item {
-                        Text(
-                            text = reason,
-                            color = T.warn,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
-                    }
-                }
             }
             if (state.summaryItems.any { it.label.isNotBlank() && it.value.isNotBlank() } ||
                 state.shed.isNotBlank() || state.cohort.isNotBlank() || state.date.isNotBlank()
             ) {
                 item { RecordSummary(state) }
             }
-            if (state.goatProofTotal > 0) {
+            if (proofFields.isEmpty() && state.proofTotal > 0 && state.proofSummaryTitle.isNotBlank()) {
                 item {
-                    GoatProofSummary(state)
+                    ProofSummary(state)
                 }
             }
             state.formRunner?.let { runner ->
-                item {
-                    Text(
-                        text = runner.title,
-                        color = T.faint,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                    )
-                }
-                item {
-                    FormFieldsColumn(
-                        fields = runner.fields,
-                        onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
-                        onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
-                        onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
-                        onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
-                        onCaptureVideo = { key -> onEvent(SubmitEvent.CaptureVideoRequested(key)) },
-                        onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
-                        onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
-                        onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
-                    )
-                }
-                runner.blockedReason?.let { reason ->
+                if (proofFields.isNotEmpty()) {
                     item {
                         Text(
-                            text = reason,
-                            color = T.warn,
-                            fontSize = 11.5.sp,
+                            text = state.proofSummaryTitle.ifBlank { stringResource(R.string.submit_summary_proof_ready) },
+                            color = T.faint,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 4.dp),
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
+                    item {
+                        FormFieldsColumn(
+                            fields = proofFields,
+                            onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
+                            onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
+                            onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
+                            onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
+                            onCaptureVideo = { key, source -> onEvent(SubmitEvent.CaptureVideoRequested(key, source)) },
+                            onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
+                            onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
+                            onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
+                        )
+                    }
+                    state.blockingReason?.let { reason ->
+                        item {
+                            Text(
+                                text = reason,
+                                color = T.warn,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+                if (recordingFields.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = runner.title,
+                            color = T.faint,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
+                    item {
+                        FormFieldsColumn(
+                            fields = recordingFields,
+                            onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
+                            onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
+                            onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
+                            onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
+                            onCaptureVideo = { key, source -> onEvent(SubmitEvent.CaptureVideoRequested(key, source)) },
+                            onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
+                            onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
+                            onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
                         )
                     }
                 }
+                runner.blockedReason
+                    ?.takeUnless { it.trim() == state.blockingReason?.trim() }
+                    ?.let { reason ->
+                        item {
+                            Text(
+                                text = reason,
+                                color = T.warn,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+                    }
             }
             if (state.groups.isNotEmpty() && state.dueSectionLabel.isNotBlank()) {
                 item {
@@ -346,6 +383,11 @@ fun SubmitScreen(
 
 @Composable
 private fun SubmitHeader(state: SubmitUiState) {
+    val title = when (state.syncState) {
+        SyncState.ACKED -> stringResource(R.string.submit_record_submitted_title)
+        else -> state.shedCompletionSummary?.shedName?.takeIf { it.isNotBlank() }
+            ?: state.title.ifBlank { stringResource(R.string.submit_record_title) }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -360,7 +402,7 @@ private fun SubmitHeader(state: SubmitUiState) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            state.title.ifBlank { stringResource(R.string.submit_record_title) },
+            title,
             color = T.ink,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
@@ -469,10 +511,10 @@ private fun VaccineGroupCard(group: VaccineGroup) {
 }
 
 @Composable
-private fun GoatProofSummary(state: SubmitUiState) {
-    val complete = state.goatProofSynced >= state.goatProofTotal && state.goatProofFailed == 0
+private fun ProofSummary(state: SubmitUiState) {
+    val complete = state.proofSynced >= state.proofTotal && state.proofFailed == 0
     val statusColor = when {
-        state.goatProofFailed > 0 -> T.danger
+        state.proofFailed > 0 -> T.danger
         complete -> T.brandD
         else -> T.warn
     }
@@ -494,36 +536,32 @@ private fun GoatProofSummary(state: SubmitUiState) {
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.submit_goat_proof_title),
+                    text = state.proofSummaryTitle,
                     color = T.ink,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = stringResource(
-                        R.string.submit_goat_proof_synced,
-                        state.goatProofSynced,
-                        state.goatProofTotal,
-                    ),
+                    text = state.proofSummarySyncedLabel,
                     color = statusColor,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
         }
-        if (state.goatProofUploading > 0 || state.goatProofFailed > 0) {
+        if (state.proofUploading > 0 || state.proofFailed > 0) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (state.goatProofUploading > 0) {
+                if (state.proofUploading > 0) {
                     Text(
-                        stringResource(R.string.submit_goat_proof_uploading, state.goatProofUploading),
+                        stringResource(R.string.submit_goat_proof_uploading, state.proofUploading),
                         color = T.warn,
                         fontSize = 11.sp,
                     )
                 }
-                if (state.goatProofFailed > 0) {
+                if (state.proofFailed > 0) {
                     Text(
-                        stringResource(R.string.submit_goat_proof_failed, state.goatProofFailed),
+                        stringResource(R.string.submit_goat_proof_failed, state.proofFailed),
                         color = T.danger,
                         fontSize = 11.sp,
                     )
@@ -533,7 +571,7 @@ private fun GoatProofSummary(state: SubmitUiState) {
         if (complete) {
             Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.submit_goat_proof_finalize_hint),
+                text = state.proofSummaryFinalizeHint,
                 color = T.muted,
                 fontSize = 11.sp,
             )
@@ -544,6 +582,11 @@ private fun GoatProofSummary(state: SubmitUiState) {
 @Composable
 private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
     val needsRetry = state.syncState == SyncState.CONFLICT || state.syncState == SyncState.DEAD_LETTER
+    val submitLabel = when (state.syncState) {
+        SyncState.ACKED -> stringResource(R.string.submit_submitted_label)
+        SyncState.QUEUED, SyncState.SYNCING -> stringResource(R.string.submit_submitting_label)
+        else -> state.submitLabel
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -564,7 +607,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
                 disabledContentColor = T.faint,
             ),
         ) {
-            Text(state.submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
         if (needsRetry) {
             Spacer(Modifier.height(10.dp))
@@ -597,8 +640,12 @@ private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
         // Handled (scanned) animals
         SummaryRow(stringResource(R.string.submit_summary_handled), summary.handledCount.toString())
         HairLine()
-        // Proof ready animals
-        SummaryRow(stringResource(R.string.submit_summary_proof_ready), summary.proofReadyCount.toString())
+        val proofReadyLabel = if (summary.proofMode == "shed_level_video") {
+            stringResource(R.string.submit_summary_shed_videos_ready)
+        } else {
+            stringResource(R.string.submit_summary_proof_ready)
+        }
+        SummaryRow(proofReadyLabel, summary.proofReadyCount.toString())
     }
 }
 
@@ -699,9 +746,12 @@ private val previewState = SubmitUiState(
     submitLabel = "Submit shed record",
     canSubmit = true,
     syncProgress = 0.66f,
-    goatProofTotal = 50,
-    goatProofSynced = 48,
-    goatProofUploading = 2,
+    proofSummaryTitle = "Goat camera proof",
+    proofSummarySyncedLabel = "48 of 50 goats synced",
+    proofSummaryFinalizeHint = "Finalize checks the synced records. It does not upload files.",
+    proofTotal = 50,
+    proofSynced = 48,
+    proofUploading = 2,
     attemptCount = 0,
     maxAttempts = 0,
     lastError = null,

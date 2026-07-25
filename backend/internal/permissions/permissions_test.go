@@ -11,20 +11,21 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, GoatRead, true},
 		{RoleCEOInternal, GoatWriteIdentity, true},
 		{RoleCEOInternal, GoatWriteHealth, true},
-		{RoleAdmin, GoatWriteHealth, true},
 		{RolePCDirector, GoatWriteHealth, true},
 		{RoleVerifier, GoatWriteHealth, false},
 		{RoleVerifier, GoatWriteIdentity, true},
 		{RoleParkHead, GoatWriteHealth, false},
-		{RoleAdmin, OperatorsManageCapability, true},
+		{RoleCEOInternal, OperatorsManageCapability, true},
 		{RoleParkHead, OperatorsManageRoster, true},
 		{RoleOperator, AppBootstrap, true},
 		{RoleVerifier, AppBootstrap, true},
 		{RoleOperator, OperatorsRead, false},
 		{RoleVerifier, OperatorsManageCapability, false},
-		{RoleAdmin, SOPPublish, true},
+		{RoleCEOInternal, SOPPublish, true},
 		{RoleParkHead, TaskAssign, true},
 		{RoleParkHead, VaccinationRead, true},
+		{RoleCEOInternal, VaccinationOverviewRead, true},
+		{RoleOperator, VaccinationOverviewRead, false},
 		{RolePCDirector, VaccinationVerify, true},
 		{RolePCDirector, CalendarAction, true},
 		{RolePCDirector, ProcurementWrite, false},
@@ -35,16 +36,13 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, TaskExecute, true},
 		{RoleOperator, SOPWrite, false},
 		{RoleVerifier, TaskVerify, true},
-		{RoleAdmin, CalendarAction, true},
 		{RoleCEOInternal, CalendarAction, true},
 		{RoleParkHead, CalendarRead, true},
 		{RoleParkHead, CalendarAction, true},
 		{RoleVerifier, CalendarRead, true},
 		{RoleVerifier, CalendarAction, false},
 		{RoleOperator, CalendarRead, true},
-		{RoleAdmin, AdminWebBootstrap, true},
 		{RoleCEOInternal, AdminWebBootstrap, true},
-		{RoleAdmin, OperationsRepair, true},
 		{RoleCEOInternal, OperationsRepair, true},
 		{RolePCDirector, OperationsRepair, false},
 		{RoleParkHead, OperationsRepair, false},
@@ -54,7 +52,6 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, AdminWebBootstrap, false},
 		{RoleVerifier, VerificationReview, true},
 		{RoleCEOInternal, VerificationReview, true},
-		{RoleAdmin, VerificationReview, true},
 		{RoleOperator, VerificationReview, false},
 		{RoleParkHead, VerificationReview, false},
 		{RolePCDirector, VerificationReview, false},
@@ -238,6 +235,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/admin/roster/vaccination-owner"},
 		{"GET", "/verification/queue"},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict"},
+		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close"},
 	}
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {
@@ -383,8 +381,8 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("operator must not authorize Feed Direction counts exception action: %s", path)
 		}
-		if !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("admin should authorize Feed Direction counts exception action: %s", path)
+		if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("ceo_internal should authorize Feed Direction counts exception action: %s", path)
 		}
 	}
 }
@@ -435,9 +433,14 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		method      string
 		path        string
 		operationID string
+		permission  string
 	}{
-		{"GET", "/verification/queue", "listVerificationQueue"},
-		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict"},
+		{"GET", "/verification/queue", "listVerificationQueue", VerificationReview},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationReview},
+		{"GET", "/verification/action-queue", "listVerificationActionQueue", VerificationAct},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
+		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
+		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close", "closeVaccinationBatch", VerificationAct},
 	} {
 		route, ok := Match(item.method, item.path)
 		if !ok {
@@ -446,8 +449,8 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		if route.OperationID != item.operationID {
 			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != VerificationReview {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, VerificationReview)
+		if len(route.Permissions) != 1 || route.Permissions[0] != item.permission {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, item.permission)
 		}
 	}
 }
@@ -502,13 +505,13 @@ func TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants(t *testing.T) 
 			if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
 				t.Fatalf("operator must authorize %s", pattern)
 			}
-			for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+			for _, role := range []string{RoleCEOInternal, RoleParkHead} {
 				if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
 					t.Fatalf("%s must authorize %s", role, pattern)
 				}
 			}
 			// Maintainer decision 2026-07-18: the Counts module is scoped to ground
-			// capture (Operator, Park Head) plus full Admin/CEO oversight. PC Director
+			// capture (Operator, Park Head) plus full CEO/CXO oversight. PC Director
 			// and Verifier are excluded from Counts entirely — they do not see the
 			// module in nav, and must not reach its write routes either.
 			for _, role := range []string{RolePCDirector, RoleVerifier} {
@@ -554,7 +557,7 @@ func TestAppCountsShiftingDestinationsIsReachableByOperators(t *testing.T) {
 	if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
 		t.Fatalf("operator must authorize %s without LocationsRead", pattern)
 	}
-	for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+	for _, role := range []string{RoleCEOInternal, RoleParkHead} {
 		if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("%s must authorize %s", role, pattern)
 		}
@@ -658,13 +661,11 @@ func TestFeedConfigWriteIsAdminAndCEOOnly(t *testing.T) {
 
 	// The founder/builder visibility invariant: ceo_internal must never be locked out of a built
 	// visible module.
-	for _, role := range []string{RoleCEOInternal, RoleAdmin} {
-		if !RolesAuthorize([]string{role}, readRoute.Permissions, readRoute.AdminOnly) {
-			t.Fatalf("%s must authorize the feed config read route", role)
-		}
-		if !RolesAuthorize([]string{role}, writeRoute.Permissions, writeRoute.AdminOnly) {
-			t.Fatalf("%s must authorize the feed config write route", role)
-		}
+	if !RolesAuthorize([]string{RoleCEOInternal}, readRoute.Permissions, readRoute.AdminOnly) {
+		t.Fatalf("%s must authorize the feed config read route", RoleCEOInternal)
+	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, writeRoute.Permissions, writeRoute.AdminOnly) {
+		t.Fatalf("%s must authorize the feed config write route", RoleCEOInternal)
 	}
 
 	for _, role := range []string{RoleOperator, RoleParkHead, RoleVerifier, RolePCDirector} {

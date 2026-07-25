@@ -1516,7 +1516,7 @@ func escalationRoleRank(role string) (int, bool) {
 		return 20, true
 	case permissions.RolePCDirector:
 		return 30, true
-	case permissions.RoleCEOInternal, permissions.RoleAdmin:
+	case permissions.RoleCEOInternal:
 		return 40, true
 	default:
 		return 0, false
@@ -1874,7 +1874,7 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 const calendarDateMarkersSQL = "WITH " + calendarCanonicalEventsCTE + `,
 marker_rows AS (
   SELECT
-    ((due_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
+    ((scheduled_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
     count(*)::bigint AS event_count,
     count(*) FILTER (WHERE status = 'completed')::bigint AS completed_count,
     count(*) FILTER (WHERE status NOT IN ('completed', 'canceled'))::bigint AS open_count,
@@ -1882,10 +1882,13 @@ marker_rows AS (
     count(*) FILTER (WHERE status = 'due')::bigint AS due_count,
     count(*) FILTER (WHERE status = 'overdue')::bigint AS overdue_count,
     count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count
-  FROM source_events
+  FROM (
+    SELECT due_at AS scheduled_at, status, event_type, owner_key, park_id, shed_id, vaccine_name, detail, system
+    FROM source_events
+  ) scheduled_events
   WHERE system = false
-    AND due_at >= $2::timestamptz
-    AND due_at < $3::timestamptz
+    AND scheduled_at >= $2::timestamptz
+    AND scheduled_at < $3::timestamptz
     AND event_type <> 'vaccination_dose_due'
     AND event_type <> 'vaccination_history'
     AND ($4::text = '' OR owner_key = $4::text)
@@ -1902,7 +1905,7 @@ marker_rows AS (
       )
     )
     AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
-  GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date
+  GROUP BY (scheduled_at AT TIME ZONE 'Asia/Kolkata')::date
 
   UNION ALL
 

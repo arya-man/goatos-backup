@@ -26,12 +26,19 @@ data class VaccinationExecutionRowDto(
     @SerialName("parkName") val parkName: String = "",
     @SerialName("shedId") val shedId: String = "",
     @SerialName("shedName") val shedName: String = "",
+    @SerialName("physicalShed") val physicalShed: String = "",
+    @SerialName("partition") val partition: String = "",
     @SerialName("animalStage") val animalStage: String = "",
     @SerialName("targetCount") val targetCount: Int = 0,
     @SerialName("openCount") val openCount: Int = 0,
     @SerialName("doneCount") val doneCount: Int = 0,
     @SerialName("driveId") val driveId: String? = null,
     @SerialName("driveName") val driveName: String? = null,
+    @SerialName("effectiveScheduleDate") val effectiveScheduleDate: String? = null,
+    @SerialName("currentAssignmentDate") val currentAssignmentDate: String? = null,
+    @SerialName("assignmentPlannedDate") val assignmentPlannedDate: String? = null,
+    @SerialName("plannedDate") val plannedDate: String? = null,
+    @SerialName("scheduledDate") val scheduledDate: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     // Enums modeled as String (see VaccinationExecutionWorkState / *Severity / *SOPStatus /
     // *ProofStatus / *VerificationStatus in app-api.yaml). Kept as String so an
@@ -44,6 +51,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("proofStatus") val proofStatus: String = "",
     @SerialName("verificationStatus") val verificationStatus: String = "",
     @SerialName("nextAction") val nextAction: String = "",
+    @SerialName("primaryActionKey") val primaryActionKey: String = "",
     @SerialName("obligationId") val obligationId: String? = null,
     @SerialName("batchId") val batchId: String? = null,
     @SerialName("sopTaskId") val sopTaskId: String? = null,
@@ -52,12 +60,67 @@ data class VaccinationExecutionRowDto(
     @SerialName("completionId") val completionId: String? = null,
 )
 
+/**
+ * Current operator-day schedule date for vaccination execution surfaces.
+ *
+ * The backend may keep original medical due dates for audit/history. Android must render the
+ * current effective drive date when the backend sends one, and only fall back to legacy `dueDate`
+ * for older responses that do not yet expose assignment-aware fields.
+ */
+val VaccinationExecutionRowDto.currentScheduleDate: String?
+    get() = listOf(
+        effectiveScheduleDate,
+        currentAssignmentDate,
+        assignmentPlannedDate,
+        plannedDate,
+        scheduledDate,
+        dueDate,
+    ).firstOrNull { !it.isNullOrBlank() }
+
 @Serializable
 data class VaccinationExecutionResponseDto(
     @SerialName("source") val source: String = "api",
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
     @SerialName("totalCount") val totalCount: Int = 0,
     @SerialName("nextCursor") val nextCursor: String? = null,
+    // Backend marks a leadership OVERSIGHT read (park-scoped, all sheds, not operator-assigned):
+    // the client shows the shed list read-only and must NOT open a shed into the scan/execute
+    // loop. Operators get false and keep the normal open→scan flow.
+    @SerialName("viewerReadOnly") val viewerReadOnly: Boolean = false,
+    // Backend-owned "vaccines to carry" totals, per business day, over the WHOLE day (not the
+    // paginated page). The client renders these verbatim — it never sums shed rows.
+    @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,
+    @SerialName("filterOptions") val filterOptions: ExecutionFilterOptionsDto? = null,
+)
+
+@Serializable
+data class ExecutionFilterOptionsDto(
+    @SerialName("parks") val parks: List<ExecutionParkOptionDto> = emptyList(),
+)
+
+@Serializable
+data class ExecutionParkOptionDto(
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("code") val code: String = "",
+    @SerialName("name") val name: String = "",
+)
+
+@Serializable
+data class VaccineCarrySummaryDto(
+    @SerialName("vaccineLabel") val vaccineLabel: String = "",
+    @SerialName("remainingDoses") val remainingDoses: Int = 0,
+)
+
+@Serializable
+data class CarryDayDto(
+    @SerialName("date") val date: String = "",
+    @SerialName("vaccineBreakdown") val vaccineBreakdown: List<VaccineCarrySummaryDto> = emptyList(),
+    @SerialName("totalRemaining") val totalRemaining: Int = 0,
+)
+
+@Serializable
+data class CarrySummaryDto(
+    @SerialName("carryByDay") val carryByDay: List<CarryDayDto> = emptyList(),
 )
 
 @Serializable

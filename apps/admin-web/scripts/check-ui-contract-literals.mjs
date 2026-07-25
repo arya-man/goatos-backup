@@ -27,6 +27,8 @@ const SKIP_PATH_PARTS = [
   "features/process-integrity/process-integrity.ts",
   "features/vaccination-execution/work-state.ts",
   "features/verification-review/",  // /verification is new; no backend page contract yet (Verification module ships on a parallel branch) — documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "features/ceo-ai/",  // leadership CEO/CXO assistant chrome (sidebar/feedback/mode-footer/state copy); no backend AdminWebPageContract exists for the floating assistant yet — backend-owned starters/title/subtitle already flow via CEOAIChatCopy; the remaining local literals are the documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "features/ceo-ai-admin/",  // ADMIN/ENGINEERING-only assistant step-trace debug surface (ceo_internal gate enforced server-side); internal diagnostic tool, not a leadership product screen and not in backend nav — no AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
 ];
 const ALLOW_LINE = [
   /Intl\.DateTimeFormat/,

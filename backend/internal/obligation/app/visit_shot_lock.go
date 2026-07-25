@@ -35,9 +35,8 @@ type visitShotLocker interface {
 	LockVisitShots(ctx context.Context, tenantID string, targetIDs []string, date time.Time) (counts map[string]int32, release func(context.Context) error, err error)
 }
 
-// driveCapacityCounter is the persisted park/date drive-capacity read path. The unit is vaccine
-// administrations/cells for the whole park drive on that date, across all sheds, vaccines, and
-// batches already attached to planned work. It is deliberately NOT animal count and NOT shed count.
+// driveCapacityCounter is the persisted park/date drive-capacity read path. The planner cap unit is
+// unique animal slots for the whole park drive on that date; dose cells stay only as stock/proof volume.
 type driveCapacityCounter interface {
 	CountDriveCellsForParkDate(ctx context.Context, tenantID, parkID string, date time.Time) (int32, error)
 }

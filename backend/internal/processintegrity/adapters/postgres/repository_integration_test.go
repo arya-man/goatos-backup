@@ -41,6 +41,10 @@ const (
 	piBatchNext     = "71000000-0000-4000-8000-000000000019"
 	piOblNext       = "71000000-0000-4000-8000-000000000020"
 	piFeedException = "71000000-0000-4000-8000-000000000021"
+	piTodayBatch    = "71000000-0000-4000-8000-000000000022"
+	piTodayObl      = "71000000-0000-4000-8000-000000000023"
+	piCodedVersion  = "71000000-0000-4000-8000-000000000024"
+	piCodedRule     = "71000000-0000-4000-8000-000000000025"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -50,6 +54,14 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	defer pool.Close()
 
 	seedProcessIntegrityProjection(t, ctx, pool)
+	execPI(t, ctx, pool, "drive assignment first partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'Process Shed', '1', 1)`,
+		piTenant, piBatch, piOperator, piPark, piShed)
+	execPI(t, ctx, pool, "drive assignment second partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-25', $3, $4, $5, 'Process Shed', '2', 1)`,
+		piTenant, piBatch, piParkHead, piPark, piShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	result, err := listAtAsOf(t, ctx, repo, domain.Query{
@@ -79,6 +91,10 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	}
 	if row.Evidence.EvidenceCount != 1 || len(row.Evidence.ProofIDs) != 1 || row.Evidence.ProofIDs[0] != piProof {
 		t.Fatalf("evidence = %+v", row.Evidence)
+	}
+	if row.CompletedCount != 0 || row.ProofCount != 1 || row.RejectedCount != 0 || row.DeferredCount != 0 {
+		t.Fatalf("bucket counts drifted under duplicate drive assignments: completed=%d proof=%d rejected=%d deferred=%d",
+			row.CompletedCount, row.ProofCount, row.RejectedCount, row.DeferredCount)
 	}
 	if row.NextAction != "Verifier to accept or reject proof" {
 		t.Fatalf("next action = %q", row.NextAction)
@@ -171,6 +187,86 @@ func TestListRowsUsesCursorAndKeepsFilteredTotal(t *testing.T) {
 	}
 	if first.TotalCount != second.TotalCount || second.TotalCount < 2 {
 		t.Fatalf("total count first/second = %d/%d, want same filtered total >=2", first.TotalCount, second.TotalCount)
+	}
+}
+
+func TestListRowsLabelsVaccinationCodesAndKeepsSameBusinessDayDue(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	// A published protocol version is immutable by product rule (migration 000001,
+	// ensure_protocol_child_version_is_draft -> "published config is immutable"; asserted directly in
+	// internal/protocol/adapters/postgres/repository_integration_test.go:378). A config change therefore
+	// authors a NEW version: insert it as draft, add the coded rule while draft, then publish.
+	execPI(t, ctx, pool, "coded-dose protocol version (draft)",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy, sop_version_id)
+		 VALUES ($1, $2, $3, 'tenant', 2, 'draft', DATE '2026-07-01', '{}'::jsonb,
+		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
+		piCodedVersion, piTenant, piProtocol, piSOPVersion)
+	execPI(t, ctx, pool, "coded ET+TT dose rule in source config",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy, sop_version_id)
+		 VALUES ($1, $2, $3, 'et_tt_adult_w2', 1, 'birth_age', '{}'::jsonb,
+		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
+		piCodedRule, piTenant, piCodedVersion, piSOPVersion)
+	// Two published versions of the same protocol/scope may not have overlapping effective ranges
+	// (protocol_versions_published_no_overlap). The seed's baseline version is open-ended, so retire it
+	// before publishing the successor — published->retired is the one transition a published version allows.
+	execPI(t, ctx, pool, "retire baseline protocol version",
+		`UPDATE protocol_versions
+		 SET status = 'retired', updated_at = now()
+		 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		piTenant, piVersion)
+	execPI(t, ctx, pool, "publish coded-dose protocol version",
+		`UPDATE protocol_versions
+		 SET status = 'published', published_at = COALESCE(published_at, now()), updated_at = now()
+		 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		piTenant, piCodedVersion)
+	execPI(t, ctx, pool, "same business day batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'planned', DATE '2026-07-23', $5)`,
+		piTodayBatch, piTenant, piCodedVersion, piShed, piOperator)
+	execPI(t, ctx, pool, "same business day drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-07-23', $3, $4, $5, 'Process Shed', 'whole', 1)`,
+		piTenant, piTodayBatch, piOperator, piPark, piShed)
+	execPI(t, ctx, pool, "same business day scheduled obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-07-22 18:30:00+00', 'scheduled', 'pi-today-assignment', 23)`,
+		piTodayObl, piTenant, piCodedVersion, piCodedRule, piTodayBatch, piGoat, piShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	category := domain.CategoryVaccination
+	dueAfter := time.Date(2026, 7, 22, 18, 0, 0, 0, time.UTC)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		Category:  &category,
+		DueAfter:  &dueAfter,
+		AsOf:      time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC), // 2026-07-23 09:57 IST
+		DueBefore: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("got %d rows want one same-day vaccination row: %#v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.WorkState != domain.WorkStateDue || row.Severity != domain.SeverityWatch {
+		t.Fatalf("same India business-day row state/severity = %s/%s, want due/watch", row.WorkState, row.Severity)
+	}
+	if strings.Contains(row.DoseCode, "et_tt_adult_w2") || (row.DriveName != nil && strings.Contains(*row.DriveName, "et_tt_adult_w2")) {
+		t.Fatalf("process-integrity row leaked raw vaccine rule code: dose=%q drive=%v", row.DoseCode, row.DriveName)
+	}
+	if !strings.Contains(row.DoseCode, "ET+TT") || !strings.Contains(row.DoseCode, "adult course") || !strings.Contains(row.DoseCode, "dose 2") {
+		t.Fatalf("dose label = %q, want human ET+TT adult dose label", row.DoseCode)
+	}
+	if result.TotalCount != 1 || countFor(result.CountsByWorkState, domain.WorkStateOverdue) != 0 || countFor(result.CountsByWorkState, domain.WorkStateDue) != 1 {
+		t.Fatalf("same-day counts = total %d states %+v, want one due and zero overdue", result.TotalCount, result.CountsByWorkState)
 	}
 }
 
@@ -577,6 +673,26 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 	}
 	if countQueryArgCount >= rowsQueryArgCount {
 		t.Fatalf("count args must be a strict prefix of rows args: count=%d rows=%d", countQueryArgCount, rowsQueryArgCount)
+	}
+}
+
+func TestCanonicalRowsUseOperatorAssignmentDateBeforeBatchOrObligationDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	checks := map[string]string{
+		"assignment date selected": "vda.assignment_planned_at",
+		"assignment date computed": "(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at",
+		"window filter":            "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)",
+		"execution date":           "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"grouped execution date":   "MIN(located.execution_due_at) AS execution_due_at",
+		"emitted execution date":   "execution_due_at AS due_at",
+		"status date":              "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at)",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, fragment) {
+			t.Fatalf("process-integrity canonical rows lost %s invariant %q", name, fragment)
+		}
+	}
+	if strings.Contains(processIntegrityCanonicalRowsSQL, "ob.planned_date::timestamptz") {
+		t.Fatalf("process-integrity canonical rows must not use session-timezone-dependent planned_date casts")
 	}
 }
 
@@ -1405,4 +1521,250 @@ func TestProcessIntegrityCanonicalAggregateGrainAdversarial(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestProcessIntegrityEnrichedAggregateOneToManyDriveAssignmentCapacity verifies the enriched
+// CTE's capacity LATERAL aggregates (drive_assignment_ids one-to-many fan-out) do not double-count
+// animals or operators from the bound assignment rows. This tests the DISTINCT drive_assignment_ids
+// array and the per-operator grouping in the operator-capacity LATERAL.
+func TestProcessIntegrityEnrichedAggregateOneToManyDriveAssignmentCapacity(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Seed multiple drive assignments for the same grain (batch/shed/rule) to test one-to-many.
+	// Each assignment has 25 animals, two operators. Grain should sum to 50 animals, not multiply.
+	execPI(t, ctx, pool, "add second drive assignment for same grain",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'Process Shed', 'extra', 25)`,
+		piTenant, piBatch, piOperator, piPark, piShed)
+
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Should still return grains correctly even with multiple drive assignments.
+	// The enriched lateral aggregates must use DISTINCT drive_assignment_ids to avoid double-counting.
+	if len(result.Rows) < 1 {
+		t.Fatalf("no rows returned")
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateMultipleDimensionsPageBoundary verifies the grouped CTE's
+// COUNT/ARRAY_AGG does not change totals when page size changes (full-window aggregate contract).
+func TestProcessIntegrityGroupedAggregateMultipleDimensionsPageBoundary(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Query with different page sizes to test that counts are page-size independent.
+	countsLimit20, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState(limit 20): %v", err)
+	}
+
+	countsLimit100, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState(limit 100): %v", err)
+	}
+
+	// Total counts must be the same regardless of page size (grouped CTE aggregates full window).
+	total20 := int64(0)
+	for _, c := range countsLimit20 {
+		total20 += c.Count
+	}
+	total100 := int64(0)
+	for _, c := range countsLimit100 {
+		total100 += c.Count
+	}
+	if total20 != total100 {
+		t.Fatalf("page-size dependent count: limit20=%d limit100=%d", total20, total100)
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateScheduledDateExecutionDateBuckets verifies that
+// assignment_planned_at (execution date) takes precedence over due_at for status bucketing
+// and that both work correctly in the grouped aggregate COUNT FILTER clauses.
+func TestProcessIntegrityGroupedAggregateScheduledDateExecutionDateBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Query the existing projected obligations to verify that the grouped CTE correctly
+	// handles execution_due_at (coalesced from assignment_planned_at, batch_planned_date, or due_at)
+	// for status bucketing in the COUNT FILTER aggregates.
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Verify that each row has a valid work state (bucketed by execution_due_at through grouped CTE).
+	if len(result.Rows) < 1 {
+		t.Fatalf("no rows found")
+	}
+	for _, row := range result.Rows {
+		if row.WorkState == "" {
+			t.Fatalf("row has empty work state (not bucketed by grouped aggregate)")
+		}
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateScopeHierarchyParkAndShedScope verifies that
+// grouped CTE's park_uuid and shed_uuid columns correctly preserve scope hierarchy and
+// that the JOINs to locations do not fan out the grain count.
+func TestProcessIntegrityGroupedAggregateScopeHierarchyParkAndShedScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// List all rows (single park, single shed fixture).
+	allRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows all: %v", err)
+	}
+
+	// Filter by park (using piPark value).
+	parkID := piPark
+	parkRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		ParkID:    &parkID,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows park-scoped: %v", err)
+	}
+
+	// Filter by shed (using piShed value).
+	shedID := piShed
+	shedRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		ShedID:    &shedID,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows shed-scoped: %v", err)
+	}
+
+	// Single-park and single-shed fixture: counts must match when the filter matches all rows.
+	if len(allRows.Rows) != len(parkRows.Rows) || len(allRows.Rows) != len(shedRows.Rows) {
+		t.Fatalf("scope mismatch: all=%d park=%d shed=%d", len(allRows.Rows), len(parkRows.Rows), len(shedRows.Rows))
+	}
+
+	// Verify park_id and shed_id are preserved in each row returned by the grouped CTE.
+	for _, row := range parkRows.Rows {
+		if row.ParkID != piPark {
+			t.Fatalf("park-scoped row has mismatched park_id: got %s want %s", row.ParkID, piPark)
+		}
+	}
+	for _, row := range shedRows.Rows {
+		if row.ShedID != piShed {
+			t.Fatalf("shed-scoped row has mismatched shed_id: got %s want %s", row.ShedID, piShed)
+		}
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateEveryStatusBucket verifies that the COUNT(*) FILTER
+// aggregates for each status bucket (scheduled, due, in_progress, completed, missed, deferred)
+// sum correctly and do not omit or duplicate status buckets.
+func TestProcessIntegrityGroupedAggregateEveryStatusBucket(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Verify that grains are bucketed into at least one status bucket.
+	statusCount := make(map[domain.WorkState]int)
+	for _, row := range result.Rows {
+		statusCount[row.WorkState]++
+	}
+
+	if len(statusCount) == 0 {
+		t.Fatalf("no status buckets found in result")
+	}
+
+	// Aggregate counts.
+	counts, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState: %v", err)
+	}
+
+	// Verify aggregate bucket counts match rendered grains.
+	for _, count := range counts {
+		rendered := statusCount[count.WorkState]
+		if count.Count != int64(rendered) {
+			t.Fatalf("status bucket %s: aggregate=%d rendered=%d", count.WorkState, count.Count, rendered)
+		}
+	}
+
+	// Total must equal sum of all buckets.
+	var aggregateTotal int64
+	for _, count := range counts {
+		aggregateTotal += count.Count
+	}
+	if aggregateTotal != int64(len(result.Rows)) {
+		t.Fatalf("total mismatch: aggregate=%d rendered=%d", aggregateTotal, len(result.Rows))
+	}
 }

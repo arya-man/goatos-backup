@@ -70,15 +70,22 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	summary := result.AdherenceSummary
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
-			RowID:      row.RowID,
-			Expected:   expectedText(row),
-			Actual:     actualText(row),
-			Gap:        gapText(row),
-			Severity:   row.Severity,
-			Owner:      row.Owner,
-			NextAction: row.NextAction,
-			Evidence:   row.Evidence,
-			WorkState:  row.WorkState,
+			RowID:                   row.RowID,
+			Expected:                expectedText(row),
+			Actual:                  actualText(row),
+			Gap:                     gapText(row),
+			Severity:                row.Severity,
+			Owner:                   row.Owner,
+			NextAction:              row.NextAction,
+			Evidence:                row.Evidence,
+			WorkState:               row.WorkState,
+			DriveCapacityState:      row.DriveCapacityState,
+			DriveAnimalsRequired:    row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
+			DriveOperatorCap:        row.DriveOperatorCap,
+			DriveAvailableOperators: row.DriveAvailableOperators,
+			DriveLatestSafeDate:     row.DriveLatestSafeDate,
+			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
 		})
 	}
 	if summary.ExpectedCount > 0 {
@@ -141,20 +148,27 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	alerts := make([]domain.ControlTowerAlert, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		alerts = append(alerts, domain.ControlTowerAlert{
-			RowID:        row.RowID,
-			Severity:     row.Severity,
-			WorkState:    row.WorkState,
-			Title:        alertTitle(row),
-			Detail:       alertDetail(row),
-			ParkID:       row.ParkID,
-			ParkName:     row.ParkName,
-			ShedID:       row.ShedID,
-			ShedName:     row.ShedName,
-			DriveName:    row.DriveName,
-			Owner:        row.Owner,
-			NextAction:   row.NextAction,
-			EvidenceLink: workflowLink(row),
-			ObligationID: row.ObligationID,
+			RowID:                   row.RowID,
+			Severity:                row.Severity,
+			WorkState:               row.WorkState,
+			Title:                   alertTitle(row),
+			Detail:                  alertDetail(row),
+			ParkID:                  row.ParkID,
+			ParkName:                row.ParkName,
+			ShedID:                  row.ShedID,
+			ShedName:                row.ShedName,
+			DriveName:               row.DriveName,
+			Owner:                   row.Owner,
+			NextAction:              row.NextAction,
+			EvidenceLink:            workflowLink(row),
+			DriveCapacityState:      row.DriveCapacityState,
+			DriveAnimalsRequired:    row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
+			DriveOperatorCap:        row.DriveOperatorCap,
+			DriveAvailableOperators: row.DriveAvailableOperators,
+			DriveLatestSafeDate:     row.DriveLatestSafeDate,
+			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
+			ObligationID:            row.ObligationID,
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor, Projection: result.Projection}, nil
@@ -227,10 +241,27 @@ func (s *Service) defaults(q domain.Query) domain.Query {
 }
 
 func expectedText(row domain.Row) string {
+	if row.DriveCapacityState == domain.DriveCapacityStateOverCapRequired {
+		return fmt.Sprintf("%s %s: %d animals must finish by %s", row.ProtocolName, row.DoseCode, max(row.DriveAnimalsRequired, row.ExpectedCount), latestSafeOrDue(row))
+	}
 	return fmt.Sprintf("%s %s: %d due by %s", row.ProtocolName, row.DoseCode, row.ExpectedCount, biztime.BusinessDate(row.DueAt))
 }
 
 func actualText(row domain.Row) string {
+	switch row.DriveCapacityState {
+	case domain.DriveCapacityStateOverCapRequired:
+		return fmt.Sprintf("%d assigned against %d operator slots; finish over cap", row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap)
+	case domain.DriveCapacityStateMedicalDefer:
+		if row.DriveMedicalDeferReason != nil && *row.DriveMedicalDeferReason != "" {
+			return "medically deferred: " + *row.DriveMedicalDeferReason
+		}
+		return "medically deferred"
+	case domain.DriveCapacityStateTerminalAnimalClosed:
+		if row.DriveMedicalDeferReason != nil && *row.DriveMedicalDeferReason != "" {
+			return "closed terminal animal: " + *row.DriveMedicalDeferReason
+		}
+		return "closed terminal animal"
+	}
 	switch row.WorkState {
 	case domain.WorkStateCompleted:
 		return fmt.Sprintf("%d completed and verified", row.CompletedCount)
@@ -251,6 +282,14 @@ func actualText(row domain.Row) string {
 }
 
 func gapText(row domain.Row) string {
+	switch row.DriveCapacityState {
+	case domain.DriveCapacityStateOverCapRequired:
+		return "over_cap_required"
+	case domain.DriveCapacityStateMedicalDefer:
+		return "medical_defer"
+	case domain.DriveCapacityStateTerminalAnimalClosed:
+		return "terminal_animal_closed"
+	}
 	if row.WorkState == domain.WorkStateDeferred && row.GapType != "" {
 		return row.GapType
 	}
@@ -272,10 +311,26 @@ func alertTitle(row domain.Row) string {
 
 func alertDetail(row domain.Row) string {
 	base := fmt.Sprintf("%s / %s", row.ParkName, row.ShedName)
+	switch row.DriveCapacityState {
+	case domain.DriveCapacityStateOverCapRequired:
+		return fmt.Sprintf("%s: %d animals assigned over %d operator slots; latest safe %s", base, row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap, latestSafeOrDue(row))
+	case domain.DriveCapacityStateMedicalDefer, domain.DriveCapacityStateTerminalAnimalClosed:
+		if row.DriveMedicalDeferReason != nil && *row.DriveMedicalDeferReason != "" {
+			return base + ": " + *row.DriveMedicalDeferReason
+		}
+		return base + ": " + string(row.DriveCapacityState)
+	}
 	if row.BlockerReason != nil && *row.BlockerReason != "" {
 		return base + ": " + *row.BlockerReason
 	}
 	return base + ": " + row.GapType
+}
+
+func latestSafeOrDue(row domain.Row) string {
+	if row.DriveLatestSafeDate != nil && !row.DriveLatestSafeDate.IsZero() {
+		return biztime.BusinessDate(*row.DriveLatestSafeDate)
+	}
+	return biztime.BusinessDate(row.DueAt)
 }
 
 func publishedState(row domain.Row) string {

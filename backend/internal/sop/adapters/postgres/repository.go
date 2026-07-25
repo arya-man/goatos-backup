@@ -1028,9 +1028,18 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
-func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID string) (ports.ShedCompletionReadiness, error) {
+func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	if proofSubject == "" {
+		proofSubject = "goat"
+	}
+	if minProofs <= 0 {
+		minProofs = 1
+	}
+	if maxProofs <= 0 {
+		maxProofs = 5
+	}
 	var expected, handled, proofReady int64
 	err := r.pool.QueryRow(ctx, `
 WITH batch AS (
@@ -1039,36 +1048,76 @@ WITH batch AS (
   WHERE ob.tenant_id = $1::uuid
     AND ob.sop_task_id = $2::uuid
 ),
-expected AS (
-  SELECT count(*) AS n
-  FROM obligation_instances oi
-  JOIN batch b ON b.batch_id = oi.batch_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
-),
-handled AS (
-  SELECT count(DISTINCT goat_id) AS n
-  FROM sop_task_scan_captures
+task_scope AS (
+  SELECT scope_type, scope_id
+  FROM sop_tasks
   WHERE tenant_id = $1::uuid
     AND task_id = $2::uuid
-    AND field_key IN ('goat_ids', '__scan_roster__')
-    AND goat_id IS NOT NULL
 ),
-proofed AS (
+target_shed AS (
+  SELECT CASE
+    WHEN nullif($4, '')::uuid IS NOT NULL THEN nullif($4, '')::uuid
+    WHEN ts.scope_type = 'shed' THEN ts.scope_id
+    ELSE NULL::uuid
+  END AS shed_id
+  FROM task_scope ts
+),
+eligible AS (
+  SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
+  FROM obligation_instances oi
+  JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  CROSS JOIN target_shed target
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+),
+expected AS (
+  SELECT count(*) AS n
+  FROM eligible
+),
+handled AS (
+  SELECT count(DISTINCT c.goat_id) AS n
+  FROM sop_task_scan_captures c
+  JOIN eligible e
+    ON e.obligation_id = c.obligation_id
+    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  WHERE c.tenant_id = $1::uuid
+    AND c.task_id = $2::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND c.goat_id IS NOT NULL
+),
+proofed_goat AS (
   SELECT count(DISTINCT subject_id) AS n
-  FROM proof_artifacts
-  WHERE tenant_id = $1::uuid
-    AND scope_type = 'task'
-    AND scope_id = $2::uuid
-    AND subject_type = 'goat'
-    AND subject_id IS NOT NULL
-    AND upload_state = 'completed'
+  FROM proof_artifacts p
+  JOIN eligible e ON e.goat_id = p.subject_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'task'
+    AND p.scope_id = $2::uuid
+    AND p.subject_type = 'goat'
+    AND p.subject_id IS NOT NULL
+    AND p.upload_state = 'completed'
+),
+proofed_shed AS (
+  SELECT count(*) AS n
+  FROM proof_artifacts p
+  JOIN target_shed target ON target.shed_id IS NOT NULL AND p.scope_id = target.shed_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'shed'
+    AND p.subject_type = 'shed'
+    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+    AND p.upload_state = 'completed'
 )
 SELECT COALESCE((SELECT n FROM expected), 0),
        COALESCE((SELECT n FROM handled), 0),
-       COALESCE((SELECT n FROM proofed), 0)`,
+       CASE WHEN $3 = 'shed'
+         THEN COALESCE((SELECT n FROM proofed_shed), 0)
+         ELSE COALESCE((SELECT n FROM proofed_goat), 0)
+       END`,
 		tenantID,
 		taskID,
+		proofSubject,
+		shedID,
 	).Scan(&expected, &handled, &proofReady)
 	if err != nil {
 		return ports.ShedCompletionReadiness{}, err
@@ -1082,6 +1131,15 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 		}
 		return ports.ShedCompletionReadiness{Enabled: false, Reason: "scanned animals do not match this shed"}, nil
 	}
+	if proofSubject == "shed" {
+		if proofReady < int64(minProofs) {
+			return ports.ShedCompletionReadiness{Enabled: false, Reason: fmt.Sprintf("%d shed video(s) still need proof", int64(minProofs)-proofReady)}, nil
+		}
+		if proofReady > int64(maxProofs) {
+			return ports.ShedCompletionReadiness{Enabled: false, Reason: fmt.Sprintf("at most %d shed video(s) can be submitted", maxProofs)}, nil
+		}
+		return ports.ShedCompletionReadiness{Enabled: true}, nil
+	}
 	if proofReady != expected {
 		if proofReady < expected {
 			return ports.ShedCompletionReadiness{Enabled: false, Reason: fmt.Sprintf("%d animals still need proof", expected-proofReady)}, nil
@@ -1091,26 +1149,46 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 	return ports.ShedCompletionReadiness{Enabled: true}, nil
 }
 
-func (r *Repository) CompletedTaskGoatProofRefs(ctx context.Context, tenantID, taskID string) ([]domain.ProofReference, error) {
+func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject string) ([]domain.ProofReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	if proofSubject == "" {
+		proofSubject = "goat"
+	}
 	rows, err := r.pool.Query(ctx, `
+WITH task_scope AS (
+  SELECT scope_type, scope_id
+  FROM sop_tasks
+  WHERE tenant_id = $1::uuid
+    AND task_id = $2::uuid
+)
 SELECT proof_id::text,
        proof_type,
        subject_type,
        COALESCE(subject_id::text, ''),
        upload_state,
        metadata::text
-FROM proof_artifacts
-WHERE tenant_id = $1::uuid
-  AND scope_type = 'task'
-  AND scope_id = $2::uuid
-  AND subject_type = 'goat'
-  AND subject_id IS NOT NULL
-  AND upload_state = 'completed'
+FROM proof_artifacts p
+LEFT JOIN task_scope ts ON true
+WHERE p.tenant_id = $1::uuid
+  AND p.subject_type = $3
+  AND (
+    ($3 = 'shed'
+      AND p.scope_type = 'shed'
+      AND ts.scope_type = 'shed'
+      AND p.scope_id = ts.scope_id
+      AND (p.subject_id IS NULL OR p.subject_id = p.scope_id))
+    OR
+    ($3 <> 'shed'
+      AND p.scope_type = 'task'
+      AND p.scope_id = $2::uuid
+      AND ($3 <> 'goat' OR p.subject_id IS NOT NULL))
+  )
+  AND p.upload_state = 'completed'
 ORDER BY created_at, proof_id`,
 		tenantID,
 		taskID,
+		proofSubject,
 	)
 	if err != nil {
 		return nil, err
@@ -1647,7 +1725,11 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	for _, item := range keys {
-		result, _ := json.Marshal(map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)})
+		resultMap := map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)}
+		if administeredAt := strings.TrimSpace(item.AdministeredAt); administeredAt != "" {
+			resultMap["administered_at"] = administeredAt
+		}
+		result, _ := json.Marshal(resultMap)
 		_, err := tx.Exec(ctx, `
 INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state, result)
 VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,

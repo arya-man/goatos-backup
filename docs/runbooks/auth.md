@@ -532,6 +532,16 @@ tenant-scoped `ceo_internal` RBAC. That platform-owner cohort must have every
 built visible module available, including `admin.people`. Do not seed these
 accounts as department-scoped vaccination/admin operators.
 
+Field operators are a separate provisioning lane from founder/CXO users. After
+an HRMS/vaccination seed that creates vaccination operators, each operator who
+can execute Android work must receive a distinct Firebase/Auth email-password
+account bound to that operator's own email from the seed contract. Do not create
+one shared operator login, do not reuse one password across multiple operators,
+and do not ask operators to use founder/CXO accounts on Android. Generate a
+unique temporary password per operator or send each operator an individual reset
+flow. Never commit plaintext operator passwords into fixtures, runbooks, logs,
+or screenshots.
+
 The secure provisioning model is:
 
 1. Keep only the approved founder/CXO emails in `auth_pending_email_grants`.
@@ -661,3 +671,64 @@ Firebase web config, and admin-web app bearer values, but secret values are
 populated out-of-band in a later approved phase. Do not put token values,
 Firebase config payloads, API keys, JWKS material, or app bearer tokens in
 Terraform variables, plan files, state, or repo docs.
+
+For STG Android operator/director test login credentials, use:
+`docs/runbooks/stg-operator-login-credentials.md`.
+
+STG seed/login rules are governed by:
+`docs/runbooks/stg-login-seed-contract.md`
+
+## Canonical STG Personnel Rule (10 people total)
+
+10 STG people total: **5 Mesha leadership (Google SSO and Firebase
+email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
+(Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
+(Firebase email/password, password `Jyothi@2026`)**. Canonical source:
+`docs/runbooks/stg-login-seed-contract.md`.
+
+| Person | Auth | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
+| Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
+| Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
+| Chandrakant | Firebase `Chandrakant@2026` | **director** | **no** |
+| Jyothi | Firebase `Jyothi@2026` | **verifier** | **no** |
+| 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
+
+The 5 Mesha leadership users are `ceo_internal` with both Google SSO and
+Firebase email/password, and they never count as vaccination operators. For the
+4 field users and Jyothi, Firebase allowlist alone / Firebase user existing is
+NOT enough — backend grant AND bootstrap context must pass.
+ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity;
+Chandrakant (director) and Jyothi (verifier) do not.
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, Jyothi has verifier
+> login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
+> with both Google SSO and Firebase email/password available.
+
+### Email allowlist must contain ALL 10 people (incident 2026-07-25)
+
+`GOATOS_AUTH_ALLOWED_EMAILS` (stg: Secret Manager `goatos-stg-auth-allowed-emails`)
+is checked at `/auth/session-events` **after** the Firebase token is verified. An
+email that is not in it fails with `403 email_not_allowed`, which blocks mobile
+`/app/bootstrap` (401). A person is NOT login-ready on STG until **all three** hold:
+
+1. their email is in the allowlist secret,
+2. their grant is materialized (active `user_scope_grants`, not pending), and
+3. (module users) their `workforce_members.department_id` is bound.
+
+The allowlist must list all 10 canonical people — the 5 leadership + Amit +
+Darshan + Sagar + Chandrakant + **Jyothi (`jyothipvg12345@gmail.com`)**. On
+2026-07-25 Jyothi's `verifier` email was missing from the secret (never updated
+9 → 10 for her), so she got `403 email_not_allowed` on the Android app. A
+`403 email_not_allowed` is a **stg config** issue (allowlist secret + one revision
+roll), NOT a backend deploy and NOT a Firebase/token problem — the 403 only fires
+once the token already verified. After a new secret version, roll a fresh
+`goatos-api-stg` revision so the env-var secret ref is re-read. Full RCA:
+`docs/runbooks/incidents/2026-07-25-jyothi-verifier-stg-login-403.md`.
+
+Verifier note: `verifier` module access currently comes from the
+`preventive_care` department binding (same as operators, but with NO vaccination
+capacity). This is a single-department binding; a truly cross-module verifier is
+a design follow-up recorded in the incident doc (§Prevention → B).

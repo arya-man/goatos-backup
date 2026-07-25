@@ -183,6 +183,7 @@ class CountsViewModel @Inject constructor(
                         breed = dto.breed,
                         sex = dto.sex,
                         count = dto.count,
+                        shedId = dto.shedId.orEmpty(),
                     )
                 }
             }
@@ -239,6 +240,7 @@ class CountsViewModel @Inject constructor(
             is CountsEvent.SelectPark -> selectPark(event.parkId)
             is CountsEvent.SelectShed -> selectShed(event.shedId)
             is CountsEvent.SelectBreed -> selectBreed(event.breed)
+            is CountsEvent.SelectLifecycle -> selectLifecycle(event.lifecycle)
             CountsEvent.ClearFilters -> clearFilters()
         }
     }
@@ -273,6 +275,20 @@ class CountsViewModel @Inject constructor(
         trackFilter(DIMENSION_BREED, breed)
     }
 
+    /**
+     * Applies a lifecycle filter (blank = backend default, the live herd).
+     *
+     * Deliberately does NOT reset park/shed/breed — lifecycle is an independent dimension, unlike
+     * park->shed which cascades. Choosing "Sold" while a park is selected still means "sold
+     * animals in that park", not a reset back to the whole herd.
+     */
+    private fun selectLifecycle(lifecycle: String) {
+        val current = _filters.value
+        if (current.lifecycleStatus == lifecycle) return
+        _filters.value = current.copy(lifecycleStatus = lifecycle)
+        trackFilter(DIMENSION_LIFECYCLE, lifecycle)
+    }
+
     private fun clearFilters() {
         if (!_filters.value.hasAnyFilter) return
         _filters.value = CountsFilterSelection()
@@ -303,24 +319,37 @@ class CountsViewModel @Inject constructor(
     private fun CountsBreakdownFacetsDto.toFiltersUi(selection: CountsFilterSelection): CountsFiltersUi {
         val parkOptions = parks.map { CountsFilterOptionUi(it.key, it.label, it.count) }
         val breedOptions = breeds.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+        val lifecycleOptions = lifecycle.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+        // The shed dropdown is cascaded to the selected park for correctness: shed names repeat
+        // across parks, so a flat list is ambiguous. Selecting a park resets the shed, and a shed
+        // id left over from another park would filter to the wrong cohort.
         val shedOptions = sheds
             .filter { it.parkId.isNotBlank() && it.parkId == selection.parkId }
             .map { CountsFilterOptionUi(it.key, it.label, it.count) }
+        // The shed subtotals are the FULL shed list, not narrowed by park. The subtotal divider
+        // renders a shed's head count regardless of the current park selection, so it looks up from
+        // this full list. On the all-parks view, this allows subtotals to render even when
+        // shedOptions is empty (because no park is selected).
+        val shedSubtotals = sheds.map { CountsFilterOptionUi(it.key, it.label, it.count) }
         return CountsFiltersUi(
             parks = parkOptions,
             sheds = shedOptions,
             breeds = breedOptions,
+            lifecycles = lifecycleOptions,
             selectedParkId = selection.parkId,
             selectedShedId = selection.shedId,
             selectedBreed = selection.breed,
+            selectedLifecycle = selection.lifecycleStatus,
             // Resolved here so the screen never has to map a key back to a label. Null when
             // nothing is selected, which is what makes the field render its "All …" placeholder.
             selectedParkLabel = parkOptions.firstOrNull { it.key == selection.parkId }?.label,
             selectedShedLabel = shedOptions.firstOrNull { it.key == selection.shedId }?.label,
             selectedBreedLabel = breedOptions.firstOrNull { it.key == selection.breed }?.label,
+            selectedLifecycleLabel = lifecycleOptions.firstOrNull { it.key == selection.lifecycleStatus }?.label,
             // Supported only once the backend ships sheds WITH park attribution — without it the
             // cascade cannot be built and the dropdown stays disabled rather than ambiguous.
             shedFilterSupported = sheds.any { it.parkId.isNotBlank() },
+            shedSubtotals = shedSubtotals,
         )
     }
 
@@ -360,14 +389,18 @@ class CountsViewModel @Inject constructor(
         val parkId: String = "",
         val shedId: String = "",
         val breed: String = "",
+        /** Blank = backend default (the live herd); never sent as an explicit "" filter. */
+        val lifecycleStatus: String = "",
     ) {
         val hasAnyFilter: Boolean
-            get() = parkId.isNotBlank() || shedId.isNotBlank() || breed.isNotBlank()
+            get() = parkId.isNotBlank() || shedId.isNotBlank() || breed.isNotBlank() ||
+                lifecycleStatus.isNotBlank()
 
         fun toQuery(): CountsBreakdownQuery = CountsBreakdownQuery(
             parkId = parkId.takeIf { it.isNotBlank() },
             shedId = shedId.takeIf { it.isNotBlank() },
             breed = breed.takeIf { it.isNotBlank() },
+            lifecycleStatus = lifecycleStatus.takeIf { it.isNotBlank() },
         )
     }
 
@@ -390,6 +423,7 @@ class CountsViewModel @Inject constructor(
         const val DIMENSION_PARK = "park"
         const val DIMENSION_SHED = "shed"
         const val DIMENSION_BREED = "breed"
+        const val DIMENSION_LIFECYCLE = "lifecycle"
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"

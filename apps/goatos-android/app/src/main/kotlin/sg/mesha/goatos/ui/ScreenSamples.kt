@@ -6,24 +6,6 @@ import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
 import sg.mesha.goatos.feature.calendar.CalendarWeekDay
-import sg.mesha.goatos.feature.leadership.BacklogRow
-import sg.mesha.goatos.feature.leadership.CoverageHeroState
-import sg.mesha.goatos.feature.leadership.DataGapPill
-import sg.mesha.goatos.feature.leadership.DateOption
-import sg.mesha.goatos.feature.leadership.DecisionRow
-import sg.mesha.goatos.feature.leadership.KpiTile
-import sg.mesha.goatos.feature.leadership.LeadershipUiState
-import sg.mesha.goatos.feature.leadership.OverdueClassification
-import sg.mesha.goatos.feature.leadership.OverdueLegendItem
-import sg.mesha.goatos.feature.leadership.OverdueRow
-import sg.mesha.goatos.feature.leadership.OverdueUiState
-import sg.mesha.goatos.feature.leadership.ParkCoverageRow
-import sg.mesha.goatos.feature.leadership.RescheduleSegment
-import sg.mesha.goatos.feature.leadership.RescheduleUiState
-import sg.mesha.goatos.feature.leadership.ScopePill
-import sg.mesha.goatos.feature.leadership.ShedSummary
-import sg.mesha.goatos.feature.leadership.Tone
-import sg.mesha.goatos.feature.leadership.VaccineGroupChip
 import sg.mesha.goatos.feature.profile.AlertChannel
 import sg.mesha.goatos.feature.profile.AlertChannelTone
 import sg.mesha.goatos.feature.profile.AlertRow
@@ -40,6 +22,7 @@ import sg.mesha.goatos.feature.record.VaccineGroupRow
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
+import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsUiState
@@ -64,7 +47,6 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
     segments = listOf(
         CalendarSegment("week", "Week", CalendarSegmentKind.Week),
         CalendarSegment("month", "Month", CalendarSegmentKind.Month),
-        CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
     // Calendar chips must stay readable on real phones; use short weekday labels,
@@ -93,32 +75,44 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
     weekEmptyLabel = "No work today",
     monthLabel = "July 2026",
     monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
-    historyLabel = "Recent records",
-    historyEmptyLabel = "No records yet",
 )
 
 fun sampleShedsState(): ShedsUiState = ShedsUiState(
     moduleLabel = "Vaccination",
-    scopeLabel = "CBE · all sheds",
-    title = "Today's sheds",
-    date = "Thu 9 Jul",
-    window = "6:00–11:00",
-    shedCountLabel = "4 sheds",
-    dueLabel = "128 due",
+    scopeLabel = "",
+    title = "Vaccination sheds",
+    date = "Today · Wed 22 Jul",
+    window = "Wed 22 Jul → Tue 28 Jul",
+    shedCountLabel = "20 sheds",
+    dueLabel = "147 due",
     dayProgressLabel = "42%",
     dayProgressFraction = 0.42f,
-    daySummary = "54 / 128 done",
+    daySummary = "54 / 147 done",
+    shedCount = 20,
+    dueCount = 93,
+    doneCount = 54,
+    dayTabs = listOf(
+        ShedDayTab("2026-07-22", "WED", "22", "147", isSelected = true),
+        ShedDayTab("2026-07-23", "THU", "23", "100", isSelected = false),
+        ShedDayTab("2026-07-24", "FRI", "24", "102", isSelected = false),
+        ShedDayTab("2026-07-25", "SAT", "25", "70", isSelected = false),
+        ShedDayTab("2026-07-26", "SUN", "26", "101", isSelected = false),
+        ShedDayTab("2026-07-27", "MON", "27", "81", isSelected = false),
+        ShedDayTab("2026-07-28", "TUE", "28", "97", isSelected = false),
+    ),
     rows = listOf(
         ShedRow(
-            id = "s1", name = "Gandhi 1", animalStage = "Milking does",
+            id = "s1", name = "Gandhi 1", animalStage = "Adult",
+            operatorName = "Amit Kumar", physicalShed = "Gandhi", partition = "1",
             status = ShedStatus.DONE, statusLabel = "Done",
-            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("PPR", "40/40", true)),
-            inShed = "40", due = "40", done = "40", progressLabel = "100%", progressFraction = 1f,
+            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("ET+TT · Dose 2", "40/40", true)),
+            inShed = "40", due = "0", done = "40", progressLabel = "100%", progressFraction = 1f,
         ),
         ShedRow(
-            id = "s2", name = "Sumathi 1", animalStage = "Kids",
+            id = "s2", name = "Sumathi 1", animalStage = "Adult",
+            operatorName = "Darshan Talwar", physicalShed = "Sumathi", partition = "1",
             status = ShedStatus.DELAYED, statusLabel = "Delayed · not started",
-            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("FMD", "0/32", false)),
+            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("Blue Tongue", "0/32", false)),
             inShed = "32", due = "32", done = "0", progressLabel = "0%", progressFraction = 0f,
             actionLabel = "Chase the team ›",
         ),
@@ -170,9 +164,12 @@ fun sampleSubmitState(): SubmitUiState = SubmitUiState(
     submitLabel = "Submit",
     canSubmit = true,
     syncProgress = 0.66f,
-    goatProofTotal = 40,
-    goatProofSynced = 38,
-    goatProofUploading = 2,
+    proofSummaryTitle = "Goat camera proof",
+    proofSummarySyncedLabel = "38 of 40 goats synced",
+    proofSummaryFinalizeHint = "Finalize checks the synced records. It does not upload files.",
+    proofTotal = 40,
+    proofSynced = 38,
+    proofUploading = 2,
     attemptCount = 0,
     maxAttempts = 0,
     lastError = null,
@@ -181,96 +178,6 @@ fun sampleSubmitState(): SubmitUiState = SubmitUiState(
     isTaskLoadFailed = false,
     isQueueFailed = false,
     isRetryFailed = false,
-)
-
-// Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-dhome (Director role, "All
-// parks" scope): hero %, both KPI tiles, every SHEDS[] row rendered by renderTodaySheds(),
-// every vaxr backlog row, the one needsdec row, and the CBE/CPT coverage-by-park rows from
-// the scope sheet.
-fun sampleLeadershipState(): LeadershipUiState = LeadershipUiState(
-    eyebrow = "Vaccination · Director",
-    title = "Overview",
-    avatarInitial = "A",
-    hero = CoverageHeroState(
-        coverageLabel = "Dose coverage · all vaccines",
-        coveragePercent = 48,
-        dosesLine = "4,650 of 9,698 scheduled doses given",
-        dosesTrend = listOf(12f, 18f, 15f, 24f, 30f, 28f, 39f, 46f, 48f),
-        scopePill = ScopePill("All parks · 2"),
-        animalsLabel = "1,312 animals",
-        dataGapPill = DataGapPill("no data gaps", hasGaps = false),
-    ),
-    kpis = listOf(
-        KpiTile("given", "4,650", "Doses given · tap", Tone.OK),
-        KpiTile("pending", "5,048", "Pending · tap", Tone.WARN),
-    ),
-    todayShedsTitle = "Today's sheds · live",
-    todaySheds = listOf(
-        ShedSummary(
-            shedId = "gandhi1", name = "Gandhi 1", park = "CBE", cohort = "Milking does",
-            coveragePercent = 0, done = 0, total = 11,
-            vaccineGroups = listOf(
-                VaccineGroupChip("FMD + HS", 0, 8),
-                VaccineGroupChip("ET + TT", 0, 3),
-            ),
-            assignLabel = "Assign team",
-        ),
-        ShedSummary(
-            shedId = "castro1", name = "Castro 1", park = "CBE", cohort = "Breeding does",
-            coveragePercent = 35, done = 6, total = 17,
-            vaccineGroups = listOf(
-                VaccineGroupChip("PPR · Booster", 6, 12),
-                VaccineGroupChip("Goat Pox", 0, 5),
-            ),
-            assignLabel = "Assign team",
-        ),
-        ShedSummary(
-            shedId = "mandela1", name = "Mandela 1", park = "CBE", cohort = "K2 kids",
-            coveragePercent = 100, done = 40, total = 40,
-            vaccineGroups = listOf(VaccineGroupChip("FMD + HS", 40, 40)),
-            assignLabel = "Assign team",
-        ),
-        ShedSummary(
-            shedId = "sumathi1", name = "Sumathi 1", park = "CBE", cohort = "Pregnant does",
-            coveragePercent = 0, done = 0, total = 9,
-            vaccineGroups = listOf(VaccineGroupChip("ET + TT · Booster", 0, 9)),
-            assignLabel = "Assign team",
-        ),
-        ShedSummary(
-            shedId = "sumathi2", name = "Sumathi 2", park = "CPT", cohort = "Yearling does",
-            coveragePercent = 0, done = 0, total = 38,
-            vaccineGroups = listOf(VaccineGroupChip("PPR · Booster", 0, 38)),
-            assignLabel = "Assign team",
-        ),
-        ShedSummary(
-            shedId = "godel1", name = "Godel 1", park = "CPT", cohort = "Dry does",
-            coveragePercent = 0, done = 0, total = 16,
-            vaccineGroups = listOf(
-                VaccineGroupChip("Goat Pox", 0, 10),
-                VaccineGroupChip("HS", 0, 6),
-            ),
-            assignLabel = "Assign team",
-        ),
-    ),
-    backlogTitle = "Backlog by vaccine · pending doses",
-    backlog = listOf(
-        BacklogRow("PPR", "largest backlog", "989", Tone.DANGER, 25),
-        BacklogRow("FMD", "first + booster", "1,406", Tone.DANGER, 46),
-        BacklogRow("ET + TT", "first + booster", "726", Tone.WARN, 72),
-        BacklogRow("HS", null, "542", Tone.WARN, 59),
-        BacklogRow("Goat Pox", "goat-only", "417", Tone.WARN, 47),
-        BacklogRow("Sheep Pox", "sheep-only", "447", Tone.DANGER, 14),
-        BacklogRow("Blue Tongue", "sheep-only", "521", Tone.DANGER, 0),
-    ),
-    needsDecisionTitle = "Needs a decision",
-    needsDecision = listOf(
-        DecisionRow("d1", "Goat Pox · overdue", "Yashoda 5 · 5 days late", "Reschedule", Tone.DANGER),
-    ),
-    coverageByParkTitle = "Coverage by park",
-    coverageByPark = listOf(
-        ParkCoverageRow("CBE", "Coimbatore", "716 animals · dose coverage", "52%", Tone.OK),
-        ParkCoverageRow("CPT", "Channapatna", "596 animals · dose coverage", "42%", Tone.WARN),
-    ),
 )
 
 fun sampleRecordState(): RecordUiState = RecordUiState(
@@ -335,59 +242,6 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
     ),
 )
 
-// Overdue + Reschedule live in feature-leadership; their in-module samples are
-// `internal`, so :app carries its own interim seeds for OverdueViewModel /
-// RescheduleViewModel until the leadership scope_token reads land.
-
-fun sampleOverdueState(): OverdueUiState = OverdueUiState(
-    eyebrow = "Vaccination",
-    title = "Overdue · 38 animals",
-    sectionTitle = "Needs rescheduling",
-    legend = listOf(
-        OverdueLegendItem(OverdueClassification.MISSED, "Missed · past buffer"),
-        OverdueLegendItem(OverdueClassification.IN_BUFFER, "In buffer · recoverable"),
-    ),
-    rows = listOf(
-        OverdueRow("o1", "Goat Pox · Yashoda 5", "CBE · 9 days late · past buffer · 24 animals", "Missed", OverdueClassification.MISSED),
-        OverdueRow("o2", "Sheep Pox · Castro 1", "CPT · 3 days late · in buffer · 8 animals", "In buffer", OverdueClassification.IN_BUFFER),
-        OverdueRow("o3", "FMD · Booster · Mandela 1", "CBE · 2 days late · in buffer · 6 animals", "In buffer", OverdueClassification.IN_BUFFER),
-    ),
-    explainerTitle = "What the colours mean",
-    explainer = "Red · Missed — the dose window closed and the animal wasn't recovered into a " +
-        "compatible drive in time. Amber · In buffer — overdue but still recoverable by reschedule " +
-        "into a compatible drive, no dose missed. In/out-of-buffer is computed by backend policy.",
-)
-
-fun sampleRescheduleState(): RescheduleUiState = RescheduleUiState(
-    eyebrow = "Vaccination",
-    title = "Goat Pox · overdue",
-    bufferMessage = "Reschedule into a compatible drive while the animal is still recoverable. " +
-        "The in-buffer window is computed by backend policy; past it the dose is missed.",
-    actionTitle = "Action",
-    segments = listOf(
-        RescheduleSegment("reschedule", "Reschedule"),
-        RescheduleSegment("mark", "Mark scheduled"),
-    ),
-    selectedSegmentId = "reschedule",
-    dateFieldLabel = "New date",
-    dateOptionsTitle = "Within the backend-computed buffer window from the due date",
-    dateOptions = listOf(
-        DateOption("d8", "8", "Wed, 8 Jul", "Tomorrow · in buffer", inBuffer = true),
-        DateOption("d9", "9", "Thu, 9 Jul", "In buffer", inBuffer = true),
-        DateOption("d10", "10", "Fri, 10 Jul", "In buffer", inBuffer = true),
-        DateOption("d11", "11", "Sat, 11 Jul", "Last day in buffer", inBuffer = true),
-        DateOption("d13", "13", "Mon, 13 Jul", "Out of buffer · counts as missed", inBuffer = false),
-    ),
-    selectedDateId = null,
-    assignFieldLabel = "Assign to",
-    assignPrimary = "Arun Kumar",
-    assignBackupLabel = "+ backup Indradev",
-    assignEnabled = true,
-    confirmLabel = "Confirm — notify team",
-    confirmEnabled = false,
-    channelsNote = "Team gets a phone call, push, Slack alert and email — 2 days before, and again the morning of.",
-)
-
 // ---------------------------------------------------------------------------
 // Honest load / empty / error placeholders.
 //
@@ -405,9 +259,7 @@ fun calendarPlaceholder(message: String): CalendarUiState =
     sampleCalendarState().copy(
         weekDays = emptyList(),
         weekItems = emptyList(),
-        historyRows = emptyList(),
         weekEmptyLabel = message,
-        historyEmptyLabel = message,
     )
 
 fun shedsPlaceholder(message: String): ShedsUiState =
@@ -427,36 +279,6 @@ fun shedsPlaceholder(message: String): ShedsUiState =
         kernelInfo = null,
     )
 
-fun leadershipPlaceholder(message: String): LeadershipUiState {
-    val base = sampleLeadershipState()
-    return base.copy(
-        eyebrow = "Vaccination",
-        avatarInitial = "",
-        hero = base.hero.copy(
-            coverageLabel = "Process integrity",
-            coveragePercent = 0,
-            dosesLine = message,
-            dosesTrend = emptyList(),
-            scopePill = null,
-            animalsLabel = "",
-            dataGapPill = DataGapPill("", hasGaps = false),
-        ),
-        kpis = emptyList(),
-        todaySheds = emptyList(),
-        backlog = emptyList(),
-        needsDecision = emptyList(),
-        coverageByParkTitle = null,
-        coverageByPark = emptyList(),
-    )
-}
-
-fun overduePlaceholder(message: String): OverdueUiState =
-    sampleOverdueState().copy(
-        title = "Overdue",
-        sectionTitle = message,
-        rows = emptyList(),
-    )
-
 // MOB-005: Submit's loading / no-task / task-load-failed states previously fell back to
 // sampleSubmitState() directly, leaking "Gandhi 1" / "Milking does" / "Thu 9 Jul" farm identity
 // and sample proof counters onto a medical recording screen whenever the real task hadn't loaded
@@ -474,10 +296,13 @@ fun submitPlaceholder(): SubmitUiState = sampleSubmitState().copy(
     syncLabel = "",
     canSubmit = false,
     syncProgress = 0f,
-    goatProofTotal = 0,
-    goatProofSynced = 0,
-    goatProofUploading = 0,
-    goatProofFailed = 0,
+    proofSummaryTitle = "",
+    proofSummarySyncedLabel = "",
+    proofSummaryFinalizeHint = "",
+    proofTotal = 0,
+    proofSynced = 0,
+    proofUploading = 0,
+    proofFailed = 0,
     attemptCount = 0,
     maxAttempts = 0,
     lastError = null,

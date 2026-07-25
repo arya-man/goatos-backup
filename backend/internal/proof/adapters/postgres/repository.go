@@ -21,6 +21,7 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+const abandonedUploadRetention = 24 * time.Hour
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -51,7 +52,8 @@ WITH new_proof AS (
 )
 INSERT INTO proof_artifacts (
   proof_id, tenant_id, storage_provider, object_key, mime_type, scope_type, scope_id,
-  subject_type, subject_id, proof_type, uploaded_by, metadata, idempotency_key, request_fingerprint
+  subject_type, subject_id, proof_type, uploaded_by, metadata, idempotency_key, request_fingerprint,
+  upload_expires_at
 )
 SELECT
   proof_id,
@@ -67,7 +69,8 @@ SELECT
   nullif($9, '')::uuid,
   $10::jsonb,
   nullif($11, ''),
-  $12
+  $12,
+  now() + $13::interval
 FROM new_proof
 -- A repeat call with the SAME (tenant, idempotency_key) — the mobile outbox retries the whole
 -- registration+upload dispatch with its stored key verbatim — must never mint a second object.
@@ -77,7 +80,7 @@ RETURNING
   proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
   size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
   subject_id::text, proof_type, uploaded_by::text, metadata, created_at, uploaded_at,
-  updated_at, row_version`,
+  retention_policy, retention_expires_at, upload_expires_at, updated_at, row_version`,
 		in.TenantID,
 		provider,
 		in.MimeType,
@@ -90,6 +93,7 @@ RETURNING
 		metadata,
 		idempotencyKey,
 		fingerprint,
+		abandonedUploadRetention.String(),
 	)
 	artifact, err := scanArtifact(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -113,7 +117,7 @@ SELECT
   proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
   size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
   subject_id::text, proof_type, uploaded_by::text, metadata, created_at, uploaded_at,
-  updated_at, row_version, request_fingerprint
+  retention_policy, retention_expires_at, upload_expires_at, updated_at, row_version, request_fingerprint
 FROM proof_artifacts
 WHERE tenant_id = $1::uuid
   AND idempotency_key = $2
@@ -205,6 +209,7 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	    metadata = metadata || $7::jsonb,
 	    upload_state = 'completed',
 	    uploaded_at = COALESCE(uploaded_at, now()),
+	    upload_expires_at = NULL,
 	    updated_at = now(),
 	    row_version = row_version + 1
 	WHERE tenant_id = $1::uuid
@@ -214,7 +219,7 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	  proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
 	  size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
 	  subject_id::text, proof_type, uploaded_by::text, metadata, created_at, uploaded_at,
-	  updated_at, row_version`,
+	  retention_policy, retention_expires_at, upload_expires_at, updated_at, row_version`,
 		in.TenantID,
 		in.ProofID,
 		in.ContentHash,
@@ -249,9 +254,170 @@ SELECT
   proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
   size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
   subject_id::text, proof_type, uploaded_by::text, metadata, created_at, uploaded_at,
-  updated_at, row_version
+  retention_policy, retention_expires_at, upload_expires_at, updated_at, row_version
 FROM proof_artifacts
 ` + where
+}
+
+func (r *Repository) ApplyRetention(ctx context.Context, tenantID string, proofIDs []string, policy string, expiresAt *time.Time) (int, error) {
+	if len(proofIDs) == 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	ids, err := pgconv.UUIDs(proofIDs)
+	if err != nil {
+		return 0, fmt.Errorf("proof: proof ids: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE proof_artifacts
+SET retention_policy = $3,
+    retention_expires_at = $4,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND proof_id = ANY($2::uuid[])
+  AND upload_state = 'completed'
+  AND retention_policy <> 'legal_hold'
+  AND (retention_policy, retention_expires_at) IS DISTINCT FROM ($3::text, $4::timestamptz)`,
+		tenantID, ids, strings.TrimSpace(policy), expiresAt)
+	return int(tag.RowsAffected()), err
+}
+
+func (r *Repository) BackfillSubmissionRetention(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+WITH raw_candidates AS (
+  SELECT
+    s.tenant_id,
+    ref.value->>'proof_id' AS proof_id_text,
+    btrim(v.proof_policy->>'retention_policy') AS retention_policy,
+    COALESCE(s.accepted_at, s.submitted_at) AS anchor_at
+  FROM sop_submissions s
+  JOIN sop_versions v ON v.tenant_id = s.tenant_id AND v.sop_version_id = s.sop_version_id
+  CROSS JOIN LATERAL jsonb_array_elements(s.proof_refs) AS ref(value)
+  WHERE s.submitted_at <= $1
+    AND s.state IN ('accepted', 'needs_review', 'submitted')
+    AND jsonb_typeof(s.proof_refs) = 'array'
+    AND btrim(v.proof_policy->>'retention_policy') IN ('operational_90d', 'standard_1y', 'critical_7y', 'legal_hold')
+    AND ref.value ? 'proof_id'
+    AND ref.value->>'proof_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+),
+resolved AS (
+  SELECT
+    raw.tenant_id,
+    raw.proof_id_text::uuid AS proof_id,
+    raw.retention_policy,
+    raw.anchor_at,
+    CASE raw.retention_policy
+      WHEN 'operational_90d' THEN raw.anchor_at + interval '90 days'
+      WHEN 'standard_1y' THEN raw.anchor_at + interval '1 year'
+      WHEN 'critical_7y' THEN raw.anchor_at + interval '7 years'
+      ELSE NULL::timestamptz
+    END AS retention_expires_at,
+    CASE raw.retention_policy
+      WHEN 'legal_hold' THEN 4
+      WHEN 'critical_7y' THEN 3
+      WHEN 'standard_1y' THEN 2
+      WHEN 'operational_90d' THEN 1
+      ELSE 0
+    END AS policy_rank
+  FROM raw_candidates raw
+  JOIN proof_artifacts p ON p.tenant_id = raw.tenant_id AND p.proof_id = raw.proof_id_text::uuid
+  WHERE true
+    AND p.upload_state = 'completed'
+    AND p.retention_policy <> 'legal_hold'
+    AND (p.retention_policy, p.retention_expires_at) IS DISTINCT FROM (
+      raw.retention_policy,
+      CASE raw.retention_policy
+        WHEN 'operational_90d' THEN raw.anchor_at + interval '90 days'
+        WHEN 'standard_1y' THEN raw.anchor_at + interval '1 year'
+        WHEN 'critical_7y' THEN raw.anchor_at + interval '7 years'
+        ELSE NULL::timestamptz
+      END
+    )
+),
+deduped AS (
+  SELECT DISTINCT ON (tenant_id, proof_id)
+    tenant_id, proof_id, retention_policy, retention_expires_at
+  FROM resolved
+  ORDER BY tenant_id, proof_id, policy_rank DESC, retention_expires_at DESC NULLS FIRST, anchor_at DESC
+  LIMIT $2
+)
+UPDATE proof_artifacts p
+SET retention_policy = r.retention_policy,
+    retention_expires_at = r.retention_expires_at,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM deduped r
+WHERE p.tenant_id = r.tenant_id
+  AND p.proof_id = r.proof_id
+  AND p.upload_state = 'completed'
+  AND p.retention_policy <> 'legal_hold'
+  AND (p.retention_policy, p.retention_expires_at) IS DISTINCT FROM (r.retention_policy, r.retention_expires_at)`, before.UTC(), limit)
+	return int(tag.RowsAffected()), err
+}
+
+func (r *Repository) PurgeExpired(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+WITH doomed AS (
+  SELECT tenant_id, proof_id
+  FROM proof_artifacts
+  WHERE retention_expires_at IS NOT NULL
+    AND retention_expires_at <= $1
+    AND retention_policy <> 'legal_hold'
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_review_goats rg WHERE rg.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_reviews ar WHERE ar.media_proof_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_hf_vaccination_evidence pe WHERE pe.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_source_health_checks ph WHERE ph.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM source_entry_decisions sd WHERE sd.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM transit_handoffs th WHERE th.proof_ref_id = proof_artifacts.proof_id)
+  ORDER BY retention_expires_at, proof_id
+  LIMIT $2
+)
+DELETE FROM proof_artifacts p
+USING doomed d
+WHERE p.tenant_id = d.tenant_id
+  AND p.proof_id = d.proof_id`, before.UTC(), limit)
+	return int(tag.RowsAffected()), err
+}
+
+func (r *Repository) PurgeAbandonedUploads(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+WITH doomed AS (
+  SELECT tenant_id, proof_id
+  FROM proof_artifacts
+  WHERE upload_state IN ('pending', 'uploading')
+    AND upload_expires_at IS NOT NULL
+    AND upload_expires_at <= $1
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_review_goats rg WHERE rg.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_reviews ar WHERE ar.media_proof_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_hf_vaccination_evidence pe WHERE pe.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_source_health_checks ph WHERE ph.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM source_entry_decisions sd WHERE sd.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM transit_handoffs th WHERE th.proof_ref_id = proof_artifacts.proof_id)
+  ORDER BY upload_expires_at, proof_id
+  LIMIT $2
+)
+DELETE FROM proof_artifacts p
+USING doomed d
+WHERE p.tenant_id = d.tenant_id
+  AND p.proof_id = d.proof_id`, before.UTC(), limit)
+	return int(tag.RowsAffected()), err
 }
 
 type rowScanner interface {
@@ -275,7 +441,7 @@ func scanArtifactRow(row rowScanner, withFingerprint bool) (domain.Artifact, str
 	var duration pgtype.Int8
 	var subjectID, uploadedBy pgtype.Text
 	var metadata []byte
-	var uploadedAt pgtype.Timestamptz
+	var uploadedAt, retentionExpiresAt, uploadExpiresAt pgtype.Timestamptz
 	var fingerprint string
 	dest := []any{
 		&out.ProofID,
@@ -296,6 +462,9 @@ func scanArtifactRow(row rowScanner, withFingerprint bool) (domain.Artifact, str
 		&metadata,
 		&out.CreatedAt,
 		&uploadedAt,
+		&out.RetentionPolicy,
+		&retentionExpiresAt,
+		&uploadExpiresAt,
 		&out.UpdatedAt,
 		&out.RowVersion,
 	}
@@ -312,6 +481,8 @@ func scanArtifactRow(row rowScanner, withFingerprint bool) (domain.Artifact, str
 	out.SubjectID = textPtr(subjectID)
 	out.UploadedBy = textPtr(uploadedBy)
 	out.UploadedAt = timePtr(uploadedAt)
+	out.RetentionExpiresAt = timePtr(retentionExpiresAt)
+	out.UploadExpiresAt = timePtr(uploadExpiresAt)
 	out.Metadata = decodeMap(metadata)
 	out.CreatedAt = out.CreatedAt.UTC()
 	out.UpdatedAt = out.UpdatedAt.UTC()

@@ -305,6 +305,41 @@ Explicit exceptions:
   page/drawer to `requireAdminWebPageContract("verification-review")` + `copy`/`tableLabels`/
   `optionGroup`.
 
+- `features/ceo-ai/*` + `components/ceo-ai-chat.tsx` (leadership CEO/CXO floating assistant):
+  the assistant is a leadership-only floating surface (bubble + streaming chat panel + conversation
+  threads sidebar + citations + feedback), not a routed admin page, so there is no
+  `AdminWebPageContract` for it. The backend-owned copy it already has (`title`, `subtitle`, `hello`,
+  `placeholder`, `starters`, mode/source fallbacks, etc.) flows through `CEOAIChatCopy` from
+  `components/mesha-shell.tsx` via `shellCopy(contract, "ceo_ai.*")`, and the tenant/role-aware
+  starter questions come from the backend (`GET /ceo-ai/starters`). The remaining LOCAL literals are
+  the chat *chrome* that has no contract key yet: the threads sidebar labels (`Chats`, `New chat`,
+  rename/delete), the answer feedback controls (`Helpful`/`Not helpful`, reason placeholder), the
+  `Stop generating` control, the mode-footer human labels (`Planned by Gemini via Vertex AI`,
+  `Cube governed metric`, `Mesha read API`, `Mesha MCP Toolbox`, `Governed read-only SQL`), and the
+  degraded/rate-limited state copy. These live in the `CHROME` map + `modeLabel()` in
+  `features/ceo-ai/ceo-ai-panel.tsx`. Leadership visibility is decided SERVER-SIDE (the backend
+  `ceo_internal` gate behind `GET /ceo-ai/starters`), NOT by a client display-name regex. Remaining
+  TODO (contract-only, not data): when the backend adds `ceo_ai.chrome.*` bootstrap copy keys (or a
+  dedicated assistant contract), fold the `CHROME`/`modeLabel` literals into `CEOAIChatCopy` and
+  remove the `features/ceo-ai/` entry from
+  `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`.
+
+- `features/ceo-ai-admin/*` + `app/(admin)/ceo-ai-admin/page.tsx` (assistant step-trace debug):
+  an ADMIN/ENGINEERING-only diagnostic surface, not a leadership product screen. It renders the
+  internal execution trace (sub-questions, tool/tier, redacted params, row counts, latency, review
+  verdict) for one `request_id`, so an admin can "see each step" WITHOUT leaking the trace into the
+  leadership chat answer (committed Internal Tracking rule). The real security boundary is
+  SERVER-SIDE: the backend `GET /ceo-ai/admin/trace/{request_id}` endpoint enforces the
+  `ceo_internal` (superadmin) role + tenant scope and returns 403 to a non-admin; the admin-web proxy
+  (`app/api/ceo-ai/admin/trace/[request_id]/route.ts`) adds no gating and reads no business data. It
+  is not in the backend-composed sidebar nav (same current state as `/verification` and
+  `/operations/dlq`) and has no `AdminWebPageContract`, so its labels are local literal copy — the
+  documented exception. Remaining TODO (contract-only): if this debug tool is ever promoted to a
+  governed admin surface, register a page contract in
+  `backend/internal/adminui/app/service.go`, fold the literals into it, and remove the
+  `features/ceo-ai-admin/` entry from
+  `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`.
+
 ## Page-Body Contract Snapshot for E2E
 
 This is the visible anatomy that must be preserved or intentionally changed as
@@ -353,7 +388,14 @@ detail because the compact row did not show it. Examples:
   workflow/action surfaces.
 - Vaccination status matrix cell: cell can show a dose/protocol status count.
   Drawer must use the selected cohort/protocol object and reveal the full
-  record/verify context only when IDs needed for actions exist.
+  schedule/proof context needed for action.
+- Goat roster rows: Counts Herd Register, Calendar drive detail, shed execution,
+  and any future animal roster must use the shared Goat Passport local drawer
+  pattern. The compact table may show identifiers/status only, but the drawer
+  must include the goat-wise vaccination passport: next due, open obligations,
+  and vaccination history from `/api/goats/{goat_id}/vaccination-passport`.
+  A roster that shows goats without that drawer is a contract regression, even
+  if a separate full passport route still exists.
 - Shed execution row: row can show shed, owner, proof, verification, next step.
   Drawer shows obligation/batch/task/completion IDs when present and disables
   actions with exact backend reasons when absent.

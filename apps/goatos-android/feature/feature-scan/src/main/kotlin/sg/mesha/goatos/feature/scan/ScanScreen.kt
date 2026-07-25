@@ -23,10 +23,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,13 +38,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
 
@@ -111,8 +114,10 @@ data class RosterRow(
     val vaccineLabel: String,      // "FMD · 1st", "due · FMD", or a skip reason
     val status: ScanStatus,
     val unsynced: Boolean = false, // local, not-yet-synced draft scan overlay
+    val scannedAtLabel: String? = null,
     val goatId: String = "",
     val obligationId: String = "",
+    val proofRequired: Boolean = true,
     val proofClipCount: Int = 0,
     val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
 )
@@ -123,6 +128,7 @@ data class ScanFeedEntry(
     val secondaryTag: String?,
     val vaccineLabel: String,      // "FMD · 1st" or "skip · <reason>"
     val status: ScanStatus,        // DONE or SKIPPED
+    val scannedAtLabel: String? = null,
     val tone: ScanFeedTone = when (status) {
         ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
         else -> ScanFeedTone.ACCEPTED
@@ -198,7 +204,12 @@ data class ScanUiState(
     // and supports CaptureProof (replace) / RetryProof so the operator can resolve it, including
     // animals below the visible scroll window.
     val proofActionNeeded: List<RosterRow> = emptyList(),
+    // Transient "already scanned" strip: set on a re-scan of an already-DONE tag, rendered below
+    // the tap-hint card, cleared on the next accepted scan. Non-null shows the strip; it never
+    // stacks — only ONE feed row per tag exists (see [ScanFeedEntry]/[ScanViewModel.prependFeed]).
+    val duplicateNotice: String? = null,
     val readerConnection: ScanReaderConnection? = null,
+    val shedId: String? = null,
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
@@ -289,6 +300,9 @@ fun ScanScreen(
                 if (state.scanEnabled) {
                     item { TapHint(state.tapHint) }
                 }
+                state.duplicateNotice?.let { notice ->
+                    item { DuplicateNoticeStrip(notice) }
+                }
                 state.error?.let { err ->
                     item { NotDueBanner(err) }
                 }
@@ -332,9 +346,7 @@ fun ScanScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                if (state.feed.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
-                    item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth(), rows = 2) }
-                } else if (state.feed.isEmpty()) {
+                if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
                     // Feed events can repeat the same tag/label/status when an operator rescans.
@@ -358,7 +370,7 @@ fun ScanScreen(
 
             ScanFooter(
                 label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
-                enabled = state.scanEnabled && state.canSubmit,
+                enabled = state.canSubmit,
                 note = state.footNote,
                 onSubmit = { onEvent(ScanEvent.Submit) },
             )
@@ -596,6 +608,27 @@ private fun TapHint(text: String) {
     }
 }
 
+/** Transient strip for a re-scan of an already-DONE tag. Shown once directly under the
+ *  "Scan RFID tag now" card instead of stacking a duplicate row in the feed — see
+ *  [ScanUiState.duplicateNotice]. Uses the same warning tone as [ScanFeedTone.DUPLICATE]. */
+@Composable
+private fun DuplicateNoticeStrip(notice: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(ScanTokens.warningX)
+            .border(1.dp, ScanTokens.warning, RoundedCornerShape(11.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        StatusGlyph(ScanStatus.DONE, tone = ScanFeedTone.DUPLICATE)
+        Spacer(Modifier.width(10.dp))
+        Text(notice, color = ScanTokens.warning, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
 @Composable
 private fun NotDueBanner(err: ScanError) {
     Row(
@@ -759,18 +792,30 @@ private fun FeedRow(entry: ScanFeedEntry) {
     ) {
         StatusGlyph(entry.status, tone = entry.tone)
         Spacer(Modifier.width(10.dp))
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                entry.primaryTag,
-                color = tagColor,
-                fontSize = 15.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-            )
-            entry.secondaryTag?.let {
-                Spacer(Modifier.width(6.dp))
-                TwoTagsBadge()
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.primaryTag,
+                    color = tagColor,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                )
+                entry.secondaryTag?.let {
+                    Spacer(Modifier.width(6.dp))
+                    TwoTagsBadge()
+                }
+            }
+            entry.scannedAtLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                Text(
+                    text = label,
+                    color = ScanTokens.brandD,
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
         }
         Text(entry.vaccineLabel, color = toneColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -962,24 +1007,48 @@ fun ScanListSheet(
                         .padding(vertical = 26.dp),
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
-                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row ->
+                val rosterListState = rememberLazyListState()
+                LaunchedEffect(rosterListState, hasMore, isLoadingMore, filtered.size, query) {
+                    if (!hasMore || isLoadingMore || query.isNotBlank() || filtered.isEmpty()) return@LaunchedEffect
+                    snapshotFlow { rosterListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+                        .collect { lastVisibleIndex ->
+                            if (lastVisibleIndex >= filtered.lastIndex - 3 && hasMore && !isLoadingMore) {
+                                onEvent(ScanEvent.LoadMore)
+                            }
+                        }
+                }
+                LazyColumn(
+                    state = rosterListState,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder.
+                    // The key MUST be unique per ROW, not per goat: a multi-vaccine drive (e.g. ET+TT · PPR)
+                    // puts the SAME goatId on two rows, so keying by goatId first threw
+                    // "Key <uuid> was already used" in LazyColumn measure and popped the screen
+                    // (Crashlytics IllegalArgumentException). obligationId is unique per obligation/row;
+                    // fall back to a composite that still separates two vaccines of the same goat.
+                    items(
+                        filtered,
+                        key = { row ->
+                            row.obligationId.takeIf { it.isNotBlank() }
+                                ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
+                        },
+                        contentType = { "scan_row" },
+                    ) { row ->
                         ScanListRow(row, captureEnabled, onEvent)
                     }
-                    if (hasMore && query.isBlank()) {
+                    if (isLoadingMore && query.isBlank()) {
                         item {
-                            Button(
-                                onClick = { onEvent(ScanEvent.LoadMore) },
-                                enabled = !isLoadingMore,
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Text(
-                                    stringResource(
-                                        if (isLoadingMore) R.string.scan_loading_more else R.string.scan_load_more,
-                                    ),
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = ScanTokens.muted,
+                                    strokeWidth = 2.dp,
                                 )
                             }
                         }
@@ -1035,9 +1104,19 @@ private fun ScanListRow(
                     lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 3.dp),
                 )
+                row.scannedAtLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                    Text(
+                        text = label,
+                        color = ScanTokens.brandD,
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
             }
         }
-        if (row.status == ScanStatus.DONE) {
+        if (row.status == ScanStatus.DONE && row.proofRequired) {
             Spacer(Modifier.height(6.dp))
             ProofActions(row = row, captureEnabled = captureEnabled, onEvent = onEvent)
         }

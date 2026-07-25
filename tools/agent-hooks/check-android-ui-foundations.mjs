@@ -225,7 +225,7 @@ function architectureFindings(read = (rel) => fs.readFileSync(path.join(sourceRo
 
   const composeMetricBuilds = [
     "apps/goatos-android/core/core-ui/build.gradle.kts",
-    ...["auth", "calendar", "leadership", "profile", "record", "scan", "sheds", "submit", "timetable", "verify"]
+    ...["auth", "calendar", "profile", "record", "scan", "sheds", "submit", "timetable", "verify"]
       .map((name) => `apps/goatos-android/feature/feature-${name}/build.gradle.kts`),
   ];
   for (const buildFile of composeMetricBuilds) {

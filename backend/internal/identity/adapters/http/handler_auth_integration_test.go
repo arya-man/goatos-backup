@@ -83,7 +83,7 @@ func TestBearerAuthRunsBeforeIdentifierWriteHandler(t *testing.T) {
 }
 
 func TestPhase1BWriteRoutesUseExpectedPermissions(t *testing.T) {
-	productWriteAllowed := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
+	productWriteAllowed := []string{permissions.RoleCEOInternal, permissions.RoleVerifier}
 	productWriteDenied := []string{permissions.RoleOperator, permissions.RoleParkHead}
 
 	routes := []struct {

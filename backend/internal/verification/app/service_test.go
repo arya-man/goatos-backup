@@ -78,16 +78,68 @@ func (r *fakeRepo) GetSubmissionItems(_ context.Context, tenantID, submissionID 
 func (r *fakeRepo) ListQueue(_ context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
 	out := make([]domain.Item, 0, len(r.items))
 	for _, item := range r.items {
-		if item.TenantID != params.TenantID || item.Status != params.Status {
+		if item.TenantID != params.TenantID {
+			continue
+		}
+		if params.Status != "" && item.Status != params.Status {
 			continue
 		}
 		if params.Category != "" && item.Category != params.Category {
+			continue
+		}
+		if params.ParkID != "" && (item.ParkID == nil || *item.ParkID != params.ParkID) {
+			continue
+		}
+		if params.ShedID != "" && (item.ShedID == nil || *item.ShedID != params.ShedID) {
+			continue
+		}
+		if params.SubmissionScopedOnly && item.Source.SubmissionID == nil {
+			continue
+		}
+		if params.OpenOnly && item.ClosedAt != nil {
 			continue
 		}
 		out = append(out, item)
 	}
 	if params.Limit > 0 && len(out) > params.Limit {
 		out = out[:params.Limit]
+	}
+	return out, nil
+}
+
+func (r *fakeRepo) ListQueueFilterOptions(_ context.Context, params ports.ListQueueParams) (domain.QueueFilterOptions, error) {
+	var out domain.QueueFilterOptions
+	seenParks := map[string]bool{}
+	seenSheds := map[string]bool{}
+	for _, item := range r.items {
+		if item.TenantID != params.TenantID {
+			continue
+		}
+		if params.Status != "" && item.Status != params.Status {
+			continue
+		}
+		if params.Category != "" && item.Category != params.Category {
+			continue
+		}
+		if item.ParkID != nil && !seenParks[*item.ParkID] {
+			seenParks[*item.ParkID] = true
+			label := *item.ParkID
+			if item.ParkLabel != nil {
+				label = *item.ParkLabel
+			}
+			out.Parks = append(out.Parks, domain.LocationFilterOption{ID: *item.ParkID, Label: label})
+		}
+		if params.ParkID != "" && (item.ParkID == nil || *item.ParkID != params.ParkID) {
+			continue
+		}
+		if item.ShedID != nil && !seenSheds[*item.ShedID] {
+			seenSheds[*item.ShedID] = true
+			label := *item.ShedID
+			if item.ShedLabel != nil {
+				label = *item.ShedLabel
+			}
+			out.Sheds = append(out.Sheds, domain.LocationFilterOption{ID: *item.ShedID, Label: label})
+		}
 	}
 	return out, nil
 }
@@ -157,6 +209,16 @@ func (r *fakeRepo) CloseSubmission(_ context.Context, in domain.CloseSubmissionA
 		}
 	}
 	return items, nil
+}
+
+func (r *fakeRepo) ListReadyVaccinationBatchClosures(_ context.Context, _ ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error) {
+	return r.CloseSubmission(context.Background(), domain.CloseSubmissionAction{
+		TenantID: in.TenantID, SubmissionID: in.BatchID, ActorID: in.ActorID, IdempotencyKey: in.IdempotencyKey,
+	})
 }
 
 var _ ports.Repository = (*fakeRepo)(nil)
@@ -353,12 +415,84 @@ func TestListQueueDefaultsToPendingAndResolvesMedia(t *testing.T) {
 	}
 }
 
+func TestListQueueReturnsBackendLocationFilterOptions(t *testing.T) {
+	svc, _ := newTestService()
+	parkID := "00000000-0000-4000-8000-000000000101"
+	parkLabel := "Godel Park"
+	shedID := "00000000-0000-4000-8000-000000000102"
+	shedLabel := "Godel 1"
+	_, _ = svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source:        domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+		MediaRefs:     []string{"proof-1"},
+		ParkID:        &parkID,
+		ShedID:        &shedID,
+		IdempotencyKey: "key-filter-options",
+		CapturedAt:    time.Now(),
+	})
+	// The repository owns display labels; service/API must pass them through rather than making
+	// Android infer location names from ids.
+	for id, item := range svc.repo.(*fakeRepo).items {
+		item.ParkLabel = &parkLabel
+		item.ShedLabel = &shedLabel
+		svc.repo.(*fakeRepo).items[id] = item
+	}
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, Category: "vaccination_proof"})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(result.FilterOptions.Parks) != 1 || result.FilterOptions.Parks[0].ID != parkID || result.FilterOptions.Parks[0].Label != parkLabel {
+		t.Fatalf("parks = %+v", result.FilterOptions.Parks)
+	}
+	if len(result.FilterOptions.Sheds) != 1 || result.FilterOptions.Sheds[0].ID != shedID || result.FilterOptions.Sheds[0].Label != shedLabel {
+		t.Fatalf("sheds = %+v", result.FilterOptions.Sheds)
+	}
+}
+
 func TestListQueueRejectsInvalidStatus(t *testing.T) {
 	svc, _ := newTestService()
 	_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, Status: "bogus"})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_status" {
 		t.Fatalf("err = %v, want invalid_status", err)
+	}
+}
+
+func TestListQueueCanIncludeAllStatusesForLeadershipReview(t *testing.T) {
+	svc, repo := newTestService()
+	submissionID := "00000000-0000-4000-8000-000000000031"
+	pending, _ := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source:    domain.SourceRef{Module: "vaccination", SubmissionID: &submissionID, RefType: "vaccination_goat", RefID: testTenant},
+		MediaRefs: []string{"proof-pending"}, IdempotencyKey: "pending",
+	})
+	approved, _ := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source:    domain.SourceRef{Module: "vaccination", SubmissionID: &submissionID, RefType: "vaccination_goat", RefID: testTenant},
+		MediaRefs: []string{"proof-approved"}, IdempotencyKey: "approved",
+	})
+	_, _ = svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: approved.Item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: testTenant, RowVersion: approved.Item.RowVersion,
+	})
+	rejected, _ := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source:    domain.SourceRef{Module: "vaccination", SubmissionID: &submissionID, RefType: "vaccination_goat", RefID: testTenant},
+		MediaRefs: []string{"proof-rejected"}, IdempotencyKey: "rejected",
+	})
+	_, _ = svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: rejected.Item.ItemID, Decision: domain.DecisionRejected, Reason: "too dark",
+		VerifierID: testTenant, RowVersion: rejected.Item.RowVersion,
+	})
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof", IncludeAllStatuses: true, SubmissionScopedOnly: true, OpenOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("leadership items=%d, want 3; pending=%s repo=%d", len(result.Items), pending.Item.ItemID, len(repo.items))
 	}
 }
 

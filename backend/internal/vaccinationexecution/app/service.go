@@ -3,11 +3,14 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -15,6 +18,24 @@ import (
 type Service struct {
 	repo      ports.Repository
 	ownership ports.ShedOwnershipReader
+	bus       eventbus.Bus
+}
+
+type plannedDriveReassigner interface {
+	ReassignPlannedDrives(ctx context.Context, tenantID, parkID, defaultOperatorID string, selectedOperatorIDs []string, activeOperatorsPerDay int, effectiveFrom time.Time) (int64, error)
+}
+
+// WithBus attaches the domain-event bus this service publishes vaccination.capacity.changed /
+// vaccination.roster.changed to when an operator-assignment config write actually changes N or the
+// default operator (auto-cascade producer -- see backend/internal/obligation/app/operator_config_replan.go).
+// Optional: a nil/unset bus makes config writes a no-op for the cascade (never blocks the write itself).
+func (s *Service) WithBus(bus eventbus.Bus) *Service {
+	s.bus = bus
+	return s
+}
+
+type plannedDriveSessionsReader interface {
+	PlannedDriveSessionsForShed(ctx context.Context, tenantID, shedID string) ([]domain.PlannedSession, error)
 }
 
 // NewService builds the vaccination-execution read service. An optional ShedOwnershipReader attaches
@@ -38,6 +59,7 @@ func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQu
 
 // VaccinationExecutionPage returns one server-filtered keyset page plus the authoritative filtered
 // total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
+// For app/mobile requests (OperatorScopeActorID != ""), includes per-day carry summary (page-independent).
 func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
 	page, err := s.repo.ListVaccinationExecutionPage(ctx, q)
 	if err != nil {
@@ -56,7 +78,50 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}
 		next = &encoded
 	}
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness}, nil
+
+	// For app/mobile requests: fetch per-day carry summary (page-independent, full-date-range aggregation)
+	var carrySummary *domain.CarrySummary
+	if q.OperatorScopeActorID != "" {
+		carryLines, err := s.repo.VaccinationExecutionCarrySummary(ctx, q)
+		if err == nil && len(carryLines) > 0 {
+			// Group by date, aggregate per-date vaccines and totals
+			carryByDate := make(map[string][]domain.VaccineCarrySummary)
+			dayTotals := make(map[string]int64)
+			for _, line := range carryLines {
+				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
+					VaccineLabel:   line.VaccineLabel,
+					RemainingDoses: line.RemainingDoses,
+					TotalDoses:     line.TotalDoses,
+				})
+				dayTotals[line.Date] += line.RemainingDoses
+			}
+			// Build ordered CarryDay slice
+			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
+			for _, line := range carryLines {
+				// Avoid duplicates by checking if we've already seen this date
+				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
+					continue
+				}
+				carryDays = append(carryDays, domain.CarryDay{
+					Date:             line.Date,
+					VaccineBreakdown: carryByDate[line.Date],
+					TotalRemaining:   dayTotals[line.Date],
+				})
+			}
+			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}
+		}
+	}
+
+	var filterOptions *domain.ExecutionFilters
+	if q.IncludeFilterOptions {
+		parks, err := s.repo.AuthorizedParkOptions(ctx, q.TenantID, q.AuthorizedParkIDs)
+		if err != nil {
+			return domain.ExecutionResponse{}, err
+		}
+		filterOptions = &domain.ExecutionFilters{Parks: parks}
+	}
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -130,6 +195,14 @@ func (s *Service) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuer
 		return domain.OperationsResponse{}, err
 	}
 	return operationsResponseFromRows(rows, q.Limit)
+}
+
+func (s *Service) DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) (domain.DriveAssignmentResponse, error) {
+	rows, err := s.repo.DriveAssignments(ctx, q)
+	if err != nil {
+		return domain.DriveAssignmentResponse{}, err
+	}
+	return domain.DriveAssignmentResponse{Source: domain.SourceAPI, Rows: rows}, nil
 }
 
 // operationsResponseFromRows rolls the flat cohort × protocol rows into the matrix + per-cohort
@@ -307,19 +380,30 @@ func operationsRank(w domain.WorkState) int {
 }
 
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
-	sopStatus := sopStatus(p.TaskState)
+	sopStatus := sopStatusFromProjection(p)
 	proofStatus := proofStatus(p)
 	verificationStatus := verificationStatus(p)
 	workState := p.WorkState
-	if workState == "" {
-		workState = workStateFromProjection(p, q)
+	computedWorkState := workStateFromProjection(p, q)
+	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
+		workState = computedWorkState
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	physicalShed := strings.TrimSpace(p.PhysicalShed)
+	partition := strings.TrimSpace(p.Partition)
+	if physicalShed == "" || partition == "" {
+		physicalShed, partition = domain.NormalizeDriveShed(p.ShedName)
+	}
+	if partition == "" {
+		partition = "whole"
+	}
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,
 		ShedID:             p.ShedID,
 		ShedName:           p.ShedName,
+		PhysicalShed:       physicalShed,
+		Partition:          partition,
 		AnimalStage:        p.AnimalStage,
 		TargetCount:        targetCount,
 		OpenCount:          openCount,
@@ -335,6 +419,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ProofStatus:        proofStatus,
 		VerificationStatus: verificationStatus,
 		NextAction:         nextAction(p, workState),
+		PrimaryActionKey:   primaryActionKey(p, workState, openCount),
 		ObligationID:       p.ObligationID,
 		BatchID:            p.BatchID,
 		SOPTaskID:          p.SOPTaskID,
@@ -354,6 +439,9 @@ func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done in
 	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
 	if completionEvidence > done {
 		done = completionEvidence
+	}
+	if p.ScannedCount > done {
+		done = p.ScannedCount
 	}
 	if done > target {
 		done = target
@@ -384,7 +472,7 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
-	if p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review") {
+	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
 		return domain.WorkStateVerificationPending
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
@@ -457,13 +545,28 @@ func sopStatus(state *string) domain.SOPStatus {
 	}
 }
 
+func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
+	switch {
+	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
+		return domain.SOPStatusRework
+	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
+		return domain.SOPStatusAccepted
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+		return domain.SOPStatusSubmitted
+	case taskStateIs(p, "in_progress"):
+		return domain.SOPStatusInProgress
+	default:
+		return domain.SOPStatusNotStarted
+	}
+}
+
 func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.ProofStatusRejected
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.ProofStatusAccepted
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.ProofStatusUploaded
 	default:
 		return domain.ProofStatusMissing
@@ -474,7 +577,9 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
+		return domain.VerificationStatusVerified
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
 		return domain.VerificationStatusVerified
@@ -552,6 +657,18 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "Start scheduled vaccination SOP"
 	default:
 		return "Monitor scheduled drive"
+	}
+}
+
+func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, openCount int) string {
+	if p.SOPTaskID == nil || *p.SOPTaskID == "" || openCount <= 0 {
+		return "none"
+	}
+	switch workState {
+	case domain.WorkStateDue, domain.WorkStateOverdue, domain.WorkStateInProgress, domain.WorkStateProofPending:
+		return "scan"
+	default:
+		return "none"
 	}
 }
 
@@ -692,20 +809,21 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
 		rows = append(rows, domain.ShedSummaryRow{
-			ParkID:   p.ParkID,
-			ParkName: p.ParkName,
-			ShedID:   p.ShedID,
-			ShedName: p.ShedName,
-			Animals:  p.Animals,
-			Due:      p.DueAnimals,
-			Done:     p.Animals - p.DueAnimals,
-			Sessions: p.Sessions,
-			LastDone: businessDatePtr(p.LastDone),
-			NextDue:  businessDatePtr(p.NextDue),
-			Manager:  owners.Manager,
-			Backup:   owners.Backup,
-			Capacity: p.Capacity,
-			Status:   p.Status,
+			ParkID:             p.ParkID,
+			ParkName:           p.ParkName,
+			ShedID:             p.ShedID,
+			ShedName:           p.ShedName,
+			Animals:            p.Animals,
+			Due:                p.DueAnimals,
+			Done:               p.Animals - p.DueAnimals,
+			Sessions:           p.Sessions,
+			LastDone:           businessDatePtr(p.LastDone),
+			NextDue:            businessDatePtr(p.NextDue),
+			Manager:            owners.Manager,
+			Backup:             owners.Backup,
+			DriveOperatorNames: append([]string(nil), p.DriveOperatorNames...),
+			Capacity:           p.Capacity,
+			Status:             p.Status,
 		})
 	}
 	limit := q.Limit
@@ -731,9 +849,10 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 
 // ShedDetail returns one shed's header (the same animal-level counts + Manager/Backup + Sessions +
 // Capacity + merged Status as the list row, so detail and list agree), the per-day Planned sessions
-// (re-planned deterministically from the shed's open cells via PlanSessions — mirrors the SQL sessions
-// count), and the per-vaccine obligation breakdown. found=false when the shed has no alive animals / is
-// not an active shed. The per-shed animal roster is a separate keyset endpoint (ShedAnimals).
+// (re-planned deterministically from the shed's due animal count via PlanSessions — mirrors the SQL
+// sessions count), and the per-vaccine obligation breakdown. found=false when the shed has no alive
+// animals / is not an active shed. The per-shed animal roster is a separate keyset endpoint
+// (ShedAnimals).
 func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.OperationsQuery) (domain.ShedDetailResponse, bool, error) {
 	projections, err := s.repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:       q.TenantID,
@@ -760,15 +879,7 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 		return domain.ShedDetailResponse{}, false, err
 	}
 
-	cfg, err := s.repo.CapacityConfig(ctx, q.TenantID)
-	if err != nil {
-		return domain.ShedDetailResponse{}, false, err
-	}
-	start := at
-	if p.NextDue != nil {
-		start = *p.NextDue
-	}
-	_, _, planned, err := PlanSessions(p.OpenCells, cfg, start)
+	planned, err := s.plannedSessionsForShed(ctx, q.TenantID, shedID, p.DueAnimals, p.NextDue, at)
 	if err != nil {
 		return domain.ShedDetailResponse{}, false, err
 	}
@@ -799,6 +910,28 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 	}, true, nil
 }
 
+func (s *Service) plannedSessionsForShed(ctx context.Context, tenantID, shedID string, dueAnimals int, nextDue *time.Time, at time.Time) ([]domain.PlannedSession, error) {
+	if reader, ok := s.repo.(plannedDriveSessionsReader); ok {
+		planned, err := reader.PlannedDriveSessionsForShed(ctx, tenantID, shedID)
+		if err != nil {
+			return nil, err
+		}
+		if len(planned) > 0 {
+			return planned, nil
+		}
+	}
+	cfg, err := s.repo.CapacityConfig(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	start := at
+	if nextDue != nil {
+		start = *nextDue
+	}
+	_, _, planned, err := PlanSessions(dueAnimals, cfg, start)
+	return planned, err
+}
+
 // ShedAnimals returns the shed's keyset-paginated alive-animal roster (Display ID + two tag identities +
 // status). NextCursor is the last goat_id when a full page is returned, nil when the shed is exhausted.
 func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (domain.ShedAnimalPage, error) {
@@ -825,8 +958,8 @@ func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (do
 	return domain.ShedAnimalPage{Rows: rows, NextCursor: next}, nil
 }
 
-// CapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen (falls back
-// to the code default when no row is authored).
+// CapacityConfig returns the tenant's daily operator animal cap config for the admin Config screen (falls
+// back to the code default when no row is authored).
 func (s *Service) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	return s.repo.CapacityConfig(ctx, tenantID)
 }
@@ -879,4 +1012,166 @@ func businessDatePtr(t *time.Time) *string {
 	}
 	d := biztime.BusinessDate(*t)
 	return &d
+}
+
+// ---- Vaccination operator shift + assignment config ----
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
+
+// ErrOperatorAssignmentConfigNotFound is returned when no config row is authored yet for the park (never
+// silently defaulted -- the caller renders "not configured", not a fabricated default operator).
+var ErrOperatorAssignmentConfigNotFound = errors.New("vaccination execution: operator assignment config: not found")
+
+// ErrOperatorAssignmentConfigConflict re-exports ports.ErrOperatorAssignmentConfigConflict so HTTP callers
+// only need to import the app package. See ports.ErrOperatorAssignmentConfigConflict for the contract.
+var ErrOperatorAssignmentConfigConflict = ports.ErrOperatorAssignmentConfigConflict
+
+// ErrCapacityConfigConflict re-exports ports.ErrCapacityConfigConflict so HTTP callers only need to
+// import the app package. See ports.ErrCapacityConfigConflict for the contract.
+var ErrCapacityConfigConflict = ports.ErrCapacityConfigConflict
+
+// OperatorAssignmentConfigView is the combined read-model for the admin config screen: the N/default
+// config plus every operator's authored shift.
+type OperatorAssignmentConfigView struct {
+	Config domain.OperatorAssignmentConfig `json:"config"`
+	Shifts []domain.OperatorShift          `json:"shifts"`
+}
+
+// GetOperatorAssignmentConfig returns the park's assignment config + shifts. Returns
+// ErrOperatorAssignmentConfigNotFound when the park has no config row yet.
+func (s *Service) GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (OperatorAssignmentConfigView, error) {
+	shifts, err := s.repo.OperatorShifts(ctx, tenantID, parkID)
+	if err != nil {
+		return OperatorAssignmentConfigView{}, err
+	}
+	cfg, found, err := s.repo.OperatorAssignmentConfig(ctx, tenantID, parkID)
+	if err != nil {
+		return OperatorAssignmentConfigView{}, err
+	}
+	if !found {
+		return OperatorAssignmentConfigView{}, ErrOperatorAssignmentConfigNotFound
+	}
+	return OperatorAssignmentConfigView{Config: cfg, Shifts: shifts}, nil
+}
+
+// AuthorizedParkOptions returns the park vocabulary a caller may act in: the tenant's active parks,
+// narrowed to parkIDs when the caller holds park-scoped grants (an empty parkIDs means a tenant-wide
+// actor, i.e. no narrowing). Backend-owned option list -- callers render it, never assemble it.
+func (s *Service) AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error) {
+	return s.repo.AuthorizedParkOptions(ctx, tenantID, parkIDs)
+}
+
+// ListOperatorShifts returns every operator's authored shift row for a park (used standalone by the
+// weekly-preview read path even before a default is configured).
+func (s *Service) ListOperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error) {
+	return s.repo.OperatorShifts(ctx, tenantID, parkID)
+}
+
+// UpdateOperatorAssignmentConfig validates then idempotently writes the park's N + default-operator
+// config (validate-or-reject: never silently defaulted). Returns the same 400-shaped (code, message)
+// pair as CapacityConfig.Validate on invalid input.
+func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, string, string, error) {
+	shifts, err := s.repo.OperatorShifts(ctx, tenantID, cfg.ParkID)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	knownDefault := false
+	knownOperators := make(map[string]bool, len(shifts))
+	for _, sh := range shifts {
+		knownOperators[sh.OperatorID] = true
+		if sh.OperatorID == cfg.DefaultOperatorID {
+			knownDefault = true
+		}
+	}
+	for _, operatorID := range cfg.SelectedOperatorIDs {
+		if !knownOperators[operatorID] {
+			return domain.OperatorAssignmentConfig{}, "unknown_selected_operator", "selected operators must have shift config rows for this park", nil
+		}
+	}
+	if code, message, ok := cfg.Validate(knownDefault); !ok {
+		return domain.OperatorAssignmentConfig{}, code, message, nil
+	}
+	// Cascade events (vaccination.capacity.changed, vaccination.roster.changed) are now durably
+	// enqueued to outbox_messages by the repository within the same transaction as the config write.
+	// The outbox relay will deliver them asynchronously to the OperatorConfigReplanHandler.
+	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	if reassigner, ok := s.repo.(plannedDriveReassigner); ok {
+		if _, err := reassigner.ReassignPlannedDrives(ctx, tenantID, updated.ParkID, updated.DefaultOperatorID, updated.SelectedOperatorIDs, updated.ActiveOperatorsPerDay, biztime.BusinessDayStart(time.Now())); err != nil {
+			return domain.OperatorAssignmentConfig{}, "", "", err
+		}
+	}
+	return updated, "", "", nil
+}
+
+// UpdateCapacityConfig validates then idempotently writes the tenant's daily operator animal cap +
+// per-animal shot-cap override (validate-or-reject: an invalid maxPerDay or an out-of-range
+// maxShotsPerAnimalPerDrive returns a 400-shaped (code, message) pair, never silently clamped or
+// defaulted). Cascade (vaccination.capacity.changed, one per active park) is durably enqueued by the
+// repository within the same transaction as the config write; see UpsertCapacityConfig in the postgres
+// adapter and OperatorConfigReplanHandler, which re-plans future vaccination drives on that event.
+func (s *Service) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, string, string, error) {
+	if code, message, ok := cfg.Validate(); !ok {
+		return domain.CapacityConfig{}, code, message, nil
+	}
+	updated, err := s.repo.UpsertCapacityConfig(ctx, tenantID, cfg)
+	if err != nil {
+		return domain.CapacityConfig{}, "", "", err
+	}
+	return updated, "", "", nil
+}
+
+// publishOperatorAssignmentConfigCascade is DEPRECATED: cascade events are now durably enqueued
+// to outbox_messages within the config write transaction (see UpsertOperatorAssignmentConfig in the
+// postgres adapter). This method is kept for backward compatibility and testing only.
+// It emits vaccination.capacity.changed (N changed) and/or vaccination.roster.changed (default operator
+// changed) for the auto-cascade consumer (backend/internal/obligation/app/operator_config_replan.go).
+// The event id is derived from the resulting row_version, which UpsertOperatorAssignmentConfig
+// increments on every real change -- a stable, idempotent identity for this exact mutation outcome.
+// Domain-event-registry evidence: this producer publishes event_type=vaccination.capacity.changed and
+// event_type=vaccination.roster.changed via bus.Publish(eventbus.Event{...}) below (registered in
+// context/architecture/domain-event-registry.json).
+func (s *Service) publishOperatorAssignmentConfigCascade(ctx context.Context, tenantID string, before domain.OperatorAssignmentConfig, foundBefore bool, after domain.OperatorAssignmentConfig) {
+	if s.bus == nil {
+		return
+	}
+	now := time.Now().UTC()
+	capacityChanged := !foundBefore || before.ActiveOperatorsPerDay != after.ActiveOperatorsPerDay
+	rosterChanged := !foundBefore || before.DefaultOperatorID != after.DefaultOperatorID
+	if capacityChanged {
+		_ = s.bus.Publish(ctx, eventbus.Event{
+			ID:         fmt.Sprintf("vaccination.operator-assignment-config.capacity:%s:%d", after.ParkID, after.RowVersion),
+			Type:       EventVaccinationCapacityChanged,
+			TenantID:   tenantID,
+			Key:        after.ParkID,
+			Payload:    operatorConfigChangePayload(after.ParkID),
+			OccurredAt: now,
+			RecordedAt: now,
+		})
+	}
+	if rosterChanged {
+		_ = s.bus.Publish(ctx, eventbus.Event{
+			ID:         fmt.Sprintf("vaccination.operator-assignment-config.roster:%s:%d", after.ParkID, after.RowVersion),
+			Type:       EventVaccinationRosterChanged,
+			TenantID:   tenantID,
+			Key:        after.ParkID,
+			Payload:    operatorConfigChangePayload(after.ParkID),
+			OccurredAt: now,
+			RecordedAt: now,
+		})
+	}
+}
+
+// EventVaccinationCapacityChanged / EventVaccinationRosterChanged mirror the constants of the same name
+// in backend/internal/obligation/app/operator_config_replan.go (kept in sync manually; vaccinationexecution
+// does not import obligation/app to avoid a cross-module dependency cycle -- obligation already depends
+// on protocol/vaccination, not the other way around).
+const (
+	EventVaccinationCapacityChanged = "vaccination.capacity.changed"
+	EventVaccinationRosterChanged   = "vaccination.roster.changed"
+)
+
+func operatorConfigChangePayload(parkID string) []byte {
+	return []byte(fmt.Sprintf(`{"park_id":%q}`, parkID))
 }

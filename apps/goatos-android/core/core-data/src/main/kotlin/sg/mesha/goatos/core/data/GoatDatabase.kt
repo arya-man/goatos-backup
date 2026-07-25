@@ -90,6 +90,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * options when the phone is offline in a shed). Renumbered from the branch's original v13 so
  * main's proof-capture (v13) and scan-roster SSOT (v14) migrations keep their numbers as the
  * integration baseline.
+ * v16 (see [MIGRATION_15_16]) persists backend scan timestamps on scan_roster_row so reopened
+ * vaccination tasks show the real done state and exact IST scan time.
  */
 @Database(
     entities = [
@@ -120,7 +122,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CountsApprovalRemoteKeyEntity::class,
         CountsShiftingDestinationsCacheEntity::class,
     ],
-    version = 15,
+    version = 16,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -136,6 +138,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // shed scan screen: adds `seq` (backend roster order) so the UI renders a bounded keyset window
     // instead of a whole-collection JSON blob, and DROPS the now-unused scan_roster_cache blob table.
     // v15 (see [MIGRATION_14_15]) adds the seven Counts read-model tables.
+    // v16 (see [MIGRATION_15_16]) adds nullable backend scan timestamp to scan_roster_row.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

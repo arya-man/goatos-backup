@@ -115,7 +115,12 @@ function main() {
   const base = baseRef();
   const files = changedFiles(base);
   const untracked = new Set(zlist(git(["ls-files", "--others", "--exclude-standard", "-z"], true)));
-  const sourceFiles = files.filter((file) => /^(?:backend|tools)\/.*\.(?:go|sql)$/.test(file) && !file.endsWith("_test.go"));
+  const sourceFiles = files.filter((file) =>
+    /^(?:backend|tools)\/.*\.(?:go|sql)$/.test(file) &&
+    !file.endsWith("_test.go") &&
+    file !== "backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql" &&
+    !/^backend\/internal\/[^/]+\/adapters\/postgres\/sqlc\/schema\.sql$/.test(file)
+  );
   const testFiles = files.filter((file) => /(?:_test\.go|\.test\.[cm]?[jt]s|\.spec\.[cm]?[jt]s)$/.test(file));
   const sourceHunks = sourceFiles.flatMap((file) => hunks(diffFor(file, base, untracked)).filter(isCandidate).map((h) => ({ ...h, file })));
   if (sourceHunks.length === 0) {

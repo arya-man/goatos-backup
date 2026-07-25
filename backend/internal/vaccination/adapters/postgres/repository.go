@@ -24,9 +24,9 @@ import (
 
 const defaultQueryTimeout = 3 * time.Second
 
-// defaultDailyVaccinationCap mirrors domain.DefaultCapacityConfig / migration 000155 seed. Used when a
+// defaultDailyVaccinationCap mirrors the operator-drive default used by vaccinationexecution. Used when a
 // tenant has no vaccination_capacity_config row yet.
-const defaultDailyVaccinationCap int64 = 100
+const defaultDailyVaccinationCap int64 = 200
 
 const (
 	vaccinationCompletedEventType     = "vaccination.completed"
@@ -1531,14 +1531,14 @@ SELECT
   NULL::text,
   false,
   false,
-  ss.submitted_at,
+  COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
   COALESCE(
-    (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+    ((nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date,
     nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
     CASE
       WHEN pr.withdrawal_days IS NOT NULL THEN
-        (ss.submitted_at::date + pr.withdrawal_days)
+        ((COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at) AT TIME ZONE 'Asia/Kolkata')::date + pr.withdrawal_days)
       ELSE NULL
     END
   ),
@@ -1598,11 +1598,11 @@ RETURNING completion_id::text`,
 	if _, err := r.pool.Exec(ctx, `
 UPDATE vaccination_completions vc
 SET withdrawal_until_date = COALESCE(
-      (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+      ((nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date,
       nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
       CASE
         WHEN pr.withdrawal_days IS NOT NULL THEN
-          (vc.administered_at::date + pr.withdrawal_days)
+          ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date + pr.withdrawal_days)
         ELSE NULL
       END
     ),
@@ -1652,7 +1652,7 @@ WHERE vc.tenant_id = $1
 // form answers. Every read here is a single tenant+task (or tenant+batch) equality lookup against
 // an indexed column (sop_task_scan_captures_task_idx, obligation_instances_batch_idx,
 // proof_artifacts_scope_idx) — bounded to one task's shed, never a table scan.
-func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error) {
+func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1663,6 +1663,13 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 	if err != nil {
 		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: task id: %w", err)
 	}
+	var shed pgtype.UUID
+	if shedID != "" {
+		shed, err = pgconv.UUID(shedID)
+		if err != nil {
+			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed id: %w", err)
+		}
+	}
 
 	var (
 		shedName      string
@@ -1672,19 +1679,46 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		handledCount  int64
 		proofReady    int64
 		pendingVerify int64
+		minProofs     int64
+		maxProofs     int64
+		proofMode     string
+		submitState   string
 	)
-	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=COUNT(DISTINCT subject_id) over proof_artifacts so multiple clips per goat count once) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
-	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only at handled==expected==proof_ready (strict — over- and under-scan both block).
+	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=per-goat mode counts COUNT(DISTINCT subject_id), shed-level mode counts completed shed proof_artifacts) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
+	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only when handled animals match expected and the SOP proof-mode gate is satisfied.
+	// Bounded to one SOP task/batch by (tenant_id, task_id) equality; scalar
+	// subqueries read indexed scan/proof/obligation facts for that one shed and
+	// are regression-covered by ShedCompletionSummary
+	// OneToMany/PageBoundary/ParkScope/StatusBuckets tests.
+	// scale-guard:ignore: 5k-50k-envelope
 	err = r.pool.QueryRow(ctx, `
 WITH t AS (
-  SELECT st.task_id, st.tenant_id, st.title, st.scope_type, st.scope_id, st.state
+  SELECT st.task_id,
+         st.tenant_id,
+         st.title,
+         st.scope_type,
+         st.scope_id,
+         st.state,
+         COALESCE(NULLIF(sv.proof_policy ->> 'proof_mode', ''), CASE WHEN sv.proof_policy ->> 'subject_scope' = 'shed' THEN 'shed_level_video' ELSE 'per_goat_video' END) AS proof_mode,
+         COALESCE(NULLIF(sv.proof_policy ->> 'minimum_count', '')::int, 1) AS min_proofs,
+         COALESCE(NULLIF(sv.proof_policy ->> 'maximum_count', '')::int, COALESCE(NULLIF(sv.proof_policy ->> 'maximum_count_per_subject', '')::int, 5)) AS max_proofs
   FROM sop_tasks st
+  JOIN sop_versions sv ON sv.tenant_id = st.tenant_id AND sv.sop_version_id = st.sop_version_id
   WHERE st.tenant_id = $1 AND st.task_id = $2
 ),
 batch AS (
   SELECT ob.batch_id
   FROM obligation_batches ob
   JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
+),
+eligible AS (
+  SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
+  FROM obligation_instances oi
+  JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  WHERE oi.tenant_id = $1
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND (NOT $3::boolean OR g.shed_id = $4)
 ),
 -- expected counts animals in this shed's batch that STILL need vaccination. The exclusion set
 -- MUST match RecordCompletionsFromSubmission's obligation filter exactly ('completed', 'waived',
@@ -1695,28 +1729,44 @@ batch AS (
 -- stale, inflated expected_count.
 expected AS (
   SELECT count(*) AS n
-  FROM obligation_instances oi
-  JOIN batch b ON b.batch_id = oi.batch_id
-  WHERE oi.tenant_id = $1
-    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+  FROM eligible
 ),
 handled AS (
-  SELECT count(DISTINCT goat_id) AS n
-  FROM sop_task_scan_captures
-  WHERE tenant_id = $1
-    AND task_id = $2
-    AND field_key IN ('goat_ids', '__scan_roster__')
-    AND goat_id IS NOT NULL
+  SELECT count(DISTINCT c.goat_id) AS n
+  FROM sop_task_scan_captures c
+  JOIN eligible e
+    ON e.obligation_id = c.obligation_id
+    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  WHERE c.tenant_id = $1
+    AND c.task_id = $2
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND c.goat_id IS NOT NULL
 ),
-proofed AS (
-  SELECT count(DISTINCT subject_id) AS n
-  FROM proof_artifacts
-  WHERE tenant_id = $1
-    AND scope_type = 'task'
-    AND scope_id = $2
-    AND subject_type = 'goat'
-    AND subject_id IS NOT NULL
-    AND upload_state = 'completed'
+proofed_goat AS (
+  SELECT count(DISTINCT p.subject_id) AS n
+  FROM proof_artifacts p
+  JOIN eligible e ON e.goat_id = p.subject_id
+  WHERE p.tenant_id = $1
+    AND p.scope_type = 'task'
+    AND p.scope_id = $2
+    AND p.subject_type = 'goat'
+    AND p.subject_id IS NOT NULL
+    AND p.upload_state = 'completed'
+),
+proofed_shed AS (
+  SELECT count(*) AS n
+  FROM proof_artifacts p
+  WHERE p.tenant_id = $1
+    AND p.scope_type = 'shed'
+    AND p.subject_type = 'shed'
+    AND p.upload_state = 'completed'
+    AND EXISTS (
+      SELECT 1
+      FROM eligible e
+      WHERE e.shed_id = p.scope_id
+        AND (NOT $3::boolean OR e.shed_id = $4)
+    )
+    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
 ),
 verification_pending AS (
   SELECT count(*) AS n
@@ -1725,6 +1775,30 @@ verification_pending AS (
     AND vi.source_task_id = $2
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
+),
+shed_submission_state AS (
+  SELECT CASE ss.state
+    WHEN 'accepted' THEN 'verified'
+    WHEN 'rejected' THEN 'closed'
+    WHEN 'voided' THEN 'closed'
+    ELSE 'submitted'
+  END AS state
+  FROM sop_submissions ss
+  CROSS JOIN LATERAL jsonb_array_elements(ss.proof_refs) AS proof(ref)
+  WHERE ss.tenant_id = $1
+    AND ss.task_id = $2
+    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
+    AND proof.ref ->> 'upload_state' = 'completed'
+    AND proof.ref ->> 'proof_type' = 'video'
+    AND proof.ref ->> 'subject_type' = 'shed'
+    AND EXISTS (
+      SELECT 1
+      FROM eligible e
+      WHERE e.shed_id::text = proof.ref ->> 'subject_id'
+        AND (NOT $3::boolean OR e.shed_id = $4)
+    )
+  ORDER BY ss.submitted_at DESC NULLS LAST, ss.submission_id DESC
+  LIMIT 1
 ),
 shed AS (
   SELECT l.name
@@ -1737,25 +1811,32 @@ obligation_shed AS (
     WHEN count(DISTINCT l.location_id) = 1 THEN max(l.name)
     ELSE 'Multiple sheds'
   END AS name
-  FROM obligation_instances oi
-  JOIN batch b ON b.batch_id = oi.batch_id
-  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  FROM eligible e
+  JOIN goats g ON g.tenant_id = $1 AND g.goat_id = e.goat_id
   JOIN locations l ON l.tenant_id = g.tenant_id AND l.location_id = g.shed_id
-  WHERE oi.tenant_id = $1
-    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
 )
 SELECT
   COALESCE((SELECT name FROM obligation_shed), shed.name, t.title),
-  t.title,
-  t.state,
+	t.title,
+	t.state,
+	t.proof_mode,
+  t.min_proofs,
+  t.max_proofs,
   COALESCE((SELECT n FROM expected), 0),
   COALESCE((SELECT n FROM handled), 0),
-  COALESCE((SELECT n FROM proofed), 0),
-  COALESCE((SELECT n FROM verification_pending), 0)
+  CASE WHEN t.proof_mode = 'shed_level_video'
+    THEN COALESCE((SELECT n FROM proofed_shed), 0)
+    ELSE COALESCE((SELECT n FROM proofed_goat), 0)
+  END,
+  COALESCE((SELECT n FROM verification_pending), 0),
+  CASE WHEN t.proof_mode = 'shed_level_video'
+    THEN COALESCE((SELECT state FROM shed_submission_state), 'draft')
+    ELSE ''
+  END
 FROM t
 LEFT JOIN shed ON true`,
-		tenant, task,
-	).Scan(&shedName, &driveName, &state, &expectedCount, &handledCount, &proofReady, &pendingVerify)
+		tenant, task, shed.Valid, shed,
+	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
@@ -1763,7 +1844,7 @@ LEFT JOIN shed ON true`,
 		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", err)
 	}
 
-	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task)
+	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task, shed)
 	if err != nil {
 		return domain.ShedCompletionSummary{}, err
 	}
@@ -1775,16 +1856,20 @@ LEFT JOIN shed ON true`,
 		ExpectedCount:    expectedCount,
 		HandledCount:     handledCount,
 		ProofReadyCount:  proofReady,
+		ProofMode:        proofMode,
 		VaccineBreakdown: breakdown,
-		SubmitState:      shedCompletionSubmitState(state, pendingVerify),
+		SubmitState:      submitState,
 	}
-	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadiness(expectedCount, handledCount, proofReady)
+	if proofMode != "shed_level_video" {
+		summary.SubmitState = shedCompletionSubmitState(state, pendingVerify)
+	}
+	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadinessForMode(expectedCount, handledCount, proofReady, proofMode, minProofs, maxProofs)
 	return summary, nil
 }
 
 // shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in
 // this task's shed/batch, bounded by the same batch_id index as the summary counts above.
-func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task pgtype.UUID) ([]domain.VaccineBreakdownItem, error) {
+func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task, shed pgtype.UUID) ([]domain.VaccineBreakdownItem, error) {
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id); group_key=(tenant_id, task_id) -> one batch_id; join_cardinality=one row per obligation_instance in the batch — protocol_rule_dimensions is many-rows-per-rule, so it is collapsed to ONE label per rule via LEFT JOIN LATERAL ... LIMIT 1 (NOT a plain JOIN) to stop count(*) double-counting an obligation when a rule has multiple selector/dimension rows; pagination=whole-shed totals, LIMIT 50 caps the number of DISTINCT vaccine labels (a shed drive has a handful of vaccines), never the per-vaccine COUNT; scope=explicit — obligations come only from THIS task's batch_id, so other sheds/parks never contribute.
 	// grain: one row per vaccine label for this shed drive. status: excludes terminal ('completed','waived','canceled','superseded') to mirror the summary's expected bucket.
 	rows, err := r.pool.Query(ctx, `
@@ -1802,6 +1887,7 @@ SELECT COALESCE(v.vaccine, NULLIF(pv.rule_dsl -> 'vaccine' ->> 'name', ''), NULL
        count(*) AS n
 FROM obligation_instances oi
 JOIN batch b ON b.batch_id = oi.batch_id
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
  AND pr.protocol_version_id = oi.protocol_version_id
@@ -1810,7 +1896,17 @@ JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
  AND pv.protocol_version_id = oi.protocol_version_id
 LEFT JOIN LATERAL (
-  SELECT COALESCE(nullif(prd.vaccine_type, ''), nullif(prd.vaccine_code, '')) AS vaccine
+  SELECT COALESCE(
+    CASE upper(nullif(prd.vaccine_code, ''))
+      WHEN 'ET_TT' THEN 'ET+TT'
+      WHEN 'ETTT' THEN 'ET+TT'
+      WHEN 'BLUE_TONGUE' THEN 'Blue Tongue'
+      WHEN 'GOAT_POX' THEN 'Goat Pox'
+      WHEN 'SHEEP_POX' THEN 'Sheep Pox'
+      ELSE nullif(prd.vaccine_code, '')
+    END,
+    nullif(prd.vaccine_type, '')
+  ) AS vaccine
   FROM protocol_rule_dimensions prd
   WHERE prd.tenant_id = oi.tenant_id
     AND prd.rule_id = oi.rule_id
@@ -1819,9 +1915,10 @@ LEFT JOIN LATERAL (
 ) v ON true
 WHERE oi.tenant_id = $1
   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+  AND (NOT $3::boolean OR g.shed_id = $4)
 GROUP BY 1
 ORDER BY 1
-LIMIT 50`, tenant, task)
+LIMIT 50`, tenant, task, shed.Valid, shed)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown: %w", err)
 	}
@@ -1886,6 +1983,39 @@ func shedCompletionReadiness(expected, handled, proofReady int64) (bool, *string
 	}
 	if proofReady > expected {
 		reason := fmt.Sprintf("%d proof clips belong to animals not expected in this shed for this drive.", proofReady-expected)
+		return false, &reason
+	}
+	return true, nil
+}
+
+func shedCompletionReadinessForMode(expected, handled, proofReady int64, proofMode string, minProofs, maxProofs int64) (bool, *string) {
+	if proofMode != "shed_level_video" {
+		return shedCompletionReadiness(expected, handled, proofReady)
+	}
+	if expected <= 0 {
+		reason := "No animals are expected in this shed for this drive yet."
+		return false, &reason
+	}
+	if handled < expected {
+		reason := fmt.Sprintf("%d of %d animals are not yet scanned.", expected-handled, expected)
+		return false, &reason
+	}
+	if handled > expected {
+		reason := fmt.Sprintf("%d scanned animals are not expected in this shed for this drive.", handled-expected)
+		return false, &reason
+	}
+	if minProofs <= 0 {
+		minProofs = 1
+	}
+	if maxProofs <= 0 {
+		maxProofs = 5
+	}
+	if proofReady < minProofs {
+		reason := fmt.Sprintf("%d shed video(s) still need proof.", minProofs-proofReady)
+		return false, &reason
+	}
+	if proofReady > maxProofs {
+		reason := fmt.Sprintf("At most %d shed video(s) can be submitted.", maxProofs)
 		return false, &reason
 	}
 	return true, nil
@@ -2142,6 +2272,8 @@ func (r *Repository) ListCompletionsByGoat(ctx context.Context, tenantID, goatID
 			Status:              row.Status,
 			Doses:               row.Doses,
 			RouteSite:           row.RouteSite,
+			DoseCode:            row.DoseCode,
+			VaccineLabel:        row.VaccineLabel,
 			AdverseReaction:     row.AdverseReaction,
 			WithdrawalUntilDate: pgconv.DateValue(row.WithdrawalUntilDate),
 		})
@@ -2297,8 +2429,8 @@ WHERE tenant_id = $1::uuid
 	return out, nil
 }
 
-// CapacityMaxPerDay returns the tenant's configured daily vaccination cap (vaccinations/day), falling
-// back to the code default when no vaccination_capacity_config row exists.
+// CapacityMaxPerDay returns the tenant's configured daily operator animal cap, falling back to the code
+// default when no vaccination_capacity_config row exists.
 func (r *Repository) CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -2571,7 +2703,7 @@ func eligibleGoatFromGenerationRow(
 	dob, entryDate, breedingDate, lastDeliveryDate pgtype.Date,
 	lifecycle, health, reproductive, species, originType string,
 	warmingEntryAt pgtype.Timestamptz,
-	shedID, parkID, sex, breed, stage, ageBand string,
+	shedID, parkID, partitionLabel, sex, breed, stage, ageBand string,
 	locationIsQuarantine, locationIsICU bool,
 ) domain.EligibleGoat {
 	return domain.EligibleGoat{
@@ -2588,6 +2720,7 @@ func eligibleGoatFromGenerationRow(
 		ReproductiveStatus:   reproductive,
 		ShedID:               shedID,
 		ParkID:               parkID,
+		PartitionLabel:       partitionLabel,
 		Sex:                  sex,
 		Breed:                breed,
 		Stage:                stage,
@@ -2638,7 +2771,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 			row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 			row.WarmingEntryAt,
-			row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+			row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 			row.LocationIsQuarantine, row.LocationIsIcu,
 		))
 	}
@@ -2672,6 +2805,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
+       COALESCE(gsp.partition_label, '')::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -2709,6 +2843,9 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($3::text = '' OR lower(COALESCE(asl.stage_code, g.management_stage, '')) = lower($3::text))
@@ -2754,7 +2891,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 	for rows.Next() {
 		var (
 			goatID, lifecycle, health, reproductive, species, originType string
-			shedID, parkID, sex, breed, stage, ageBand                   string
+			shedID, parkID, partitionLabel, sex, breed, stage, ageBand   string
 			dob, entryDate, breedingDate, lastDeliveryDate               pgtype.Date
 			warmingEntryAt                                               pgtype.Timestamptz
 			locationIsQuarantine, locationIsICU                          bool
@@ -2773,6 +2910,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			&warmingEntryAt,
 			&shedID,
 			&parkID,
+			&partitionLabel,
 			&sex,
 			&breed,
 			&stage,
@@ -2786,7 +2924,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			goatID, dob, entryDate, breedingDate, lastDeliveryDate,
 			lifecycle, health, reproductive, species, originType,
 			warmingEntryAt,
-			shedID, parkID, sex, breed, stage, ageBand,
+			shedID, parkID, partitionLabel, sex, breed, stage, ageBand,
 			locationIsQuarantine, locationIsICU,
 		))
 	}
@@ -2819,7 +2957,7 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 		row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
 		row.WarmingEntryAt,
-		row.ShedID, row.ParkID, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
+		row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 		row.LocationIsQuarantine, row.LocationIsIcu,
 	), true, nil
 }
@@ -3191,12 +3329,57 @@ trusted_admins AS (
     ) BETWEEN 28 AND 35
     AND ev.administered_at >= plg.warmup_started_at
     AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
+),
+-- BUG-017: reviewed PRE-ARRIVAL supplier-claimed history. A separate channel from trusted_admins
+-- on purpose: those claims have no proof artifact and predate the holding-farm warm-up window, so
+-- they can never satisfy that gate. They earn history status only by surviving the pre-arrival
+-- review (validated against published rules + the animal's independently classified schedule
+-- path), which is what review_status='accepted' records. Rejected rows are never selected here, so
+-- an impossible supplier claim can never suppress due work.
+prearrival_admins AS (
+  SELECT ph.goat_id::text AS goat_id,
+         ph.administered_at,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+           NULLIF(ph.vaccine_code, ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''),
+           ''
+         )::text AS vaccine_code,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'type', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'type', ''),
+           ''
+         )::text AS vaccine_type,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'pathogen_class', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
+           ''
+         )::text AS pathogen_class,
+         COALESCE(NULLIF(pr.dose_code, ''), NULLIF(ph.dose_code, ''), '')::text AS dose_code,
+         COALESCE(pr.sequence, ph.sequence, 0)::int AS sequence,
+         ph.protocol_version_id::text AS protocol_version_id,
+         pv.protocol_id::text AS protocol_id
+  FROM vaccination_prearrival_history_entries ph
+  JOIN protocol_versions pv
+    ON pv.tenant_id = ph.tenant_id
+   AND pv.protocol_version_id = ph.protocol_version_id
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = ph.tenant_id
+   AND pr.protocol_version_id = ph.protocol_version_id
+   AND pr.rule_id = ph.rule_id
+  WHERE ph.tenant_id = $1
+    AND ph.goat_id = ANY($2::uuid[])
+    AND ph.review_status = 'accepted'
+    AND ph.administered_at <= $3::timestamptz
+    AND ph.reviewed_at <= $3::timestamptz
 )
 SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id
 FROM (
   SELECT * FROM completion_admins
   UNION ALL
   SELECT * FROM trusted_admins
+  UNION ALL
+  SELECT * FROM prearrival_admins
 ) admins
 ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
 	if err != nil {

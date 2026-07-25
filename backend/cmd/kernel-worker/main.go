@@ -182,7 +182,13 @@ func run(ctx context.Context, args []string) error {
 		supervisor.RegisterCadence("housekeeping", 1*time.Hour,
 			kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
 			kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
+			kernelstages.NewProofRetentionSweeperStage(deps),
 			kernelstages.NewCalendarReconcilerStage(deps, tenantID),
+			// BUG-016: scheduled recovery for a LOST goat.created event — the sole
+			// SM-1 vaccination-generation trigger. Alerts on any gap and repairs it
+			// through the same path as the manual backfill-goat-created CLI, so a
+			// lost event no longer waits for a human to notice.
+			kernelstages.NewGoatCreatedRecoveryStage(deps, tenantID),
 		)
 	}
 

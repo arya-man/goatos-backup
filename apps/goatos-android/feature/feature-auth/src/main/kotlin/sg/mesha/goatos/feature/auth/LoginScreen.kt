@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +64,7 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import kotlinx.coroutines.delay
 
 /**
  * Sign-in (`v-login`) with Google SSO, email/password, and password reset. The
@@ -134,6 +138,14 @@ private fun LoginContent(
     val canSignIn = isValidEmail(email) && password.isNotBlank() && !isLoading
     val currentTag = LocalAppLanguage.current
     var showLangSheet by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    var passwordFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(passwordFocused) {
+        if (passwordFocused) {
+            delay(250)
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
     if (showLangSheet) {
         MeshaLanguageSheet(
             currentTag = currentTag,
@@ -145,8 +157,9 @@ private fun LoginContent(
         modifier = modifier
             .fillMaxSize()
             .background(MeshaColors.PageBg)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
             .padding(horizontal = MeshaDimens.gutter),
     ) {
         Spacer(Modifier.height(44.dp))
@@ -179,7 +192,13 @@ private fun LoginContent(
 
             Spacer(Modifier.height(MeshaDimens.space4))
             FieldLabel(stringResource(R.string.login_field_password))
-            PasswordField(password = password, onPasswordChange = onPasswordChange, onDone = onSignIn, enabled = !isLoading)
+            PasswordField(
+                password = password,
+                onPasswordChange = onPasswordChange,
+                onDone = onSignIn,
+                enabled = !isLoading,
+                onFocusChange = { passwordFocused = it },
+            )
 
             Spacer(Modifier.height(MeshaDimens.space2))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -309,6 +328,7 @@ private fun PasswordField(
     onPasswordChange: (String) -> Unit,
     onDone: () -> Unit,
     enabled: Boolean = true,
+    onFocusChange: (Boolean) -> Unit = {},
 ) {
     var visible by remember { mutableStateOf(false) }
     BasicTextField(
@@ -321,7 +341,9 @@ private fun PasswordField(
         cursorBrush = SolidColor(MeshaColors.Brand),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { onFocusChange(it.isFocused) },
         decorationBox = { inner ->
             MeshaInputShell {
                 Box(Modifier.weight(1f)) {

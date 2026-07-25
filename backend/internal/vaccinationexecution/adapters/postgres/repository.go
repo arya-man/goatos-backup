@@ -16,6 +16,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -108,7 +109,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
-		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
+		q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
@@ -126,7 +127,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
-		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount int64
+		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
 		if err := rows.Scan(
@@ -134,6 +135,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&p.ParkName,
 			&p.ShedID,
 			&p.ShedName,
+			&p.PhysicalShed,
+			&p.Partition,
 			&p.AnimalStage,
 			&batchID,
 			&p.ProtocolName,
@@ -151,6 +154,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&acceptedCount,
 			&rejectedCount,
 			&reversedCount,
+			&scannedCount,
+			&proofSubmittedCount,
 			&batchStatus,
 			&taskState,
 			&operatorName,
@@ -187,6 +192,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.CompletionAccepted = int(acceptedCount)
 		p.CompletionRejected = int(rejectedCount)
 		p.CompletionReversed = int(reversedCount)
+		p.ScannedCount = int(scannedCount)
+		p.ProofSubmittedCount = int(proofSubmittedCount)
 		p.BatchStatus = textPtr(batchStatus)
 		p.TaskState = textPtr(taskState)
 		p.OperatorName = textPtr(operatorName)
@@ -330,6 +337,254 @@ func operationsRowsPage(rows []domain.OperationsRow, limit int) ([]domain.Operat
 	}
 	return out, nil
 }
+
+func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	rows, err := r.pool.Query(ctx, driveAssignmentsSQL, q.TenantID, monthStart, monthEnd, optStr(q.ParkID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.DriveAssignmentRow, 0)
+	for rows.Next() {
+		var row domain.DriveAssignmentRow
+		var planned pgtype.Date
+		var originalPlanned pgtype.Date
+		var shedID pgtype.Text
+		var vaccineKeys []string
+		var vaccineCodes []string
+		var vaccineOriginalDates []byte
+		var capacity string
+		if err := rows.Scan(
+			&planned,
+			&originalPlanned,
+			&row.OperatorID,
+			&row.OperatorName,
+			&row.ParkID,
+			&row.ParkName,
+			&shedID,
+			&row.PhysicalShed,
+			&row.PartitionLabel,
+			&row.Animals,
+			&row.DueAnimals,
+			&row.DoneAnimals,
+			&row.DeferredAnimals,
+			&row.OverdueAnimals,
+			&vaccineKeys,
+			&vaccineCodes,
+			&vaccineOriginalDates,
+			&row.TotalDoses,
+			&capacity,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan drive assignment: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = planned.Time.Format("2006-01-02")
+		}
+		if originalPlanned.Valid {
+			row.OriginalPlannedDate = originalPlanned.Time.Format("2006-01-02")
+		}
+		row.ShedID = textPtr(shedID)
+		row.VaccineNames = driveAssignmentVaccineLabels(vaccineKeys)
+		if vaccineCodes == nil {
+			vaccineCodes = []string{}
+		}
+		row.VaccineCodes = vaccineCodes
+		if len(vaccineOriginalDates) > 0 {
+			if err := json.Unmarshal(vaccineOriginalDates, &row.VaccineOriginalDates); err != nil {
+				return nil, fmt.Errorf("vaccination execution: decode vaccine original dates: %w", err)
+			}
+		}
+		if row.VaccineOriginalDates == nil {
+			row.VaccineOriginalDates = map[string]string{}
+		}
+		row.Capacity = domain.CapacityStatus(capacity)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignment rows: %w", err)
+	}
+	return out, nil
+}
+
+func driveAssignmentVaccineLabels(keys []string) []string {
+	if len(keys) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		protocolName, doseCode, ok := strings.Cut(key, "\x1f")
+		if !ok {
+			doseCode = key
+		}
+		label := domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
+const driveAssignmentsSQL = `
+-- projection-review: membership=vaccination_drive_assignments unnested to vaccine-rule grain then regrouped after active vaccination_drive_date_overrides; group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_label,animal_count,capacity_status,batch_status); join_cardinality=rule unnest is intentional 1:N, override lookup is unique by tenant+park+vaccine+original date, regrouping prevents sibling vaccines on the same date from duplicating animal counts; pagination=LIMIT applies only after the full effective-date regroup and month filter, so moved vaccines page by their new date; scope=tenant plus optional park, preserved through assignment park_id.
+WITH assignment_vaccines AS (
+  SELECT
+    vda.tenant_id,
+    vda.assignment_id,
+    vda.batch_id,
+    COALESCE(override.original_drive_date, vda.planned_date) AS original_planned_date,
+    COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
+    vda.operator_id,
+    vda.park_id,
+    vda.shed_id,
+    vda.physical_shed,
+    vda.partition_label,
+    vda.animal_count,
+    vda.total_doses,
+    vda.capacity_status,
+    batch.status AS batch_status,
+    pd.name || E'\x1f' || pr.dose_code AS vaccine_key,
+    NULLIF(prd.vaccine_code, '') AS vaccine_code
+  FROM vaccination_drive_assignments vda
+  LEFT JOIN obligation_batches batch
+    ON batch.tenant_id = vda.tenant_id
+   AND batch.batch_id = vda.batch_id
+  LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id) ON true
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = vda.tenant_id
+   AND pr.rule_id = assigned_rule.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id
+   AND prd.rule_id = pr.rule_id
+  LEFT JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  LEFT JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  LEFT JOIN vaccination_drive_date_overrides override
+    ON override.tenant_id = vda.tenant_id
+   AND override.park_id = vda.park_id
+   AND (override.original_drive_date = vda.planned_date OR override.override_date = vda.planned_date)
+   AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+   AND override.canceled_at IS NULL
+  WHERE vda.tenant_id = $1::uuid
+    AND ($4::text = '' OR vda.park_id::text = $4)
+),
+effective_assignments AS (
+  SELECT
+    effective_planned_date AS planned_date,
+    MIN(original_planned_date) AS original_planned_date,
+    assignment_id,
+    batch_id,
+    operator_id,
+    park_id,
+    shed_id,
+    physical_shed,
+    partition_label,
+    animal_count,
+    capacity_status,
+    batch_status,
+    ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
+    ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
+    CASE
+      WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
+      THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
+      ELSE MAX(total_doses)
+    END::int AS total_doses
+  FROM assignment_vaccines
+  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+)
+SELECT
+  effective.planned_date,
+  effective.original_planned_date,
+  effective.operator_id::text,
+  wm.display_name,
+  effective.park_id::text,
+  park.name,
+  effective.shed_id::text,
+  effective.physical_shed,
+  effective.partition_label,
+  effective.animal_count,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN GREATEST(0, effective.animal_count - assignment_progress.done_animals)
+    ELSE 0
+  END AS due_animals,
+  CASE
+    WHEN effective.batch_status = 'completed' THEN effective.animal_count
+    ELSE LEAST(effective.animal_count, assignment_progress.done_animals)
+  END AS done_animals,
+  0 AS deferred_animals,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN GREATEST(0, effective.animal_count - assignment_progress.done_animals)
+    ELSE 0
+  END AS overdue_animals,
+  COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
+  COALESCE(effective.vaccine_codes, ARRAY[]::text[]),
+  effective.vaccine_original_dates,
+  effective.total_doses,
+  effective.capacity_status
+FROM effective_assignments effective
+JOIN workforce_members wm
+  ON wm.tenant_id = $1::uuid
+ AND wm.workforce_member_id = effective.operator_id
+ AND wm.status = 'active'
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = effective.park_id
+ AND park.location_type = 'park'
+LEFT JOIN LATERAL (
+  SELECT COUNT(DISTINCT oi.target_id)::int AS done_animals
+  FROM obligation_instances oi
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = effective.shed_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.batch_id = effective.batch_id
+    AND oi.target_type = 'goat'
+    AND g.shed_id = effective.shed_id
+    AND (
+      effective.partition_label = 'whole'
+      OR COALESCE(gsp.partition_label, 'whole') = effective.partition_label
+    )
+    AND (
+      oi.status = 'completed'
+      OR EXISTS (
+        SELECT 1
+        FROM vaccination_completions vc
+        WHERE vc.tenant_id = oi.tenant_id
+          AND vc.obligation_id = oi.obligation_id
+          AND vc.status = 'accepted'
+      )
+    )
+) assignment_progress ON true
+WHERE effective.planned_date >= $2::date
+  AND effective.planned_date < $3::date
+ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_label
+LIMIT $5;
+`
 
 func scheduleCohortKey(row domain.OperationsRow) string {
 	return row.ParkID + "|" + row.ShedID + "|" + row.Stage
@@ -480,6 +735,7 @@ asof_terminal AS (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
+-- projection-review: membership=obligation_instances after tenant/category/date/operator filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/dose; join_cardinality=vaccination_drive_assignments is keyed by batch plus exact shed/partition, so operator scoping decorates the obligation without multiplying obligation membership; pagination=raw feeds grouped keyset/list and full filtered total_count, no page-local count; scope=park/shed/operator filters stay explicit in located/grouped predicates.
 raw AS (
   SELECT
     oi.obligation_id,
@@ -505,7 +761,8 @@ raw AS (
     g.shed_id AS shed_uuid,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -522,6 +779,32 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so execution_due_at is 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- per-obligation scalar assignment date, not an aggregate across a page boundary; scope=park/shed from the batch's own scope, unchanged by this member join
+  -- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id
+   AND m.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = m.tenant_id
+   AND assignment.assignment_id = m.assignment_id
+   AND assignment.shed_id = g.shed_id
+  -- Guess path: find assignment via LATERAL when no membership
+  LEFT JOIN LATERAL (
+    SELECT (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments vda_guess
+    WHERE vda_guess.tenant_id = oi.tenant_id
+      AND vda_guess.batch_id = oi.batch_id
+      AND vda_guess.shed_id = g.shed_id
+    ORDER BY vda_guess.created_at DESC
+    LIMIT 1
+  ) vda_guess ON true
+  -- Member path: formatted assignment when membership exists
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -530,7 +813,7 @@ raw AS (
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND (
-      oi.due_at <= $4::timestamptz
+      COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
       OR c.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz
     )
 ),
@@ -539,8 +822,9 @@ located AS (
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
     CASE
-      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      -- projection-review: bucket-grain=business-day overdue/due/scheduled compares the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of, so a drive planned for today is due (not overdue) at any clock instant of that day and rolls to overdue only on the next business day
+      WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -569,7 +853,7 @@ effective AS (
       WHEN located.stored_status = 'in_progress' THEN 'in_progress'
       ELSE located.open_bucket
     END AS eff_status,
-    (located.due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
+    (located.execution_due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
     (located.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz) AS accepted_in_window
   FROM located
 ),
@@ -613,7 +897,7 @@ SELECT
   windowed.protocol_id,
   windowed.protocol_name,
   COUNT(DISTINCT windowed.goat_id)::bigint AS animals,
-  MIN(windowed.due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MIN(windowed.execution_due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(windowed.last_accepted_at) FILTER (WHERE windowed.accepted_in_window) AS last_dose,
   COALESCE(
     ARRAY_REMOVE(
@@ -779,6 +1063,21 @@ completions AS (
   FROM completion_candidates
   GROUP BY obligation_id
 ),
+operator_scope_member AS (
+  SELECT wm.workforce_member_id
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $15::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($15::text, '')::uuid
+      OR wm.user_id = NULLIF($15::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($15::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+),
 asof_terminal AS (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
@@ -811,9 +1110,13 @@ raw AS (
     te.has_terminal_event,
     pr.dose_code,
     pd.name AS protocol_name,
-    ob.planned_date::timestamptz AS batch_planned_at,
+    (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS batch_planned_at,
     ob.status AS batch_status,
-    ob.conducted_by,
+    -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so operator/date/shed/partition are 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- per-obligation scalar columns, not an aggregate across a page boundary; scope=park/shed from the batch's own scope, unchanged by this member join
+    COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
+    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
+    COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
+    COALESCE(vda_member.partition_label, vda_guess.partition_label) AS partition_label,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id AS sop_version_id,
@@ -824,6 +1127,7 @@ raw AS (
     g.management_stage AS goat_stage,
     c.effective_status AS completion_status,
     c.completion_id,
+    sc.capture_id IS NOT NULL AS scanned,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -852,21 +1156,91 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), HYBRID fallback to the guess LATERAL (vda_guess LIMIT 1) only when the obligation has no member row; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code) with COUNT(*) at obligation grain; join_cardinality=members->assignment many-to-one on the assignment PK so operator/date is 1:1 per obligation (vda_member LATERAL 1:1 when bound, vda_guess LATERAL LIMIT 1 fallback when unbound); pagination=keyset-grouped rows pre-aggregated before GROUP BY, total_count over the full tenant/category/scope/date-filtered set; scope=park/shed via located.park_uuid/shed_uuid with explicit tenant filter, location joins 1:1 per shed_uuid
+  -- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound;
+  -- operator_filter applies on COALESCE(vda_member.operator_id, vda_guess.operator_id) result
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id
+   AND m.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = m.tenant_id
+   AND assignment.assignment_id = m.assignment_id
+   AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+   AND (
+        assignment.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+  -- Guess path: find assignment via LATERAL when no membership
+  LEFT JOIN LATERAL (
+    SELECT
+      vda_guess.operator_id,
+      (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      vda_guess.physical_shed,
+      vda_guess.partition_label
+    FROM vaccination_drive_assignments vda_guess
+    WHERE vda_guess.tenant_id = oi.tenant_id
+      AND vda_guess.batch_id = oi.batch_id
+      AND vda_guess.shed_id = CASE
+            WHEN g.shed_id IS NOT NULL THEN g.shed_id
+            WHEN oi.target_type = 'shed' THEN oi.target_id
+            WHEN oi.scope_type = 'shed' THEN oi.scope_id
+            ELSE NULL
+          END
+      AND (
+            vda_guess.partition_label = 'whole'
+            OR regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+          )
+    ORDER BY vda_guess.created_at DESC
+    LIMIT 1
+  ) vda_guess ON true
+  -- Member path: formatted assignment when membership exists
+  LEFT JOIN LATERAL (
+    SELECT
+      assignment.operator_id,
+      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      assignment.physical_shed,
+      assignment.partition_label
+  ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
+  LEFT JOIN LATERAL (
+    SELECT scan.capture_id
+    FROM sop_task_scan_captures scan
+    WHERE scan.tenant_id = oi.tenant_id
+      AND scan.task_id = st.task_id
+      AND scan.field_key IN ('goat_ids', '__scan_roster__')
+      AND (
+        scan.obligation_id = oi.obligation_id
+        OR (scan.obligation_id IS NULL AND scan.goat_id = oi.target_id)
+      )
+    ORDER BY scan.captured_at DESC, scan.capture_id DESC
+    LIMIT 1
+  ) sc ON st.task_id IS NOT NULL
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
     AND COALESCE(st.state, '') <> 'canceled'
-    AND oi.due_at <= $4::timestamptz
+    AND ($15::text = '' OR COALESCE(vda_member.operator_id, vda_guess.operator_id) IS NOT NULL)
+    AND COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       OR oi.due_at >= $8::timestamptz
@@ -878,32 +1252,46 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
-    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
+    COALESCE(shed_proof.submitted_count, 0) > 0 AS shed_proof_submitted,
+    COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status (reconstructed AT as_of, not the current stored status).
     CASE
       WHEN raw.obligation_status = 'completed' THEN
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
     ON shed_loc.tenant_id = $1::uuid
    AND shed_loc.location_id = raw.shed_uuid
    AND shed_loc.location_type = 'shed'
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::bigint AS submitted_count
+    FROM sop_submissions submission
+    CROSS JOIN LATERAL jsonb_array_elements(submission.proof_refs) AS proof(ref)
+    WHERE submission.tenant_id = $1::uuid
+      AND submission.task_id = raw.sop_task_id
+      AND submission.state IN ('submitted', 'needs_review')
+      AND proof.ref ->> 'upload_state' = 'completed'
+      AND proof.ref ->> 'proof_type' = 'video'
+      AND proof.ref ->> 'subject_type' = 'shed'
+      AND proof.ref ->> 'subject_id' = raw.shed_uuid::text
+  ) shed_proof ON raw.sop_task_id IS NOT NULL AND raw.shed_uuid IS NOT NULL
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 grouped AS (
   SELECT
     located.park_uuid,
@@ -927,6 +1315,8 @@ grouped AS (
     COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
     COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::bigint AS completion_rejected,
     COUNT(*) FILTER (WHERE located.completion_status = 'reversed')::bigint AS completion_reversed,
+    COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count,
+    COUNT(*) FILTER (WHERE located.shed_proof_submitted)::bigint AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -950,28 +1340,26 @@ grouped AS (
       END,
       located.execution_due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
+    (ARRAY_AGG(operator.display_name ORDER BY
+      CASE
+        WHEN located.conducted_by IS NOT NULL THEN 0
+        WHEN located.assigned_to IS NOT NULL THEN 1
+        ELSE 2
+      END,
+      located.execution_due_at DESC NULLS LAST,
+      operator.updated_at DESC NULLS LAST,
+      operator.workforce_member_id DESC
+    ) FILTER (WHERE operator.display_name IS NOT NULL))[1] AS operator_name,
     COALESCE(
-      (ARRAY_AGG(operator.display_name ORDER BY
-        CASE
-          WHEN located.conducted_by IS NOT NULL THEN 0
-          WHEN located.assigned_to IS NOT NULL THEN 1
-          ELSE 2
-        END,
-        located.execution_due_at DESC NULLS LAST,
-        operator.updated_at DESC NULLS LAST,
-        operator.workforce_member_id DESC
-      ) FILTER (WHERE operator.display_name IS NOT NULL))[1],
-      (ARRAY_AGG(default_operator.display_name ORDER BY
-        CASE
-          WHEN default_operator.primary_location_id = located.shed_uuid THEN 0
-          WHEN default_operator.primary_location_id = located.park_uuid THEN 1
-          ELSE 2
-        END,
-        located.execution_due_at DESC NULLS LAST,
-        default_operator.updated_at DESC NULLS LAST,
-        default_operator.workforce_member_id DESC
-      ) FILTER (WHERE default_operator.display_name IS NOT NULL))[1]
-    ) AS operator_name,
+      (ARRAY_AGG(located.physical_shed ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.physical_shed, '') IS NOT NULL))[1],
+      MAX(shed.name)
+    ) AS physical_shed,
+    COALESCE(
+      (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
+      'whole'
+    ) AS partition_label,
     -- This value is rendered directly on mobile shed cards. Prefer the governed
     -- human name; stage_code (K1/K2/...) is an internal fallback only.
     COALESCE(
@@ -1020,25 +1408,19 @@ grouped AS (
     ON operator.tenant_id = $1::uuid
    AND operator.workforce_member_id = COALESCE(located.conducted_by, located.assigned_to)
    AND operator.status = 'active'
-  LEFT JOIN LATERAL (
-    SELECT wm.workforce_member_id, wm.display_name, wm.primary_location_id, wm.updated_at
-    FROM workforce_members wm
-    WHERE wm.tenant_id = $1::uuid
-      AND wm.status = 'active'
-      AND wm.primary_role_hint = 'operator'
-      AND wm.primary_location_id IN (located.shed_uuid, located.park_uuid)
-    ORDER BY CASE WHEN wm.primary_location_id = located.shed_uuid THEN 0 WHEN wm.primary_location_id = located.park_uuid THEN 1 ELSE 2 END,
-             wm.updated_at DESC, wm.workforce_member_id DESC
-    LIMIT 1
-  ) default_operator ON true
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
+    AND (
+      $15::text = ''
+      OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
   GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_name, located.dose_code
 ),
 enriched AS (
   SELECT
     grouped.*,
+    assignment_operator.display_name AS assignment_operator_name,
     COALESCE(loa.usable_for_vaccination, true) AS usable_for_vaccination,
     COALESCE(loa.is_quarantine, false) AS is_quarantine,
     COALESCE(loa.is_icu, false) AS is_icu
@@ -1046,6 +1428,24 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
+  LEFT JOIN LATERAL (
+    SELECT wm.display_name
+    FROM vaccination_drive_assignments vda
+    JOIN workforce_members wm
+      ON wm.tenant_id = vda.tenant_id
+     AND wm.workforce_member_id = vda.operator_id
+     AND wm.status = 'active'
+    WHERE vda.tenant_id = $1::uuid
+      AND vda.batch_id = grouped.batch_id
+      AND vda.shed_id = grouped.shed_uuid
+      AND vda.operator_id IS NOT NULL
+      AND (
+        grouped.partition_label = 'whole'
+        OR vda.partition_label = grouped.partition_label
+      )
+    ORDER BY vda.planned_date DESC, vda.updated_at DESC, vda.assignment_id DESC
+    LIMIT 1
+  ) assignment_operator ON grouped.operator_name IS NULL
 ),
 stateful AS (
   SELECT
@@ -1062,15 +1462,15 @@ stateful AS (
         OR enriched.is_quarantine
         OR enriched.is_icu THEN 'deferred'
       WHEN enriched.missed_count > 0 THEN 'missed'
-      WHEN enriched.operator_name IS NULL
+      WHEN COALESCE(enriched.operator_name, enriched.assignment_operator_name) IS NULL
        AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
-        OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
+        OR enriched.proof_submitted_count > 0 THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
-      WHEN enriched.due_at < $7::timestamptz THEN 'overdue'
+      WHEN (enriched.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
       WHEN enriched.due_count > 0 THEN 'due'
       ELSE 'scheduled'
     END AS work_state
@@ -1117,12 +1517,27 @@ filtered AS (
   FROM classified
   WHERE ($6::text = '' OR classified.work_state = $6::text)
     AND ($9::text = '' OR classified.severity = $9::text)
+    AND (
+      NOT $10::boolean
+      OR (
+        classified.obligation_count
+        - GREATEST(
+            classified.completed_count,
+            classified.completion_recorded + classified.completion_accepted + classified.completion_rejected
+          )
+        - classified.deferred_count
+        - classified.missed_count
+        - classified.canceled_count
+      ) > 0
+    )
 )
 SELECT
   grouped.park_uuid::text AS park_id,
   park.name AS park_name,
   grouped.shed_uuid::text AS shed_id,
   shed.name AS shed_name,
+  grouped.physical_shed,
+  grouped.partition_label,
   grouped.animal_stage,
   grouped.batch_id::text AS batch_id,
   grouped.protocol_name,
@@ -1140,9 +1555,11 @@ SELECT
   grouped.completion_accepted,
   grouped.completion_rejected,
   grouped.completion_reversed,
+  grouped.scanned_count,
+  grouped.proof_submitted_count,
   grouped.batch_status,
   grouped.task_state,
-  grouped.operator_name,
+  COALESCE(grouped.operator_name, grouped.assignment_operator_name, scoped_operator.display_name) AS operator_name,
   park_head.display_name AS park_head_name,
   verifier.display_name AS verifier_name,
   grouped.usable_for_vaccination,
@@ -1187,8 +1604,23 @@ LEFT JOIN LATERAL (
            wm.updated_at DESC, wm.workforce_member_id DESC
   LIMIT 1
 ) verifier ON true
-WHERE NOT $10::boolean
-   OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($11::int, $12::bigint, $13::text)
+LEFT JOIN LATERAL (
+  SELECT wm.display_name
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $15::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($15::text, '')::uuid
+      OR wm.user_id = NULLIF($15::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($15::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+) scoped_operator ON grouped.operator_name IS NULL AND grouped.assignment_operator_name IS NULL
+WHERE NOT $11::boolean
+   OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($12::int, $13::bigint, $14::text)
 ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `
@@ -1207,6 +1639,14 @@ LIMIT ($5::int + 1);
 // completion sub-state (recorded/accepted/rejected) uses vaccination_completions.status, which is the
 // current verification status. A dose administered before as_of but accepted after as_of is bounded out of
 // "completed" via completed_at, but its as_of verification sub-state is not yet reconstructed.
+//
+// SERVING SHAPE (BUG-036a): the effective-due-date window is bounded by an INDEX-USABLE superset on
+// bare obligation_instances columns (due_at window OR a batch id from due_window_batches) before the
+// exact COALESCE bound is applied as a residual filter, and the per-obligation drive-assignment
+// LATERAL is pre-aggregated once per (batch, shed) in drive_assignment_dates. Without both, the
+// planner had to read the whole obligation table per request. Gated by
+// TestVaccinationOperationsAggregateQueryPlanUsesIndexesAtScale at ~500k rows and by the
+// EffectiveDueWindowSuperset case in make validate-sqlc-plans.
 //
 // This is now the request-path serving read (VaccinationOperations), not only the projector replay.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 cohorts) canonical operations list, query-plan-tested (canonical_read_plan_test.go).
@@ -1279,6 +1719,53 @@ asof_terminal AS (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
+drive_assignment_dates AS (
+  -- ONE representative planned date per (batch, shed), pre-aggregated ONCE instead of probed per
+  -- obligation. This was a LEFT JOIN LATERAL ... LIMIT 1 correlated on (oi.batch_id, g.shed_id): a
+  -- per-row index probe into vaccination_drive_assignments, i.e. one round trip per obligation row,
+  -- which dominated the plan cost at the 500k envelope even after the due window became index-bound.
+  -- Distinct (batch, shed) pairs are bounded by planned DRIVES, not by animals, so collapsing to one
+  -- row per pair up front is strictly cheaper and set-based. DISTINCT ON reproduces the LATERAL's
+  -- ORDER BY ... LIMIT 1 tie-break exactly, so the selected assignment date is unchanged.
+  SELECT DISTINCT ON (assignment.batch_id, assignment.shed_id)
+    assignment.batch_id,
+    assignment.shed_id,
+    (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+  ORDER BY assignment.batch_id,
+           assignment.shed_id,
+           assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+),
+due_window_batches AS (
+  -- SARGABLE PRE-FILTER SOURCE for the effective-due-date window below. The serving predicate is
+  -- COALESCE(assignment_planned_at, batch_planned_date, oi.due_at) <= $3, whose first two arms come from a
+  -- LEFT JOIN / LEFT JOIN LATERAL output. A predicate over a join output is not index-usable, so the
+  -- planner was forced to materialize EVERY obligation row of the tenant before it could filter -- a full
+  -- 500k sequential scan of obligation_instances (BUG-036a).
+  -- An obligation's effective date can only differ from oi.due_at when a batch or a drive assignment
+  -- overrides it, and BOTH override sources hang off oi.batch_id (ob.batch_id = oi.batch_id, and the
+  -- LATERAL assignment join keys on assignment.batch_id = oi.batch_id). Therefore:
+  --   effective_due <= $3 AND oi.due_at > $3  =>  oi.batch_id is a batch planned <= $3 (by the batch row
+  --   itself or by one of its drive assignments).
+  -- Collecting those batch ids from the SMALL planning tables lets the driving scan ride
+  -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
+  -- obligation_instances_batch_idx (tenant_id, batch_id, status) instead of reading the whole table.
+  -- This is a strict SUPERSET: the exact COALESCE predicate is still applied afterwards, so no row that
+  -- qualified before is dropped and no new row is admitted. Serving shape only, semantics unchanged.
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  WHERE ob.tenant_id = $1::uuid
+    AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+  UNION
+  SELECT assignment.batch_id
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+),
 raw AS (
   SELECT
     oi.obligation_id,
@@ -1304,7 +1791,8 @@ raw AS (
     g.shed_id AS shed_uuid,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -1321,6 +1809,12 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN drive_assignment_dates vda
+    ON vda.batch_id = oi.batch_id
+   AND vda.shed_id = g.shed_id
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -1328,7 +1822,19 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.due_at <= $3::timestamptz
+    -- INDEX-USABLE SUPERSET of the effective-due-date bound below. Both arms are bare
+    -- obligation_instances column predicates, so the planner can BitmapOr
+    -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) with
+    -- obligation_instances_batch_idx (tenant_id, batch_id, status) and prune the table instead of
+    -- scanning it whole. The batch list is materialized as an InitPlan ARRAY (not a correlated
+    -- IN-subquery) precisely so it stays a constant the index can be probed with.
+    AND (
+      oi.due_at <= $3::timestamptz
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+    )
+    -- Exact effective-due-date bound (unchanged). Kept as the authoritative filter so a batch/assignment
+    -- that moved the date LATER than $3 is still excluded even though the superset admitted it.
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
 ),
 located AS (
   SELECT
@@ -1337,8 +1843,9 @@ located AS (
     -- open_bucket reconstructs the non-terminal state purely from the due window vs as_of (deterministic,
     -- needs no event history): overdue once due_at has passed, due once the window has opened, else scheduled.
     CASE
-      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      -- projection-review: bucket-grain=business-day overdue/due/scheduled compares the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of, so a drive planned for today is due (not overdue) at any clock instant of that day and rolls to overdue only on the next business day
+      WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -1408,6 +1915,7 @@ cohort_page AS (
 )
 -- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) selected by cohort_page; join_cardinality=completions and terminal events are pre-aggregated to one row per obligation, goat/protocol/location joins are tenant-keyed 1:1, and COUNT(DISTINCT goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before this final aggregate so page size cannot split a group or alter its totals; scope=tenant plus explicit optional park/shed filters with park resolved from direct goat park or shed parent.
 SELECT
+  -- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name); join_cardinality=cohort_page joins on the grouped cohort key and goat/protocol/location dimensions are tenant-keyed 1:1, while COUNT(DISTINCT effective.goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before final aggregation; scope=tenant plus explicit optional park/shed filters.
   effective.park_uuid,
   park.name AS park_name,
   effective.shed_uuid,
@@ -1417,7 +1925,7 @@ SELECT
   effective.protocol_id,
   effective.protocol_name,
   COUNT(DISTINCT effective.goat_id)::bigint AS animals,
-  MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MIN(effective.execution_due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(effective.last_accepted_at) AS last_dose,
   COALESCE(
     ARRAY_REMOVE(
@@ -1490,7 +1998,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	// Park-scope clamp (defence in depth): a park-scoped app actor may only read rosters for sheds
 	// in their authorized parks. Tenant-wide (or grant-less internal) callers pass nil = no filter.
 	restrictParks := authorizedParkFilter(ctx, q.TenantID)
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks)
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID)
 	if err != nil {
 		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
@@ -1499,6 +2007,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	for rows.Next() {
 		var row domain.ScanRosterRow
 		var secondaryTag pgtype.Text
+		var scannedAt pgtype.Timestamptz
 		var protocolName, doseCode string
 		if err := rows.Scan(
 			&row.GoatID,
@@ -1507,11 +2016,16 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&protocolName,
 			&doseCode,
 			&row.Status,
+			&scannedAt,
 			&row.ObligationID,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		if scannedAt.Valid {
+			value := scannedAt.Time.UTC().Format(time.RFC3339Nano)
+			row.ScannedAt = &value
+		}
 		row.VaccineLabel = domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
 		row.BatchID = identity.BatchID
 		row.TaskID = identity.TaskID
@@ -1532,6 +2046,22 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 }
 
 const scanRosterSQL = `
+-- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed, additionally bounded to the operator's drive-assignment partition when operator-scoped; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, operator partition, and authorized park filter.
+WITH operator_scope_member AS (
+  SELECT wm.workforce_member_id
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $9::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($9::text, '')::uuid
+      OR wm.user_id = NULLIF($9::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($9::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+)
 SELECT
   g.goat_id::text,
   COALESCE(aid1.identifier_value, '') AS primary_tag,
@@ -1539,14 +2069,22 @@ SELECT
   pd.name AS protocol_name,
   pr.dose_code,
   CASE
-    WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
+    WHEN sc.capture_id IS NOT NULL THEN 'done'
+    WHEN oi.status = 'due' OR (COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
     WHEN oi.status = 'completed' THEN 'completed'
     WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
     ELSE 'pending'
   END AS status,
+  sc.captured_at AS scanned_at,
   oi.obligation_id::text
 FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+LEFT JOIN sop_tasks st
+  ON st.tenant_id = oi.tenant_id
+ AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
  AND pv.protocol_version_id = oi.protocol_version_id
@@ -1563,6 +2101,35 @@ JOIN goats g
  AND oi.target_type = 'goat'
  AND g.merged_into_goat_id IS NULL
  AND g.lifecycle_status = 'alive'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+LEFT JOIN LATERAL (
+  SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = oi.tenant_id
+    AND assignment.batch_id = oi.batch_id
+    AND assignment.shed_id = g.shed_id
+    AND (
+      assignment.partition_label = 'whole'
+      OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    )
+    AND (
+      $9::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+    AND (
+      cardinality(assignment.vaccine_rule_ids) = 0
+      OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+    )
+  ORDER BY assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+  LIMIT 1
+) vda ON true
 LEFT JOIN goat_identifiers aid1
   ON aid1.tenant_id = g.tenant_id
  AND aid1.goat_id = g.goat_id
@@ -1573,6 +2140,19 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.goat_id = g.goat_id
  AND aid2.identifier_type = 'animal_identifier_2'
  AND aid2.status = 'active'
+LEFT JOIN LATERAL (
+  SELECT c.capture_id, c.captured_at
+  FROM sop_task_scan_captures c
+  WHERE c.tenant_id = oi.tenant_id
+    AND c.task_id = NULLIF($3, '')::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND (
+      c.obligation_id = oi.obligation_id
+      OR (c.obligation_id IS NULL AND c.goat_id = g.goat_id)
+    )
+  ORDER BY c.captured_at DESC, c.capture_id DESC
+  LIMIT 1
+) sc ON $3 <> ''
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
   AND (
@@ -1582,6 +2162,8 @@ WHERE oi.tenant_id = $1::uuid
   )
   AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+  AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
+  AND vda.assignment_planned_at IS NOT NULL
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
@@ -1791,6 +2373,7 @@ func vaccineLotDisabledReason(status, available string, expiry pgtype.Date, busi
 
 func (r *Repository) routeSiteOptions(ctx context.Context, tenantID, batchID string) (domain.TaskOptionSource, error) {
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=obligation_instances for one batch with schedule route_site entries; group_key=route_site text; join_cardinality=protocol_versions is keyed by protocol_version_id and the lateral schedule expansion is intentionally DISTINCTed to option grain; pagination=one task batch option list, no page boundary; scope=explicit tenant_id+batch_id.
 SELECT DISTINCT schedule ->> 'route_site'
 FROM obligation_instances oi
 JOIN protocol_versions pv ON pv.tenant_id=oi.tenant_id AND pv.protocol_version_id=oi.protocol_version_id
@@ -1848,20 +2431,22 @@ func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
 	}
 }
 
+// projection-review: membership=one vaccination_capacity_config row per tenant; group_key=tenant_id (PK); join_cardinality=1:1 tenant-to-config, single-table read; pagination=none (single-row read); scope=tenant-scoped
 const capacityConfigSQL = `
-SELECT max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version
+SELECT max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version, max_shots_per_animal_per_drive
 FROM vaccination_capacity_config
 WHERE tenant_id = $1::uuid;`
 
-// CapacityConfig reads the tenant's daily vaccination cap config, falling back to the code default when
-// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). Capacity
-// writes are owned by the protocol publish-sync path, not by vaccination execution.
+// CapacityConfig reads the tenant's daily operator animal cap config, falling back to the code default when
+// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). Reads are
+// served by this package; writes are also owned here (see UpsertCapacityConfig) for the admin-editable
+// max_per_day + max_shots_per_animal_per_drive override (migration 000045).
 func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	cfg := domain.DefaultCapacityConfig()
 	err := r.pool.QueryRow(ctx, capacityConfigSQL, tenantID).
-		Scan(&cfg.MaxPerDay, &cfg.CapacityScope, &cfg.MaxBufferDays, &cfg.OverflowPolicy, &cfg.RowVersion)
+		Scan(&cfg.MaxPerDay, &cfg.CapacityScope, &cfg.MaxBufferDays, &cfg.OverflowPolicy, &cfg.RowVersion, &cfg.MaxShotsPerAnimalPerDrive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DefaultCapacityConfig(), nil
 	}
@@ -1869,6 +2454,199 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: capacity config: %w", err)
 	}
 	return cfg, nil
+}
+
+// UpsertCapacityConfig idempotently writes the tenant's daily operator animal cap + per-animal shot-cap
+// override (migration 000045) with optimistic concurrency and durably enqueues vaccination.capacity.changed
+// to outbox_messages in the SAME transaction as the config write, so either both commit or neither does.
+// Unlike UpsertOperatorAssignmentConfig (one row per park), vaccination_capacity_config is tenant-scoped
+// (PK is tenant_id, migration 000001) -- there is no single park to key the cascade event on. The write
+// therefore fans the cascade out to every active park of the tenant (one event per park, same
+// OperatorConfigReplanHandler consumer, same idempotency-key discipline per park), so
+// RecomputeFutureVaccinationDrives re-plans every park's future drives against the new cap/shot-cap.
+// cfg.RowVersion == 0 means "first write, row must not already exist" (in practice every tenant already
+// has a seeded row, so this path is defensive); any other value must match the currently stored
+// row_version or ports.ErrCapacityConfigConflict is returned.
+func (r *Repository) UpsertCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: begin capacity config update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var newVersion int
+	if cfg.RowVersion == 0 {
+		err := tx.QueryRow(ctx, `
+INSERT INTO vaccination_capacity_config
+  (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy, max_shots_per_animal_per_drive, row_version, updated_at)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, 1, now())
+ON CONFLICT (tenant_id) DO NOTHING
+RETURNING row_version;`, tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, cfg.MaxShotsPerAnimalPerDrive).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CapacityConfig{}, ports.ErrCapacityConfigConflict
+		}
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: insert capacity config: %w", err)
+		}
+	} else {
+		err := tx.QueryRow(ctx, `
+UPDATE vaccination_capacity_config
+SET max_per_day = $2,
+    capacity_scope = $3,
+    max_buffer_days = $4,
+    overflow_policy = $5,
+    max_shots_per_animal_per_drive = $6,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND row_version = $7
+RETURNING row_version;`, tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, cfg.MaxShotsPerAnimalPerDrive, cfg.RowVersion).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CapacityConfig{}, ports.ErrCapacityConfigConflict
+		}
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: update capacity config: %w", err)
+		}
+	}
+	cfg.RowVersion = newVersion
+
+	// Fan the cascade out to every active park of the tenant (see doc comment above for why: this
+	// config is tenant-scoped, not park-scoped).
+	// projection-review: membership=active park locations for the tenant; group_key=location_id (one row each); join_cardinality=1 row per active park, single-table read; pagination=none (bounded park fan-out, no user paging); scope=tenant-scoped, park_id carried per emitted event
+	parkRows, err := tx.Query(ctx, `
+SELECT location_id::text
+FROM locations
+WHERE tenant_id = $1::uuid AND location_type = 'park' AND status = 'active'
+ORDER BY location_id ASC`, tenantID)
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: list active parks for capacity cascade: %w", err)
+	}
+	var parkIDs []string
+	for parkRows.Next() {
+		var id string
+		if err := parkRows.Scan(&id); err != nil {
+			parkRows.Close()
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: scan active park id: %w", err)
+		}
+		parkIDs = append(parkIDs, id)
+	}
+	if err := parkRows.Err(); err != nil {
+		parkRows.Close()
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: active parks rows: %w", err)
+	}
+	parkRows.Close()
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	for _, parkID := range parkIDs {
+		idempotencyKey := fmt.Sprintf("vaccination.capacity-config.capacity:%s:%d", parkID, newVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     "vaccination.capacity.changed",
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   parkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "vaccination-execution",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   parkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   parkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   parkID,
+			}},
+			"payload":  map[string]any{"park_id": parkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: marshal capacity.changed envelope: %w", err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "vaccination-execution.UpsertCapacityConfig",
+			"schema_version":  "1.0.0",
+			"park_id":         parkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: marshal capacity.changed headers: %w", err)
+		}
+		// Bounded fan-out over a tenant's active parks (tens, not millions) on a rare admin cap edit,
+		// not a per-request/per-goat path; one outbox row per park is the intended cascade grain.
+		// scale-guard:ignore: bounded active-park fan-out on rare admin cap edit, O(parks-per-tenant)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
+			tenantID, eventID, parkID, envelope, headers, idempotencyKey); err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: enqueue capacity.changed to outbox: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: commit capacity config update tx: %w", err)
+	}
+	return cfg, nil
+}
+
+func (r *Repository) PlannedDriveSessionsForShed(ctx context.Context, tenantID, shedID string) ([]domain.PlannedSession, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	cfg, err := r.CapacityConfig(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT planned_date::date::text,
+       SUM(animal_count)::int,
+       BOOL_OR(capacity_status IN ('over_cap_required', 'capacity_action')) AS over_cap_required
+FROM vaccination_drive_assignments
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+-- projection-review: membership=vaccination_drive_assignments rows for one tenant+shed; group_key=planned_date; join_cardinality=no joins, SUM/BOOL_OR aggregate only assignment rows generated by the planner; pagination=all sessions for one shed detail, bounded by persisted assignments and no page truncation; scope=explicit shed_id.
+GROUP BY planned_date::date
+ORDER BY planned_date::date`, tenantID, shedID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: planned drive sessions: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.PlannedSession, 0)
+	for rows.Next() {
+		var session domain.PlannedSession
+		var overCap bool
+		if err := rows.Scan(&session.Date, &session.Vaccinations, &overCap); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan planned drive session: %w", err)
+		}
+		session.DailyLimit = cfg.MaxPerDay
+		session.Capacity = domain.CapacityWithinCap
+		if overCap {
+			session.Capacity = domain.CapacityBreach
+		}
+		out = append(out, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: planned drive session rows: %w", err)
+	}
+	return out, nil
 }
 
 // ShedSummary returns the shed-wise rollup with ANIMAL-LEVEL Due counts plus the session-split planner's
@@ -1936,12 +2714,18 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 	for rows.Next() {
 		var row domain.ShedSummaryProjection
 		var lastDone, nextDue pgtype.Timestamptz
-		var capacityStatus, shedStatus string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &row.TotalCount); err != nil {
+		var capacityStatus, shedStatus, driveOperatorNames string
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 		}
 		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
 		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+		for _, name := range strings.Split(driveOperatorNames, ",") {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				row.DriveOperatorNames = append(row.DriveOperatorNames, name)
+			}
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -2015,7 +2799,8 @@ raw AS (
     oi.target_id AS goat_id,
     g.shed_id AS shed_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -2030,6 +2815,21 @@ raw AS (
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
    AND g.lifecycle_status = 'alive'
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -2037,14 +2837,15 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.due_at <= $3::timestamptz
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
     AND g.shed_id IS NOT NULL
 ),
+-- projection-review: bucket-grain=business-day the overdue/due/scheduled reconstruction compares the IST (Asia/Kolkata) calendar DATE of execution_due_at against the IST date of as_of ($2), so a shed whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 effective AS (
   SELECT
     raw.goat_id,
     raw.shed_uuid,
-    raw.due_at,
+    raw.execution_due_at,
     raw.last_accepted_at,
     raw.completion_status,
     CASE
@@ -2052,16 +2853,16 @@ effective AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
           ELSE raw.stored_status
         END
       WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
 ),
@@ -2076,7 +2877,7 @@ due_agg AS (
     COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_animals,
     COUNT(*) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress'))::bigint AS open_cells,
     MAX(effective.last_accepted_at) AS last_done,
-    MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
+    MIN(effective.execution_due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
   FROM effective
   GROUP BY effective.shed_uuid
 ),
@@ -2129,13 +2930,64 @@ classified AS (
       ELSE 'on_track'
     END AS shed_status
   FROM scored
+),
+drive_ops AS (
+  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
+  SELECT
+    operator_sources.park_id,
+    operator_sources.shed_name,
+    STRING_AGG(DISTINCT wm.display_name, ', ' ORDER BY wm.display_name) AS drive_operator_names
+  FROM (
+    SELECT
+      vda.park_id::text AS park_id,
+      vda.physical_shed AS shed_name,
+      vda.operator_id
+    FROM vaccination_drive_assignments vda
+    WHERE vda.tenant_id = $1::uuid
+
+    UNION ALL
+
+    SELECT
+      park.location_id::text AS park_id,
+      shed.name AS shed_name,
+      cfg.default_operator_id AS operator_id
+    FROM vaccination_completions vc
+    JOIN goats g
+      ON g.tenant_id = vc.tenant_id
+     AND g.goat_id = vc.goat_id
+     AND g.lifecycle_status = 'alive'
+     AND g.merged_into_goat_id IS NULL
+    JOIN locations shed
+      ON shed.tenant_id = vc.tenant_id
+     AND shed.location_id = g.shed_id
+     AND shed.location_type = 'shed'
+     AND shed.status = 'active'
+    JOIN locations park
+      ON park.tenant_id = vc.tenant_id
+     AND park.location_id = shed.parent_location_id
+     AND park.location_type = 'park'
+     AND park.status = 'active'
+    JOIN vaccination_operator_assignment_config cfg
+      ON cfg.tenant_id = vc.tenant_id
+     AND cfg.park_id = park.location_id
+    WHERE vc.tenant_id = $1::uuid
+      AND vc.status = 'accepted'
+      AND COALESCE(vc.administered_at, vc.created_at) <= $2::timestamptz
+  ) operator_sources
+  JOIN workforce_members wm
+    ON wm.tenant_id = $1::uuid
+   AND wm.workforce_member_id = operator_sources.operator_id
+   AND wm.status = 'active'
+  GROUP BY operator_sources.park_id, operator_sources.shed_name
 )
 SELECT
   park_id, park_name, shed_id, shed_name,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
+  COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count
 FROM classified
+LEFT JOIN drive_ops USING (park_id, shed_name)
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
   AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')
@@ -2251,8 +3103,8 @@ LEFT JOIN LATERAL (
 ) vhist ON true
 LEFT JOIN LATERAL (
   SELECT
-    MIN(oi.due_at) AS next_due,
-    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= $5::timestamptz)) AS actionable_now
+    MIN(COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)) AS next_due,
+    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $5::timestamptz)) AS actionable_now
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -2261,6 +3113,21 @@ LEFT JOIN LATERAL (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   WHERE oi.tenant_id = g.tenant_id
     AND oi.target_type = 'goat'
     AND oi.target_id = g.goat_id
@@ -2284,13 +3151,25 @@ WHERE g.tenant_id = $1::uuid
       LEFT JOIN obligation_batches dob
         ON dob.tenant_id = doi.tenant_id
        AND dob.batch_id = doi.batch_id
+      LEFT JOIN LATERAL (
+        SELECT assignment.planned_date AS assignment_planned_date
+        FROM vaccination_drive_assignments assignment
+        WHERE assignment.tenant_id = doi.tenant_id
+          AND assignment.batch_id = doi.batch_id
+          AND assignment.shed_id = g.shed_id
+        ORDER BY assignment.planned_date ASC,
+                 assignment.partition_label ASC,
+                 assignment.operator_id ASC NULLS LAST,
+                 assignment.assignment_id ASC
+        LIMIT 1
+      ) drive_date ON true
       WHERE doi.tenant_id = g.tenant_id
         AND doi.target_type = 'goat'
         AND doi.target_id = g.goat_id
         AND doi.status NOT IN ('superseded', 'canceled', 'waived')
         AND (
           CASE
-            WHEN doi.batch_id IS NOT NULL THEN COALESCE(dob.planned_date, (dob.window_start AT TIME ZONE 'Asia/Kolkata')::date, (dob.window_end AT TIME ZONE 'Asia/Kolkata')::date)
+            WHEN doi.batch_id IS NOT NULL THEN COALESCE(drive_date.assignment_planned_date, dob.planned_date, (dob.window_start AT TIME ZONE 'Asia/Kolkata')::date, (dob.window_end AT TIME ZONE 'Asia/Kolkata')::date)
             ELSE (doi.due_at AT TIME ZONE 'Asia/Kolkata')::date
           END
         ) = $6::date
@@ -2299,3 +3178,471 @@ WHERE g.tenant_id = $1::uuid
 ORDER BY g.goat_id ASC
 LIMIT $4;
 `
+
+// ---- Vaccination operator shift + assignment config ----
+// (vaccination_operator_assignment_config / vaccination_operator_shift_config, migration 000035).
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
+
+// UpsertOperatorAssignmentConfig returns ports.ErrOperatorAssignmentConfigConflict when the caller's
+// RowVersion does not match the currently stored row (optimistic concurrency: reject, never clobber).
+
+const operatorAssignmentConfigSQL = `
+SELECT active_operators_per_day,
+       default_operator_id,
+       ARRAY(SELECT operator_id::text FROM unnest(selected_operator_ids) AS operator_id),
+       row_version
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid;`
+
+// OperatorAssignmentConfig reads the park's N-active-operators-per-day + default-operator config.
+// found=false (no error) when no row is authored yet for this park.
+func (r *Repository) OperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (domain.OperatorAssignmentConfig, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	cfg := domain.OperatorAssignmentConfig{ParkID: parkID}
+	err := r.pool.QueryRow(ctx, operatorAssignmentConfigSQL, tenantID, parkID).
+		Scan(&cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.SelectedOperatorIDs, &cfg.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.OperatorAssignmentConfig{}, false, nil
+	}
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, false, fmt.Errorf("vaccination execution: operator assignment config: %w", err)
+	}
+	return cfg, true, nil
+}
+
+const operatorShiftsSQL = `
+SELECT s.operator_id, COALESCE(m.display_name, ''), s.shift_label, s.shift_start_minute, s.shift_end_minute,
+       COALESCE(s.week_off_weekday, '')
+FROM vaccination_operator_shift_config s
+LEFT JOIN workforce_members m
+  ON m.tenant_id = s.tenant_id AND m.workforce_member_id = s.operator_id
+WHERE s.tenant_id = $1::uuid AND s.park_id = $2::uuid
+ORDER BY CASE s.shift_label WHEN 'am' THEN 0 WHEN 'rover' THEN 1 WHEN 'pm' THEN 2 ELSE 3 END, s.operator_id ASC;`
+
+// OperatorShifts returns every operator's authored shift row for this park.
+func (r *Repository) OperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, operatorShiftsSQL, tenantID, parkID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: operator shifts: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.OperatorShift
+	for rows.Next() {
+		var s domain.OperatorShift
+		if err := rows.Scan(&s.OperatorID, &s.DisplayName, &s.ShiftLabel, &s.ShiftStartMinute, &s.ShiftEndMinute, &s.WeekOffWeekday); err != nil {
+			return nil, fmt.Errorf("vaccination execution: operator shifts scan: %w", err)
+		}
+		s.ParkID = parkID
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: operator shifts rows: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertOperatorAssignmentConfig idempotently writes the park's assignment config with optimistic
+// concurrency and durably enqueues cascade events (vaccination.capacity.changed, vaccination.roster.changed)
+// to outbox_messages in the same transaction. cfg.RowVersion == 0 means "first write, row must not already
+// exist"; any other value must match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict
+// is returned. The config write and event enqueue are atomic: if either fails, the whole write fails.
+func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// Begin transaction for atomic config write + outbox enqueue
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: begin config update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Capture the pre-write state (locked) so we can emit precisely which cascade event(s) fired:
+	// vaccination.capacity.changed when N (active operators/day) changed, vaccination.roster.changed
+	// when the default operator changed. A first write emits both. FOR UPDATE serializes concurrent
+	// writers on this park row so the before/after comparison is race-free.
+	var (
+		prevN       int
+		prevDefault string
+		foundBefore bool
+	)
+	if err := tx.QueryRow(ctx, `
+SELECT active_operators_per_day, default_operator_id::text
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid
+FOR UPDATE`, tenantID, cfg.ParkID).Scan(&prevN, &prevDefault); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: read prior operator assignment config: %w", err)
+		}
+	} else {
+		foundBefore = true
+	}
+
+	var newVersion int64
+	if cfg.RowVersion == 0 {
+		// Insert: new config for this park
+		err := tx.QueryRow(ctx, `
+INSERT INTO vaccination_operator_assignment_config
+  (tenant_id, park_id, active_operators_per_day, default_operator_id, selected_operator_ids, row_version, updated_at)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5::uuid[], 1, now())
+ON CONFLICT (tenant_id, park_id) DO NOTHING
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.SelectedOperatorIDs).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		}
+		if err != nil {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: insert operator assignment config: %w", err)
+		}
+		cfg.RowVersion = newVersion
+	} else {
+		// Update: config already exists, optimistic lock on row_version
+		err := tx.QueryRow(ctx, `
+UPDATE vaccination_operator_assignment_config
+SET active_operators_per_day = $3,
+    default_operator_id = $4::uuid,
+    selected_operator_ids = $5::uuid[],
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $6
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.SelectedOperatorIDs, cfg.RowVersion).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		}
+		if err != nil {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+		}
+		cfg.RowVersion = newVersion
+	}
+
+	// Enqueue cascade events to outbox_messages (same transaction as config write) for at-least-once
+	// delivery via the outbox relay. Emit precisely which changed:
+	//   - vaccination.capacity.changed when N (active operators/day) changed
+	//   - vaccination.roster.changed   when the default operator changed
+	// A first write (no prior row) emits both. Both events drive the same OperatorConfigReplanHandler
+	// recompute; the two-phase watermark makes redundant delivery idempotent.
+	capacityChanged := !foundBefore || prevN != cfg.ActiveOperatorsPerDay
+	rosterChanged := !foundBefore || prevDefault != cfg.DefaultOperatorID
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+
+	enqueueCascade := func(eventType, keyKind string) error {
+		idempotencyKey := fmt.Sprintf("vaccination.operator-assignment-config.%s:%s:%d", keyKind, cfg.ParkID, newVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
+		// additionalProperties:false). subject is the park (a location); aggregate is the park config.
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     eventType,
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   cfg.ParkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "vaccination-execution",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   cfg.ParkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   cfg.ParkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   cfg.ParkID,
+			}},
+			"payload":  map[string]any{"park_id": cfg.ParkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s envelope: %w", eventType, err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "vaccination-execution.UpsertOperatorAssignmentConfig",
+			"schema_version":  "1.0.0",
+			"park_id":         cfg.ParkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s headers: %w", eventType, err)
+		}
+		// The ON CONFLICT arbiter is a per-event-type partial unique index (migration 000038), so the
+		// WHERE predicate must name the same event_type literal. eventType here is a controlled
+		// constant, never user input.
+		sql := `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
+  'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
+		if _, err := tx.Exec(ctx, sql, tenantID, eventID, eventType, cfg.ParkID, envelope, headers, idempotencyKey); err != nil {
+			return fmt.Errorf("vaccination execution: enqueue %s to outbox: %w", eventType, err)
+		}
+		return nil
+	}
+
+	if capacityChanged {
+		if err := enqueueCascade("vaccination.capacity.changed", "capacity"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+	if rosterChanged {
+		if err := enqueueCascade("vaccination.roster.changed", "roster"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+
+	// Commit: if we reach here, both config write and outbox enqueue are atomic
+	if err := tx.Commit(ctx); err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: commit config update tx: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// ReassignPlannedDrives applies an operator config change to already-planned open drive work
+// immediately. For one-operator mode every open planned row moves to the default operator. For
+// parallel mode the first N available roster operators for that drive date are selected, skipping
+// week-off, and existing assignment rows are distributed across them.
+func (r *Repository) ReassignPlannedDrives(ctx context.Context, tenantID, parkID, defaultOperatorID string, selectedOperatorIDs []string, activeOperatorsPerDay int, effectiveFrom time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	effectiveDate := biztime.BusinessDayStart(effectiveFrom).Format("2006-01-02")
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination execution: begin planned drive reassignment tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+WITH target_assignments AS (
+  SELECT
+    vda.assignment_id,
+    vda.batch_id,
+    vda.planned_date,
+    row_number() OVER (
+      PARTITION BY vda.planned_date
+      ORDER BY vda.physical_shed, vda.partition_label, vda.assignment_id
+    ) AS assignment_rank
+  FROM obligation_batches ob
+  JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.status = 'planned'
+    AND vda.park_id = $2::uuid
+    AND vda.planned_date >= $6::date
+),
+selected_operators AS (
+  SELECT
+    ta.assignment_id,
+    ta.batch_id,
+    selected.operator_id
+  FROM target_assignments ta
+  JOIN LATERAL (
+    SELECT ranked.operator_id
+    FROM (
+      SELECT
+        osc.operator_id,
+        count(*) OVER () AS available_count,
+        row_number() OVER (
+          ORDER BY
+            COALESCE(array_position($4::uuid[], osc.operator_id), 999),
+            CASE WHEN $5::int = 1 AND osc.operator_id = $3::uuid THEN 0 ELSE 1 END,
+            CASE osc.shift_label WHEN 'am' THEN 0 WHEN 'rover' THEN 1 WHEN 'pm' THEN 2 ELSE 3 END,
+            osc.operator_id
+        ) AS roster_rank
+      FROM vaccination_operator_shift_config osc
+      JOIN workforce_members wm
+        ON wm.tenant_id = osc.tenant_id
+       AND wm.workforce_member_id = osc.operator_id
+       AND wm.status = 'active'
+      WHERE osc.tenant_id = $1::uuid
+        AND osc.park_id = $2::uuid
+        AND (
+          osc.week_off_weekday IS NULL
+          OR osc.week_off_weekday <> lower(to_char(ta.planned_date::timestamp, 'FMDay'))
+        )
+    ) ranked
+    WHERE ranked.roster_rank = ((ta.assignment_rank - 1) % GREATEST(ranked.available_count, 1)) + 1
+    ORDER BY ranked.roster_rank
+    LIMIT 1
+  ) selected ON true
+),
+updated_batches AS (
+  UPDATE obligation_batches ob
+  SET conducted_by = CASE WHEN $5::int = 1 THEN $3::uuid ELSE ob.conducted_by END,
+      updated_at = now(),
+      row_version = row_version + 1
+  FROM (
+    SELECT DISTINCT batch_id FROM selected_operators
+  ) tb
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.batch_id = tb.batch_id
+    AND $5::int = 1
+    AND ob.conducted_by IS DISTINCT FROM $3::uuid
+  RETURNING ob.batch_id
+),
+updated_assignments AS (
+  UPDATE vaccination_drive_assignments vda
+  SET operator_id = so.operator_id,
+      updated_at = now()
+  FROM selected_operators so
+  WHERE vda.tenant_id = $1::uuid
+    AND vda.assignment_id = so.assignment_id
+    AND vda.operator_id IS DISTINCT FROM so.operator_id
+  RETURNING vda.assignment_id
+)
+SELECT 'batch' AS kind, count(*)::bigint FROM updated_batches
+UNION ALL
+SELECT 'assignment' AS kind, count(*)::bigint FROM updated_assignments;
+`, tenantID, parkID, defaultOperatorID, selectedOperatorIDs, activeOperatorsPerDay, effectiveDate)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination execution: reassign planned drives: %w", err)
+	}
+	defer rows.Close()
+
+	var changed int64
+	for rows.Next() {
+		var kind string
+		var n int64
+		if err := rows.Scan(&kind, &n); err != nil {
+			return 0, fmt.Errorf("vaccination execution: scan planned drive reassignment: %w", err)
+		}
+		if kind == "assignment" {
+			changed = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("vaccination execution: iterate planned drive reassignment: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("vaccination execution: commit planned drive reassignment tx: %w", err)
+	}
+	return changed, nil
+}
+
+// authorizedParkOptionsSQL reads the tenant's active parks from canonical `locations`, optionally
+// narrowed to the caller's park-scoped grants. BOUNDED configuration catalog (a handful of parks per
+// tenant, sized by parks the business physically operates, not by herd size) so it is returned whole
+// and deliberately not paginated. The park-id predicate keeps the indexed column BARE and casts the
+// bound array instead (`location_id = ANY($2::uuid[])`), so a column-side cast can never disable the
+// index; an empty array means "no grant narrowing" (tenant-wide actor).
+const authorizedParkOptionsSQL = `
+SELECT location_id::text,
+       COALESCE(location_code, '') AS code,
+       name
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_type = 'park'
+  AND status = 'active'
+  AND (cardinality($2::uuid[]) = 0 OR location_id = ANY($2::uuid[]))
+ORDER BY name ASC, location_id ASC;`
+
+// AuthorizedParkOptions returns the park vocabulary the caller may act in (see ports.Repository).
+func (r *Repository) AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	ids := parkIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	rows, err := r.pool.Query(ctx, authorizedParkOptionsSQL, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.ParkOption, 0, 8)
+	for rows.Next() {
+		var p domain.ParkOption
+		if err := rows.Scan(&p.ParkID, &p.Code, &p.Name); err != nil {
+			return nil, fmt.Errorf("vaccination execution: authorized park options scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options rows: %w", err)
+	}
+	return out, nil
+}
+
+func (r *Repository) VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error) {
+	if q.OperatorScopeActorID == "" {
+		return nil, fmt.Errorf("carry summary requires operator scope")
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// Real SQL from coordinator: aggregates obligation_instances by (eff_date, vaccine_label)
+	// for the scoped operator, with override-aware date resolution.
+	// OperatorScopeActorID is already the workforce_member_id; no external resolution.
+	sql := `
+WITH scoped AS (
+  SELECT oi.obligation_id, oi.status, m.goat_id,
+         COALESCE(pr.eligibility_json->'vaccine'->>'name', pr.dose_code) AS vaccine_label,
+         COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
+         vda.operator_id
+  FROM obligation_instances oi
+  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
+  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
+  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+  LEFT JOIN vaccination_drive_date_overrides ovr
+    ON ovr.tenant_id = vda.tenant_id AND ovr.park_id = vda.park_id AND ovr.canceled_at IS NULL
+   AND lower(btrim(ovr.vaccine_code)) = lower(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code','')))
+   AND (ovr.original_drive_date = vda.planned_date OR ovr.override_date = vda.planned_date)
+  WHERE oi.tenant_id = $1
+)
+-- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, vaccine_label) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments.
+SELECT eff_date::date as eff_date, vaccine_label,
+       count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS remaining,
+       count(DISTINCT goat_id) AS total
+FROM scoped
+WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
+                     WHERE wm.tenant_id = $1
+                       AND (
+                         wm.workforce_member_id = NULLIF($2::text,'')::uuid
+                         OR wm.user_id = NULLIF($2::text,'')::uuid
+                       )
+                       AND wm.status='active'
+                     ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($2::text,'')::uuid THEN 0 ELSE 1 END,
+                              wm.updated_at DESC,
+                              wm.workforce_member_id DESC
+                     LIMIT 1)
+  AND eff_date BETWEEN $3::date AND $4::date
+GROUP BY eff_date::date, vaccine_label
+ORDER BY eff_date::date, vaccine_label
+`
+	rows, err := r.pool.Query(ctx, sql, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: carry summary query: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.VaccineCarryLine, 0, 16)
+	for rows.Next() {
+		var line domain.VaccineCarryLine
+		var effDate time.Time
+		if err := rows.Scan(&effDate, &line.VaccineLabel, &line.RemainingDoses, &line.TotalDoses); err != nil {
+			return nil, fmt.Errorf("vaccination execution: carry summary scan: %w", err)
+		}
+		line.Date = effDate.Format("2006-01-02") // ISO date
+		out = append(out, line)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: carry summary rows: %w", err)
+	}
+	return out, nil
+}

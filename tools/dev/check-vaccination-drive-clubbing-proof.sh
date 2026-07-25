@@ -16,11 +16,11 @@ if [ "${1:-}" = "--self-test" ]; then
   grep -q "ob.scope_type <> 'park'" "$0"
   grep -q "sp.location_id = g.shed_id" "$0"
   grep -q "GOATOS_DRIVE_SPECIES_GROUPING_POLICY" "$0"
-  # Capacity gate must exist: config read, active-status counting, cell summation,
+  # Capacity gate must exist: config read, active-status counting, animal summation,
   # and per-goat boundary-evidence join.
   grep -q "max_per_day" "$0"
   grep -q "'in_progress'" "$0"
-  grep -q "sum(cells)" "$0"
+  grep -q "sum(animals)" "$0"
   grep -q "first_batching_hold_until" "$0"
   # Round-9: small-drive test must be park/date grain and the merge-target join
   # must check the target date's free capacity / last-safe overflow evidence.
@@ -147,12 +147,50 @@ if [ -n "${non_park_batches//[[:space:]]/}" ]; then
 fi
 
 # Capacity gate: fail closed when the tenant has no published capacity config.
+operator_tables_exist="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<'SQL'
+SELECT (
+  to_regclass('workforce_members') IS NOT NULL
+  AND to_regclass('workforce_positions') IS NOT NULL
+  AND to_regclass('position_module_duties') IS NOT NULL
+)::text;
+SQL
+)"
+
+if [ "$operator_tables_exist" = "true" ]; then
+capacity_max="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" <<'SQL'
+WITH cfg AS (
+  SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = :'tenant_id'::uuid
+), operators AS (
+  SELECT count(DISTINCT wm.workforce_member_id)::int AS operator_count
+  FROM workforce_members wm
+  JOIN workforce_positions wp
+    ON wp.tenant_id = wm.tenant_id
+   AND wp.workforce_member_id = wm.workforce_member_id
+   AND wp.status = 'active'
+  JOIN position_module_duties pmd
+    ON pmd.tenant_id = wp.tenant_id
+   AND pmd.position_code = wp.position_code
+   AND pmd.module_code IN ('vaccination', 'pc.vaccination')
+   AND pmd.duty_type = 'execute'
+   AND pmd.status = 'active'
+  WHERE wm.tenant_id = :'tenant_id'::uuid
+    AND wm.status = 'active'
+)
+SELECT (cfg.max_per_day * GREATEST(operators.operator_count, 1))::int
+FROM cfg, operators;
+SQL
+)"
+else
 capacity_max="$(
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
   -v tenant_id="$tenant_id" <<'SQL'
 SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = :'tenant_id'::uuid;
 SQL
 )"
+fi
 if [ -z "${capacity_max//[[:space:]]/}" ]; then
   echo "vaccination-drive-clubbing-proof: FAILED" >&2
   echo "No vaccination_capacity_config row for tenant ${tenant_id}. Capacity proof cannot run; publish capacity config first." >&2
@@ -185,9 +223,9 @@ if [ -n "${non_integral//[[:space:]]/}" ]; then
   exit 1
 fi
 
-# Capacity + overflow-evidence check: sum dose cells per park/date across all vaccines/batches/rules
+# Capacity + overflow-evidence check: sum distinct animals per park/date across all vaccines/batches/rules
 # (planned + in_progress + completed; canceled/superseded excluded). A park/date may exceed
-# max_per_day ONLY when every non-canceled obligation on it is pinned by its own boundary:
+# total available operator capacity ONLY when every non-canceled obligation on it is pinned by its own boundary:
 # medical safe-window end (window_end, fallback due_at) or the due+7 batching hold
 # (first_batching_hold_until, fallback due_at + 7 days) is <= planned_date. Any movable goat
 # on an over-cap park/date is a failure and is listed.
@@ -224,27 +262,24 @@ WITH drive_batches AS (
     AND ob.planned_date >= (:'from_date'::date AT TIME ZONE 'Asia/Kolkata')
     AND ob.planned_date < ((:'to_date'::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')
 ),
-batch_cells AS (
+batch_animals AS (
   SELECT
     db.park_id,
     db.drive_date,
     db.batch_id,
-    GREATEST(
-      COALESCE(ob.planned_quantity, 1)::int,
-      count(oi.obligation_id) FILTER (WHERE oi.status NOT IN ('canceled', 'superseded'))::int
-    ) AS cells
+    count(DISTINCT oi.target_id) FILTER (WHERE oi.status NOT IN ('canceled', 'superseded'))::int AS animals
   FROM drive_batches db
   JOIN obligation_batches ob ON ob.batch_id = db.batch_id
   LEFT JOIN obligation_instances oi ON oi.batch_id = db.batch_id
-  GROUP BY db.park_id, db.drive_date, db.batch_id, ob.planned_quantity
+  GROUP BY db.park_id, db.drive_date, db.batch_id
 ),
-park_date_cells AS (
-  SELECT park_id, drive_date, sum(cells)::int AS total_cells
-  FROM batch_cells
+park_date_animals AS (
+  SELECT park_id, drive_date, sum(animals)::int AS total_animals
+  FROM batch_animals
   GROUP BY park_id, drive_date
 ),
 over_cap AS (
-  SELECT * FROM park_date_cells WHERE total_cells > :'capacity_max'::int
+  SELECT * FROM park_date_animals WHERE total_animals > :'capacity_max'::int
 ),
 movable AS (
   -- Goats on an over-cap park/date whose OWN boundaries would allow moving later:
@@ -253,7 +288,7 @@ movable AS (
   SELECT
     oc.park_id,
     oc.drive_date,
-    oc.total_cells,
+    oc.total_animals,
     oi.target_id,
     (COALESCE(oi.window_end, oi.due_at) AT TIME ZONE 'Asia/Kolkata')::date AS safe_until,
     (COALESCE(oi.first_batching_hold_until, oi.due_at + interval '7 days') AT TIME ZONE 'Asia/Kolkata')::date AS hold_until
@@ -266,7 +301,7 @@ movable AS (
 )
 SELECT
   m.drive_date || ' | park=' || COALESCE(p.name, m.park_id::text, 'unknown') ||
-  ' | cells=' || m.total_cells || ' | capacity=' || :'capacity_max' ||
+  ' | animals=' || m.total_animals || ' | capacity=' || :'capacity_max' ||
   ' | movable_goat=' || m.target_id::text ||
   ' | safe_until=' || m.safe_until || ' | hold_until=' || m.hold_until
 FROM movable m

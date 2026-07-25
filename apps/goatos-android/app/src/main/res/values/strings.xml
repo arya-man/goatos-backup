@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="proof_camera_title">Record vaccination proof</string>
-    <string name="proof_camera_instruction">Keep the goat and administration clearly visible</string>
+    <string name="proof_camera_instruction">Keep the shed and vaccination work clearly visible</string>
     <string name="proof_camera_recording_time">Recording · %1$d s</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>

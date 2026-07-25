@@ -38,6 +38,24 @@ compute-on-read.
   metric, not the grouping).
 - Genuinely bounded (e.g. fixed 7-cell week loop) → `// mobile-guard:ignore: <reason>`.
 
+## Compose lazy-list keys (machine: `make android-compose-lists-guard`)
+The `LazyColumn`/`LazyRow` `key` is the identity of the RENDERED ROW, not of the
+domain object it shows.
+- **Never key a per-row list by a per-ENTITY id.** The scan roster is one row per
+  **obligation**, so `key = { it.goatId }` put a two-vaccine goat (ET+TT · PPR) on
+  two rows with the same key → `IllegalArgumentException: Key "<x>" was already used`
+  in the LazyList measure pass → whole screen crashes/pops (shipped 0.1.6-stg, fixed
+  a9c35a1d). Key the unique per-row id (`obligationId`) or a composite
+  `key = { "${it.goatId}|${it.vaccineLabel}" }`.
+- **Always supply a `key`** on `items(<collection>)`/`itemsIndexed(<collection>)`;
+  positional keys reuse remembered row state (checkbox/expand/scroll) on
+  insert/reorder and can crash. The `items(<Int>)` count overload is exempt.
+- Bounded exception → `// compose-guard:ignore: <reason>`.
+- Also watch (review, not yet machine-checked): missing `contentType` on
+  heterogeneous lists, `mutableStateOf` without `remember`, unstable inline lambdas
+  passed per item, and a nested `Modifier.verticalScroll` wrapping a `LazyColumn`
+  (infinite-constraint measure crash).
+
 ## Room SSOT / offline-first (banned: network-only screen reads)
 - Every READ screen renders from **Room** (single source of truth); network refresh
   runs in background (stale-while-revalidate). Persist read → repo exposes `Flow` →
@@ -74,6 +92,11 @@ The mobile UI must NOT gate visibility by role (`role ==`); render the backend-c
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
+Status and row action are part of that same contract. Android and admin-web must render
+backend `workState`, `sopStatus`, `proofStatus`, `verificationStatus`, counts, summaries, and
+`primaryActionKey`; they must not invent cross-surface vaccination states or decide locally that
+an in-review row should open a different product surface.
+
 The same ownership applies to task copy and picker data. Never display `task.title`, `scope_id`,
 or UUID-bearing context as a label; render the locale-aware `TaskPresentation`. A picker with an
 `option_source` must fetch the task-pinned option-values endpoint, cache that response with task
@@ -96,6 +119,23 @@ Canonical rulebook: `docs/decisions/android-navigation-stack.md`.
   detail. Back pops L4 → L3 → L2 → L1 → L0 and restores chrome only at L0.
 - Before handoff, click the real stack on a device/emulator and capture each
   reachable level. Never describe multiple L0 states as L1/L2 evidence.
+
+## Vaccination submit/review routing guard
+The operator vaccination path is **Vaccination sheds -> Scan -> Submit ->
+Vaccination sheds**. When a shed video submission syncs and the row/drive is
+`submitted`, `needs_review`, or verification-pending:
+- Treat backend `primaryActionKey` as the source of truth for the row's executable action.
+  `scan` may open Scan; `none` must stay on the current vaccination surface unless a
+  backend-owned vaccination detail/review action is added.
+- Do not route to the generic `Routes.recordRoute(...)` screen as a read-only
+  fallback. It is not the vaccination review/detail surface and can display
+  unrelated record counts.
+- If there is no dedicated vaccination detail route, keep the user on the
+  Vaccination sheds screen and show the submitted/in-review status there.
+- The submit ACK state must show explicit operator copy (`Submitted`/submitted
+  title), not a dead disabled Submit button with only a technical sync banner.
+- Keep the Vaccines-to-carry card wired to backend `carrySummary`; missing carry
+  data is a backend/read-model issue, not permission to delete the card path.
 
 ## Room migrations (machine: `make room-migration-guard`)
 An installed APK must survive every schema change. Room creates a DB two ways: a **fresh

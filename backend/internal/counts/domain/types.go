@@ -474,8 +474,12 @@ type CountsBreakdownShedFacet struct {
 // animal_stage_lookup is joined to goats through shed_profiles, NOT through
 // goats.management_stage, so the stage lookup and the stage column can legitimately disagree.
 type CountsBreakdownFacets struct {
-	Stages []CountsBreakdownSeriesPoint `json:"stages"`
-	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
+	// Lifecycle is the census lifecycle-status vocabulary (alive/dead/sold/culled/transferred)
+	// present in the whole tenant herd, independent of the currently-selected lifecycle filter —
+	// this is what lets a client switch from Live to Sold/Culled/Dead/Transferred.
+	Lifecycle []CountsBreakdownSeriesPoint `json:"lifecycle"`
+	Stages    []CountsBreakdownSeriesPoint `json:"stages"`
+	Breeds    []CountsBreakdownSeriesPoint `json:"breeds"`
 	// Parks keyed by park_id, labelled with the park code — the Farm filter's vocabulary.
 	Parks []CountsBreakdownSeriesPoint `json:"parks"`
 	// Sheds keyed by shed_id and carrying park_id — the Shed filter's vocabulary, cascaded from

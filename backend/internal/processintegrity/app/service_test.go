@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,55 @@ func TestControlTowerUsesFeedDirectionWorkflowLinks(t *testing.T) {
 	}
 }
 
+func TestVaccinationCommandSurfacesUseHumanDoseLabel(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("human-dose", domain.WorkStateOverdue, domain.SeverityAtRisk, due)
+	row.ProtocolName = "Preventive Care Vaccination Matrix"
+	row.DoseCode = "ET+TT adult course dose 2"
+	row.DriveName = strPtr("Preventive Care Vaccination Matrix - ET+TT adult course dose 2")
+	row.NextAction = "Start scheduled vaccination SOP"
+	repo := &fakeRepo{
+		result: domain.ListResult{
+			Rows:              []domain.Row{row},
+			CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateOverdue, Count: 1}},
+			AdherenceSummary:  domain.AdherenceSummary{ExpectedCount: row.ExpectedCount, OpenGapCount: 1},
+		},
+		row:   row,
+		found: true,
+	}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
+
+	ac, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("action center: %v", err)
+	}
+	pa, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+	ct, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	wf, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, row.RowID)
+	if err != nil || !found {
+		t.Fatalf("workflow found=%v err=%v", found, err)
+	}
+
+	joined := strings.Join([]string{
+		ac.Items[0].DoseCode,
+		pa.Rows[0].Expected,
+		ct.Alerts[0].Title,
+		wf.Row.DoseCode,
+	}, "\n")
+	if strings.Contains(joined, "et_tt_adult_w2") {
+		t.Fatalf("command surfaces leaked raw vaccine rule code:\n%s", joined)
+	}
+	if got := strings.Count(joined, "ET+TT adult course dose 2"); got < 4 {
+		t.Fatalf("command surfaces did not preserve human dose label in all views, occurrences=%d text:\n%s", got, joined)
+	}
+}
+
 func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r2", domain.WorkStateDeferred, domain.SeverityWatch, due)
@@ -168,6 +218,69 @@ func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	}
 	if len(got.Rows) != 1 || got.Rows[0].Gap != "deferred_explained" {
 		t.Fatalf("rows = %+v", got.Rows)
+	}
+}
+
+func TestProtocolAdherenceShowsOverCapRequiredAsVaccinationWork(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	latestSafe := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	row := processRow("over-cap", domain.WorkStateDue, domain.SeverityBroken, due)
+	row.DriveCapacityState = domain.DriveCapacityStateOverCapRequired
+	row.DriveAnimalsRequired = 240
+	row.DriveAnimalsAssigned = 240
+	row.DriveOperatorCap = 200
+	row.DriveAvailableOperators = 1
+	row.DriveLatestSafeDate = &latestSafe
+	row.NextAction = "Finish today over operator cap; do not push past latest safe date"
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows: []domain.Row{row},
+		AdherenceSummary: domain.AdherenceSummary{
+			ExpectedCount: row.ExpectedCount,
+			OpenGapCount:  1,
+		},
+	}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(got.Rows))
+	}
+	r := got.Rows[0]
+	if r.Gap != "over_cap_required" {
+		t.Fatalf("gap = %q, want over_cap_required", r.Gap)
+	}
+	if r.DriveCapacityState != domain.DriveCapacityStateOverCapRequired || r.DriveAnimalsAssigned != 240 || r.DriveOperatorCap != 200 || r.DriveAvailableOperators != 1 {
+		t.Fatalf("drive fields = %+v", r)
+	}
+	if !strings.Contains(r.Actual, "finish over cap") || strings.Contains(strings.ToLower(r.NextAction), "escalate") {
+		t.Fatalf("actual/next action should direct vaccination, not escalation: actual=%q next=%q", r.Actual, r.NextAction)
+	}
+}
+
+func TestControlTowerShowsMedicalDefersDistinctFromOverCapWork(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	reason := "icu"
+	row := processRow("medical-defer", domain.WorkStateDeferred, domain.SeverityWatch, due)
+	row.DriveCapacityState = domain.DriveCapacityStateMedicalDefer
+	row.DriveMedicalDeferReason = &reason
+	row.NextAction = "Keep animal deferred until medical clearance"
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("alerts = %d, want 1", len(got.Alerts))
+	}
+	alert := got.Alerts[0]
+	if alert.DriveCapacityState != domain.DriveCapacityStateMedicalDefer || alert.DriveMedicalDeferReason == nil || *alert.DriveMedicalDeferReason != "icu" {
+		t.Fatalf("medical defer fields = %+v", alert)
+	}
+	if strings.Contains(alert.Detail, "over") {
+		t.Fatalf("medical defer detail leaked over-cap language: %q", alert.Detail)
 	}
 }
 

@@ -15,10 +15,16 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 type fakeReader struct {
+	operatorCfg         *vaccexecapp.OperatorAssignmentConfigView
+	lastOperatorCfgPark string
+	parks               []domain.ParkOption
+	parksErr            error
+
 	rows          []domain.ExecutionRow
 	executionPage domain.ExecutionResponse
 	detail        domain.ShedDrilldown
@@ -29,6 +35,8 @@ type fakeReader struct {
 	schedule      domain.OperationsResponse
 	lastSchedule  domain.ScheduleQuery
 	scheduleErr   error
+	assignments   domain.DriveAssignmentResponse
+	lastAssign    domain.DriveAssignmentQuery
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
@@ -55,6 +63,7 @@ type fakeWriter struct {
 	lastRescheduleObl     string
 	lastRescheduleIdemKey string
 	lastAuthorizedParks   []string
+	lastOverride          *obligationdomain.VaccineDriveDateOverride
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -68,6 +77,11 @@ func (f *fakeReader) VaccinationSchedule(_ context.Context, q domain.ScheduleQue
 		return domain.OperationsResponse{}, f.scheduleErr
 	}
 	return f.schedule, nil
+}
+
+func (f *fakeReader) DriveAssignments(_ context.Context, q domain.DriveAssignmentQuery) (domain.DriveAssignmentResponse, error) {
+	f.lastAssign = q
+	return f.assignments, nil
 }
 
 func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -127,6 +141,34 @@ func (f *fakeReader) CapacityConfig(_ context.Context, _ string) (domain.Capacit
 	return f.capacityCfg, nil
 }
 
+func (f *fakeReader) GetOperatorAssignmentConfig(_ context.Context, _, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error) {
+	f.lastOperatorCfgPark = parkID
+	if f.operatorCfg == nil {
+		return vaccexecapp.OperatorAssignmentConfigView{}, vaccexecapp.ErrOperatorAssignmentConfigNotFound
+	}
+	return *f.operatorCfg, nil
+}
+
+func (f *fakeReader) AuthorizedParkOptions(_ context.Context, _ string, parkIDs []string) ([]domain.ParkOption, error) {
+	if f.parksErr != nil {
+		return nil, f.parksErr
+	}
+	if len(parkIDs) == 0 {
+		return f.parks, nil
+	}
+	allowed := make(map[string]bool, len(parkIDs))
+	for _, id := range parkIDs {
+		allowed[id] = true
+	}
+	var out []domain.ParkOption
+	for _, p := range f.parks {
+		if allowed[p.ParkID] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {
 	return "obligation-id", false, nil
 }
@@ -144,6 +186,47 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 		id = obligationID
 	}
 	return id, w.rescheduleReplay, nil
+}
+
+func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
+	w.lastOverride = &override
+	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 7, 22, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-01","override_date":"2026-08-08","reason":"CEO postponement"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if writer.lastOverride == nil || writer.lastOverride.VaccineCode != "PPR" || writer.lastOverride.CreatedBy == "" {
+		t.Fatalf("override not carried: %#v", writer.lastOverride)
+	}
+
+	revert := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-08","reason":"restore"}`))
+	revert = revert.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(revert.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	revertRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(revertRec, revert)
+	if revertRec.Code != http.StatusOK {
+		t.Fatalf("revert status=%d body=%s", revertRec.Code, revertRec.Body.String())
+	}
+
+	bad := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-01","reason":"bad"}`))
+	bad = bad.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(bad.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	badRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad status=%d body=%s", badRec.Code, badRec.Body.String())
+	}
 }
 
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
@@ -226,6 +309,82 @@ func TestVaccinationExecutionDefaultsAndRejectsScopedPark(t *testing.T) {
 	}
 }
 
+func TestAppVaccinationExecutionRequiresAndCarriesOperatorScope(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "30000000-0000-4000-8000-000000000077"
+	reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	missing := httptest.NewRecorder()
+	missingReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+	missingReq = missingReq.WithContext(httpmiddleware.WithTenantID(missingReq.Context(), tenantID))
+	mux.ServeHTTP(missing, missingReq)
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("missing actor status = %d want 400 body=%s", missing.Code, missing.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	req = req.WithContext(ctx)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.last.OperatorScopeActorID != actorID {
+		t.Fatalf("operator scope actor = %q want %q", reader.last.OperatorScopeActorID, actorID)
+	}
+}
+
+// TestAppVaccinationExecutionLeadershipSkipsOperatorScope pins that a leadership principal
+// (CEO/CXO, PC Director, Park Head) reading the APP execution route is NOT
+// operator-assignment scoped: they get the park-scoped read-only oversight view of all
+// sheds, unlike a field operator who only sees their own assigned work. Without this,
+// operator scoping returns zero rows for a leader (they are not an assigned operator), which
+// is why a CEO's drive -> sheds view was empty.
+func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "90000000-0000-4000-8000-000000000104"
+	const parkID = "30000000-0000-4000-8000-000000000001"
+	cases := []struct {
+		role  string
+		grant permissions.ActiveGrant
+	}{
+		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.role, func(t *testing.T) {
+			reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+			mux := http.NewServeMux()
+			Register(mux, NewHandler(reader, &fakeWriter{}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+			ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{tc.grant})
+			req = req.WithContext(ctx)
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+			}
+			if reader.last.OperatorScopeActorID != "" {
+				t.Fatalf("leadership operator scope actor = %q want empty (park-scoped oversight)", reader.last.OperatorScopeActorID)
+			}
+			var resp domain.ExecutionResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if !resp.ViewerReadOnly {
+				t.Fatalf("leadership response viewerReadOnly = false, want true (read-only oversight; shed open blocked)")
+			}
+		})
+	}
+}
+
 func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
 	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
 	mux := http.NewServeMux()
@@ -291,6 +450,7 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	const (
 		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "30000000-0000-4000-8000-000000000077"
 		shedID   = "30000000-0000-4000-8000-000000000001"
 		taskID   = "40000000-0000-4000-8000-000000000001"
 		goatID   = "50000000-0000-4000-8000-000000000001"
@@ -308,11 +468,18 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 
-	// task_id is OPTIONAL: absent -> shed-wide roster (200), not 400. Keeps the current app,
-	// which does not yet send task_id, working.
+	missingScope := httptest.NewRecorder()
+	missingScopeReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil)
+	missingScopeReq = missingScopeReq.WithContext(httpmiddleware.WithTenantID(missingScopeReq.Context(), tenantID))
+	mux.ServeHTTP(missingScope, missingScopeReq)
+	if missingScope.Code != http.StatusBadRequest {
+		t.Fatalf("missing operator scope status=%d want 400", missingScope.Code)
+	}
+
+	// task_id is OPTIONAL after operator auth: absent -> shed-wide roster (200), not 400.
 	shedWide := httptest.NewRecorder()
 	shedWideReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil)
-	shedWideReq = shedWideReq.WithContext(httpmiddleware.WithTenantID(shedWideReq.Context(), tenantID))
+	shedWideReq = shedWideReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(shedWideReq.Context(), tenantID), actorID))
 	mux.ServeHTTP(shedWide, shedWideReq)
 	if shedWide.Code != http.StatusOK {
 		t.Fatalf("missing task_id (shed-wide) status=%d want 200", shedWide.Code)
@@ -320,13 +487,15 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 
 	// A MALFORMED task_id is still rejected.
 	badTask := httptest.NewRecorder()
-	mux.ServeHTTP(badTask, httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil))
+	badTaskReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil)
+	badTaskReq = badTaskReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(badTaskReq.Context(), tenantID), actorID))
+	mux.ServeHTTP(badTask, badTaskReq)
 	if badTask.Code != http.StatusBadRequest {
 		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -334,6 +503,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if reader.lastRoster.TaskID != taskID || reader.lastRoster.ShedID != shedID {
 		t.Fatalf("query=%#v", reader.lastRoster)
+	}
+	if reader.lastRoster.OperatorScopeActorID != actorID {
+		t.Fatalf("operator scope actor=%q want %q", reader.lastRoster.OperatorScopeActorID, actorID)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
@@ -473,13 +645,14 @@ func TestGetShedDetailNotFound(t *testing.T) {
 
 func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	asOf := time.Date(2026, time.July, 21, 23, 59, 59, 0, biztime.DefaultLocation())
+	serverNow := asOf.Add(-time.Minute)
 	reader := &fakeReader{
 		shedFound:   true,
 		shedDetail:  domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000001"},
 		shedAnimals: domain.ShedAnimalPage{Rows: []domain.ShedAnimalRow{{GoatID: "g1", DisplayID: "G-1", Status: "due"}}},
 	}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader, &fakeWriter{}))
+	Register(mux, NewHandler(reader, &fakeWriter{}).WithClock(func() time.Time { return serverNow }))
 	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30&drive_due_date=2026-07-22", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
@@ -966,15 +1139,103 @@ func TestGetCapacityConfig(t *testing.T) {
 	}
 }
 
-func TestUpdateCapacityConfigRouteIsNotRegistered(t *testing.T) {
+// fakeCapacityConfigWriter is the test double for CapacityConfigWriter.
+type fakeCapacityConfigWriter struct {
+	updated  domain.CapacityConfig
+	code     string
+	message  string
+	err      error
+	lastCfg  domain.CapacityConfig
+	lastCall bool
+}
+
+func (f *fakeCapacityConfigWriter) UpdateCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig) (domain.CapacityConfig, string, string, error) {
+	f.lastCfg = cfg
+	f.lastCall = true
+	if f.err != nil {
+		return domain.CapacityConfig{}, "", "", f.err
+	}
+	if f.code != "" {
+		return domain.CapacityConfig{}, f.code, f.message, nil
+	}
+	return f.updated, "", "", nil
+}
+
+func TestPutCapacityConfigWithoutWriterIs500(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
-	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150}`))
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1}`))
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d want 405 body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutCapacityConfigSuccess(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	shots := 3
+	writer := &fakeCapacityConfigWriter{updated: domain.CapacityConfig{MaxPerDay: 150, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 2, MaxShotsPerAnimalPerDrive: &shots}}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1,"maxShotsPerAnimalPerDrive":3}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if !writer.lastCall {
+		t.Fatal("expected writer to be called")
+	}
+	if writer.lastCfg.MaxPerDay != 150 || writer.lastCfg.MaxShotsPerAnimalPerDrive == nil || *writer.lastCfg.MaxShotsPerAnimalPerDrive != 3 {
+		t.Fatalf("lastCfg = %+v", writer.lastCfg)
+	}
+	var resp domain.CapacityConfig
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.RowVersion != 2 {
+		t.Fatalf("resp.RowVersion = %d want 2", resp.RowVersion)
+	}
+}
+
+func TestPutCapacityConfigValidationRejected(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	writer := &fakeCapacityConfigWriter{code: "invalid_max_per_day", message: "max animals per operator per day must be between 1 and 100000"}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":0,"rowVersion":1}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutCapacityConfigConflict(t *testing.T) {
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 200, CapacityScope: "tenant", MaxBufferDays: 7, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 1}}
+	writer := &fakeCapacityConfigWriter{err: vaccexecapp.ErrCapacityConfigConflict}
+	h := NewHandler(reader, &fakeWriter{}).WithCapacityConfigWriter(writer)
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/vaccination/capacity-config", strings.NewReader(`{"maxPerDay":150,"rowVersion":1}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
 	}
 }
