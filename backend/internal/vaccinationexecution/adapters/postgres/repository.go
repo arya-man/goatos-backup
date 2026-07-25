@@ -1382,6 +1382,7 @@ grouped AS (
 enriched AS (
   SELECT
     grouped.*,
+    assignment_operator.display_name AS assignment_operator_name,
     COALESCE(loa.usable_for_vaccination, true) AS usable_for_vaccination,
     COALESCE(loa.is_quarantine, false) AS is_quarantine,
     COALESCE(loa.is_icu, false) AS is_icu
@@ -1389,6 +1390,24 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
+  LEFT JOIN LATERAL (
+    SELECT wm.display_name
+    FROM vaccination_drive_assignments vda
+    JOIN workforce_members wm
+      ON wm.tenant_id = vda.tenant_id
+     AND wm.workforce_member_id = vda.operator_id
+     AND wm.status = 'active'
+    WHERE vda.tenant_id = $1::uuid
+      AND vda.batch_id = grouped.batch_id
+      AND vda.shed_id = grouped.shed_uuid
+      AND vda.operator_id IS NOT NULL
+      AND (
+        grouped.partition_label = 'whole'
+        OR vda.partition_label = grouped.partition_label
+      )
+    ORDER BY vda.planned_date DESC, vda.updated_at DESC, vda.assignment_id DESC
+    LIMIT 1
+  ) assignment_operator ON grouped.operator_name IS NULL
 ),
 stateful AS (
   SELECT
@@ -1405,7 +1424,7 @@ stateful AS (
         OR enriched.is_quarantine
         OR enriched.is_icu THEN 'deferred'
       WHEN enriched.missed_count > 0 THEN 'missed'
-      WHEN enriched.operator_name IS NULL
+      WHEN COALESCE(enriched.operator_name, enriched.assignment_operator_name) IS NULL
        AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
@@ -1502,7 +1521,7 @@ SELECT
   grouped.proof_submitted_count,
   grouped.batch_status,
   grouped.task_state,
-  grouped.operator_name,
+  COALESCE(grouped.operator_name, grouped.assignment_operator_name) AS operator_name,
   park_head.display_name AS park_head_name,
   verifier.display_name AS verifier_name,
   grouped.usable_for_vaccination,
