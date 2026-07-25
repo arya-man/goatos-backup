@@ -245,6 +245,14 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 		}
 		if appliedChecksum != "" {
 			if appliedChecksum != migration.Checksum {
+				if isAllowedHistoricalChecksum(migration, appliedChecksum) {
+					log.Warn("migration_historical_checksum_accepted",
+						slog.String("version", migration.Version),
+						slog.String("filename", migration.Filename),
+						slog.String("applied_checksum", appliedChecksum),
+						slog.String("current_checksum", migration.Checksum))
+					continue
+				}
 				if allowChecksumDrift {
 					log.Warn("migration_checksum_drift_ignored_local",
 						slog.String("version", migration.Version),
@@ -288,6 +296,16 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 		}
 	}
 	return nil
+}
+
+func isAllowedHistoricalChecksum(migration migrationFile, appliedChecksum string) bool {
+	if migration.Version != "000001_goatos_clean_slate_baseline" {
+		return false
+	}
+	if migration.Checksum != "sha256:2ecaf35d57ff448fcd2f293e502074c1fe5c36e509a807fa482ab609659d6bb0" {
+		return false
+	}
+	return appliedChecksum == "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349"
 }
 
 func appliedMigrationChecksum(ctx context.Context, conn *pgxpool.Conn, version string) (string, error) {

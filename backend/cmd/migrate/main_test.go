@@ -47,6 +47,24 @@ DROP INDEX IF EXISTS t_idx;`), 0o600); err != nil {
 	}
 }
 
+func TestAllowedHistoricalChecksumOnlyAcceptsKnownBaselineDrift(t *testing.T) {
+	migration := migrationFile{
+		Version:  "000001_goatos_clean_slate_baseline",
+		Filename: "000001_goatos_clean_slate_baseline.sql",
+		Checksum: "sha256:2ecaf35d57ff448fcd2f293e502074c1fe5c36e509a807fa482ab609659d6bb0",
+	}
+	if !isAllowedHistoricalChecksum(migration, "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349") {
+		t.Fatal("known historical baseline checksum was rejected")
+	}
+	if isAllowedHistoricalChecksum(migration, "sha256:unexpected") {
+		t.Fatal("unexpected baseline checksum was accepted")
+	}
+	migration.Version = "000002_restore_operator_assignment_selected_ids"
+	if isAllowedHistoricalChecksum(migration, "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349") {
+		t.Fatal("historical checksum allowance applied to a non-baseline migration")
+	}
+}
+
 func TestApplyMigrationsRollsBackOrdinaryMigrationOnFailure(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
