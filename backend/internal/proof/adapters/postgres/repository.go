@@ -278,7 +278,8 @@ SET retention_policy = $3,
 WHERE tenant_id = $1::uuid
   AND proof_id = ANY($2::uuid[])
   AND upload_state = 'completed'
-  AND retention_policy <> 'legal_hold'`,
+  AND retention_policy <> 'legal_hold'
+  AND (retention_policy, retention_expires_at) IS DISTINCT FROM ($3::text, $4::timestamptz)`,
 		tenantID, ids, strings.TrimSpace(policy), expiresAt)
 	return int(tag.RowsAffected()), err
 }
@@ -296,6 +297,12 @@ WITH doomed AS (
   WHERE retention_expires_at IS NOT NULL
     AND retention_expires_at <= $1
     AND retention_policy <> 'legal_hold'
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_review_goats rg WHERE rg.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_reviews ar WHERE ar.media_proof_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_hf_vaccination_evidence pe WHERE pe.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_source_health_checks ph WHERE ph.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM source_entry_decisions sd WHERE sd.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM transit_handoffs th WHERE th.proof_ref_id = proof_artifacts.proof_id)
   ORDER BY retention_expires_at, proof_id
   LIMIT $2
 )
@@ -319,6 +326,12 @@ WITH doomed AS (
   WHERE upload_state IN ('pending', 'uploading')
     AND upload_expires_at IS NOT NULL
     AND upload_expires_at <= $1
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_review_goats rg WHERE rg.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_reviews ar WHERE ar.media_proof_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_hf_vaccination_evidence pe WHERE pe.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_source_health_checks ph WHERE ph.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM source_entry_decisions sd WHERE sd.proof_ref_id = proof_artifacts.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM transit_handoffs th WHERE th.proof_ref_id = proof_artifacts.proof_id)
   ORDER BY upload_expires_at, proof_id
   LIMIT $2
 )
