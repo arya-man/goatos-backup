@@ -924,6 +924,42 @@ func TestSubmitSuccessAppliesProofRetention(t *testing.T) {
 	}
 }
 
+func TestSubmitRetentionFailureDoesNotFailCommittedSubmissionOrBlockFanout(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.version.ProofPolicy["retention_policy"] = "operational_90d"
+	proofs := &fakeProofValidator{resolved: completedProof(), retentionErr: errors.New("proof retention temporarily unavailable")}
+	hook := &fakeSubmissionHook{}
+	service := NewService(repo).WithProofValidator(proofs).WithSubmissionHook(hook)
+
+	result, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-retention-post-commit",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v, want committed response despite retention failure", err)
+	}
+	if result == nil || result.Submission.SubmissionID == "" {
+		t.Fatalf("result = %#v, want committed submission response", result)
+	}
+	if proofs.retentionCalls != 1 {
+		t.Fatalf("retention calls = %d, want one best-effort attempt", proofs.retentionCalls)
+	}
+	if hook.submitted != 1 {
+		t.Fatalf("submission hook calls = %d, want fanout after retention failure", hook.submitted)
+	}
+}
+
 func TestVerifyTaskRejectsTaskWithoutReviewSubmission(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.State = "assigned"
@@ -1748,6 +1784,7 @@ type fakeProofValidator struct {
 	err             error
 	retentionCalls  int
 	retentionPolicy string
+	retentionErr    error
 }
 
 func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error) {
@@ -1764,5 +1801,5 @@ func (f *fakeProofValidator) ApplyRetentionPolicy(_ context.Context, _ string, r
 	f.retentionCalls++
 	f.retentionPolicy = policy
 	f.refs = refs
-	return f.err
+	return f.retentionErr
 }
