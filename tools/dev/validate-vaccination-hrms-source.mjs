@@ -730,5 +730,8 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // is not a source-field contract. It is admin-authored runtime config that can
 // reassign open planned drive rows after seed; source validation continues to
 // validate only operator-roster presence/shape when cpt-operator-roster.json exists.
+// Coupling review 2026-07-25: migration 000002 is the additive live-DB repair
+// for the same runtime column. No validator input, hash, or row-count rule
+// changes because seed still leaves selected_operator_ids at its DB default.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.

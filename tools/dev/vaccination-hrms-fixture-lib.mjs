@@ -608,3 +608,6 @@ export function updateManifestHashes(directory, manifest) {
 // assignment config over seeded operators. The committed full fixture has no
 // cpt-operator-roster.json, so fixture bytes/hashes and loader semantics remain
 // unchanged.
+// Coupling review 2026-07-25: migration 000002 only restores that runtime
+// selected_operator_ids column on already-migrated DBs. It backfills from the
+// default operator and does not introduce a source fixture field.
