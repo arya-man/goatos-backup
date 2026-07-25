@@ -221,6 +221,10 @@ func (r *memoryProofRepo) ApplyRetention(_ context.Context, _ string, proofIDs [
 	return updated, nil
 }
 
+func (r *memoryProofRepo) BackfillSubmissionRetention(_ context.Context, _ time.Time, _ int) (int, error) {
+	return 0, nil
+}
+
 func (r *memoryProofRepo) PurgeExpired(_ context.Context, _ time.Time, _ int) (int, error) {
 	return 0, nil
 }
