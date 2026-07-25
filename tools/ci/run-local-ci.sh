@@ -201,6 +201,7 @@ run_backend() {
   step "review-lens-ledger-guard" make review-lens-ledger-guard
   step "seed-migration-guard"     make seed-migration-guard
   step "vaccination-hrms-seed-fixture-guard" make vaccination-hrms-seed-fixture-guard
+  step "fcm-recipient-routing-guard" make fcm-recipient-routing-guard
   step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
   step "vaccination-shared-source-sync-guard" make vaccination-shared-source-sync-guard
   step "india-date-guard"         make india-date-guard

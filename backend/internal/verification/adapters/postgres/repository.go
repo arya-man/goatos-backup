@@ -1246,11 +1246,12 @@ WHERE tenant_id = $4::uuid
 // module.
 func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[string]any {
 	return map[string]any{
-		"tenant_id": in.TenantID,
-		"item_id":   itemID,
-		"vertical":  in.Vertical,
-		"module":    in.Module,
-		"category":  in.Category,
+		"tenant_id":     in.TenantID,
+		"item_id":       itemID,
+		"vertical":      in.Vertical,
+		"module":        in.Module,
+		"category":      in.Category,
+		"subject_label": derefStr(in.SubjectLabel),
 		"source": map[string]any{
 			"module":        in.Source.Module,
 			"task_id":       derefStr(in.Source.TaskID),
