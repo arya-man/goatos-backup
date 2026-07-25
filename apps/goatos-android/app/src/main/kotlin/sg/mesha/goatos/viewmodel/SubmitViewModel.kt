@@ -315,7 +315,7 @@ class SubmitViewModel @Inject constructor(
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
         resolveShedScopeFromTask(detail.task)
-        if (detail.task.state.isSubmissionTerminal()) {
+        if (shouldRenderTerminalAck(detail.task)) {
             // The refreshed backend task is authoritative after a successful submit. Its row
             // version advances when the task enters review/accepted state, so trying to recover
             // the old pre-submit outbox key from the new row version would render a fresh,
@@ -324,13 +324,7 @@ class SubmitViewModel @Inject constructor(
             statusJob?.cancel()
             clearSavedSubmission()
             outboxRecoveryKey = null
-            _state.value = draftState(detail.task, detail.form).copy(
-                formRunner = null,
-                syncState = SyncState.ACKED,
-                syncLabel = "",
-                syncProgress = 1f,
-                canSubmit = false,
-            )
+            _state.value = terminalAckState(detail.task, detail.form)
             return
         }
         bindSubmissionKey(detail.task)
@@ -514,7 +508,10 @@ class SubmitViewModel @Inject constructor(
         // screen as a fresh draft and erase the durable ACKED/submission lifecycle banner —
         // applyTaskResource is the authoritative terminal/outbox renderer.
         if (outboxItemId != null) return
-        if (task.state.isSubmissionTerminal()) return
+        if (shouldRenderTerminalAck(task)) {
+            _state.value = terminalAckState(task, currentForm)
+            return
+        }
         if (captureAllowed == false) {
             _state.value = submitPlaceholder().copy(isCaptureRoleBlocked = true)
             return
@@ -691,8 +688,14 @@ class SubmitViewModel @Inject constructor(
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
                 it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
             }
-            item.status == SyncItemStatus.SUCCEEDED -> _state.update {
-                it.copy(syncState = SyncState.ACKED, syncLabel = "", syncProgress = 1f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+            item.status == SyncItemStatus.SUCCEEDED -> {
+                val task = currentTask
+                if (task != null && shouldRenderTerminalAck(task)) {
+                    _state.value = terminalAckState(task, currentForm)
+                } else {
+                    outboxItemId = null
+                    renderDraft()
+                }
             }
             item.conflict -> _state.update {
                 it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false)
@@ -884,6 +887,29 @@ class SubmitViewModel @Inject constructor(
             blockingReason = blockingReason,
         )
     }
+
+    private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
+        if (!task.state.isSubmissionTerminal()) return false
+        if (!currentProofPolicy.isShedLevelVideo) return true
+        return currentShedProofReadiness().blockingReason == null
+    }
+
+    private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
+        draftState(task, form).copy(
+            formRunner = null,
+            syncState = SyncState.ACKED,
+            syncLabel = "",
+            syncProgress = 1f,
+            canSubmit = false,
+            blockingReason = null,
+            proofSummaryTitle = "",
+            proofSummarySyncedLabel = "",
+            proofSummaryFinalizeHint = "",
+            proofTotal = 0,
+            proofSynced = 0,
+            proofUploading = 0,
+            proofFailed = 0,
+        )
 
     private fun blockedState(): SubmitUiState = submitPlaceholder().copy(isNoTaskAssigned = true)
 
