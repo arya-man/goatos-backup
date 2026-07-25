@@ -587,9 +587,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		return nil, mapRepoErr(err)
 	}
 	if !replay && s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
-		if err := s.proofs.ApplyRetentionPolicy(ctx, cmd.TenantID, cmd.Body.ProofRefs, stringValue(version.ProofPolicy, "retention_policy"), s.now()); err != nil {
-			return nil, mapRepoErr(err)
-		}
+		_ = s.proofs.ApplyRetentionPolicy(ctx, cmd.TenantID, cmd.Body.ProofRefs, stringValue(version.ProofPolicy, "retention_policy"), s.now())
 	}
 	if cmd.SubmissionFanoutRequired && !replay {
 		if err := s.applySubmissionFanout(ctx, cmd.TenantID, updatedTask, submission, true); err != nil {
