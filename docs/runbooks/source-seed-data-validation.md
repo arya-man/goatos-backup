@@ -116,6 +116,22 @@ discussed validation: `active_operators_per_day=1`, Darshan as default, Sagar as
 the primary fallback when Darshan is unavailable, and Amit retained as a
 secondary fallback rather than removed from HRMS.
 
+That roster must also materialize reviewed shed ownership for the CPT seed
+bundle. `materialize-source.mjs` writes one shed-manager mapping row per active
+CPT physical shed with Darshan as manager/default drive owner and Sagar as the
+reviewed backup; a header-only shed-manager mapping is invalid. The seed target
+must run `seed-shed-positions` after source validation, and the CPT helper must
+run it in strict `only-sheds-with-goats` mode so no active Channapatna shed can
+land in STG as `Manager: unassigned`, `Backup: unassigned`, or `Operators
+unassigned`.
+
+Completed accepted drive history is not exempt from operator attribution. If a
+reviewed CPT drive is fully done and therefore no open `vaccination_drive_assignments`
+row remains for a shed, the shed/read-model summary must still resolve the
+accepted completion history through the scheduler default operator. The Gandhi
+2026-07-24 ET+TT history belongs to Darshan and must never render as
+`Operators unassigned`.
+
 The same roster is also the authority for field-operator Android login
 provisioning after the database seed. Each vaccination operator must have a
 separate Firebase/Auth email-password identity using that operator's

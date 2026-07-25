@@ -138,6 +138,15 @@ available operators = 600). It is not the final drive assignment cap; with
 `active_operators_per_day=1`, the final scheduled drive cap is 200 unique
 animals/day.
 
+Operator attribution is part of that date/history contract. The CPT
+operator-drive materializer must emit reviewed shed-manager mapping rows for
+all active Channapatna physical sheds, with Darshan as manager/default drive
+owner and Sagar as backup, and the seed target must write those positions even
+when `cpt-operator-roster.json` is present. A completed accepted-history shed
+such as Gandhi on `2026-07-24` still displays Darshan through the default
+operator fallback; completion must not erase the operator and leave a
+historical row labelled `Operators unassigned`.
+
 
 For local DB reseed proof, the packet's exhaustive contract is
 `fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md`.

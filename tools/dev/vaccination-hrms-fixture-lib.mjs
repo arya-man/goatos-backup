@@ -105,6 +105,17 @@ export const OPERATOR_ANDROID_LOGIN_CONTRACT_FIELD = "operator_android_login";
 export const OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER = "firebase_email_password";
 export const OPERATOR_ANDROID_LOGIN_EMAIL_FIELD = "operators[].email_hint";
 export const OPERATOR_ANDROID_SHARED_PASSWORD_FORBIDDEN = true;
+// CPT operator-drive materialization must emit reviewed shed-manager mapping
+// rows from cpt-operator-roster.json, not a header-only placeholder. Darshan is
+// the default reviewed shed/drive owner and Sagar is the reviewed backup for
+// every active CPT physical shed in that packet.
+export const OPERATOR_ROSTER_MATERIALIZES_REVIEWED_SHED_OWNERS = true;
+export const CPT_OPERATOR_ROSTER_DEFAULT_SHED_OWNER = "vaccination_operator_darshan";
+export const CPT_OPERATOR_ROSTER_BACKUP_SHED_OWNER = "vaccination_operator_sagar";
+// Completed accepted vaccination history is still drive work evidence: shed
+// summary/operator reads must resolve it through the scheduler default operator
+// when no open vaccination_drive_assignments row remains.
+export const ACCEPTED_COMPLETED_HISTORY_RESOLVES_DEFAULT_OPERATOR = true;
 // A reseed proof is only valid from an origin/main-identical, clean checkout:
 // `make seed-checkout-staleness-gate` runs read-only BEFORE any DB mutation in
 // both seed targets and fails closed (BUG-023). GOATOS_ALLOW_STALE_SEED_CHECKOUT=1
