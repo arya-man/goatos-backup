@@ -13,6 +13,9 @@
 //   INVARIANTS (always enforced) — properties that must hold for ANY seed of this packet,
 //   independent of which discussed drive-policy override the maintainer applied:
 //     * no (operator, business date) exceeds the contract animal cap;
+//     * no shed/partition-sized unit is fragmented across multiple drive visits when the
+//       whole unit fits within the cap; splitting is only acceptable when the unit itself
+//       exceeds cap or the explicit seed catch-up override applies;
 //     * no planned_date carries more distinct operators than active_operators_per_day;
 //     * every drive operator is one of the contract's declared operators;
 //     * no open drive work before the contract business date;
@@ -149,6 +152,81 @@ WHERE vda.tenant_id = '${tenant}'::uuid
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3`;
 
+const GROUPING_FRAGMENT_SQL = (tenant) => `
+WITH member_rows AS (
+  SELECT vda.assignment_id,
+         vda.planned_date::text AS planned_date,
+         COALESCE(wm.display_name, '(unassigned)') AS operator,
+         vda.operator_id,
+         pr.dose_code,
+         COALESCE(vda.shed_id::text, '') AS shed_id,
+         COALESCE(NULLIF(btrim(vda.physical_shed), ''), '(unknown shed)') AS physical_shed,
+         COALESCE(NULLIF(btrim(vda.partition_label), ''), 'whole') AS partition_label,
+         m.goat_id
+  FROM vaccination_drive_assignments vda
+  JOIN obligation_batches ob ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
+  JOIN obligation_instances oi ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+  JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN workforce_members wm ON wm.workforce_member_id = vda.operator_id
+  WHERE vda.tenant_id = '${tenant}'::uuid
+    AND ob.status <> 'superseded'
+    AND oi.status IN ('scheduled', 'due', 'missed')
+),
+physical AS (
+  SELECT 'physical_shed' AS group_level,
+         dose_code,
+         shed_id,
+         physical_shed,
+         'whole_physical_shed' AS partition_label,
+         count(DISTINCT goat_id) AS animals,
+         count(DISTINCT planned_date || '/' || COALESCE(operator_id::text, '')) AS visit_count,
+         string_agg(DISTINCT planned_date || '/' || operator || '/' || assignment_id::text, '; ' ORDER BY planned_date || '/' || operator || '/' || assignment_id::text) AS visits
+  FROM member_rows
+  GROUP BY dose_code, shed_id, physical_shed
+),
+partitioned AS (
+  SELECT 'partition' AS group_level,
+         dose_code,
+         shed_id,
+         physical_shed,
+         partition_label,
+         count(DISTINCT goat_id) AS animals,
+         count(DISTINCT planned_date || '/' || COALESCE(operator_id::text, '')) AS visit_count,
+         string_agg(DISTINCT planned_date || '/' || operator || '/' || assignment_id::text, '; ' ORDER BY planned_date || '/' || operator || '/' || assignment_id::text) AS visits
+  FROM member_rows
+  GROUP BY dose_code, shed_id, physical_shed, partition_label
+)
+SELECT group_level, dose_code, physical_shed, partition_label, animals::text, visit_count::text, visits
+FROM (
+  SELECT * FROM physical
+  UNION ALL
+  SELECT * FROM partitioned
+) grouped
+WHERE visit_count > 1
+ORDER BY group_level, dose_code, physical_shed, partition_label`;
+
+const ASSIGNMENT_CHUNK_SQL = (tenant) => `
+SELECT vda.planned_date::text,
+       COALESCE(wm.display_name, '(unassigned)'),
+       pr.dose_code,
+       COALESCE(NULLIF(btrim(vda.physical_shed), ''), '(unknown shed)'),
+       COALESCE(NULLIF(btrim(vda.partition_label), ''), 'whole'),
+       count(DISTINCT m.goat_id)::text
+FROM vaccination_drive_assignments vda
+JOIN obligation_batches ob ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
+JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
+JOIN obligation_instances oi ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+LEFT JOIN workforce_members wm ON wm.workforce_member_id = vda.operator_id
+WHERE vda.tenant_id = '${tenant}'::uuid
+  AND ob.status <> 'superseded'
+  AND oi.status IN ('scheduled', 'due', 'missed')
+GROUP BY vda.assignment_id, vda.planned_date, COALESCE(wm.display_name, '(unassigned)'), pr.dose_code, vda.physical_shed, vda.partition_label
+ORDER BY 1, 2, 3, 4, 5`;
+
 const DUPLICATE_OPEN_ASSIGNMENT_SQL = (tenant) => `
 SELECT pr.dose_code,
        m.goat_id::text,
@@ -191,7 +269,7 @@ WHERE pr.tenant_id = '${tenant}'::uuid
   AND pr.trigger_type = 'post_arrival'
 ORDER BY 1`;
 
-export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows, duplicateOpenAssignmentRows = [], adultPostArrivalRuleRows = [] }) {
+export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows, duplicateOpenAssignmentRows = [], adultPostArrivalRuleRows = [], groupingFragmentRows = [], assignmentChunkRows = [] }) {
   const failures = [];
   const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [], seedCatchupOverrides = [] } = contract;
   const capFor = (date, operator) => {
@@ -239,6 +317,25 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
 
   for (const [doseCode, triggerType] of adultPostArrivalRuleRows) {
     failures.push(`adult entry-date anchor rule: ${doseCode} has trigger_type=${triggerType}; adult initial vaccination rules must use campaign/catch-up, never post_arrival`);
+  }
+
+  for (const [date, operator, doseCode, physicalShed, partitionLabel, animalsText] of assignmentChunkRows) {
+    const animals = Number(animalsText);
+    const allowedCap = capFor(date, operator);
+    if (animals > allowedCap) {
+      failures.push(`oversized drive chunk: ${date} ${operator} ${doseCode} ${physicalShed}/${partitionLabel} has ${animals} animals (cap ${allowedCap})`);
+    }
+  }
+
+  for (const [groupLevel, doseCode, physicalShed, partitionLabel, animalsText, visitCountText, visits] of groupingFragmentRows) {
+    const animals = Number(animalsText);
+    const visitCount = Number(visitCountText);
+    if (animals <= cap) {
+      failures.push(
+        `unnecessary ${groupLevel} fragmentation: ${doseCode} ${physicalShed}/${partitionLabel} ` +
+        `has ${animals} animals (fits cap ${cap}) but is split across ${visitCount} drive visits: ${visits}`,
+      );
+    }
   }
 
   const configuredOperators = new Set(operatorRows.map(([name]) => name));
@@ -340,6 +437,8 @@ function selfTest() {
     vaccineRows: [],
     duplicateOpenAssignmentRows: [],
     adultPostArrivalRuleRows: [],
+    groupingFragmentRows: [],
+    assignmentChunkRows: [],
   };
   const exactVariant = {
     id: "exact-210",
@@ -363,6 +462,10 @@ function selfTest() {
     ["wrong cap fails", { ...clean, operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "50", "sunday"], ["Sagar Mahoor", "200", "saturday"]] }, 1],
     ["prohibited PPR drive fails", { ...clean, vaccineRows: [["2026-08-07", "ppr_adult_w1", "124"]] }, 1],
     ["adult post-arrival rule fails", { ...clean, adultPostArrivalRuleRows: [["fmd_adult_w1", "post_arrival"]] }, 1],
+    ["oversized assignment chunk fails", { ...clean, assignmentChunkRows: [["2026-08-01", "Darshan Talwar", "et_tt_adult_w2", "Gandhi", "whole", "201"]] }, 1],
+    ["seed catch-up chunk exception passes", { ...clean, contract: { ...contract, seedCatchupOverrides: [{ date: "2026-07-25", operator: "Darshan Talwar", maxAnimals: 210 }] }, assignmentChunkRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "Gandhi", "whole", "210"]] }, 0],
+    ["unnecessary shed fragmentation fails", { ...clean, groupingFragmentRows: [["physical_shed", "et_tt_adult_w2", "Gandhi", "whole_physical_shed", "114", "2", "2026-07-24/Darshan/a1; 2026-07-25/Darshan/a2"]] }, 1],
+    ["oversize shed fragmentation passes", { ...clean, groupingFragmentRows: [["physical_shed", "et_tt_adult_w2", "Godel 1", "whole_physical_shed", "241", "2", "2026-07-24/Darshan/a1; 2026-07-25/Darshan/a2"]] }, 0],
     ["variant exact date/operator/count passes", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"]] }, 0],
     ["variant exact date/operator/count fails", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "200"]] }, 2],
     ["variant extra ET+TT rows fail", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"], ["2026-07-26", "Sagar Mahoor", "et_tt_adult_w2", "199"], ["2026-07-27", "Darshan Talwar", "et_tt_adult_w2", "11"]] }, 1],
@@ -417,6 +520,8 @@ function main() {
     vaccineRows: (variant || contract.prohibitedDosePrefixes.length) ? psql(VACCINE_BY_DATE_SQL(tenant)) : [],
     duplicateOpenAssignmentRows: psql(DUPLICATE_OPEN_ASSIGNMENT_SQL(tenant)),
     adultPostArrivalRuleRows: psql(ADULT_POST_ARRIVAL_RULE_SQL(tenant)),
+    groupingFragmentRows: psql(GROUPING_FRAGMENT_SQL(tenant)),
+    assignmentChunkRows: psql(ASSIGNMENT_CHUNK_SQL(tenant)),
   });
 
   if (failures.length) {
