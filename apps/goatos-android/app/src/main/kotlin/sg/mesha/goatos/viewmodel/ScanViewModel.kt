@@ -51,7 +51,6 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 /**
@@ -87,7 +86,6 @@ class ScanViewModel @Inject constructor(
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
-    private val stateCacheKey = "${shedId.orEmpty()}|${taskId.orEmpty()}"
     private var readerRefreshJob: Job? = null
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
@@ -288,7 +286,7 @@ class ScanViewModel @Inject constructor(
             .toList()
         val localFeedKeys = feed.map { it.primaryTag to it.vaccineLabel }.toSet()
         val mergedFeed = feed + serverFeed.filterNot { (it.primaryTag to it.vaccineLabel) in localFeedKeys }
-        val rendered = gate.copy(
+        gate.copy(
             feed = mergedFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
@@ -303,14 +301,10 @@ class ScanViewModel @Inject constructor(
             readerConnection = readerStatus.toScanReaderConnection(readerName),
             duplicateNotice = duplicateNotice,
         )
-        if (rendered.ringTotal > 0 || rendered.roster.isNotEmpty()) {
-            rememberRenderedState(stateCacheKey, rendered)
-        }
-        rendered
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        rememberedRenderedState(stateCacheKey) ?: emptyScanState()
+        emptyScanState()
     )
 
     init {
@@ -797,31 +791,6 @@ class ScanViewModel @Inject constructor(
                 .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
                 .forEach { proofCaptureRepository.retryUpload(selectedTaskId, it.id) }
         }
-    }
-
-    companion object {
-        private val lastRenderedStates = ConcurrentHashMap<String, ScanUiState>()
-
-        private fun rememberRenderedState(key: String, state: ScanUiState) {
-            if (key.isBlank()) return
-            lastRenderedStates[key] = state.copy(
-                selectedFilter = null,
-                rosterExpanded = false,
-                isLoadingMore = false,
-                duplicateNotice = null,
-                error = null,
-            )
-        }
-
-        private fun rememberedRenderedState(key: String): ScanUiState? =
-            lastRenderedStates[key]?.copy(
-                isRefreshing = true,
-                isLoadingMore = false,
-                selectedFilter = null,
-                rosterExpanded = false,
-                duplicateNotice = null,
-                error = null,
-            )
     }
 
 private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
