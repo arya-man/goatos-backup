@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
@@ -357,19 +358,9 @@ private fun ModuleTabs(
 
 @Composable
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
-                color = MeshaColors.Ink,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.W800,
-            )
+    MeshaScreenHeader(
+        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
+        below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
                 lastSyncedAt = state.lastSyncedAt,
@@ -377,13 +368,15 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
                 isOffline = state.isOffline,
                 modifier = Modifier.padding(top = 2.dp),
             )
-        }
-        SyncIconButton(
-            isSyncing = state.isRefreshing,
-            onSync = onRefresh,
-            contentDescription = stringResource(R.string.verify_queue_refresh),
-        )
-    }
+        },
+        actions = {
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = onRefresh,
+                contentDescription = stringResource(R.string.verify_queue_refresh),
+            )
+        },
+    )
 }
 
 @Composable

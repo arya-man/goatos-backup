@@ -355,7 +355,7 @@ fun GoatOsShellChrome(
  * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute != null && currentRoute in topLevelRoutes
+    currentRoute?.routeBase() in topLevelRoutes
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every
@@ -410,9 +410,12 @@ private fun MeshaNavBar(
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
+            val isSelected = currentBaseRoute == item.href
             NavigationBarItem(
-                selected = currentBaseRoute == item.href,
-                onClick = { onSelect(item.href) },
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) onSelect(item.href)
+                },
                 icon = {
                     Icon(
                         imageVector = MeshaIcons.forNavKey(item.key),

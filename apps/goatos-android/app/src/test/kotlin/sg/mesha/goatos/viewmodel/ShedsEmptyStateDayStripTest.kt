@@ -18,11 +18,9 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.Resource
-import sg.mesha.goatos.core.data.AdherenceRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
-import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -54,7 +52,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `empty response anchors the day strip on yesterday and lands on today`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), EmptyAdherenceRepository(), NoopCrashReporter(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -72,7 +70,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `yesterday tab is selectable`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), EmptyAdherenceRepository(), NoopCrashReporter(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -119,7 +117,6 @@ class ShedsEmptyStateDayStripTest {
                     totalCount = 2,
                 ),
             ),
-            EmptyAdherenceRepository(),
             NoopCrashReporter(),
             SavedStateHandle(),
         )
@@ -134,41 +131,6 @@ class ShedsEmptyStateDayStripTest {
         assertEquals(5, state.doneCount)
         assertEquals("5 / 5 done", state.daySummary)
     }
-}
-
-private class EmptyAdherenceRepository : AdherenceRepository {
-    override suspend fun adherence(
-        parkId: String?,
-        shedId: String?,
-        workState: String?,
-        severity: String?,
-        dueBefore: String?,
-        asOf: String?,
-        cursor: String?,
-        limit: Int?,
-    ): ProtocolAdherenceResponseDto = ProtocolAdherenceResponseDto()
-
-    override fun observeAdherence(
-        parkId: String?,
-        shedId: String?,
-        workState: String?,
-        severity: String?,
-        dueBefore: String?,
-        asOf: String?,
-        cursor: String?,
-        limit: Int?,
-    ): Flow<Resource<ProtocolAdherenceResponseDto>> = flowOf(Resource(data = ProtocolAdherenceResponseDto()))
-
-    override suspend fun refreshAdherence(
-        parkId: String?,
-        shedId: String?,
-        workState: String?,
-        severity: String?,
-        dueBefore: String?,
-        asOf: String?,
-        cursor: String?,
-        limit: Int?,
-    ): Result<Unit> = Result.success(Unit)
 }
 
 /** Emits a single empty-but-present execution response (hasData = true, zero rows). */

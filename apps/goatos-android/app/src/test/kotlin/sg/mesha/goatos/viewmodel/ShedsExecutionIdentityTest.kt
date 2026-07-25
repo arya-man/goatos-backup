@@ -42,6 +42,16 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `overview adherence uses execution queue totals not global adherence totals`() {
+        val summary = protocolAdherenceSummary(ExecutionCounts(target = 324, open = 210, done = 114))
+
+        assertEquals(324, summary?.expectedCount)
+        assertEquals(114, summary?.submittedCount)
+        assertEquals(114, summary?.acceptedCount)
+        assertEquals(35, summary?.acceptedPercent)
+    }
+
+    @Test
     fun `all animals done but draft shed proof still opens execution`() {
         val godelOne = listOf(
             VaccinationExecutionRowDto(
