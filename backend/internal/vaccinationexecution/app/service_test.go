@@ -12,11 +12,14 @@ import (
 type fakeRepo struct {
 	rows        []domain.ExecutionProjection
 	opsRows     []domain.OperationsRow
+	driveRows   []domain.DriveAssignmentRow
 	roster      []domain.ScanRosterRow
 	gapsRows    []domain.GapProjectionRow
 	shedRows    []domain.ShedSummaryProjection
 	shedAnimals []domain.ShedAnimalRow
+	planned     []domain.PlannedSession
 	capacityCfg domain.CapacityConfig
+	carryLines  []domain.VaccineCarryLine
 	err         error
 }
 
@@ -27,6 +30,19 @@ func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]d
 	return r.shedRows, nil
 }
 
+func (r fakeRepo) OperatorAssignmentConfig(_ context.Context, _, _ string) (domain.OperatorAssignmentConfig, bool, error) {
+	return domain.OperatorAssignmentConfig{}, false, nil
+}
+
+func (r fakeRepo) OperatorShifts(_ context.Context, _, _ string) ([]domain.OperatorShift, error) {
+	return nil, nil
+}
+
+func (r fakeRepo) UpsertOperatorAssignmentConfig(_ context.Context, _ string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
+	cfg.RowVersion++
+	return cfg, nil
+}
+
 func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityConfig, error) {
 	if r.err != nil {
 		return domain.CapacityConfig{}, r.err
@@ -35,6 +51,18 @@ func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityCo
 		return domain.DefaultCapacityConfig(), nil
 	}
 	return r.capacityCfg, nil
+}
+
+func (r fakeRepo) UpsertCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig) (domain.CapacityConfig, error) {
+	cfg.RowVersion++
+	return cfg, nil
+}
+
+func (r fakeRepo) PlannedDriveSessionsForShed(_ context.Context, _, _ string) ([]domain.PlannedSession, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.planned, nil
 }
 
 func (r fakeRepo) ShedAnimals(_ context.Context, _ domain.ShedAnimalQuery) ([]domain.ShedAnimalRow, error) {
@@ -76,6 +104,13 @@ func (r fakeRepo) VaccinationSchedule(_ context.Context, _ domain.ScheduleQuery)
 	return r.opsRows, nil
 }
 
+func (r fakeRepo) DriveAssignments(_ context.Context, _ domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.driveRows, nil
+}
+
 func (r fakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
 	if r.err != nil {
 		return domain.ExecutionProjectionPage{}, r.err
@@ -104,8 +139,8 @@ func TestDriveNameUsesBackendOwnedDoseDisplayLabel(t *testing.T) {
 		ProtocolName: "Preventive Care Vaccination Matrix",
 		DoseCode:     "ET_TT_7W",
 	})
-	if got == nil || *got != "ET+TT · Booster" {
-		t.Fatalf("driveName() = %v, want ET+TT booster display label", got)
+	if got == nil || *got != "ET+TT" {
+		t.Fatalf("driveName() = %v, want ET+TT display label without dose-wave wording", got)
 	}
 }
 
@@ -183,6 +218,159 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	}
 	if got[5].Severity != domain.SeverityOK {
 		t.Fatalf("completed severity = %q want ok", got[5].Severity)
+	}
+}
+
+func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	taskState := "needs_review"
+	batchStatus := "in_progress"
+	taskID := "4709ad27-735f-4806-8428-37da2065a8b3"
+	rows := []domain.ExecutionProjection{
+		projection("shed-review", due, 2, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 2
+			p.ScheduledCount = 2
+			p.InProgressCount = 2
+			p.ScannedCount = 2
+			p.ProofSubmittedCount = 1
+			p.WorkState = domain.WorkStateInProgress
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateVerificationPending {
+		t.Fatalf("workState = %q want %q for submitted proof", row.WorkState, domain.WorkStateVerificationPending)
+	}
+	if row.ProofStatus != domain.ProofStatusUploaded || row.VerificationStatus != domain.VerificationStatusPending {
+		t.Fatalf("proof/verification = %q/%q want uploaded/pending", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.PrimaryActionKey != "none" {
+		t.Fatalf("primaryActionKey = %q want none after proof submit", row.PrimaryActionKey)
+	}
+	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
+		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
+func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	rows := []domain.ExecutionProjection{
+		projection("shed-complete", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.ObligationCount = 2
+			p.CompletedCount = 2
+			p.CompletionAccepted = 2
+			p.ProofSubmittedCount = 1
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateCompleted {
+		t.Fatalf("workState = %q want completed", row.WorkState)
+	}
+	if row.ProofStatus != domain.ProofStatusAccepted || row.VerificationStatus != domain.VerificationStatusVerified {
+		t.Fatalf("proof/verification = %q/%q want accepted/verified", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
+		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
+func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedProof(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	taskState := "needs_review"
+	batchStatus := "in_progress"
+	taskID := "4709ad27-735f-4806-8428-37da2065a8b3"
+	rows := []domain.ExecutionProjection{
+		projection("godel-1", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 2
+			p.ScheduledCount = 2
+			p.ScannedCount = 2
+			p.ProofSubmittedCount = 1
+			p.WorkState = domain.WorkStateInProgress
+		}),
+		projection("godel-2", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 3
+			p.ScheduledCount = 3
+			p.InProgressCount = 3
+			p.WorkState = domain.WorkStateInProgress
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows want 2", len(got))
+	}
+	if got[0].WorkState != domain.WorkStateVerificationPending || got[0].ProofStatus != domain.ProofStatusUploaded {
+		t.Fatalf("submitted shed state/proof = %q/%q want verification_pending/uploaded", got[0].WorkState, got[0].ProofStatus)
+	}
+	if got[1].WorkState != domain.WorkStateInProgress {
+		t.Fatalf("unsubmitted shed workState = %q want in_progress", got[1].WorkState)
+	}
+	if got[1].ProofStatus != domain.ProofStatusMissing || got[1].VerificationStatus != domain.VerificationStatusNotReady {
+		t.Fatalf("unsubmitted shed proof/verification = %q/%q want missing/not_ready", got[1].ProofStatus, got[1].VerificationStatus)
+	}
+	if got[1].PrimaryActionKey != "scan" {
+		t.Fatalf("unsubmitted shed primaryActionKey = %q want scan", got[1].PrimaryActionKey)
 	}
 }
 
@@ -394,4 +582,84 @@ func projection(shedID string, dueAt time.Time, dose int, mutate func(*domain.Ex
 		mutate(&p)
 	}
 	return p
+}
+
+func (fakeRepo) AuthorizedParkOptions(context.Context, string, []string) ([]domain.ParkOption, error) {
+	return nil, nil
+}
+
+func (r fakeRepo) VaccinationExecutionCarrySummary(context.Context, domain.ExecutionQuery) ([]domain.VaccineCarryLine, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.carryLines, nil
+}
+
+func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDateParkScopeStatusBuckets(t *testing.T) {
+	// CRITICAL: Carry summary must be full-day aggregation, not sum of paginated rows.
+	// Fixture: one day (2026-07-24) with ET+TT vaccine, 3 goats total (200 doses each = 600 total).
+	// Paginated page contains only 2 goats (400 doses). Carry total must still be 600, not 400.
+	repo := &fakeRepo{
+		carryLines: []domain.VaccineCarryLine{
+			{
+				Date:           "2026-07-24",
+				VaccineLabel:   "ET+TT",
+				RemainingDoses: 600, // full-day total remaining (3 goats × 200)
+				TotalDoses:     600, // full-day total
+			},
+		},
+	}
+	svc := NewService(repo)
+	q := domain.ExecutionQuery{
+		TenantID:             "tenant-cpt",
+		OperatorScopeActorID: "darshan-uuid",
+		AsOf:                 time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 7, 30, 23, 59, 59, 0, time.UTC),
+		Limit:                20, // Pagination limit (loads only 2 of 3 goats)
+	}
+
+	resp, err := svc.VaccinationExecutionPage(context.Background(), q)
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+
+	// Verify carry summary is present for app requests
+	if resp.CarrySummary == nil {
+		t.Fatal("CarrySummary must not be nil for app requests (OperatorScopeActorID set)")
+	}
+
+	// Verify per-day structure
+	if len(resp.CarrySummary.CarryByDay) != 1 {
+		t.Errorf("Expected 1 day, got %d", len(resp.CarrySummary.CarryByDay))
+	}
+
+	day := resp.CarrySummary.CarryByDay[0]
+
+	// CRITICAL: verify date is included
+	if day.Date != "2026-07-24" {
+		t.Errorf("Expected date 2026-07-24, got %s", day.Date)
+	}
+
+	// CRITICAL: TotalRemaining must be full-day total (600), NOT page-dependent (400)
+	if day.TotalRemaining != 600 {
+		t.Errorf("Expected TotalRemaining=600 (full-day), got %d (page-dependent bug)", day.TotalRemaining)
+	}
+
+	// Verify per-vaccine breakdown
+	if len(day.VaccineBreakdown) != 1 {
+		t.Errorf("Expected 1 vaccine, got %d", len(day.VaccineBreakdown))
+	}
+
+	vaccine := day.VaccineBreakdown[0]
+	if vaccine.VaccineLabel != "ET+TT" {
+		t.Errorf("Expected vaccine ET+TT, got %s", vaccine.VaccineLabel)
+	}
+
+	if vaccine.RemainingDoses != 600 {
+		t.Errorf("Expected 600 remaining ET+TT doses, got %d", vaccine.RemainingDoses)
+	}
+
+	if vaccine.TotalDoses != 600 {
+		t.Errorf("Expected 600 total ET+TT doses, got %d", vaccine.TotalDoses)
+	}
 }

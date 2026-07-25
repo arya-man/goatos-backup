@@ -2,7 +2,7 @@ import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
-import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, optionalCopy, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   TONE_SWATCH,
   type Tone,
@@ -34,6 +34,36 @@ function initials(name?: string): string {
 function displayBlocker(reason?: string | null): string | null {
   if (!reason) return null;
   return reason;
+}
+
+function driveCapacityTag(pageContract: AdminUiPageContract, row: ActionCenterObligation): { tone: Tone; label: string; title: string } | null {
+  switch (row.drive_capacity_state) {
+    case "over_cap_required": {
+      const slots = (row.drive_available_operators ?? 0) * (row.drive_operator_cap ?? 0);
+      const animals = row.drive_animals_assigned ?? row.drive_animals_required ?? 0;
+      return {
+        tone: "dng",
+        label: copy(pageContract, "label.drive_over_cap_required"),
+        title: optionalCopy(pageContract, "tooltip.drive_over_cap_required")
+          ?.replace("{animals}", String(animals))
+          .replace("{slots}", String(slots)) ?? "",
+      };
+    }
+    case "medical_defer":
+      return {
+        tone: "warn",
+        label: copy(pageContract, "label.drive_medical_defer"),
+        title: row.drive_medical_defer_reason ?? copy(pageContract, "tooltip.drive_medical_defer"),
+      };
+    case "terminal_animal_closed":
+      return {
+        tone: "mut",
+        label: copy(pageContract, "label.drive_terminal_closed"),
+        title: row.drive_medical_defer_reason ?? copy(pageContract, "tooltip.drive_terminal_closed"),
+      };
+    default:
+      return null;
+  }
 }
 
 function eventCode(row: ActionCenterObligation): string {
@@ -75,6 +105,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
+  const driveTag = driveCapacityTag(pageContract, row);
   const contents = (
     <>
       <div className="tt">
@@ -99,8 +130,14 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
         <Tag tone="info">{row.animal_stage}</Tag>
         <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
         {row.proof_state !== "missing" ? <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag> : null}
+        {driveTag ? <Tag tone={driveTag.tone} title={driveTag.title}>{driveTag.label}</Tag> : null}
         {progress ? <span className="muted small ac-progress">{progress}</span> : null}
       </div>
+      {row.drive_capacity_state === "over_cap_required" ? (
+        <div className="muted small ac-progress" title={driveTag?.title}>
+          {(row.drive_animals_assigned ?? row.drive_animals_required ?? 0).toLocaleString("en-IN")} animals · {(row.drive_available_operators ?? 0).toLocaleString("en-IN")} ops × {(row.drive_operator_cap ?? 0).toLocaleString("en-IN")}
+        </div>
+      ) : null}
       {showBlocker ? (
         <div className="ac-blocker" title={blocker}>
           {blocker.split(" - ")[0]}

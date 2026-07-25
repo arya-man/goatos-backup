@@ -10,6 +10,12 @@ export function driveCoveragePct(completedAnimals: number, totalAnimals: number)
   return Math.round((completedAnimals / totalAnimals) * 100);
 }
 
+export function driveClosedCoveragePct(completedAnimals: number, totalAnimals: number, eventStatus: string | null | undefined): number {
+  if (eventStatus === "completed") return driveCoveragePct(completedAnimals, totalAnimals);
+  if (totalAnimals <= 0 || completedAnimals <= 0) return 0;
+  return Math.min(99, driveCoveragePct(completedAnimals, totalAnimals));
+}
+
 export interface DriveCoverage {
   completed: number;
   total: number;

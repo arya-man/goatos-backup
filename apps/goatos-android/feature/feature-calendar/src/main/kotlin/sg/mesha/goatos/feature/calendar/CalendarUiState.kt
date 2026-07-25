@@ -20,7 +20,7 @@ import sg.mesha.goatos.core.ui.CoverageBannerUiState
 enum class CalendarTone { Ok, Warn, Danger, Muted, Neutral }
 
 /** Which layout a segment renders. Backend marks the kind; the screen never guesses from role. */
-enum class CalendarSegmentKind { Week, Month, History }
+enum class CalendarSegmentKind { Week, Month }
 
 /** One tab in the week/month/history segmented control. Availability is backend-driven. */
 data class CalendarSegment(
@@ -89,6 +89,7 @@ data class CalendarItem(
     val dateKey: String? = null,
     val parkLabel: String = "",
     val parkId: String? = null,
+    val assigneeLabel: String? = null,
     /** Park-level drive progress card content (v4); see [CalendarDriveSummary]. */
     val driveSummary: CalendarDriveSummary? = null,
     val statusLabel: String,
@@ -138,16 +139,6 @@ data class CalendarMonthDay(
     val isSelected: Boolean = false,
 )
 
-/** A past shed/drive record row in the History segment. */
-data class CalendarHistoryRow(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val badgeLabel: String,
-    val badgeTone: CalendarTone,
-    val target: String? = null,
-)
-
 /**
  * L1 day-detail screen: the drives/sheds due on a tapped month day, opened as its OWN
  * screen (a real navigation drill), NOT appended below the month grid. Offline-first sync
@@ -157,6 +148,7 @@ data class CalendarHistoryRow(
 @Immutable
 data class CalendarDayUiState(
     val title: String = "",
+    val dateKey: String? = null,
     val items: List<CalendarItem> = emptyList(),
     val showCompletedHistory: Boolean = false,
     val emptyLabel: String = "",
@@ -205,16 +197,10 @@ data class CalendarUiState(
     val monthWeekdayLabels: List<String> = emptyList(),
     val monthDays: List<CalendarMonthDay> = emptyList(),
     val monthHint: String = "",
+    val monthFallbackItems: List<CalendarItem> = emptyList(),
     val monthFilters: CalendarMonthFilters = CalendarMonthFilters(year = 2026, month = 1),
     val monthFilterOptions: CalendarMonthFilterOptions = CalendarMonthFilterOptions(),
     val monthEmptyLabel: String = "",
-    // HISTORY
-    val historyLabel: String = "",
-    val historyCount: Int = 0,
-    val historyRows: List<CalendarHistoryRow> = emptyList(),
-    val historyEmptyLabel: String = "",
-    val historyHasMore: Boolean = false,
-    val historyLoadingMore: Boolean = false,
 )
 
 /** User intents. The ViewModel maps each to a backend read/drill — the screen decides nothing. */
@@ -229,15 +215,13 @@ sealed interface CalendarEvent {
      *  never drills into an empty open-work query. */
     data class OpenDay(val dateKey: String, val showCompletedHistory: Boolean = false) : CalendarEvent
 
-    data class TapItem(val itemId: String, val target: String? = null) : CalendarEvent
+    data class TapItem(val itemId: String, val target: String? = null, val dateKey: String? = null) : CalendarEvent
 
     data class ApplyMonthFilters(val filters: CalendarMonthFilters) : CalendarEvent
 
     data object ClearMonthFilters : CalendarEvent
 
     data object LoadMoreWeek : CalendarEvent
-
-    data object LoadMoreHistory : CalendarEvent
 
     /** Header refresh — reloads the calendar (mock `.vhead` refresh affordance). */
     data object Refresh : CalendarEvent

@@ -28,10 +28,13 @@ SNAPSHOTS_DIR = Path("apps/goatos-android/app/src/test/snapshots/images")
 # ScreenshotTest method name -> (display title, one-line description) for a readable gallery.
 SCREEN_META: dict[str, tuple[str, str]] = {
     "login": ("Login", "Work email + password sign-in, language picker"),
-    "calendar": ("Calendar", "Universal landing — week/month/history"),
-    "sheds": ("Sheds", "Today's sheds / drive status"),
+    "calendar": ("Calendar", "Leadership/director planning — week/month/history"),
+    "sheds": ("Vaccination sheds", "Operator/manager 7-day shed-first execution queue"),
+    "vaccination_sheds_initial_loading_uses_skeleton": ("Vaccination sheds · loading", "Shed-first queue cold-load skeleton"),
     "scan": ("Scan", "Tap-to-vaccinate execution loop"),
     "submit": ("Submit", "Shed record submission + sync banner"),
+    "vaccination_submit_unanswered_draft_has_no_empty_sync_banner": ("Submit · unanswered draft", "Draft state without empty sync chrome"),
+    "vaccination_shed_completion_summary": ("Shed completion summary", "Shed acknowledgement summary with vaccine counts"),
     "overview": ("Overview", "Leadership coverage, backlog, decisions"),
     "record": ("Record", "Read-only shed/drive record"),
     "rfid": ("RFID reader", "Reader pairing + test read"),
@@ -39,6 +42,13 @@ SCREEN_META: dict[str, tuple[str, str]] = {
     "you": ("You / Settings", "Language, RFID, notifications, sign out"),
     "overdue": ("Overdue", "Missed vs in-buffer rescheduling list"),
     "reschedule": ("Reschedule", "New-date + assign-to form"),
+    "timetable": ("Timetable", "Read-only workforce roster mirror"),
+    "calendar_coverage_banner": ("Calendar · coverage banner", "Calendar coverage state and markers"),
+    "offline_banner": ("Offline banner", "Cached-content offline state"),
+    "form_runner": ("Form runner", "Backend-authored SOP form renderer"),
+    "vaccination_scan_row_proof": ("Scan row proof states", "Per-goat proof upload states"),
+    "vaccination_scan_proof_compact": ("Scan proof · compact", "Compact proof row geometry"),
+    "vaccination_scan_proof_expanded": ("Scan proof · expanded", "Expanded proof row geometry"),
 }
 
 # RoleChromeScreenshotTest method name -> (display title, one-line description).
@@ -47,8 +57,8 @@ ROLE_META: dict[str, tuple[str, str]] = {
     "role_ceo_drawer": ("CEO / superuser · drawer open", "Module switcher (EXPANDED-only chrome)"),
     "role_director": ("Director", "EXPANDED chrome, >=2 modules, landing Overview"),
     "role_park_head": ("Park Head", "EXPANDED chrome, >=2 modules for the park, landing Overview"),
-    "role_park_manager": ("Park Manager", "MINIMAL bottom-bar, single vaccination module, landing Calendar"),
-    "role_operator": ("Operator", "MINIMAL bottom-bar, single vaccination module, landing Calendar"),
+    "role_park_manager": ("Park Manager", "MINIMAL bottom-bar, single vaccination module, landing shed-first 7-day Vaccination queue"),
+    "role_operator": ("Operator", "MINIMAL bottom-bar, single vaccination module, landing shed-first 7-day Vaccination queue"),
 }
 
 # Matches Paparazzi's default snapshot filename:

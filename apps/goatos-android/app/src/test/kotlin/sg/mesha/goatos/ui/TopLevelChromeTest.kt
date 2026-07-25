@@ -15,7 +15,6 @@ import sg.mesha.goatos.core.model.nav.resolveModule
 
 class TopLevelChromeTest {
     private val roots = listOf(
-        Routes.LEADERSHIP,
         Routes.CALENDAR,
         Routes.VACCINATION,
         Routes.ALERTS,
@@ -48,20 +47,40 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `root route patterns with query args keep root chrome`() {
+        val closerRoots = roots + Routes.VERIFY_ACTION
+
+        assertTrue(isTopLevelRoute("${Routes.VERIFY_ACTION}?actionMode={actionMode}", closerRoots))
+        assertFalse(isTopLevelRoute("${Routes.VERIFY_ACTION_DETAIL}?itemId={itemId}", closerRoots))
+    }
+
+    @Test
     fun `calendar drill fallback always opens a hosted child`() {
-        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(null))
-        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(""))
+        assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(null))
+        assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(""))
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/execution"),
         )
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/scan/shed-1"),
         )
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/sheds/shed-1"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute(null, "2026-07-24"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute("/vaccination/execution", "2026-07-24"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute("/vaccination/scan/shed-1", "2026-07-24"),
         )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
     }
@@ -79,7 +98,6 @@ class TopLevelChromeTest {
         status = NavModuleStatus.AVAILABLE,
         navItems = listOf(
             NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-            NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
             NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
             NavItem(key = "you", label = "You", href = Routes.YOU),
         ),
@@ -127,7 +145,7 @@ class TopLevelChromeTest {
     fun `the open module owns the bottom bar and its routes are the L0 set`() {
         val vaccinationRoots = rootsFor(twoModules, "vaccination", Routes.VACCINATION)
         assertTrue(isTopLevelRoute(Routes.VACCINATION, vaccinationRoots))
-        assertTrue(isTopLevelRoute(Routes.CALENDAR, vaccinationRoots))
+        assertFalse(isTopLevelRoute(Routes.CALENDAR, vaccinationRoots))
         // Another module's landing route is NOT an L0 root while this module is open.
         assertFalse(isTopLevelRoute("/counts", vaccinationRoots))
 
@@ -140,7 +158,7 @@ class TopLevelChromeTest {
     @Test
     fun `switching modules swaps the bar to that module's own items`() {
         assertEquals(
-            listOf(Routes.VACCINATION, Routes.CALENDAR, Routes.ALERTS, Routes.YOU),
+            listOf(Routes.VACCINATION, Routes.ALERTS, Routes.YOU),
             twoModules.barItems("vaccination", Routes.VACCINATION).map { it.href },
         )
         // The trailing tab DIFFERS by module: Counts ends in Approval, not You. This is the
@@ -180,10 +198,63 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `ceo videos root keeps its module chrome when compose reports the query route pattern`() {
+        val ceoVaccination = vaccination.copy(
+            navItems = listOf(
+                NavItem(key = "vaccination", label = "Overview", href = Routes.VACCINATION),
+                NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
+                NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+                NavItem(key = "you", label = "You", href = Routes.YOU),
+            ),
+        )
+        val ceoState = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = ceoVaccination.navItems,
+            modules = listOf(ceoVaccination, counts, soon),
+        )
+        val composeRoute = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}"
+        val roots = rootsFor(ceoState, "vaccination", composeRoute)
+
+        assertEquals(ceoVaccination, ceoState.resolveModule("vaccination", composeRoute))
+        assertTrue(isTopLevelRoute(composeRoute, roots))
+        assertTrue(drawerAvailable(ceoState.chrome, composeRoute, roots))
+    }
+
+    @Test
+    fun `operator and standalone verifier roles do not gain ceo videos drawer`() {
+        val composeRoute = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}"
+
+        val operatorState = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = vaccination.navItems,
+            modules = listOf(vaccination),
+        )
+        val operatorRoots = rootsFor(operatorState, "vaccination", Routes.VACCINATION)
+        assertFalse(isTopLevelRoute(composeRoute, operatorRoots))
+        assertFalse(drawerAvailable(operatorState.chrome, composeRoute, operatorRoots))
+
+        val verifier = NavModule(
+            key = "verify",
+            label = "Verify",
+            href = Routes.VERIFY,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(NavItem(key = "verify", label = "Verify", href = Routes.VERIFY)),
+        )
+        val verifierState = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = verifier.navItems,
+            modules = listOf(verifier),
+        )
+        val verifierRoots = rootsFor(verifierState, "verify", Routes.VERIFY)
+        assertFalse(isTopLevelRoute(composeRoute, verifierRoots))
+        assertFalse(drawerAvailable(verifierState.chrome, composeRoute, verifierRoots))
+    }
+
+    @Test
     fun `a shared route keeps the selected module's bar`() {
-        // Calendar is contributed by several modules. The explicitly selected module wins so
+        // Alerts is contributed by several modules. The explicitly selected module wins so
         // the bar does not silently flip while the operator is working inside one module.
-        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.CALENDAR))
+        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.ALERTS))
     }
 
     // -----------------------------------------------------------------------

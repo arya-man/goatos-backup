@@ -8,6 +8,16 @@
   },
   "guards": [
     {
+      "id": "git-identity",
+      "script": "tools/ci/check-git-identity.mjs",
+      "makeTarget": "git-identity-guard",
+      "realCheck": "node tools/ci/check-git-identity.mjs",
+      "selfTest": "node tools/ci/check-git-identity.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "git-identity-guard"
+    },
+    {
       "id": "guardrail-registration",
       "script": "tools/ci/check-guardrail-registration.mjs",
       "makeTarget": "guardrail-registration-guard",
@@ -48,6 +58,39 @@
       "ciStep": "backend-foundations-guard"
     },
     {
+      "id": "test-execution-integrity",
+      "script": "tools/agent-hooks/check-test-execution-integrity.mjs",
+      "makeTarget": "test-execution-integrity-guard",
+      "realCheck": "node tools/agent-hooks/check-test-execution-integrity.mjs",
+      "selfTest": "node tools/agent-hooks/check-test-execution-integrity.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "test-execution-integrity-guard",
+      "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
+    },
+    {
+      "id": "operator-cap-fail-closed",
+      "script": "tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "makeTarget": "operator-cap-fail-closed-guard",
+      "realCheck": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "selfTest": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "operator-cap-fail-closed-guard",
+      "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
+    },
+    {
+      "id": "cascade-event-wiring",
+      "script": "tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "makeTarget": "cascade-event-wiring-guard",
+      "realCheck": "node tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "selfTest": "node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "cascade-event-wiring-guard",
+      "notes": "Blocks the three operator-cascade wiring anti-patterns proven broken at origin/main f9a44b84: (B) an eventbus handler type with Register(bus eventbus.Bus) that is missing from a DURABLE bus (backend/internal/kernelstages/bus.go and backend/cmd/domain-event-consumer/main.go) while being registered only on bootstrap/api.go or domainconsumer/wiring/bus.go, which nothing real dispatches to; (A) a sweeper function consuming DB-reported operator.Cap without subtracting session.vaccinationOperatorLoad, which lets a later rule-version in the same sweep over-select past the per-operator/day cap; (C) a write to workforce_positions cap/week-off, vaccination_capacity_config, or vaccination_operator_assignment_config that never enqueues vaccination.capacity.changed / vaccination.roster.changed. Deliberate durable-bus omissions must be declared in DURABLE_BUS_EXEMPTIONS with a written reason, and the guard re-verifies that the exemption's declared registration site still registers the handler."
+    },
+    {
       "id": "frontend-foundations",
       "script": "tools/agent-hooks/check-frontend-foundations.mjs",
       "makeTarget": "frontend-foundations-guard",
@@ -76,6 +119,27 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "requiredInCI": true,
       "ciStep": "domain-event-architecture-guard"
+    },
+    {
+      "id": "leadership-assistant-coverage",
+      "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "makeTarget": "leadership-assistant-coverage-guard",
+      "realCheck": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
+      "requiredInCI": true,
+      "ciStep": "leadership-assistant-coverage-guard"
+    },
+    {
+      "id": "assistant-route-closure",
+      "script": "tools/agent-hooks/check-assistant-route-closure.mjs",
+      "makeTarget": "assistant-route-closure-guard",
+      "realCheck": "node tools/agent-hooks/check-assistant-route-closure.mjs",
+      "selfTest": "node tools/agent-hooks/check-assistant-route-closure.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-leadership-assistant/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "assistant-route-closure-guard",
+      "notes": "ROUTE-CLOSURE enforcement: planner tool names resolve in Cube/API/Toolbox/SQL catalog, RouteAPI targets are wired or have fallbacks, and coverage-matrix rows reference valid golden eval questions."
     },
     {
       "id": "stg-promotion",
@@ -136,6 +200,16 @@
       "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
       "requiredInCI": true,
       "ciStep": "clinical-defer-guard"
+    },
+    {
+      "id": "ceo-ai-core-boundary",
+      "script": "tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "makeTarget": "ceo-ai-boundary-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs --self-test",
+      "owningDoc": "docs/decisions/ceo-ai-reporting-boundary.md",
+      "requiredInCI": true,
+      "ciStep": "ceo-ai-boundary-guard"
     },
     {
       "id": "sweeper-deployment",
@@ -208,6 +282,17 @@
       "ciStep": "config-validate-guard"
     },
     {
+      "id": "ui-vaccine-labels",
+      "script": "tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "makeTarget": "ui-vaccine-labels-guard",
+      "realCheck": "node tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "selfTest": "node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "ui-vaccine-labels-guard",
+      "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
+    },
+    {
       "id": "seed-migration-coupling",
       "script": "tools/agent-hooks/check-seed-migration-coupling.mjs",
       "makeTarget": "seed-migration-guard",
@@ -236,6 +321,17 @@
       "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
       "requiredInCI": true,
       "ciStep": "vaccination-schedule-canonical-guard"
+    },
+    {
+      "id": "vaccination-shared-source-sync",
+      "script": "tools/agent-hooks/check-vaccination-shared-source-sync.mjs",
+      "makeTarget": "vaccination-shared-source-sync-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-shared-source-sync.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-shared-source-sync.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-shared-source-sync-guard",
+      "notes": "Calendar, Protocol Adherence, Action Center, and Workflows must share vaccination_drive_assignments as the canonical operator-day source; admin-web page switches must not fan out into N+1 vaccination/calendar/process-integrity fetches."
     },
     {
       "id": "goat-shed-scope",
@@ -298,6 +394,16 @@
       "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-compose-lists",
+      "script": "tools/agent-hooks/check-android-compose-lists.mjs",
+      "makeTarget": "android-compose-lists-guard",
+      "realCheck": "node tools/agent-hooks/check-android-compose-lists.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-compose-lists.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-compose-lists-guard"
     },
     {
       "id": "calendar-endpoint-grain",
@@ -463,6 +569,17 @@
       "requiredInCI": true,
       "ciStep": "stg-disposable-topology-guard",
       "notes": "Final staging topology: no Scheduler resources or transitional flag, one enabled kernel-worker service, analytics retained as a manual job, and Cloud Deploy updates/verifies the worker image."
+    },
+    {
+      "id": "fcm-recipient-routing",
+      "script": "tools/agent-hooks/check-fcm-recipient-routing.mjs",
+      "makeTarget": "fcm-recipient-routing-guard",
+      "realCheck": "node tools/agent-hooks/check-fcm-recipient-routing.mjs",
+      "selfTest": "node tools/agent-hooks/check-fcm-recipient-routing.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "fcm-recipient-routing-guard",
+      "notes": "Blocks role-visible-but-no-push regressions: tenant leadership push recipients must resolve from active grants/device tokens, and STG verifier seed must create pc.vaccination verify duty routing."
     },
     {
       "id": "mock-clicks",

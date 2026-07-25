@@ -565,6 +565,41 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `dispatches an atomic vaccination batch closure with the stable batch idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "batch-1-drive-close"
+        store.insert(
+            OutboxEntity(
+                id = "row-close-batch-1",
+                opType = OutboxOpType.VERIFICATION_CLOSE_BATCH.name,
+                groupKey = "batch-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    VerificationCloseBatchPayload(batchId = "batch-1"),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi().apply {
+            closeVaccinationBatchFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf("batch-1" to idempotencyKey), api.closeBatchCalls)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-close-batch-1")!!.status)
+    }
+
+    @Test
     fun `dispatches a PROOF_UPLOAD item via the registerProof endpoint`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(
@@ -636,9 +671,10 @@ class SyncEngineTest {
                     uploadUrl = "https://storage.example/bucket/object-9",
                     uploadMethod = "PUT",
                     headers = mapOf("x-goog-if-generation-match" to "0"),
+                    uploadProtocol = "simple_put",
                 )
             }
-            uploadProofBlobFn = { proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, _ ->
+            uploadProofBlobFn = { proofId, uploadUrl, uploadMethod, uploadHeaders, uploadProtocol, chunkSizeBytes, mimeType, filePath, _ ->
                 // Standing in for the real fake object store (OkHttpProofBlobUploaderTest covers
                 // the ACTUAL byte-streaming HTTP contract) — this asserts SyncEngine wires the
                 // registerProof response straight through, unmodified, to the byte-upload step.
@@ -646,6 +682,8 @@ class SyncEngineTest {
                 assertEquals("https://storage.example/bucket/object-9", uploadUrl)
                 assertEquals("PUT", uploadMethod)
                 assertEquals("0", uploadHeaders["x-goog-if-generation-match"])
+                assertEquals("simple_put", uploadProtocol)
+                assertEquals(null, chunkSizeBytes)
                 assertEquals("video/mp4", mimeType)
                 assertEquals("/data/user/0/sg.mesha.goatos/files/captures/shed.mp4", filePath)
                 ProofCompleteResponseDto(proof = ProofArtifactDto(proofId = proofId, uploadState = "completed"))
@@ -684,9 +722,10 @@ class SyncEngineTest {
                     proof = ProofReferenceDto(proofId = "server-proof-9", proofType = request.proofType, subjectType = request.subjectType, uploadState = "pending"),
                     uploadUrl = "https://storage.example/bucket/object-9?attempt=${registerKeys.size}",
                     uploadMethod = "PUT",
+                    uploadProtocol = "simple_put",
                 )
             }
-            uploadProofBlobFn = { proofId, _, _, _, _, _, _ ->
+            uploadProofBlobFn = { proofId, _, _, _, _, _, _, _, _ ->
                 uploadAttempt++
                 if (uploadAttempt == 1) {
                     throw java.io.IOException("simulated field-network drop mid-upload")

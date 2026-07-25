@@ -1,0 +1,140 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # vaccination_operator — OPERATOR-grain vaccination drive load / capacity /
+  # overdue / utilization.
+  #
+  # Source SSOT: ceo_ai.vaccination_operator_status (migration 000026) over the
+  # OPERATOR-BASED drive model main shipped: public.vaccination_drive_assignments
+  # (operator grain, migration 000020/000022) joined to obligation_batches for
+  # done/due status, vaccination_capacity_config for the per-operator-per-day
+  # animal cap, and workforce_members for the operator label.
+  #
+  # GRAIN: one row per (operator, planned_date, park, shed). Counts are ANIMAL
+  # slots assigned to an operator (the unit the OperatorDrivePlanner consumes:
+  # unique animals per available operator per business date), never per-obligation
+  # dose. This is the OPERATOR twin of the shed-grain `vaccination` cube — that
+  # cube answers "which SHEDS are due/overdue"; this one answers "which OPERATORS
+  # are behind / overloaded".
+  #
+  # CAPACITY IS NOT ADDITIVE across sheds: daily_capacity is a per-operator-per-day
+  # cap repeated on each shed row. `operator_capacity` uses MAX (not SUM) so a
+  # grouping by operator+day returns the real cap; utilization divides the summed
+  # assigned load by that MAX cap. Always group utilization/capacity by
+  # planned_date (the ratio is per-operator-per-day). See METRICS.md.
+  #
+  # IST business calendar: overdue compares planned_date to the Asia/Kolkata
+  # business day (already derived in the view), never a UTC instant.
+  # ---------------------------------------------------------------------------
+  - name: vaccination_operator
+    title: Vaccination (operator drive load)
+    description: >-
+      One row per operator × planned date × park × shed. Backs
+      operator_assigned_animals, operator_capacity, operator_overdue, and
+      operator_utilization (all draft). Operator-grain animal slots.
+    sql: >
+      SELECT
+        tenant_id                                              AS tenant_id,
+        operator_id                                            AS operator_id,
+        operator_label                                         AS operator_label,
+        park_id                                                AS park_id,
+        park_label                                             AS park_label,
+        shed_id                                                AS shed_id,
+        shed_label                                             AS shed_label,
+        planned_date                                           AS planned_date,
+        assigned_animals                                       AS assigned_animals,
+        due                                                    AS due,
+        done                                                   AS done,
+        overdue                                                AS overdue,
+        daily_capacity                                         AS daily_capacity,
+        next_action                                            AS next_action
+      FROM ceo_ai.vaccination_operator_status
+
+    dimensions:
+      - name: assignment_key
+        # synthetic stable primary key for this bounded reporting grain
+        sql: "operator_id || ':' || planned_date || ':' || COALESCE(shed_id::text,'-')"
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: operator_id
+        sql: operator_id
+        type: string
+      - name: operator_label
+        sql: operator_label
+        type: string
+      - name: park_label
+        sql: park_label
+        type: string
+      - name: shed_label
+        sql: shed_label
+        type: string
+      - name: next_action
+        sql: next_action
+        type: string
+      - name: planned_business_day
+        sql: planned_date
+        type: time
+
+    measures:
+      # -- DRAFT: operator_assigned_animals -----------------------------------
+      # Total animal slots assigned to operators (SUM is additive across sheds).
+      - name: operator_assigned_animals
+        title: Animals assigned to operators (draft)
+        description: >-
+          DRAFT — SUM of animal slots assigned to operators for vaccination
+          drives. Answers "how many animals is <operator> assigned". Group by
+          operator_label (+ planned day) for a per-operator figure.
+        type: sum
+        sql: assigned_animals
+
+      - name: operator_due
+        title: Operator drive animals due (draft)
+        description: DRAFT — assigned animals in drives not yet completed.
+        type: sum
+        sql: due
+
+      - name: operator_done
+        title: Operator drive animals done (draft)
+        description: DRAFT — assigned animals in completed drives.
+        type: sum
+        sql: done
+
+      # -- DRAFT: operator_overdue --------------------------------------------
+      # Assigned animals in still-open drives whose planned IST business day is
+      # already in the past. Answers "which operators are behind".
+      - name: operator_overdue
+        title: Operator drive animals overdue (draft)
+        description: >-
+          DRAFT — assigned animals in still-open drives past their planned IST
+          business day. Answers "which operators are behind on vaccination".
+        type: sum
+        sql: overdue
+
+      # -- DRAFT: operator_capacity -------------------------------------------
+      # Per-operator-per-day animal cap. MAX not SUM: daily_capacity is constant
+      # within an operator-day, so MAX returns the real cap when grouped by
+      # operator + planned day (SUM would multiply it by the shed-row count).
+      - name: operator_capacity
+        title: Operator daily animal capacity (draft)
+        description: >-
+          DRAFT — per-operator-per-day animal cap (MAX; constant within an
+          operator-day). Group by operator_label + planned day.
+        type: max
+        sql: daily_capacity
+
+      # -- DRAFT: operator_utilization ----------------------------------------
+      # Assigned load / capacity. Meaningful ONLY grouped by operator + planned
+      # day (the ratio is per-operator-per-day). > 1.0 = overloaded.
+      - name: operator_utilization
+        title: Operator utilization (draft)
+        description: >-
+          DRAFT — operator_assigned_animals / operator_capacity. Answers "who is
+          overloaded" (> 1.0). Group by operator_label + planned day; not an
+          official figure.
+        type: number
+        sql: >
+          CASE WHEN {operator_capacity} = 0 OR {operator_capacity} IS NULL THEN NULL
+               ELSE {operator_assigned_animals}::numeric / {operator_capacity} END
+        format: percent

@@ -1,0 +1,65 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # procurement — source-entry loads. Backs procurement_cost (DRAFT / BLOCKED).
+  #
+  # Source SSOT: canonical public.procurement_loads.
+  # AMBIGUITY / BLOCKED: procurement_loads has no purchase price / cost / amount
+  # column (only expected_count, purchase_date, status, source_party_id). So
+  # procurement_cost cannot be computed today and ships as a NULL placeholder.
+  # A real procurement_cost needs a per-load / per-animal cost field to be
+  # captured first — the open question for the business owner. procurement_animals
+  # (a real pipeline volume) is provided and usable in dev. See METRICS.md.
+  # ---------------------------------------------------------------------------
+  - name: procurement
+    title: Procurement (source-entry loads)
+    description: >-
+      One row per procurement load. Backs procurement_animals (draft volume) and
+      procurement_cost (draft / blocked — no cost source).
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.procurement_loads_base
+
+    dimensions:
+      - name: load_id
+        sql: load_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: status
+        sql: status
+        type: string
+      - name: source_label
+        sql: source_label
+        type: string
+      - name: purchase_date
+        sql: purchase_date
+        type: time
+      - name: entered_business_day
+        sql: entered_business_day
+        type: time
+
+    measures:
+      - name: load_count
+        title: Procurement loads
+        description: Count of procurement loads.
+        type: count
+
+      # DRAFT — expected animals in the pipeline. Real volume, but "animals"
+      # semantics (expected vs received vs accepted) not yet reconciled to a
+      # governed definition; leave draft.
+      - name: procurement_animals
+        title: Procurement animals (draft)
+        description: DRAFT — SUM(expected_count). Volume, pending sign-off.
+        type: sum
+        sql: expected_count
+
+      # DRAFT / BLOCKED — no cost column. Returns NULL.
+      - name: procurement_cost
+        title: Procurement cost (draft — blocked, no cost source)
+        description: >-
+          DRAFT / BLOCKED — no purchase price / cost column on procurement_loads.
+          Returns NULL. Needs a captured per-load cost field before it can serve.
+        type: number
+        sql: "NULL::numeric"

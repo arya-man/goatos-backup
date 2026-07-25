@@ -2,13 +2,17 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
@@ -43,7 +47,7 @@ func positionSelectSQL(where string) string {
 	return `
 SELECT p.position_id::text, p.workforce_member_id::text, p.scope_type, p.scope_id::text, p.position_code,
        p.position_tier, p.is_backup_slot, p.backup_group_code, p.week_off_weekday, p.status,
-       p.valid_from, p.valid_to, p.row_version, p.created_at, p.updated_at,
+       p.vaccination_daily_animal_cap, p.valid_from, p.valid_to, p.row_version, p.created_at, p.updated_at,
        COALESCE(wm.display_name, NULL) as person_display_name,
        COALESCE(wm.hr_designation_grade, NULL) as hr_designation_grade,
        COALESCE(l.name, NULL) as center_label
@@ -59,17 +63,22 @@ func scanPositions(rows pgx.Rows) ([]domain.Position, error) {
 	for rows.Next() {
 		var item domain.Position
 		var backupGroup, weekOff, personDisplayName, hrDesignationGrade, centerLabel pgtype.Text
+		var vaccinationDailyAnimalCap pgtype.Int4
 		var validFrom time.Time
 		var validTo pgtype.Timestamptz
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&item.PositionID, &item.WorkforceMemberID, &item.ScopeType, &item.ScopeID, &item.PositionCode,
 			&item.PositionTier, &item.IsBackupSlot, &backupGroup, &weekOff, &item.Status,
-			&validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt,
+			&vaccinationDailyAnimalCap, &validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt,
 			&personDisplayName, &hrDesignationGrade, &centerLabel); err != nil {
 			return nil, err
 		}
 		item.BackupGroupCode = textPtr(backupGroup)
 		item.WeekOffWeekday = textPtr(weekOff)
+		if vaccinationDailyAnimalCap.Valid {
+			cap := int(vaccinationDailyAnimalCap.Int32)
+			item.VaccinationDailyAnimalCap = &cap
+		}
 		item.PersonDisplayName = textPtr(personDisplayName)
 		item.HrDesignationGrade = textPtr(hrDesignationGrade)
 		item.CenterLabel = textPtr(centerLabel)
@@ -125,6 +134,12 @@ func (r *Repository) CreatePosition(ctx context.Context, cmd ports.CreatePositio
 		if err := tx.Commit(ctx); err != nil {
 			return domain.Position{}, err
 		}
+		if original, ok, err := replayPosition(reservation); err != nil {
+			return domain.Position{}, err
+		} else if ok {
+			return original, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading by result id.
 		return r.queryOnePosition(contextWithoutCancel(ctx), `
 WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
 LIMIT 1`, cmd.TenantID, reservation.resultID)
@@ -162,7 +177,11 @@ RETURNING position_id::text`,
 	}); err != nil {
 		return domain.Position{}, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, "workforce_position", positionID); err != nil {
+	createdPosition, err := txPosition(ctx, tx, cmd.TenantID, positionID)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, "workforce_position", positionID, createdPosition); err != nil {
 		return domain.Position{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -188,11 +207,16 @@ func (r *Repository) UpdatePosition(ctx context.Context, cmd ports.UpdatePositio
 	defer rollback(ctx, tx)
 
 	idemKey := cmd.IdempotencyKey
+	capFingerprint := ""
+	if cmd.VaccinationDailyAnimalCap != nil {
+		capFingerprint = fmt.Sprintf("%d", *cmd.VaccinationDailyAnimalCap)
+	}
 	fingerprint := requestFingerprint(
 		cmd.PositionID, fmt.Sprintf("%d", cmd.RowVersion),
 		fmt.Sprintf("%t", cmd.SetPositionTier), cmd.PositionTier,
 		fmt.Sprintf("%t", cmd.SetBackupGroup), cmd.BackupGroupCode,
 		fmt.Sprintf("%t", cmd.SetWeekOff), cmd.WeekOffWeekday,
+		fmt.Sprintf("%t", cmd.SetVaccinationDailyAnimalCap), capFingerprint,
 		fmt.Sprintf("%t", cmd.SetValidTo), cmd.ValidTo,
 		fmt.Sprintf("%t", cmd.SetStatus), cmd.Status,
 	)
@@ -204,6 +228,12 @@ func (r *Repository) UpdatePosition(ctx context.Context, cmd ports.UpdatePositio
 		if err := tx.Commit(ctx); err != nil {
 			return domain.Position{}, false, err
 		}
+		if original, ok, err := replayPosition(reservation); err != nil {
+			return domain.Position{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
 		return pos, true, err
 	}
@@ -213,14 +243,16 @@ UPDATE workforce_positions
 SET position_tier     = CASE WHEN $4 THEN $5 ELSE position_tier END,
     backup_group_code = CASE WHEN $6 THEN nullif($7, '') ELSE backup_group_code END,
     week_off_weekday  = CASE WHEN $8 THEN nullif($9, '') ELSE week_off_weekday END,
-    valid_to          = CASE WHEN $10 THEN nullif($11, '')::timestamptz ELSE valid_to END,
-    status            = CASE WHEN $12 THEN $13 ELSE status END,
+    vaccination_daily_animal_cap = CASE WHEN $10 THEN $11::int ELSE vaccination_daily_animal_cap END,
+    valid_to          = CASE WHEN $12 THEN nullif($13, '')::timestamptz ELSE valid_to END,
+    status            = CASE WHEN $14 THEN $15 ELSE status END,
     updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND position_id = $2::uuid AND row_version = $3 AND status = 'active'`,
 		cmd.TenantID, cmd.PositionID, cmd.RowVersion,
 		cmd.SetPositionTier, cmd.PositionTier,
 		cmd.SetBackupGroup, cmd.BackupGroupCode,
 		cmd.SetWeekOff, cmd.WeekOffWeekday,
+		cmd.SetVaccinationDailyAnimalCap, cmd.VaccinationDailyAnimalCap,
 		cmd.SetValidTo, cmd.ValidTo,
 		cmd.SetStatus, cmd.Status)
 	if err != nil {
@@ -245,14 +277,129 @@ SELECT EXISTS (SELECT 1 FROM workforce_positions WHERE tenant_id = $1::uuid AND 
 	}); err != nil {
 		return domain.Position{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID); err != nil {
+	updatedPosition, err := txPosition(ctx, tx, cmd.TenantID, cmd.PositionID)
+	if err != nil {
+		return domain.Position{}, false, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID, updatedPosition); err != nil {
+		return domain.Position{}, false, err
+	}
+	if err := enqueueVaccinationOperatorPositionCascade(ctx, tx, cmd); err != nil {
 		return domain.Position{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Position{}, false, err
 	}
-	pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
-	return pos, false, err
+	// Return the state THIS transaction produced (the same value recorded as the replay snapshot),
+	// not a post-commit re-read that a concurrent writer may already have moved past.
+	return updatedPosition, false, nil
+}
+
+// enqueueVaccinationOperatorPositionCascade enqueues vaccination.capacity.changed and/or
+// vaccination.roster.changed to outbox_messages (same transaction as the position update) when the
+// edited position is a vaccination operator seat (position_code LIKE 'vaccination_operator_%',
+// park-scoped as scope_type='center') and the edit touched a field the operator-config auto-cascade
+// cares about: vaccination_daily_animal_cap (capacity), or week_off_weekday/status/valid_to
+// (availability/roster). Mirrors the envelope shape vaccinationexecution's
+// UpsertOperatorAssignmentConfig already uses for the same two event types (park-scoped
+// aggregate_type, payload={"park_id":...}), so OperatorConfigReplanHandler consumes both producers
+// identically. Before this, editing an operator's cap/week-off/status/valid-to directly on
+// workforce_positions silently updated the seat with zero notification to vaccination-execution
+// capacity/roster consumers -- the only wired producers were UpsertOperatorAssignmentConfig (N/
+// default-operator) and ApplyLeave (leave), not this position-edit path.
+func enqueueVaccinationOperatorPositionCascade(ctx context.Context, tx pgx.Tx, cmd ports.UpdatePositionCommand) error {
+	capacityChanged := cmd.SetVaccinationDailyAnimalCap
+	rosterChanged := cmd.SetWeekOff || cmd.SetStatus || cmd.SetValidTo
+	if !capacityChanged && !rosterChanged {
+		return nil
+	}
+
+	var positionCode, scopeType, scopeID string
+	var rowVersion int
+	if err := tx.QueryRow(ctx, `
+SELECT position_code, scope_type, scope_id::text, row_version
+FROM workforce_positions
+WHERE tenant_id = $1::uuid AND position_id = $2::uuid`, cmd.TenantID, cmd.PositionID,
+	).Scan(&positionCode, &scopeType, &scopeID, &rowVersion); err != nil {
+		return fmt.Errorf("workforce: read updated position for cascade: %w", err)
+	}
+	if !strings.HasPrefix(positionCode, "vaccination_operator_") || scopeType != "center" || scopeID == "" {
+		return nil
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	enqueue := func(eventType string) error {
+		idempotencyKey := fmt.Sprintf("workforce.position-update.%s:%s:%d", eventType, cmd.PositionID, rowVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     eventType,
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   scopeID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "workforce",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "human",
+				"actor_id":   cmd.ActorID,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   scopeID,
+			"visibility_scope": map[string]any{
+				"tenant_id": cmd.TenantID,
+				"park_id":   scopeID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   scopeID,
+			}},
+			"payload":  map[string]any{"park_id": scopeID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("workforce: marshal %s envelope: %w", eventType, err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "workforce.UpdatePosition",
+			"schema_version":  "1.0.0",
+			"park_id":         scopeID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("workforce: marshal %s headers: %w", eventType, err)
+		}
+		sql := `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
+  'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
+		if _, err := tx.Exec(ctx, sql, cmd.TenantID, eventID, eventType, scopeID, envelope, headers, idempotencyKey); err != nil {
+			return fmt.Errorf("workforce: enqueue %s to outbox: %w", eventType, err)
+		}
+		return nil
+	}
+
+	if capacityChanged {
+		if err := enqueue("vaccination.capacity.changed"); err != nil {
+			return err
+		}
+	}
+	if rosterChanged {
+		if err := enqueue("vaccination.roster.changed"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repository) GetPositionByID(ctx context.Context, tenantID, positionID string) (domain.Position, error) {
@@ -611,6 +758,7 @@ func (r *Repository) ResolvePositionRecipients(ctx context.Context, tenantID, sc
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH position_recipients AS (
 SELECT DISTINCT p.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_positions p
 JOIN workforce_member_devices d
@@ -625,6 +773,34 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $5::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_recipients AS (
+SELECT DISTINCT m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = $3::uuid
+  AND g.role = $4
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+)
+SELECT DISTINCT workforce_member_id, device_id, fcm_token
+FROM (
+  SELECT * FROM position_recipients
+  UNION ALL
+  SELECT * FROM grant_recipients
+) recipients
 ORDER BY 1, 2
 LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
 	if err != nil {
@@ -647,6 +823,7 @@ func (r *Repository) ResolvePositionRecipientsBatch(ctx context.Context, tenantI
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH position_recipients AS (
 SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_positions p
 JOIN workforce_member_devices d
@@ -661,6 +838,34 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $5::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_recipients AS (
+SELECT DISTINCT g.scope_id::text, g.role AS position_code, m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = ANY($3::uuid[])
+  AND g.role = ANY($4::text[])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+)
+SELECT DISTINCT scope_id, position_code, workforce_member_id, device_id, fcm_token
+FROM (
+  SELECT * FROM position_recipients
+  UNION ALL
+  SELECT * FROM grant_recipients
+) recipients
 ORDER BY 1, 2, 3, 4
 LIMIT 5000`, tenantID, scopeType, scopeIDs, positionCodes, at)
 	if err != nil {
@@ -751,6 +956,12 @@ func (r *Repository) ApplyLeave(ctx context.Context, cmd ports.ApplyLeaveCommand
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, err
+		} else if ok {
+			return original, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading by result id.
 		return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, reservation.resultID)
 	}
 
@@ -771,9 +982,23 @@ RETURNING absence_id::text`,
 	}); err != nil {
 		return domain.StaffLeave{}, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID); err != nil {
+	appliedLeave, err := txLeave(ctx, tx, cmd.TenantID, absenceID)
+	if err != nil {
 		return domain.StaffLeave{}, err
 	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID, appliedLeave); err != nil {
+		return domain.StaffLeave{}, err
+	}
+
+	// NOTE: vaccination.leave.changed is deliberately NOT enqueued here. A plain apply
+	// leaves the absence in status='reported', which the scheduler's availability
+	// predicate (obligation/adapters/postgres/visit_shot_lock.go) does not exclude on
+	// (only 'approved'/'escalation_required' do) -- so a reported-only apply is a no-op
+	// for planning and firing the cascade here would only cause needless replan churn
+	// for a leave that is not yet active. The cascade fires on the transitions that
+	// actually change availability: ApproveLeave and ResolveLeaveCoverage (see
+	// enqueueVaccinationLeaveCascade), both in the same tx as their status write.
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.StaffLeave{}, err
 	}
@@ -804,8 +1029,29 @@ func (r *Repository) ApproveLeave(ctx context.Context, cmd ports.ApproveLeaveCom
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, false, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 		return leave, true, err
+	}
+
+	// ATOMIC min-operator-coverage guard (BLOCKER 4 / P0 race fix): the service-level
+	// pre-check (RosterService.checkMinOperatorCoverage) reads and decides in a SEPARATE,
+	// already-committed transaction from this one -- two concurrent ApproveLeave calls for
+	// DIFFERENT operators on the same park/day can each pass that pre-check before either
+	// commits, then both commit here, together dropping the park to 0 available operators
+	// (classic TOCTOU). Closing it requires the check AND the status-flip write to be in the
+	// SAME transaction, serialized against any other approval racing for the same
+	// tenant+park+day via a transaction-scoped advisory lock (released automatically on
+	// commit/rollback) acquired BEFORE the coverage count is read. A second concurrent
+	// transaction blocks on the lock until the first commits or rolls back, so it always
+	// re-counts against the FIRST transaction's already-durable outcome -- no split-brain.
+	if err := lockAndCheckMinOperatorCoverage(ctx, tx, cmd.TenantID, cmd.AbsenceID); err != nil {
+		return domain.StaffLeave{}, false, err
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -822,7 +1068,20 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND row_version = $3 AND st
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "roster.leave.approve", "workforce_absence", cmd.AbsenceID, nil, map[string]any{"row_version": cmd.RowVersion}); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+	// No snapshot recorded here, deliberately. The RESULT of approve/resolve-coverage is not what
+	// this transaction alone produces: the service runs coverage auto-resolution (a further
+	// row_version bump) and the temporary-capability grant after this commit, and the response the
+	// first caller saw reflects THAT composite state. Recording the in-transaction row here would
+	// make a replay return a strictly earlier leave than the original response. Replays therefore
+	// fall back to reading the settled record; owning a true original snapshot for these two paths
+	// requires the SERVICE layer to record it once the composite operation completes.
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID, nil); err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	// Approval -- not the earlier 'reported' apply -- is the transition that actually
+	// removes this member from the scheduler's available-operator set, so the cascade
+	// must fire here, in the same tx as the status write.
+	if err := enqueueVaccinationLeaveCascade(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.AbsenceID, "workforce.ApproveLeave"); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -830,6 +1089,110 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND row_version = $3 AND st
 	}
 	leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 	return leave, false, err
+}
+
+// enqueueVaccinationLeaveCascade enqueues vaccination.leave.changed to outbox_messages in the
+// caller's transaction for an absence transition that is EFFECTIVE for vaccination planning.
+//
+// Root cause it closes: ApplyLeave enqueues while the absence is still status='reported', but the
+// scheduler's availability predicate (obligation/adapters/postgres/visit_shot_lock.go:586 and :694)
+// only excludes an operator whose absence status IN ('approved','escalation_required'). The apply
+// event therefore describes a no-op for planning, while the transitions that DO change availability
+// -- approval (reported -> approved) and coverage resolution/escalation -- emitted nothing at all.
+//
+// Scope routing mirrors what OperatorConfigReplanHandler consumes: a 'center'-scoped absence is
+// park-scoped (the shape vaccination_operator_* seats use), so it carries park_id directly; a
+// 'shed'-scoped absence carries scope_type/scope_id and the handler resolves shed -> park. A
+// tenant-scoped absence has no park to re-plan and is skipped. Envelope shape matches ApplyLeave's
+// (contracts/jsonschema/domain-event-envelope.schema.json is additionalProperties:false).
+//
+// Idempotency: the key is bound to the absence row_version AFTER the transition's UPDATE, so each
+// distinct transition enqueues exactly once and a replayed request (which does not re-run the
+// UPDATE, and therefore never reaches this helper) can never add a duplicate.
+func enqueueVaccinationLeaveCascade(ctx context.Context, tx pgx.Tx, tenantID, actorID, absenceID, producer string) error {
+	var scopeType, scopeID, reasonCode, status string
+	var rowVersion int
+	if err := tx.QueryRow(ctx, `
+SELECT scope_type, COALESCE(scope_id::text, ''), reason_code, status, row_version
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND absence_id = $2::uuid`, tenantID, absenceID,
+	).Scan(&scopeType, &scopeID, &reasonCode, &status, &rowVersion); err != nil {
+		return fmt.Errorf("workforce: read absence for leave cascade: %w", err)
+	}
+	if scopeID == "" || (scopeType != "center" && scopeType != "shed") {
+		return nil
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	idempotencyKey := fmt.Sprintf("vaccination.leave.changed:%s:%s:%d", absenceID, producer, rowVersion)
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	payload := map[string]any{
+		"absence_id":  absenceID,
+		"scope_type":  scopeType,
+		"scope_id":    scopeID,
+		"reason_code": reasonCode,
+		"status":      status,
+	}
+	visibility := map[string]any{"tenant_id": tenantID}
+	if scopeType == "center" {
+		payload["park_id"] = scopeID
+		visibility["park_id"] = scopeID
+	} else {
+		visibility["shed_id"] = scopeID
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     "vaccination.leave.changed",
+		"schema_version": "1.0.0",
+		"schema_ref":     "domain-event-envelope.v1",
+		"aggregate_type": "absence",
+		"aggregate_id":   absenceID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "workforce",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "human",
+			"actor_id":   actorID,
+			"actor_ref":  nil,
+		},
+		"subject_type":     "location",
+		"subject_id":       scopeID,
+		"visibility_scope": visibility,
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "location",
+			"evidence_id":   scopeID,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("workforce: marshal leave-changed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        producer,
+		"schema_version":  "1.0.0",
+		"absence_id":      absenceID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("workforce: marshal leave-changed headers: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.leave.changed', '1.0.0', 'absence', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.leave.changed' DO NOTHING`,
+		tenantID, eventID, absenceID, envelope, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("workforce: enqueue leave-changed to outbox: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, bool, error) {
@@ -856,6 +1219,12 @@ func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.Resolve
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, false, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 		return leave, true, err
 	}
@@ -883,7 +1252,20 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status IN ('approved', 
 	}); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+	// No snapshot recorded here, deliberately. The RESULT of approve/resolve-coverage is not what
+	// this transaction alone produces: the service runs coverage auto-resolution (a further
+	// row_version bump) and the temporary-capability grant after this commit, and the response the
+	// first caller saw reflects THAT composite state. Recording the in-transaction row here would
+	// make a replay return a strictly earlier leave than the original response. Replays therefore
+	// fall back to reading the settled record; owning a true original snapshot for these two paths
+	// requires the SERVICE layer to record it once the composite operation completes.
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID, nil); err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	// Coverage resolution changes WHO actually covers the scope for the window (a
+	// replacement was resolved, changed, or cleared to escalation_required), which is a
+	// real planning change -- cascade in the same tx as the coverage write.
+	if err := enqueueVaccinationLeaveCascade(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.AbsenceID, "workforce.ResolveLeaveCoverage"); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -973,6 +1355,197 @@ LIMIT 1`, tenantID, workforceMemberID, startsAt, endsAt).Scan(&absenceID)
 		return false, "", err
 	}
 	return true, absenceID, nil
+}
+
+// ParkIDsForVaccinationOperator resolves the park(s) workforceMemberID holds an active,
+// duty-based (position_module_duties) vaccination-execute seat in -- see ports doc comment.
+func (r *Repository) ParkIDsForVaccinationOperator(ctx context.Context, tenantID, workforceMemberID string, at time.Time) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT COALESCE(park_loc.location_id, p.scope_id)::text
+FROM workforce_positions p
+LEFT JOIN locations shed_loc ON p.scope_type = 'shed' AND shed_loc.tenant_id = p.tenant_id AND shed_loc.location_id = p.scope_id
+LEFT JOIN locations park_loc ON park_loc.tenant_id = p.tenant_id
+  AND park_loc.location_id = COALESCE(shed_loc.parent_location_id, p.scope_id)
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $3::date + interval '1 day'
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.workforce_member_id = $2::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.scope_type IN ('center', 'shed')
+  AND p.valid_from <= $3::date + interval '1 day'
+  AND (p.valid_to IS NULL OR p.valid_to > $3::date)`,
+		tenantID, workforceMemberID, biztime.BusinessDayStart(at))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var parkID string
+		if err := rows.Scan(&parkID); err != nil {
+			return nil, err
+		}
+		out = append(out, parkID)
+	}
+	return out, rows.Err()
+}
+
+// ListVaccinationOperatorsForPark returns the active vaccination-execute duty-based operator
+// seats for parkID (scope center=parkID or a shed under it) -- see ports doc comment.
+func (r *Repository) ListVaccinationOperatorsForPark(ctx context.Context, tenantID, parkID string, at time.Time) ([]domain.Position, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, positionSelectSQL(`
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $3::date + interval '1 day'
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.valid_from <= $3::date + interval '1 day'
+  AND (p.valid_to IS NULL OR p.valid_to > $3::date)
+  AND (
+    (p.scope_type = 'center' AND p.scope_id = $2::uuid)
+    OR (p.scope_type = 'shed' AND p.scope_id IN (
+      SELECT location_id FROM locations WHERE tenant_id = p.tenant_id AND parent_location_id = $2::uuid AND location_type = 'shed' AND status = 'active'
+    ))
+  )
+ORDER BY p.workforce_member_id`), tenantID, parkID, biztime.BusinessDayStart(at))
+	if err != nil {
+		return nil, err
+	}
+	return scanPositions(rows)
+}
+
+// lockAndCheckMinOperatorCoverage is the transaction-scoped counterpart of
+// RosterService.checkMinOperatorCoverage (app/roster_service.go): it re-derives the SAME
+// park(s) and per-day availability count, using tx (not r.pool), inside the caller's
+// transaction, so the count is read after acquiring a per tenant+park+day
+// pg_advisory_xact_lock -- guaranteeing that a second concurrent ApproveLeave for a
+// DIFFERENT operator on the same park/day cannot compute its count until the first
+// transaction has committed or rolled back (true serialization, not just a read snapshot).
+// Returns ports.ErrMinOperatorCoverage (wrapped with the offending park/day) when approving
+// absenceID would leave 0 available vaccination operators on some day it covers; a no-op
+// (nil) if the absence is not currently 'reported' (the subsequent UPDATE's WHERE clause
+// handles that case as a normal optimistic-lock conflict) or the leaving member holds no
+// vaccination-operator duty anywhere.
+func lockAndCheckMinOperatorCoverage(ctx context.Context, tx pgx.Tx, tenantID, absenceID string) error {
+	var workforceMemberID string
+	var startsAt, endsAt time.Time
+	err := tx.QueryRow(ctx, `
+SELECT workforce_member_id, starts_at, ends_at
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status = 'reported'`,
+		tenantID, absenceID).Scan(&workforceMemberID, &startsAt, &endsAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // not reported (already approved/rejected/replayed) -- the UPDATE below settles it
+	}
+	if err != nil {
+		return fmt.Errorf("workforce: read leave for coverage guard: %w", err)
+	}
+
+	parkRows, err := tx.Query(ctx, `
+SELECT DISTINCT COALESCE(park_loc.location_id, p.scope_id)::text
+FROM workforce_positions p
+LEFT JOIN locations shed_loc ON p.scope_type = 'shed' AND shed_loc.tenant_id = p.tenant_id AND shed_loc.location_id = p.scope_id
+LEFT JOIN locations park_loc ON park_loc.tenant_id = p.tenant_id
+  AND park_loc.location_id = COALESCE(shed_loc.parent_location_id, p.scope_id)
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.status = 'active'
+ AND pmd.duty_type = 'execute'
+ AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+WHERE p.tenant_id = $1::uuid
+  AND p.workforce_member_id = $2::uuid
+  AND p.status = 'active'
+  AND p.position_tier <> 'director'
+  AND p.scope_type IN ('center', 'shed')`, tenantID, workforceMemberID)
+	if err != nil {
+		return fmt.Errorf("workforce: resolve operator parks for coverage guard: %w", err)
+	}
+	var parkIDs []string
+	for parkRows.Next() {
+		var parkID string
+		if err := parkRows.Scan(&parkID); err != nil {
+			parkRows.Close()
+			return err
+		}
+		parkIDs = append(parkIDs, parkID)
+	}
+	if err := parkRows.Err(); err != nil {
+		parkRows.Close()
+		return err
+	}
+	parkRows.Close()
+	if len(parkIDs) == 0 {
+		return nil // leaving member holds no vaccination-operator duty -- nothing to guard
+	}
+
+	for _, parkID := range parkIDs {
+		for day := biztime.BusinessDayStart(startsAt); day.Before(endsAt); day = day.AddDate(0, 0, 1) {
+			lockKey := tenantID + ":" + parkID + ":" + day.Format("2006-01-02")
+			// scale-guard:ignore: per-(tenant,park,day) advisory lock IS the required race grain (blocker 4); parks-per-seat~1 x few leave-window days, rare admin approve, not a per-request/per-goat path
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+				return fmt.Errorf("workforce: acquire coverage lock: %w", err)
+			}
+			var available int
+			// scale-guard:ignore: one bounded availability count per (park,day) under the coverage lock; parks-per-seat~1 x few window days on a rare admin leave-approval, not a per-request/per-goat path
+			err := tx.QueryRow(ctx, `
+WITH operators AS (
+  SELECT DISTINCT p.workforce_member_id, p.week_off_weekday
+  FROM workforce_positions p
+  JOIN position_module_duties pmd
+    ON pmd.tenant_id = p.tenant_id
+   AND pmd.position_code = p.position_code
+   AND pmd.status = 'active'
+   AND pmd.duty_type = 'execute'
+   AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+  WHERE p.tenant_id = $1::uuid
+    AND p.status = 'active'
+    AND p.position_tier <> 'director'
+    AND (
+      (p.scope_type = 'center' AND p.scope_id = $2::uuid)
+      OR (p.scope_type = 'shed' AND p.scope_id IN (
+        SELECT location_id FROM locations WHERE tenant_id = $1::uuid AND parent_location_id = $2::uuid AND location_type = 'shed' AND status = 'active'
+      ))
+    )
+)
+SELECT count(*)
+FROM operators o
+WHERE o.workforce_member_id <> $3::uuid
+  AND (o.week_off_weekday IS NULL OR o.week_off_weekday <> lower(to_char($4::date, 'FMDay')))
+  AND NOT EXISTS (
+    SELECT 1 FROM workforce_absences wa
+    WHERE wa.tenant_id = $1::uuid
+      AND wa.workforce_member_id = o.workforce_member_id
+      AND wa.status IN ('approved', 'escalation_required')
+      AND wa.starts_at < $4::date + interval '1 day'
+      AND wa.ends_at > $4::date
+  )`, tenantID, parkID, workforceMemberID, day).Scan(&available)
+			if err != nil {
+				return fmt.Errorf("workforce: count available operators for coverage guard: %w", err)
+			}
+			if available < 1 {
+				return fmt.Errorf("%w: park %s on %s", ports.ErrMinOperatorCoverage, parkID, day.Format("2006-01-02"))
+			}
+		}
+	}
+	return nil
 }
 
 // ---- Backup config + coverage lists -----------------------------------------

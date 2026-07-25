@@ -94,6 +94,12 @@ interface ScannedGoatDao {
     )
     fun observeForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): Flow<List<ScannedGoatEntity>>
 
+    @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+            "ORDER BY capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): List<ScannedGoatEntity>
+
     @Query("SELECT COUNT(*) FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey")
     fun observeCountForField(taskId: String, fieldKey: String): Flow<Int>
 
@@ -165,7 +171,7 @@ data class ProofCaptureEntity(
      *  (e.g. `shed_video`, `vial_lot_video`, `administration_video`, or an operator-added extra
      *  field key) — server-driven, never hardcoded by the client. */
     val fieldKey: String,
-    /** `shed` / `vial_lot` / `administration` / `extra` — mirrors the SOP's documented proof
+    /** `goat` / `shed` / `vial_lot` / `administration` / `extra` — mirrors the SOP's documented proof
      *  subjects (docs/mobile/proof-capture-sync-and-e2e.md §2 table). */
     val proofSubject: String,
     /** Goat id for row-level vaccination evidence. Several clips may cover the same handling. */
@@ -177,10 +183,9 @@ data class ProofCaptureEntity(
      *  field the operator added themselves. */
     val caption: String? = null,
     val capturedAtMs: Long,
-    /** Freshness/anti-fraud metadata (docs/mobile/proof-capture-sync-and-e2e.md "Camera-only
-     *  capture"): device-clock record start/stop, so a verifier can see this was a live,
-     *  in-app recording of a plausible duration — never an imported file (no picker path
-     *  exists to produce one). */
+    /** Freshness/attribution metadata (docs/mobile/proof-capture-sync-and-e2e.md
+     *  "Capture-source rules"): device-clock capture/import start/stop, so a verifier can see
+     *  when this proof was produced and by whom. */
     val capturedStartMs: Long,
     val capturedEndMs: Long,
     /** The signed-in operator who recorded this video — part of the same freshness proof. */
@@ -196,7 +201,7 @@ data class ProofCaptureEntity(
      *  registered this proof — null until [syncStatus] reaches SYNCED. */
     val serverProofId: String? = null,
     val lastError: String? = null,
-    /** The `capture_source` metadata (e.g. `in_app_camera`) persisted WITH the durable row so the
+    /** The `capture_source` metadata (e.g. `in_app_camera` or `gallery_picker`) persisted WITH the durable row so the
      *  startup-recovery re-registration path
      *  ([sg.mesha.goatos.core.data.capture.ProofCaptureRepository]'s recovery walk) re-sends the
      *  ORIGINAL source. Before this was persisted, recovery had no in-memory `ProofPolicy` and fell
@@ -207,8 +212,8 @@ data class ProofCaptureEntity(
     val captureSource: String = DEFAULT_CAPTURE_SOURCE,
 )
 
-/** Historical hardcoded `capture_source` — the only source a live in-app recording could have.
- *  Kept in lockstep with `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource`. */
+/** Default `capture_source` for live in-app recording. Kept in lockstep with
+ *  `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource`. */
 const val DEFAULT_CAPTURE_SOURCE = "in_app_camera"
 
 @Dao

@@ -1,7 +1,8 @@
 // Client-side API client for making requests from 'use client' components.
 // This is a thin wrapper around fetch that calls the backend admin API endpoints.
 
-import type { AdminApiComponents, AdminApiPaths } from '@goatos/api-client';
+import type { AdminApiComponents, AdminApiPaths, AppApiComponents } from '@goatos/api-client';
+import { parkScopeAmbiguousFromBody } from './park-scope';
 
 /**
  * getAdminApi returns a client-side API object that can fetch roster and other admin endpoints.
@@ -75,6 +76,63 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    async getVaccinationCapacityConfig() {
+      const response = await fetch('/api/vaccination/capacity-config', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch vaccination capacity config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
+      return { data: body };
+    },
+
+    // parkId is OPTIONAL: omitting it lets the BACKEND resolve the caller's park
+    // scope and echo it back as `parkId` (BUG-019). Clients scope park-dependent
+    // reads to that resolved value instead of inferring a park from row data.
+    async getVaccinationOperatorAssignmentConfig(parkId?: string) {
+      const query = new URLSearchParams(parkId ? { park_id: parkId } : {});
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const response = await fetch(`/api/vaccination/operator-assignment/config${suffix}`, { cache: 'no-store' });
+      if (!response.ok) {
+        // A 409 park_scope_ambiguous is NOT a failure — it is the backend handing back the park
+        // vocabulary this caller must choose from. Surface it as a typed error so the screen can
+        // render the backend-owned selector instead of dead-ending on a thrown message.
+        const ambiguous = parkScopeAmbiguousFromBody(response.status, await response.clone().json().catch(() => null));
+        if (ambiguous) throw ambiguous;
+        throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
+    async putVaccinationCapacityConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationCapacityConfigRequest']) {
+      const response = await fetch('/api/vaccination/capacity-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to update vaccination capacity config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
+      return { data: body };
+    },
+
+    async putVaccinationOperatorAssignmentConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationOperatorAssignmentConfigRequest']) {
+      const response = await fetch('/api/vaccination/operator-assignment/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
     // getStaffPositionProfile backs the People position row-click drawer: the
     // enriched seat plus its holder's currently-active coverage window.
     async getStaffPositionProfile(positionId: string) {
@@ -141,6 +199,63 @@ export function getAdminApi() {
         throw new Error(`Failed to import positions: ${response.statusText}`);
       }
       const body = (await response.json()) as AdminApiComponents['schemas']['ImportPositionsResponse'];
+      return { data: body };
+    },
+
+    // listStaffLeave fetches planned leave/absence records for operators.
+    async listStaffLeave(
+      params?: AdminApiPaths['/admin/roster/leave']['get']['parameters']['query']
+    ) {
+      const query = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) {
+            query.append(k, String(v));
+          }
+        });
+      }
+      const url = `/api/admin/roster/leave${query.toString() ? '?' + query.toString() : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveListResponse'];
+      return { data: body };
+    },
+
+    // applyStaffLeave adds a new leave/absence period for an operator.
+    async applyStaffLeave(
+      requestBody: AdminApiComponents['schemas']['ApplyStaffLeaveRequest']
+    ) {
+      const response = await fetch('/api/admin/roster/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        // Surface the backend's business message (e.g. the min-operator coverage
+        // block) instead of a bare "Conflict", so the operator sees the reason.
+        const errBody = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Failed to apply leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
+      return { data: body };
+    },
+
+    async approveStaffLeave(
+      absenceId: string,
+      requestBody: AdminApiComponents['schemas']['ApproveStaffLeaveRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch(`/api/admin/roster/leave/${encodeURIComponent(absenceId)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to approve leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
       return { data: body };
     },
   };

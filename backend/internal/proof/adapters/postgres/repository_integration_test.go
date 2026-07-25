@@ -219,6 +219,128 @@ func TestCreateProofIsIdempotentByKey(t *testing.T) {
 	}
 }
 
+func TestBackfillSubmissionRetentionAppliesCommittedSOPPolicy(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	proof := createProofArtifact(t, ctx, repo)
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     proof.ProofID,
+		ContentHash: "sha256:retention-backfill",
+		MimeType:    "video/mp4",
+		SizeBytes:   321,
+	}); err != nil {
+		t.Fatalf("CompleteProof() error = %v", err)
+	}
+
+	sopID := "61000000-0000-4000-8000-000000000101"
+	versionID := "62000000-0000-4000-8000-000000000101"
+	taskID := "63000000-0000-4000-8000-000000000101"
+	submissionID := "65000000-0000-4000-8000-000000000101"
+	actorID := "90000000-0000-4000-8000-000000000101"
+	scopeID := "64000000-0000-4000-8000-000000000101"
+	anchor := time.Date(2026, 7, 25, 9, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+VALUES ($1::uuid, $2::uuid, 'vaccination.drive', 'Vaccination Drive', 'active');
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
+VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Vaccination Drive v1', 'published', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb);
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
+VALUES ($4::uuid, $2::uuid, $1::uuid, $3::uuid, 'vaccination', 'Vaccination task', 'accepted', 'shed', $5::uuid);
+INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, submitted_at, accepted_at)
+VALUES ($6::uuid, $2::uuid, $4::uuid, $3::uuid, $7::uuid, 'retention-backfill-test', '{}'::jsonb,
+        jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $9, $9)`,
+		sopID, tenantID, versionID, taskID, scopeID, submissionID, actorID, proof.ProofID, anchor); err != nil {
+		t.Fatalf("seed committed SOP submission: %v", err)
+	}
+
+	updated, err := repo.BackfillSubmissionRetention(ctx, anchor.Add(time.Hour), 100)
+	if err != nil {
+		t.Fatalf("BackfillSubmissionRetention() error = %v", err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated = %d, want 1", updated)
+	}
+	got, err := repo.GetProof(ctx, tenantID, proof.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof() error = %v", err)
+	}
+	if got.RetentionPolicy != "operational_90d" {
+		t.Fatalf("retention policy = %q, want operational_90d", got.RetentionPolicy)
+	}
+	if got.RetentionExpiresAt == nil || !got.RetentionExpiresAt.Equal(anchor.Add(90*24*time.Hour)) {
+		t.Fatalf("retention expiry = %v, want %v", got.RetentionExpiresAt, anchor.Add(90*24*time.Hour))
+	}
+}
+
+func TestBackfillSubmissionRetentionDedupesReusedProofRefsConservatively(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	proof := createProofArtifact(t, ctx, repo)
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     proof.ProofID,
+		ContentHash: "sha256:retention-dedupe",
+		MimeType:    "video/mp4",
+		SizeBytes:   654,
+	}); err != nil {
+		t.Fatalf("CompleteProof() error = %v", err)
+	}
+
+	sopID := "61000000-0000-4000-8000-000000000201"
+	version90ID := "62000000-0000-4000-8000-000000000201"
+	version1YID := "62000000-0000-4000-8000-000000000202"
+	taskID := "63000000-0000-4000-8000-000000000201"
+	actorID := "90000000-0000-4000-8000-000000000201"
+	scopeID := "64000000-0000-4000-8000-000000000201"
+	firstAnchor := time.Date(2026, 7, 25, 9, 0, 0, 0, time.UTC)
+	secondAnchor := firstAnchor.Add(24 * time.Hour)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+VALUES ($1::uuid, $2::uuid, 'vaccination.drive', 'Vaccination Drive', 'active');
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
+VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Operational proof policy', 'retired', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb),
+       ($4::uuid, $2::uuid, $1::uuid, 2, 'Standard proof policy', 'published', '{}'::jsonb, '{"retention_policy":"standard_1y"}'::jsonb);
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
+VALUES ($5::uuid, $2::uuid, $1::uuid, $3::uuid, 'vaccination', 'Vaccination task', 'accepted', 'shed', $6::uuid);
+INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, submitted_at, accepted_at)
+VALUES ('65000000-0000-4000-8000-000000000201'::uuid, $2::uuid, $5::uuid, $3::uuid, $7::uuid, 'retention-dedupe-90d', '{}'::jsonb,
+        jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $9, $9),
+       ('65000000-0000-4000-8000-000000000202'::uuid, $2::uuid, $5::uuid, $4::uuid, $7::uuid, 'retention-dedupe-1y', '{}'::jsonb,
+        jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $10, $10)`,
+		sopID, tenantID, version90ID, version1YID, taskID, scopeID, actorID, proof.ProofID, firstAnchor, secondAnchor); err != nil {
+		t.Fatalf("seed duplicate proof submissions: %v", err)
+	}
+
+	updated, err := repo.BackfillSubmissionRetention(ctx, secondAnchor.Add(time.Hour), 100)
+	if err != nil {
+		t.Fatalf("BackfillSubmissionRetention() error = %v", err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated = %d, want one proof row update", updated)
+	}
+	got, err := repo.GetProof(ctx, tenantID, proof.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof() error = %v", err)
+	}
+	if got.RetentionPolicy != "standard_1y" {
+		t.Fatalf("retention policy = %q, want strongest standard_1y policy", got.RetentionPolicy)
+	}
+	if got.RetentionExpiresAt == nil || !got.RetentionExpiresAt.Equal(secondAnchor.AddDate(1, 0, 0)) {
+		t.Fatalf("retention expiry = %v, want %v", got.RetentionExpiresAt, secondAnchor.AddDate(1, 0, 0))
+	}
+}
+
 func createProofArtifact(t *testing.T, ctx context.Context, repo *Repository) domain.Artifact {
 	t.Helper()
 	subjectID := "30000000-0000-4000-8000-000000000001"

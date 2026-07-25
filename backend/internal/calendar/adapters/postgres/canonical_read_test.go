@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -135,12 +136,33 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
 		t.Fatalf("park-drive target lookup still matches batches by window_start before planned_date")
 	}
-	const wantedTargetDate = "COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)"
+	const wantedTargetDate = "vda.planned_date = $3::date"
 	if !strings.Contains(calendarDriveTargetsSQL, wantedTargetDate) {
-		t.Fatalf("park-drive target lookup must match batches by planned_date before window_start")
+		t.Fatalf("park-drive target lookup must match batches by vaccination_drive_assignments.planned_date")
+	}
+	if strings.Contains(calendarDriveTargetsSQL, "to_char(vda.planned_date") {
+		t.Fatalf("park-drive target lookup must compare planned_date as a typed date, not through to_char")
 	}
 	if strings.Contains(calendarDriveTargetsSQL, "ob.planned_date::timestamptz") {
 		t.Fatalf("park-drive target lookup must not depend on the PostgreSQL session timezone")
+	}
+}
+
+func TestCalendarParkDriveTargetsUseOperatorAssignmentDateOneToManyPageBoundaryScheduledDateParkScopeStatusBuckets(t *testing.T) {
+	checks := map[string]string{
+		"assignment table membership": "LEFT JOIN vaccination_drive_assignments vda",
+		"assignment business date":    "vda.planned_date = $3::date",
+		"legacy batch fallback":       "NOT COALESCE(assignment_presence.has_any_assignment, false)",
+		"assignment park scope":       "vda.park_id = $4::uuid",
+		"display date tied to bucket": "AND assignment.planned_date = $3::date",
+		"hybrid member path":          "target_assignment.assignment_planned_at",
+		"hybrid guess fallback":       "target_assignment_guess.assignment_planned_at",
+		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(calendarDriveTargetsSQL, fragment) {
+			t.Fatalf("calendar drive targets lost %s invariant %q", name, fragment)
+		}
 	}
 }
 
@@ -152,6 +174,22 @@ func TestCalendarParkDriveScheduledCountIgnoresCompletedBatchSourcesStatusBucket
 	const statusBucket = "AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')"
 	if !strings.Contains(calendarCanonicalListSQL, statusBucket) {
 		t.Fatalf("park drive scheduled_count must be filtered by active scheduled/review statuses")
+	}
+}
+
+func TestCalendarParkDriveDosesCountDistinctAnimalsNotEstimatedTargetsOneToManyMultiPageScheduledDateParkScopeStatusBuckets(t *testing.T) {
+	// Cross-surface count parity: the park-drive marker must count DISTINCT animals — the
+	// same grain the operator drive schedule uses — not obligation_batches.estimated_targets,
+	// which is an obligation-ROW estimate (e.g. 200 animals x 2 dose rows = 400) and made the
+	// mobile calendar show 400 doses where web showed 200. See
+	// docs/decisions/scale-anti-patterns.md -> "Cross-surface count parity".
+	const distinctAnimals = "GREATEST(count(DISTINCT oi.target_id), 1)::int AS target_count"
+	if !strings.Contains(calendarCanonicalListSQL, distinctAnimals) {
+		t.Fatalf("park-drive target_count must count DISTINCT animals for cross-surface parity; missing %q", distinctAnimals)
+	}
+	const rowEstimate = "GREATEST(ob.estimated_targets, 1)::int AS target_count"
+	if strings.Contains(calendarCanonicalListSQL, rowEstimate) {
+		t.Fatalf("park-drive target_count still renders estimated_targets (obligation-row estimate) as doses; use count(DISTINCT oi.target_id)")
 	}
 }
 
@@ -213,8 +251,9 @@ func TestCalendarVaccineFilterOneToManyMultiPageDateShiftParkScopeStatusBuckets(
 
 func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t *testing.T) {
 	checks := map[string]string{
-		"date lower bound":         "due_at >= $2::timestamptz",
-		"date upper bound":         "due_at < $3::timestamptz",
+		"scheduled date source":    "SELECT due_at AS scheduled_at",
+		"date lower bound":         "scheduled_at >= $2::timestamptz",
+		"date upper bound":         "scheduled_at < $3::timestamptz",
 		"india date shift":         "AT TIME ZONE 'Asia/Kolkata'",
 		"park scope":               "park_id::text = nullif($6::text, '')",
 		"shed scope":               "shed_id::text = nullif($7::text, '')",
@@ -235,11 +274,24 @@ func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t 
 	if strings.Contains(calendarDateMarkersSQL, "LIMIT ") {
 		t.Fatalf("calendar date marker aggregation must not page inside the month; the caller pages event lists only")
 	}
-	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
+	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (scheduled_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
 		t.Fatalf("live marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
 	}
 	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
 		t.Fatalf("history marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
+	}
+}
+
+func TestDriveLevelOverdueUsesBusinessDate(t *testing.T) {
+	businessDatePredicate := "(due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date"
+	if !strings.Contains(calendarCanonicalEventsCTE, businessDatePredicate) {
+		t.Fatalf("drive grouping must classify overdue by India business date, not by same-day timestamp")
+	}
+	if strings.Contains(calendarCanonicalEventsCTE, "status IN ('scheduled', 'due', 'overdue') AND due_at < now()") {
+		t.Fatalf("park drive grouping must not make a same-business-day drive overdue after midnight")
+	}
+	if strings.Contains(calendarCanonicalEventsCTE, "WHEN grouped.due_at < now()") {
+		t.Fatalf("batch drive severity must not warn solely because today's midnight timestamp is in the past")
 	}
 }
 
@@ -278,6 +330,11 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	}
 	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, parkID, shedID, dueAt, obligationID)
 
+	// $3 is the drive business DATE. ListDriveTargets always binds the real day parsed off the event
+	// id, and the fragment now casts it with $3::date (vaccination_drive_assignments.planned_date /
+	// obligation_batches.planned_date are DATE columns), so an empty string is not a legal bind here.
+	driveDay := dueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+
 	queryTargets := func(sessionTZ string) int64 {
 		t.Helper()
 		tx, err := pool.Begin(ctx)
@@ -298,7 +355,7 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 SELECT count(*)
 FROM (`+calendarDriveTargetsSQL+`) targets
 WHERE animal_id::text = $15::text`,
-			testTenantID, batchID, "", parkID, shedID, tenantID, ruleID, cursorID, true, parkIDs, shedIDs, false, 21, "", goatID).Scan(&got)
+			testTenantID, batchID, driveDay, parkID, shedID, tenantID, ruleID, cursorID, true, parkIDs, shedIDs, false, 21, "", goatID).Scan(&got)
 		if err != nil {
 			t.Fatalf("query due_at fragment under session tz %s: %v", sessionTZ, err)
 		}

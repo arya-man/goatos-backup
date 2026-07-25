@@ -17,10 +17,12 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -31,6 +33,7 @@ type Reader interface {
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
 	VaccinationSchedule(ctx context.Context, q vaccexecd.ScheduleQuery) (vaccexecd.OperationsResponse, error)
+	DriveAssignments(ctx context.Context, q vaccexecd.DriveAssignmentQuery) (vaccexecd.DriveAssignmentResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
@@ -43,8 +46,27 @@ type Reader interface {
 	ShedDetail(ctx context.Context, shedID string, q vaccexecd.OperationsQuery) (vaccexecd.ShedDetailResponse, bool, error)
 	// ShedAnimals backs the shed drill-down keyset-paginated animal roster.
 	ShedAnimals(ctx context.Context, q vaccexecd.ShedAnimalQuery) (vaccexecd.ShedAnimalPage, error)
-	// CapacityConfig backs the admin Config screen's read of the tenant daily vaccination cap.
+	// CapacityConfig backs the admin Config screen's read of the tenant daily operator animal cap.
 	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
+	// OperatorAssignmentConfig backs the admin Config screen's read of the park's N-active-operators +
+	// default-operator config plus every operator's authored shift.
+	GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error)
+	// AuthorizedParkOptions returns the canonical Postgres-backed park vocabulary the caller may act
+	// in. parkIDs empty means "no park-scoped grant narrowing" (a tenant-wide actor), i.e. every
+	// active park of the tenant. Ids and labels are `locations` data compiled by the backend -- the
+	// park option list is never assembled or labelled in the frontend.
+	AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]vaccexecd.ParkOption, error)
+}
+
+// OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
+type OperatorAssignmentConfigWriter interface {
+	UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg vaccexecd.OperatorAssignmentConfig) (vaccexecd.OperatorAssignmentConfig, string, string, error)
+}
+
+// CapacityConfigWriter is the write slice for the admin capacity-config screen (daily operator animal
+// cap + per-animal shot-cap override).
+type CapacityConfigWriter interface {
+	UpdateCapacityConfig(ctx context.Context, tenantID string, cfg vaccexecd.CapacityConfig) (vaccexecd.CapacityConfig, string, string, error)
 }
 
 // Writer is the obligation write interface needed for reschedule operations.
@@ -65,14 +87,17 @@ type Writer interface {
 	// left untouched. Callers should treat the returned obligation_id as authoritative rather than
 	// assuming it always equals the path's obligation_id.
 	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
+	UpsertVaccinationDriveDateOverride(ctx context.Context, override domain.VaccineDriveDateOverride) (*domain.VaccineDriveDateOverride, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
 type Handler struct {
-	reader Reader
-	writer Writer
-	log    *slog.Logger
-	clock  func() time.Time
+	reader       Reader
+	writer       Writer
+	operatorCfgW OperatorAssignmentConfigWriter
+	capacityCfgW CapacityConfigWriter
+	log          *slog.Logger
+	clock        func() time.Time
 }
 
 // NewHandler constructs the vaccination execution handler.
@@ -82,6 +107,22 @@ func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 		l = log[0]
 	}
 	return &Handler{reader: reader, writer: writer, log: l, clock: time.Now}
+}
+
+// WithOperatorAssignmentConfigWriter attaches the operator assignment write path.
+// Kept as a separate opt-in setter (rather than a NewHandler parameter) so existing call sites are
+// unaffected; a handler without this set 500s the PUT route rather than silently no-op-ing.
+func (h *Handler) WithOperatorAssignmentConfigWriter(w OperatorAssignmentConfigWriter) *Handler {
+	h.operatorCfgW = w
+	return h
+}
+
+// WithCapacityConfigWriter attaches the capacity-config write path. Kept as a separate opt-in setter
+// (rather than a NewHandler parameter) so existing call sites are unaffected; a handler without this
+// set 500s the PUT route rather than silently no-op-ing.
+func (h *Handler) WithCapacityConfigWriter(w CapacityConfigWriter) *Handler {
+	h.capacityCfgW = w
+	return h
 }
 
 // WithClock overrides the wall clock for tests that need deterministic as-of
@@ -106,10 +147,15 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
 	mux.HandleFunc("GET /vaccination/schedule", h.VaccinationSchedule)
+	mux.HandleFunc("POST /vaccination/schedule/drive-date-overrides", h.UpsertDriveDateOverride)
+	mux.HandleFunc("GET /vaccination/drive-assignments", h.DriveAssignments)
 	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
+	mux.HandleFunc("PUT /vaccination/capacity-config", h.PutCapacityConfig)
+	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
+	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
@@ -117,6 +163,104 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
 	mux.HandleFunc("GET /app/vaccination/coverage", h.VaccinationCoverage)
+}
+
+type driveDateOverrideRequest struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+}
+
+type driveDateOverrideResponse struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+	CreatedBy         string `json:"created_by"`
+	CreatedAt         string `json:"created_at"`
+}
+
+func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request) {
+	if h.writer == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "override_unavailable", Message: "vaccination drive date override writer is not wired", TraceID: traceID(r)}, nil)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || len(body) == 0 {
+		h.badRequest(w, r, "invalid_body", "request body is required")
+		return
+	}
+	var req driveDateOverrideRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ParkID) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	req.VaccineCode = strings.TrimSpace(req.VaccineCode)
+	if req.VaccineCode == "" {
+		h.badRequest(w, r, "invalid_vaccine_code", "vaccine_code is required")
+		return
+	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" {
+		h.badRequest(w, r, "invalid_reason", "reason is required")
+		return
+	}
+	original, err := time.ParseInLocation("2006-01-02", req.OriginalDriveDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_original_drive_date", "original_drive_date must be YYYY-MM-DD")
+		return
+	}
+	overrideDate, err := time.ParseInLocation("2006-01-02", req.OverrideDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_override_date", "override_date must be YYYY-MM-DD")
+		return
+	}
+	nowLocal := h.now().In(biztime.DefaultLocation())
+	today := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
+	if overrideDate.Before(today) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must not be before today")
+		return
+	}
+	if overrideDate.Before(original) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must not be before the original drive date")
+		return
+	}
+	actorID := strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))
+	if !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "missing_actor", "authenticated actor id is required")
+		return
+	}
+	out, err := h.writer.UpsertVaccinationDriveDateOverride(r.Context(), domain.VaccineDriveDateOverride{
+		TenantID:          tenantID(r),
+		ParkID:            req.ParkID,
+		VaccineCode:       req.VaccineCode,
+		OriginalDriveDate: original,
+		OverrideDate:      overrideDate,
+		Reason:            req.Reason,
+		CreatedBy:         actorID,
+		CreatedAt:         h.now(),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, driveDateOverrideResponse{
+		ParkID:            out.ParkID,
+		VaccineCode:       out.VaccineCode,
+		OriginalDriveDate: out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		OverrideDate:      out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		Reason:            out.Reason,
+		CreatedBy:         out.CreatedBy,
+		CreatedAt:         out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+	})
 }
 
 // VaccinationOperations serves the source-backed cohort × protocol matrix + per-cohort detail for the
@@ -252,6 +396,63 @@ func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
+// DriveAssignments serves the persisted operator-cap schedule ledger. This is the date/operator/shed/
+// partition table used by the vaccination drive UI; it is not a vaccine-dose aggregate.
+func (h *Handler) DriveAssignments(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	now := h.now()
+	year := now.Year()
+	month := int(now.Month())
+	if raw := query.Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < now.Year()-1 || n > now.Year()+5 {
+			h.badRequest(w, r, "invalid_year", "year must be within the supported schedule window")
+			return
+		}
+		year = n
+	}
+	if raw := query.Get("month"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 12 {
+			h.badRequest(w, r, "invalid_month", "month must be 1-12")
+			return
+		}
+		month = n
+	}
+	q := vaccexecd.DriveAssignmentQuery{
+		TenantID:   tenantID(r),
+		MonthStart: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		Limit:      defaultDrilldownLimit,
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	if !h.applyDriveAssignmentParkScope(w, r, &q) {
+		return
+	}
+	resp, err := h.reader.DriveAssignments(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
 const (
 	defaultExecutionLimit       = 200
 	defaultDrilldownLimit       = 500
@@ -297,6 +498,11 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
+	// A leadership oversight read (app route, no operator scope) is read-only: the client
+	// renders the shed list but must not open a shed into the operator scan/execute loop.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
+		page.ViewerReadOnly = true
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
@@ -333,6 +539,20 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		AsOf:      asOf,
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
 		Limit:     defaultLimit,
+	}
+	// On the app/mobile execution routes a field OPERATOR sees only their assigned work
+	// (OperatorScopeActorID). A leadership principal (CEO/CXO, PC Director, Park Head) is not
+	// an assigned operator, so operator scoping would return zero rows; they instead get a
+	// read-only view of ALL sheds/partitions in their authorized park(s) (park scope is applied
+	// by applyExecutionParkScope -> ResolveAuthorizedParkScope: CEO = all parks, Park Head = his
+	// park). Scan/capture stays blocked on the client (operator capability); this only opens the
+	// read.
+	if isAppExecutionRoute(r) && !h.isLeadershipExecutionActor(r) {
+		q.OperatorScopeActorID = httpmiddleware.ActorIDFromContext(r.Context())
+		if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
+			h.badRequest(w, r, "operator_scope_required", "app vaccination execution requires an authenticated operator scope")
+			return vaccexecd.ExecutionQuery{}, false
+		}
 	}
 
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
@@ -371,6 +591,22 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Severity = &severity
 	}
+	if raw := query.Get("open_only"); raw != "" {
+		openOnly, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_open_only", "open_only must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.OpenOnly = openOnly
+	}
+	if raw := query.Get("include_filter_options"); raw != "" {
+		includeFilterOptions, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_include_filter_options", "include_filter_options must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.IncludeFilterOptions = includeFilterOptions
+	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
 		if err != nil {
@@ -397,6 +633,13 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 			n = maxExecutionLimit
 		}
 		q.Limit = n
+	}
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		if q.AuthorizedParkIDs == nil {
+			q.AuthorizedParkIDs = []string{}
+		}
 	}
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false
@@ -437,10 +680,15 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	q := vaccexecd.ScanRosterQuery{
-		TenantID: tenantID(r),
-		ShedID:   shedID,
-		TaskID:   taskID,
-		Limit:    limit,
+		TenantID:             tenantID(r),
+		ShedID:               shedID,
+		TaskID:               taskID,
+		OperatorScopeActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+		Limit:                limit,
+	}
+	if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
+		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
+		return
 	}
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
@@ -475,6 +723,29 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		response["next_cursor"] = encoded
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, response)
+}
+
+func isAppExecutionRoute(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
+}
+
+// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
+// execution on the app routes, rather than operator-assignment-scoped work.
+var leadershipExecutionRoles = map[string]bool{
+	permissions.RoleCEOInternal: true,
+	permissions.RolePCDirector:  true,
+	permissions.RoleParkHead:    true,
+}
+
+// isLeadershipExecutionActor reports whether any of the caller's active grants is a
+// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
+	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if leadershipExecutionRoles[g.Role] {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {
@@ -949,8 +1220,8 @@ func traceID(r *http.Request) string {
 	return "missing-trace"
 }
 
-// GetCapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen. Read
-// authority is enforced at the permission layer (config authority: CEO/COO/superadmin).
+// GetCapacityConfig returns the tenant's daily operator animal cap config for the admin Config screen. Read
+// authority is enforced at the permission layer (config authority: CEO/CXO).
 func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.reader.CapacityConfig(r.Context(), tenantID(r))
 	if err != nil {
@@ -958,6 +1229,222 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, cfg)
+}
+
+// updateCapacityConfigRequest is the PUT body: max animals/operator/day + the optional per-animal
+// shot-cap override + the row_version the admin last read (optimistic concurrency).
+type updateCapacityConfigRequest struct {
+	MaxPerDay                 int    `json:"maxPerDay"`
+	CapacityScope             string `json:"capacityScope"`
+	MaxBufferDays             int    `json:"maxBufferDays"`
+	OverflowPolicy            string `json:"overflowPolicy"`
+	RowVersion                int    `json:"rowVersion"`
+	MaxShotsPerAnimalPerDrive *int   `json:"maxShotsPerAnimalPerDrive"`
+}
+
+// PutCapacityConfig writes the tenant's daily operator animal cap + per-animal shot-cap override.
+// Write authority is enforced at the permission layer (config authority: CEO/CXO). Validate-or-reject:
+// an invalid maxPerDay or out-of-range maxShotsPerAnimalPerDrive returns 400, never a silently-applied
+// default. A row_version mismatch returns 409. A successful write cascades vaccination.capacity.changed
+// (one per active park -- see UpsertCapacityConfig) which re-plans future vaccination drives.
+func (h *Handler) PutCapacityConfig(w http.ResponseWriter, r *http.Request) {
+	if h.capacityCfgW == nil {
+		h.internal(w, r, errors.New("vaccination execution: capacity config writer is not wired"))
+		return
+	}
+	var req updateCapacityConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.badRequest(w, r, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	// capacityScope/maxBufferDays/overflowPolicy default to the current tenant row's values when the
+	// request omits them, so a PUT that only sets maxPerDay/maxShotsPerAnimalPerDrive never clobbers
+	// the other fields with zero values.
+	current, err := h.reader.CapacityConfig(r.Context(), tenantID(r))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	cfg := vaccexecd.CapacityConfig{
+		MaxPerDay:                 req.MaxPerDay,
+		CapacityScope:             current.CapacityScope,
+		MaxBufferDays:             current.MaxBufferDays,
+		OverflowPolicy:            current.OverflowPolicy,
+		RowVersion:                req.RowVersion,
+		MaxShotsPerAnimalPerDrive: req.MaxShotsPerAnimalPerDrive,
+	}
+	if strings.TrimSpace(req.CapacityScope) != "" {
+		cfg.CapacityScope = req.CapacityScope
+	}
+	if strings.TrimSpace(req.OverflowPolicy) != "" {
+		cfg.OverflowPolicy = req.OverflowPolicy
+	}
+	if req.MaxBufferDays != 0 {
+		cfg.MaxBufferDays = req.MaxBufferDays
+	}
+	updated, code, msg, err := h.capacityCfgW.UpdateCapacityConfig(r.Context(), tenantID(r), cfg)
+	if code != "" {
+		h.badRequest(w, r, code, msg)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrCapacityConfigConflict) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "row_version_conflict", Message: "capacity config was updated by someone else; reload and retry", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, updated)
+}
+
+// operatorAssignmentConfigResponse is the wire shape for GET/PUT operator-assignment config: the N/
+// default config plus every operator's authored shift, so the admin Config screen renders in one call.
+type operatorAssignmentConfigResponse struct {
+	ParkID                string                    `json:"parkId"`
+	ActiveOperatorsPerDay int                       `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string                    `json:"defaultOperatorId"`
+	SelectedOperatorIDs   []string                  `json:"selectedOperatorIds,omitempty"`
+	RowVersion            int64                     `json:"rowVersion"`
+	Shifts                []vaccexecd.OperatorShift `json:"shifts"`
+}
+
+// GetOperatorAssignmentConfig returns the park's N-active-operators + default operator config, plus
+// every operator's authored shift. Read authority is enforced at the permission layer (config authority:
+// CEO/CXO). The drive scheduler consumes the saved row when selecting daily operators.
+func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
+	// BUG-019: park scope is BACKEND-owned. park_id is optional; when omitted the
+	// actor's own authorized park scope resolves it, and the resolved id is echoed
+	// in the response so the client scopes its roster reads to exactly one park
+	// instead of inferring a park from an unscoped roster's first row.
+	requested := strings.TrimSpace(r.URL.Query().Get("park_id"))
+	if requested != "" && !uuidutil.IsUUIDString(requested) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requested)
+	if !ok {
+		return
+	}
+	if parkID == "" {
+		// The caller's grants did not narrow to one park. Resolve the park vocabulary they may act
+		// in from canonical `locations` data before deciding: a tenant whose caller can only reach a
+		// single park is NOT ambiguous and stays zero-click; a genuinely multi-park caller is refused
+		// -- silently picking one would let a CEO save a default operator for park A while reading a
+		// roster blended across A+B+C -- but the refusal carries the backend-owned options so the
+		// client renders a selector instead of dead-ending.
+		grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+		var scopedParkIDs []string
+		if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+			scopedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		}
+		parks, err := h.reader.AuthorizedParkOptions(r.Context(), tenantID(r), scopedParkIDs)
+		if err != nil {
+			h.internal(w, r, err)
+			return
+		}
+		if len(parks) == 1 {
+			parkID = parks[0].ParkID
+		} else {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				parkScopeAmbiguousEnvelope{
+					Code:           "park_scope_ambiguous",
+					Message:        parkScopeAmbiguousMessage(len(parks)),
+					TraceID:        traceID(r),
+					AvailableParks: append([]vaccexecd.ParkOption{}, parks...),
+				}, nil)
+			return
+		}
+	}
+	view, err := h.reader.GetOperatorAssignmentConfig(r.Context(), tenantID(r), parkID)
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrOperatorAssignmentConfigNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+				errorEnvelope{Code: "not_found", Message: "no operator assignment config authored for this park yet", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, operatorAssignmentConfigResponse{
+		ParkID:                parkID,
+		ActiveOperatorsPerDay: view.Config.ActiveOperatorsPerDay,
+		DefaultOperatorID:     view.Config.DefaultOperatorID,
+		SelectedOperatorIDs:   append([]string{}, view.Config.SelectedOperatorIDs...),
+		RowVersion:            view.Config.RowVersion,
+		Shifts:                view.Shifts,
+	})
+}
+
+// parkScopeAmbiguousEnvelope is the 409 body for GET /vaccination/operator-assignment/config when the
+// caller's authorized scope covers more than one park. It carries the BACKEND-OWNED park vocabulary
+// (canonical Postgres ids + labels) the caller may choose from, so admin-web renders a selector and
+// re-requests with park_id instead of assembling a park list of its own or dead-ending on an error.
+type parkScopeAmbiguousEnvelope struct {
+	Code           string                 `json:"code"`
+	Message        string                 `json:"message"`
+	TraceID        string                 `json:"trace_id"`
+	AvailableParks []vaccexecd.ParkOption `json:"availableParks"`
+}
+
+// parkScopeAmbiguousMessage is the user-facing disabled/blocked reason. Zero parks is a genuinely
+// different situation from several parks and must not be reported as "choose one".
+func parkScopeAmbiguousMessage(parkCount int) string {
+	if parkCount == 0 {
+		return "no active park is available for your access; ask an admin to grant a park scope"
+	}
+	return "your scope covers more than one park; choose the park to configure"
+}
+
+// updateOperatorAssignmentConfigRequest is the PUT body: N + default operator + the row_version the
+// admin last read (optimistic concurrency -- 0 means "no config exists yet, create it").
+type updateOperatorAssignmentConfigRequest struct {
+	ParkID                string   `json:"parkId"`
+	ActiveOperatorsPerDay int      `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string   `json:"defaultOperatorId"`
+	SelectedOperatorIDs   []string `json:"selectedOperatorIds,omitempty"`
+	RowVersion            int64    `json:"rowVersion"`
+}
+
+// PutOperatorAssignmentConfig writes the park's N + default operator config. Write authority is enforced
+// at the permission layer (config authority: CEO/CXO). Validate-or-reject: an invalid N or a missing
+// default operator returns 400, never a silently-applied default. A row_version mismatch returns 409.
+func (h *Handler) PutOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
+	if h.operatorCfgW == nil {
+		h.internal(w, r, errors.New("vaccination execution: operator assignment config writer is not wired"))
+		return
+	}
+	var req updateOperatorAssignmentConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.badRequest(w, r, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ParkID) {
+		h.badRequest(w, r, "invalid_park_id", "parkId must be a UUID")
+		return
+	}
+	updated, code, msg, err := h.operatorCfgW.UpdateOperatorAssignmentConfig(r.Context(), tenantID(r), vaccexecd.OperatorAssignmentConfig{
+		ParkID:                req.ParkID,
+		ActiveOperatorsPerDay: req.ActiveOperatorsPerDay,
+		DefaultOperatorID:     req.DefaultOperatorID,
+		SelectedOperatorIDs:   append([]string{}, req.SelectedOperatorIDs...),
+		RowVersion:            req.RowVersion,
+	})
+	if code != "" {
+		h.badRequest(w, r, code, msg)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrOperatorAssignmentConfigConflict) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "row_version_conflict", Message: "operator assignment config was updated by someone else; reload and retry", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
@@ -1016,6 +1503,17 @@ func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err erro
 }
 
 func (h *Handler) applyScheduleParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ScheduleQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) applyDriveAssignmentParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.DriveAssignmentQuery) bool {
 	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
 	if !ok {
 		return false

@@ -287,13 +287,64 @@ func (q *Queries) ListDueObligations(ctx context.Context, arg ListDueObligations
 }
 
 const listOpenObligationsByGoat = `-- name: ListOpenObligationsByGoat :many
-SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
-       rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
-       COALESCE(batch_id::text, '')::text AS batch_id, due_at, status, "sequence"
-FROM obligation_instances
-WHERE tenant_id = $1 AND target_type = 'goat' AND target_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
-ORDER BY due_at ASC, obligation_id ASC
+SELECT oi.obligation_id::text AS obligation_id, oi.protocol_version_id::text AS protocol_version_id,
+       oi.rule_id::text AS rule_id, oi.scope_type, COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.batch_id::text, '')::text AS batch_id,
+       COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz AS due_at,
+       oi.due_at AS clinical_due_at,
+       COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'))::timestamptz AS scheduled_for,
+       COALESCE(pr.dose_code, '')::text AS dose_code,
+       COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''), NULLIF(prd.vaccine_code, ''), NULLIF(pr.dose_code, ''), '')::text AS vaccine_label,
+       oi.status, oi."sequence"
+FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN LATERAL (
+  SELECT vaccine_code
+  FROM protocol_rule_dimensions dim
+  WHERE dim.tenant_id = pr.tenant_id
+    AND dim.rule_id = pr.rule_id
+  ORDER BY NULLIF(dim.vaccine_code, '') NULLS LAST, dim.protocol_rule_dimension_id
+  LIMIT 1
+) prd ON true
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND g.merged_into_goat_id IS NULL
+LEFT JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = oi.tenant_id
+ AND m.obligation_id = oi.obligation_id
+ AND m.goat_id = oi.target_id
+LEFT JOIN vaccination_drive_assignments assignment
+  ON assignment.tenant_id = m.tenant_id
+ AND assignment.assignment_id = m.assignment_id
+LEFT JOIN LATERAL (
+  SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+) vda_member ON assignment.assignment_id IS NOT NULL
+LEFT JOIN LATERAL (
+  SELECT (guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments guess
+  WHERE m.assignment_id IS NULL
+    AND guess.tenant_id = oi.tenant_id
+    AND guess.batch_id = oi.batch_id
+    AND guess.shed_id = g.shed_id
+    AND (
+      cardinality(guess.vaccine_rule_ids) = 0
+      OR oi.rule_id = ANY(guess.vaccine_rule_ids)
+    )
+  ORDER BY guess.planned_date ASC,
+           guess.partition_label ASC,
+           guess.operator_id ASC NULLS LAST,
+           guess.assignment_id ASC
+  LIMIT 1
+) vda_guess ON true
+WHERE oi.tenant_id = $1 AND oi.target_type = 'goat' AND oi.target_id = $2
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+ORDER BY COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz ASC, oi.obligation_id ASC
 LIMIT $3
 `
 
@@ -311,12 +362,21 @@ type ListOpenObligationsByGoatRow struct {
 	ScopeID           string
 	BatchID           string
 	DueAt             pgtype.Timestamptz
+	ClinicalDueAt     pgtype.Timestamptz
+	ScheduledFor      pgtype.Timestamptz
+	DoseCode          string
+	VaccineLabel      string
 	Status            string
 	Sequence          int32
 }
 
-// Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Uses
-// obligation_instances_target_idx (tenant_id, target_type, target_id, status).
+// Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Vaccination
+// drive rows must emit the live assignment planned date or batch planned date, not the original
+// obligation due_at.
+// projection-review: membership=this obligation's exact vaccination_drive_assignment_members row
+// (tenant_id, obligation_id) UNIQUE. That member row binds the goat/obligation to one assignment
+// row, so scheduled_for is the goat's own operator drive date. The lateral guess below is legacy
+// fallback only when old rows have no member binding.
 func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObligationsByGoatParams) ([]ListOpenObligationsByGoatRow, error) {
 	rows, err := q.db.Query(ctx, listOpenObligationsByGoat, arg.TenantID, arg.TargetID, arg.RowLimit)
 	if err != nil {
@@ -334,6 +394,10 @@ func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObl
 			&i.ScopeID,
 			&i.BatchID,
 			&i.DueAt,
+			&i.ClinicalDueAt,
+			&i.ScheduledFor,
+			&i.DoseCode,
+			&i.VaccineLabel,
 			&i.Status,
 			&i.Sequence,
 		); err != nil {
@@ -353,6 +417,12 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
@@ -379,6 +449,14 @@ LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND oi.target_type = 'goat'
+LEFT JOIN locations shed
+  ON shed.tenant_id = oi.tenant_id
+ AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = shed.location_id
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = g.current_location_id
@@ -422,6 +500,7 @@ type ListUnbatchedDueForVersionRow struct {
 	ScopeType                string
 	ScopeID                  string
 	ParkID                   string
+	ShedName                 string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string
@@ -456,6 +535,7 @@ func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatc
 			&i.ScopeType,
 			&i.ScopeID,
 			&i.ParkID,
+			&i.ShedName,
 			&i.TargetID,
 			&i.TargetSpecies,
 			&i.TargetAnimalStage,

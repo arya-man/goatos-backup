@@ -42,9 +42,20 @@ test("preverified shared admin-web still rejects dirty or mismatched checkout", 
     git(repo, ["commit", "--quiet", "-m", "second"]);
     assert.equal(runGuard(repo).status, 2, "HEAD different from origin/main should fail");
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    removeTempRepo(repo);
   }
 });
+
+function removeTempRepo(repo) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+      return;
+    } catch (err) {
+      if (attempt === 2) throw err;
+    }
+  }
+}
 
 function runGuard(repo) {
   const guardUrl = new URL("./origin-main-local-stack-guard.mjs", import.meta.url).href;

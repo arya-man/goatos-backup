@@ -22,27 +22,35 @@ type ReadResult<T> =
   | { ok: false; error: string };
 
 async function getShedGoatPassport(goatId: string): Promise<ReadResult<GoatPassportResponse>> {
-  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/passport`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await response.json() as Partial<GoatPassportResponse> & { error?: string };
-  if (!response.ok || !payload.goat) {
-    return { ok: false, error: payload.error ?? `passport_read_${response.status}` };
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<GoatPassportResponse> & { error?: string };
+    if (!response.ok || !payload.goat) {
+      return { ok: false, error: payload.error ?? `passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as GoatPassportResponse };
+  } catch {
+    return { ok: false, error: "passport_unreachable" };
   }
-  return { ok: true, data: payload as GoatPassportResponse };
 }
 
 async function getShedGoatVaccinationPassport(goatId: string): Promise<ReadResult<VaccinationPassport>> {
-  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await response.json() as Partial<VaccinationPassport> & { error?: string };
-  if (!response.ok || !payload.goat_id) {
-    return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<VaccinationPassport> & { error?: string };
+    if (!response.ok || !payload.goat_id) {
+      return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as VaccinationPassport };
+  } catch {
+    return { ok: false, error: "vaccination_passport_unreachable" };
   }
-  return { ok: true, data: payload as VaccinationPassport };
 }
 
 function statusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): "ok" | "warn" | "dng" | "info" | "mut" {
@@ -99,6 +107,14 @@ function sourceObligationLabel(obligationId: string): string {
   return obligationId.slice(0, 8);
 }
 
+function vaccineRowLabel(item: { display_label: string }): string {
+  return item.display_label;
+}
+
+function sameDate(left?: string, right?: string): boolean {
+  return Boolean(left && right && left.slice(0, 10) === right.slice(0, 10));
+}
+
 function DrawerVaccinationBlock({
   vaccination,
   error,
@@ -145,7 +161,7 @@ function DrawerVaccinationBlock({
               <div className="v" style={{ fontSize: 13 }}>
                 {vaccination.next_due ? (
                   <>
-                    {fmtDate(vaccination.next_due.due_at)}{" "}
+                    {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
                     <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
                   </>
                 ) : (
@@ -187,8 +203,13 @@ function DrawerVaccinationBlock({
                     const rowId = realWorkflowRowId(due.workflow_row_id);
                     return (
                       <tr key={due.obligation_id}>
-                        <td>{fmtDate(due.due_at)}</td>
-                        <td>{due.sequence}</td>
+                        <td>
+                          <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                          {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                            <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
+                          ) : null}
+                        </td>
+                        <td>{vaccineRowLabel(due)}</td>
                         <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
                         <td>
                           {rowId ? (
@@ -233,7 +254,7 @@ function DrawerVaccinationBlock({
                   {history.slice(0, DRAWER_ROW_LIMIT).map((item) => (
                     <tr key={item.completion_id}>
                       <td>{fmtDate(item.administered_at)}</td>
-                      <td>{item.doses}</td>
+                      <td>{vaccineRowLabel(item)}</td>
                       <td><Tag tone={historyTone(item.status)}>{item.status}</Tag></td>
                       <td>{proofLabel(item, pageContract)}</td>
                       <td><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></td>

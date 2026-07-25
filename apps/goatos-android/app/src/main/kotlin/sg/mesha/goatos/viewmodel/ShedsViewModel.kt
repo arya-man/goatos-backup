@@ -1,20 +1,30 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.feature.sheds.ShedDayTab
+import sg.mesha.goatos.feature.sheds.CarryVaccine
+import sg.mesha.goatos.feature.sheds.DayCarry
+import sg.mesha.goatos.feature.sheds.ProtocolAdherenceSummary
+import sg.mesha.goatos.feature.sheds.ShedParkFilter
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
@@ -22,7 +32,19 @@ import sg.mesha.goatos.feature.sheds.ShedsUiState
 import sg.mesha.goatos.feature.sheds.VaccineGroup
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.shedsPlaceholder
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 import javax.inject.Inject
+
+private const val PAGE_LIMIT = 20
+private const val OPERATOR_WINDOW_DAYS = 7
+private const val OPEN_ONLY_QUERY = false
+private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
  * Today's-sheds / drive-status state holder — the offline-first pattern for the sheds
@@ -42,17 +64,33 @@ import javax.inject.Inject
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val crashReporter: CrashReporter,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private companion object {
-        const val PAGE_LIMIT = 20
-    }
-
     private var nextCursor: String? = null
+    private val workWindow = OperatorWorkWindow.today()
+    private val calendarHosted: Boolean = savedStateHandle.get<String>("calendarHosted") == "true"
+    private val initialDay: LocalDate =
+        savedStateHandle.get<String>("dateKey")
+            ?.let(::parseExecutionDate)
+            ?.takeIf { it >= workWindow.firstDay && it <= workWindow.lastDay }
+            ?: workWindow.today
+    private val _selectedDay = MutableStateFlow(initialDay)
+    private val _selectedParkId = MutableStateFlow<String?>(null)
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VaccinationExecutionResponseDto>> =
-        repo.observeRows(limit = PAGE_LIMIT).stateIn(
+        _selectedParkId.flatMapLatest { parkId ->
+            repo.observeRows(
+                parkId = parkId,
+                asOf = workWindow.asOf,
+                dueBefore = workWindow.dueBefore,
+                openOnly = OPEN_ONLY_QUERY,
+                limit = PAGE_LIMIT,
+                includeFilterOptions = true,
+            )
+        }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
@@ -62,26 +100,51 @@ class ShedsViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    private val transientState = combine(
+        _selectedDay,
+        _isRefreshing,
+        _isOffline,
+        _isLoadingMore,
+    ) { selectedDay, isRefreshing, isOffline, isLoadingMore ->
+        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore)
+    }
 
     // Combines observed resource with transient flags; lifecycle-aware
     val state: StateFlow<ShedsUiState> = combine(
         observedResource,
-        _isRefreshing,
-        _isOffline,
-        _isLoadingMore
-    ) { resource, isRefreshing, isOffline, isLoadingMore ->
+        transientState,
+    ) { resource, transient ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        val isInitialLoading = dto == null && !resource.hasData && resource.error == null
-        val base = dto?.toShedsUiState()
-            ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
+        val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !transient.isOffline
+        val effectiveSelectedDay = dto?.effectiveSelectedDay(transient.selectedDay) ?: transient.selectedDay
+        val base = dto?.toShedsUiState(effectiveSelectedDay)
+            ?: run {
+                val message = when {
+                    resource.hasData -> if (effectiveSelectedDay == workWindow.today) {
+                        "No sheds scheduled today"
+                    } else {
+                        "No sheds scheduled for ${shortDateLabel(effectiveSelectedDay)}"
+                    }
+                    transient.isOffline -> "Couldn't load vaccination drives. Pull to refresh or try again."
+                    else -> "Loading…"
+                }
+                emptyShedsState(
+                    message = message,
+                    window = workWindow,
+                    selectedDay = effectiveSelectedDay,
+                    readOnly = calendarHosted,
+                    hostedFromCalendar = calendarHosted,
+                )
+            }
         base.copy(
-            isRefreshing = isRefreshing,
+            hostedFromCalendar = calendarHosted,
+            isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
-            isLoadingMore = isLoadingMore,
+            isLoadingMore = transient.isLoadingMore,
             hasMore = !dto?.nextCursor.isNullOrBlank(),
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
-            isOffline = isOffline,
+            isOffline = transient.isOffline,
         )
     }.stateIn(
         viewModelScope,
@@ -98,7 +161,14 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        val result = repo.refreshRows(limit = PAGE_LIMIT)
+        val result = repo.refreshRows(
+            parkId = _selectedParkId.value,
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            openOnly = OPEN_ONLY_QUERY,
+            limit = PAGE_LIMIT,
+            includeFilterOptions = true,
+        )
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
@@ -110,7 +180,15 @@ class ShedsViewModel @Inject constructor(
         val cursor = nextCursor ?: return@launch
         if (_isLoadingMore.value) return@launch
         _isLoadingMore.value = true
-        val result = repo.appendRows(cursor = cursor, limit = PAGE_LIMIT)
+        val result = repo.appendRows(
+            cursor = cursor,
+            parkId = _selectedParkId.value,
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            openOnly = OPEN_ONLY_QUERY,
+            limit = PAGE_LIMIT,
+            includeFilterOptions = true,
+        )
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
@@ -122,36 +200,75 @@ class ShedsViewModel @Inject constructor(
         when (event) {
             ShedsEvent.Refresh -> refresh()
             ShedsEvent.LoadMore -> loadMore()
+            is ShedsEvent.SelectDay -> selectDay(event.dateKey)
+            is ShedsEvent.SelectPark -> selectPark(event.parkId)
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
             ShedsEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
-    private fun VaccinationExecutionResponseDto.toShedsUiState(): ShedsUiState? {
-        if (rows.isEmpty()) return null
+    private fun selectDay(dateKey: String) {
+        val date = parseExecutionDate(dateKey) ?: return
+        // The strip runs firstDay (yesterday) .. lastDay (today+5); every rendered tab,
+        // including yesterday, must be selectable.
+        if (date < workWindow.firstDay || date > workWindow.lastDay) return
+        _selectedDay.value = date
+    }
+
+    private fun selectPark(parkId: String?) {
+        val normalized = parkId?.takeIf { it.isNotBlank() }
+        if (_selectedParkId.value == normalized) return
+        nextCursor = null
+        _selectedParkId.value = normalized
+        refresh()
+    }
+
+    private fun VaccinationExecutionResponseDto.toShedsUiState(selectedDay: LocalDate): ShedsUiState? {
         val base = sampleShedsState()
-        val shedRows = rows.groupBy { it.executionIdentity() }.map { (identity, group) ->
+        val weekRows = rows
+        val rowsForSelectedDay = weekRows.filter { row ->
+            val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
+            val hasVisibleWork = row.hasOperatorVisibleWork()
+            when {
+                !hasVisibleWork -> false
+                dueDate == null -> selectedDay == workWindow.today
+                // Today folds in the deep backlog (due strictly before the visible yesterday
+                // tab) plus today's own open/review work; completed rows stay on their actual
+                // scheduled day so finished shed cards do not disappear or flood today's list.
+                selectedDay == workWindow.today ->
+                    dueDate.isEqual(workWindow.today) ||
+                        (dueDate.isBefore(workWindow.firstDay) && row.hasOpenOrReviewWork())
+                else -> dueDate == selectedDay
+            }
+        }
+        val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
+            val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusFor(group)
             val counts = executionCounts(group)
-            val vaccineGroups = group.groupBy { it.driveName.orEmpty() }
+            val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
                 .filterKeys { it.isNotBlank() }
                 .map { (label, driveRows) ->
                     val driveCounts = executionCounts(driveRows)
                     VaccineGroup(
                         label = label,
                         countLabel = "${driveCounts.done}/${driveCounts.target}",
-                        full = driveCounts.target > 0 && driveCounts.done >= driveCounts.target,
+                        full = driveCounts.open == 0,
                     )
                 }
             ShedRow(
                 id = identity.cardId,
                 name = first.shedName,
+                operatorName = first.owner?.operatorName.orEmpty(),
+                physicalShed = first.physicalShed.ifBlank { first.shedName },
+                partition = first.partition,
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
+                scheduleDateKey = scheduleDate?.toString().orEmpty(),
+                scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
-                statusLabel = first.workState.ifBlank { status.readable() }.let { it.readableState() },
+                statusLabel = group.reviewAwareStatusLabel(status),
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
                 due = counts.open.toString(),
@@ -164,21 +281,39 @@ class ShedsViewModel @Inject constructor(
                 taskId = identity.taskId,
                 sopVersionId = identity.sopVersionId,
                 taskRowVersion = identity.taskRowVersion,
+                opensRecordOnly = group.opensSubmittedRecordOnly(),
+            )
+        }.sortedWith(
+            compareBy<ShedRow> { row ->
+                row.scheduleDateKey.takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: LocalDate.MAX
+            }
+                .thenBy { it.name.lowercase() }
+        )
+        val totals = executionCounts(rowsForSelectedDay)
+        val visibleWindowTotals = executionCounts(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay))
+        // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
+        // The screen renders these numbers verbatim — no client-side summing of shed rows.
+        val selectedKey = selectedDay.toString()
+        val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
+            DayCarry(
+                totalRemaining = day.totalRemaining,
+                vaccines = day.vaccineBreakdown
+                    .filter { it.remainingDoses > 0 }
+                    .map { CarryVaccine(label = it.vaccineLabel, remaining = it.remainingDoses) },
             )
         }
-        val totals = executionCounts(rows)
         return base.copy(
-            title = "Today's sheds",
-            // Header scope + the drive date/window are not carried by the execution
-            // list endpoint — leave them blank (the screen skips blank meta) rather
-            // than inheriting the sample's fabricated values.
+            title = "Next 7 days",
+            // Vaccination operators do not need the executive Calendar's week/month/history
+            // drive cards. This screen is their shed-first work queue: today is the landing
+            // anchor, and the backend query is scoped to today → today+1 week.
             scopeLabel = "",
-            date = "",
-            window = "",
+            date = if (selectedDay == workWindow.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
+            window = workWindow.windowLabel,
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
-            shedCount = rows.map { it.shedId }.distinct().size,
+            shedCount = rowsForSelectedDay.map { it.shedId }.distinct().size,
             dueCount = totals.open,
             doneCount = totals.done,
             shedCountLabel = "${shedRows.size} sheds",
@@ -186,12 +321,44 @@ class ShedsViewModel @Inject constructor(
             dayProgressLabel = percentLabel(totals.done, totals.target),
             dayProgressFraction = fraction(totals.done, totals.target),
             daySummary = "${totals.done} / ${totals.target} done",
-            caption = null,
+            caption = if (shedRows.isEmpty()) {
+                if (selectedDay == workWindow.today) {
+                    "No sheds scheduled today"
+                } else {
+                    "No sheds scheduled for ${shortDateLabel(selectedDay)}"
+                }
+            } else {
+                null
+            },
             roleNote = null,
+            adherence = protocolAdherenceSummary(visibleWindowTotals),
+            dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
+            parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
+            hostedFromCalendar = calendarHosted,
+            // Leadership oversight read: shed list is read-only, opening into the scan/execute
+            // loop is blocked (backend-owned; operators get viewerReadOnly=false).
+            canOpenShed = !viewerReadOnly,
+            carry = carry,
             rosterChanges = emptyList(),
             kernelInfo = null,
         )
+    }
+
+    private fun VaccinationExecutionResponseDto.effectiveSelectedDay(selectedDay: LocalDate): LocalDate {
+        if (!calendarHosted || selectedDay != workWindow.today) return selectedDay
+        val hasRowsToday = rows.any { row ->
+            row.openCount > 0 && row.dueDate?.let(::parseExecutionDate)?.let { due ->
+                !due.isAfter(workWindow.today)
+            } == true
+        }
+        if (hasRowsToday) return selectedDay
+        return rows.asSequence()
+            .filter { it.openCount > 0 }
+            .mapNotNull { it.dueDate?.let(::parseExecutionDate) }
+            .filter { it >= workWindow.today && it <= workWindow.lastDay }
+            .minOrNull()
+            ?: selectedDay
     }
 
     private fun shedStatusFor(rows: List<VaccinationExecutionRowDto>): ShedStatus {
@@ -222,6 +389,25 @@ class ShedsViewModel @Inject constructor(
 
 internal data class ExecutionCounts(val target: Int, val open: Int, val done: Int)
 
+private data class ShedsTransientState(
+    val selectedDay: LocalDate,
+    val isRefreshing: Boolean,
+    val isOffline: Boolean,
+    val isLoadingMore: Boolean,
+)
+
+internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? {
+    if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
+    return ProtocolAdherenceSummary(
+        expectedCount = counts.target,
+        submittedCount = counts.done,
+        acceptedCount = counts.done,
+        reviewItemCount = 0,
+        deferredCount = 0,
+        acceptedPercent = if (counts.target > 0) (counts.done * 100 / counts.target).coerceIn(0, 100) else 0,
+    )
+}
+
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
 internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
@@ -230,6 +416,25 @@ internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionC
         open = rows.sumOf { it.openCount.coerceAtLeast(0) },
         done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
     )
+
+internal fun adherenceWindowRows(
+    rows: List<VaccinationExecutionRowDto>,
+    selectedDayRows: List<VaccinationExecutionRowDto>,
+    selectedDay: LocalDate,
+): List<VaccinationExecutionRowDto> {
+    val selectedDriveKeys = selectedDayRows.mapNotNull { it.adherenceDriveKey() }.toSet()
+    return rows.filter { row ->
+        val scheduleDate = row.currentScheduleDate
+        row.hasOperatorVisibleWork() &&
+            (scheduleDate?.takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: selectedDay) <= selectedDay &&
+            (selectedDriveKeys.isEmpty() || row.adherenceDriveKey() in selectedDriveKeys)
+    }
+}
+
+private fun VaccinationExecutionRowDto.adherenceDriveKey(): String? =
+    batchId?.takeIf { it.isNotBlank() }
+        ?: driveId?.takeIf { it.isNotBlank() }
+        ?: sopTaskId?.takeIf { it.isNotBlank() }
 
 private data class ExecutionIdentity(
     val shedId: String,
@@ -271,20 +476,218 @@ private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
     taskRowVersion = sopTaskRowVersion,
 )
 
+private fun List<ExecutionParkOptionDto>.toShedParkFilters(selectedParkId: String?): List<ShedParkFilter> =
+    mapNotNull { option ->
+        val id = option.parkId.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val label = option.name.ifBlank { option.code.ifBlank { id.take(8) } }
+        ShedParkFilter(parkId = id, label = label, isSelected = id == selectedParkId)
+    }
+
 private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { it.uppercase() }
+
+private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: ShedStatus): String {
+    val inReview = any { row -> row.isVerificationPending() }
+    if (inReview) return "In review"
+    return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
+}
+
+private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
+    hasOpenOrReviewWork() || doneCount > 0
+
+private fun VaccinationExecutionRowDto.hasOpenOrReviewWork(): Boolean =
+    openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
+
+private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
+    proofStatus.equals("uploaded", ignoreCase = true) ||
+        verificationStatus.equals("pending", ignoreCase = true) ||
+        sopStatus.equals("submitted", ignoreCase = true) ||
+        sopStatus.equals("needs_review", ignoreCase = true) ||
+        workState.equals("verification_pending", ignoreCase = true)
+
+private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
+    "accepted", "closed", "completed" -> true
+    else -> workState.equals("accepted", ignoreCase = true) ||
+        workState.equals("closed", ignoreCase = true) ||
+        workState.equals("completed", ignoreCase = true)
+}
+
+internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
+    isNotEmpty() && all { row -> row.sopStatus.isSubmissionTerminalStatus() }
+
+private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
+    "submitted", "needs_review", "accepted", "closed", "completed" -> true
+    else -> false
+}
 
 private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }
 
+internal data class OperatorWorkWindow(
+    val asOf: String?,
+    val dueBefore: String,
+    val todayLabel: String,
+    val windowLabel: String,
+    val today: LocalDate,
+    val firstDay: LocalDate,
+    val lastDay: LocalDate,
+) {
+    companion object {
+        fun today(now: ZonedDateTime = ZonedDateTime.now(KOLKATA)): OperatorWorkWindow {
+            val today = now.toLocalDate()
+            // The strip shows one prior day so yesterday's slip is visible, then today +5:
+            // firstDay = today-1, lastDay = today+5 (OPERATOR_WINDOW_DAYS tabs). Landing stays
+            // on today (see initialDay). Matches the leadership Calendar week window.
+            val firstDay = today.minusDays(1)
+            val lastDay = firstDay.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
+            return OperatorWorkWindow(
+                // Live operator work is a current-view read. Do not send a phone-generated
+                // as_of timestamp: by the time it reaches the API it is already historical,
+                // and the backend correctly rejects historical point-in-time execution reads.
+                // Omitting as_of lets the server anchor the query to its own current clock.
+                asOf = null,
+                // Upper bound covers lastDay (today+5); the backend still returns past-due
+                // rows for the yesterday tab and today's backlog fold.
+                dueBefore = now.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
+                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                todayLabel = "Today · ${shortDateLabel(today)}",
+                windowLabel = "${shortDateLabel(firstDay)} → ${shortDateLabel(lastDay)}",
+                today = today,
+                firstDay = firstDay,
+                lastDay = lastDay,
+            )
+        }
+    }
+}
+
+private fun buildOperatorDayTabs(
+    rows: List<VaccinationExecutionRowDto>,
+    window: OperatorWorkWindow,
+    selectedDay: LocalDate,
+): List<ShedDayTab> {
+    val countsByDate = rows.groupBy { it.currentScheduleDate?.let(::parseExecutionDate) }
+        .filterKeys { it != null }
+        .mapKeys { it.key!! }
+        .mapValues { (_, dueRows) -> executionCounts(dueRows).open }
+    // Today's tab folds in the deep backlog (anything due strictly BEFORE the visible
+    // yesterday tab), plus today's own work. Yesterday now has its own tab, so it is
+    // excluded here to avoid counting the same slip twice.
+    val todayBacklogCount = rows
+        .filter { row ->
+            if (row.openCount <= 0) return@filter false
+            val due = row.currentScheduleDate?.let(::parseExecutionDate) ?: return@filter false
+            due.isEqual(window.today) || due.isBefore(window.firstDay)
+        }
+        .let(::executionCounts)
+        .open
+    return (0 until OPERATOR_WINDOW_DAYS).map { offset ->
+        val date = window.firstDay.plusDays(offset.toLong())
+        ShedDayTab(
+            dateKey = date.toString(),
+            dayLabel = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH),
+            dateLabel = date.dayOfMonth.toString(),
+            countLabel = (if (date == window.today) todayBacklogCount else countsByDate[date])
+                ?.takeIf { it > 0 }
+                ?.toString()
+                .orEmpty(),
+            isSelected = date == selectedDay,
+        )
+    }
+}
+
+/**
+ * Empty / loading / offline sheds state that KEEPS the real today-anchored day strip.
+ *
+ * [shedsPlaceholder] copies `sampleShedsState()` and does not reset its hardcoded sample
+ * [ShedDayTab]s (2026-07-22 "WED" selected), so a no-data view — a CEO/leadership principal
+ * with no assigned sheds, an operator on a drive-free day, or the loading/offline moment —
+ * rendered those sample dates: never defaulting to today and ignoring date taps (reproduced
+ * live on the CEO/CXO "Vaccination" screen). Rebuild the strip from the live [window] +
+ * [selectedDay] so the empty state still lands on today, shows yesterday → today+5, and stays
+ * tap-responsive.
+ */
+internal fun emptyShedsState(
+    message: String,
+    window: OperatorWorkWindow,
+    selectedDay: LocalDate,
+    readOnly: Boolean = false,
+    hostedFromCalendar: Boolean = false,
+): ShedsUiState = shedsPlaceholder(message).copy(
+    title = "Next 7 days",
+    date = if (selectedDay == window.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
+    window = window.windowLabel,
+    dayTabs = if (readOnly) emptyList() else buildOperatorDayTabs(emptyList(), window, selectedDay),
+    hostedFromCalendar = hostedFromCalendar,
+    canOpenShed = !readOnly,
+)
+
+internal fun parseExecutionDate(raw: String): LocalDate? =
+    runCatching { LocalDate.parse(raw) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(raw).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
+        ?: runCatching { ZonedDateTime.parse(raw).withZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
+
+private fun shortDateLabel(date: LocalDate): String =
+    "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${date.dayOfMonth} " +
+        date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+
 /**
  * Humanize raw driveName strings for display in vaccine group chips.
  *
- * Raw inputs like "Preventive Care Vaccination Matrix - hs_first" or "… - ppr_booster"
- * are transformed to human-readable labels like "HS", "PPR · Booster".
+ * Backend drive/config identifiers are transformed to human-readable labels before
+ * they reach operator-facing vaccine chips.
  *
  * Rules:
  * - Strip leading prefix (take the part after the last " - ").
  * - Parse antigen token (before the dose suffix) and map to display name.
- * - Dose suffix: _first → no suffix (default), _booster → append " · Booster".
+ * - Dose suffix: _first / numeric waves are internal scheduling detail and are
+ *   not operator-facing stock labels; _booster remains meaningful copy.
  * - Unknown tokens are Title-Cased with underscores replaced by spaces.
  */
+internal fun humanizeVaccineLabel(raw: String): String {
+    val trimmedRaw = raw.trim()
+    if (trimmedRaw.contains("ET+TT") ||
+        trimmedRaw.contains("Blue Tongue", ignoreCase = true) ||
+        trimmedRaw.contains("Goat Pox", ignoreCase = true) ||
+        trimmedRaw.contains("Sheep Pox", ignoreCase = true)
+    ) {
+        return trimmedRaw
+            .replace(Regex("\\s*[·-]\\s*Dose\\s+\\d+\\b", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
+    val code = raw
+        .substringAfterLast(" - ", raw)
+        .substringAfterLast("•", raw)
+        .trim()
+        .lowercase(Locale.ENGLISH)
+        .replace(Regex("[^a-z0-9]+"), "_")
+        .trim('_')
+        .removePrefix("preventive_care_vaccination_matrix_")
+        .let { code -> if (code == "preventive_care_vaccination_matrix") "vaccination" else code }
+    val waveDose = Regex("_(?:dose_)?(\\d+)$").find(code)?.groupValues?.getOrNull(1)
+        ?: Regex("_w(\\d+)$").find(code)?.groupValues?.getOrNull(1)
+    val dose = when {
+        code.endsWith("_booster") -> " · Booster"
+        waveDose != null -> ""
+        else -> ""
+    }
+    val antigen = code
+        .removeSuffix("_booster")
+        .removeSuffix("_first")
+        .replace(Regex("_(?:dose_)?\\d+$"), "")
+        .replace(Regex("_(adult|kid)_w\\d+$"), "")
+        .replace(Regex("_(adult|kid)$"), "")
+    val label = when (antigen) {
+        "et_tt", "ettt", "et+tt" -> "ET+TT"
+        "blue_tongue", "bt" -> "Blue Tongue"
+        "ppr" -> "PPR"
+        "fmd" -> "FMD"
+        "goat_pox", "goatpox" -> "Goat Pox"
+        "sheep_pox", "sheeppox" -> "Sheep Pox"
+        "hs" -> "HS"
+        "vaccination" -> "Vaccination"
+        else -> antigen.split('_')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part -> part.replaceFirstChar { ch -> ch.uppercase(Locale.ENGLISH) } }
+            .ifBlank { raw }
+    }
+    return label + dose
+}

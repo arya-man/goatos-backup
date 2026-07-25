@@ -23,6 +23,9 @@ func TestBatchSessionUsesComboWhenKnown(t *testing.T) {
 	if got := batchSession("rule-ppr", "PPR"); got != "combo:PPR+Blue Tongue" {
 		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)
 	}
+	if got := batchSession("rule-bt", "BLUE_TONGUE"); got != "combo:PPR+Blue Tongue" {
+		t.Fatalf("session = %q, want combo:PPR+Blue Tongue", got)
+	}
 	if got := batchSession("rule-gpox", "Goat Pox"); got != "rule:rule-gpox" {
 		t.Fatalf("session = %q, want rule:rule-gpox", got)
 	}
@@ -60,7 +63,7 @@ func TestDrivePlannerFromRuleDSLUsesMatrixPriority(t *testing.T) {
 }
 
 func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
-	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
+	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
 	if got.VaccineCode != "HS" {
 		t.Fatalf("vaccine code = %q, want HS", got.VaccineCode)
 	}
@@ -69,6 +72,9 @@ func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
 	}
 	if got.CompatibilityGrp != "HS" || got.VaccineItemID != "item-hs" {
 		t.Fatalf("identity = %#v, want compatibility/item metadata preserved", got)
+	}
+	if got.VaccineType != "killed" || got.PathogenClass != "bacterial" {
+		t.Fatalf("vaccine class = %q/%q, want killed/bacterial from published rule DSL", got.VaccineType, got.PathogenClass)
 	}
 }
 
@@ -259,15 +265,15 @@ func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
 		},
 	}
 
-	alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := ComboAlignmentSettingsForPlans(plans)
+	alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveAnimals := ComboAlignmentSettingsForPlans(plans)
 	if alignWindowDays != 3 {
 		t.Fatalf("align window = %d, want strictest 3", alignWindowDays)
 	}
 	if maxShotsPerAnimalPerDrive != 1 {
 		t.Fatalf("max shots = %d, want strictest 1", maxShotsPerAnimalPerDrive)
 	}
-	if maxDriveCells != 50 {
-		t.Fatalf("max drive cells = %d, want strictest 50", maxDriveCells)
+	if maxDriveAnimals != 50 {
+		t.Fatalf("max drive animals = %d, want strictest 50", maxDriveAnimals)
 	}
 }
 

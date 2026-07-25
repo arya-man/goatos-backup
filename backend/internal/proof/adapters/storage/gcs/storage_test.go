@@ -36,6 +36,49 @@ func TestSignedUploadUsesGenerationMatchPrecondition(t *testing.T) {
 	}
 }
 
+func TestVideoUploadUsesResumableSessionInitiation(t *testing.T) {
+	storage := newTestStorage(t)
+	storage.now = func() time.Time { return time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC) }
+
+	target, err := storage.PrepareUpload(context.Background(), domain.Artifact{
+		ProofID:   "10000000-0000-4000-8000-000000000001",
+		ObjectKey: "tenant/proofs/proof-1",
+		ProofType: "video",
+		MimeType:  "video/mp4",
+	}, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("PrepareUpload() error = %v", err)
+	}
+	if target.Method != "POST" {
+		t.Fatalf("method = %q, want POST", target.Method)
+	}
+	if target.UploadProtocol != "gcs_resumable_v1" {
+		t.Fatalf("upload protocol = %q, want gcs_resumable_v1", target.UploadProtocol)
+	}
+	if target.ChunkSizeBytes != 8*1024*1024 {
+		t.Fatalf("chunk size = %d, want 8MiB", target.ChunkSizeBytes)
+	}
+	if got := target.Headers["x-goog-resumable"]; got != "start" {
+		t.Fatalf("x-goog-resumable = %q, want start", got)
+	}
+	if got := target.Headers["x-goog-if-generation-match"]; got != "0" {
+		t.Fatalf("generation precondition header = %q, want 0", got)
+	}
+	if got := target.Headers["Content-Type"]; got != "video/mp4" {
+		t.Fatalf("content-type header = %q, want video/mp4", got)
+	}
+	if got := target.Headers["Content-Length"]; got != "0" {
+		t.Fatalf("content-length header = %q, want 0", got)
+	}
+	u, err := url.Parse(target.UploadURL)
+	if err != nil {
+		t.Fatalf("parse signed URL: %v", err)
+	}
+	if got := u.Query().Get("X-Goog-SignedHeaders"); got != "content-length;content-type;host;x-goog-if-generation-match;x-goog-resumable" {
+		t.Fatalf("signed headers = %q", got)
+	}
+}
+
 func TestSignedDownloadPinsGeneration(t *testing.T) {
 	storage := newTestStorage(t)
 	storage.now = func() time.Time { return time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC) }

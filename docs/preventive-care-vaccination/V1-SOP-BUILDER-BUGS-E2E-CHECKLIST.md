@@ -741,7 +741,7 @@ from a clean tenant/state, not isolated page checks.
 
 ### 1. Users and role setup
 
-- [ ] Seed or create admin/superadmin user.
+- [ ] Seed or create CEO/CXO user.
 - [ ] Seed or create Preventive Care (PC) director/author user.
 - [ ] Seed or create vaccination operator user.
 - [ ] Seed or create park head/manager user.
@@ -1358,7 +1358,8 @@ and compatibility spacing are V1.
 | Species-specific vaccines | Goat Pox never targets sheep; Sheep Pox and Blue Tongue never target goats |
 | 1 live + 1 killed due same day | Same-day plan is allowed when no other blocker exists |
 | Next live after a live dose | Planned date is at least 4 weeks after the prior live vaccine |
-| More than 2 vaccines due | Highest-priority compatible pair is selected; overflow vaccines are scheduled on the next safe date |
+| More than 2 vaccines due | Highest-priority compatible pair is selected; overflow vaccines are scheduled from that session date using the cross-vaccine gap matrix, not the next operator-cap day |
+| Two-vaccine session followed by overflow | A goat receiving ET+TT + PPR today must not receive Blue Tongue/FMD tomorrow; killed overflow waits at least 14 days plus the +7-day scheduling buffer |
 | Warm-up / ICU / quarantine / sick / late pregnancy / post-breeding blocker | Safety blocker beats batching and creates defer/block/exception, not a drive |
 | Recovered animal, compatible drive within 7 days | Animal joins that nearest compatible same-park drive if all medical/vaccine rules stay safe |
 | Recovered animal, nearest compatible drive more than 7 days away | Micro-drive is scheduled inside the 7-day recovery buffer, even for one animal |

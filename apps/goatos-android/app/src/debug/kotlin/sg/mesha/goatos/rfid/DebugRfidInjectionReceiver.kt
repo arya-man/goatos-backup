@@ -7,8 +7,10 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 
 /**
  * Debug-build E2E adapter for a BT-HID keyboard-wedge RFID burst.
@@ -23,11 +25,7 @@ import javax.inject.Inject
  * scans. It exists to keep physical-device/emulator E2E deterministic when RFID hardware is not
  * attached, without adding a production shortcut around Room/outbox/backend processing.
  */
-@AndroidEntryPoint
 class DebugRfidInjectionReceiver : BroadcastReceiver() {
-
-    @Inject
-    lateinit var reader: RfidReaderPort
 
     override fun onReceive(context: Context, intent: Intent) {
         val tag = intent.getStringExtra(EXTRA_TAG)?.trim().orEmpty()
@@ -36,6 +34,9 @@ class DebugRfidInjectionReceiver : BroadcastReceiver() {
             return
         }
 
+        val reader = EntryPointAccessors
+            .fromApplication(context.applicationContext, DebugRfidEntryPoint::class.java)
+            .rfidReaderPort()
         val keyMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
         val tagEvents = keyMap.getEvents(tag.toCharArray()).orEmpty()
         var consumed = tagEvents.isNotEmpty()
@@ -58,4 +59,10 @@ class DebugRfidInjectionReceiver : BroadcastReceiver() {
         private const val MAX_TAG_LENGTH = 128
         private const val TAG = "GoatOsDebugRfid"
     }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface DebugRfidEntryPoint {
+    fun rfidReaderPort(): RfidReaderPort
 }

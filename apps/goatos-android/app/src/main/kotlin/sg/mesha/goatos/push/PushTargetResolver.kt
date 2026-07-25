@@ -17,36 +17,39 @@ private val RECORD_TYPES = setOf("record", "verification", "verification_closed"
  *  - `screen`/`type` "record"/"verification"/"verify"/"rework" -> the read-only/verify record
  *    for [PushExtras.SHED_ID] (falls back to the Vaccination landing with no shed id).
  *  - `screen`/`type` "reschedule" -> the reschedule form for [PushExtras.OBLIGATION_ID].
- *  - `type` "reminder" or `screen` "scan"/"shed" -> the exact task-scoped execute loop when both
- *    `shed_id` and `task_id` are present. A shed-only payload falls back to Vaccination: scan,
- *    proof, and submit state is task-scoped, so presenting an ambiguous 0/N execution is unsafe.
+ *  - reminder/shed payloads -> Vaccination. Push taps never open Scan; scanning starts only after
+ *    the operator picks a shed from Vaccination.
  *  - `screen` "calendar" -> Calendar.
  *  - anything else / no recognizable field -> the Vaccination landing (never a crash or blank
  *    screen for an unrecognized push shape — see [sg.mesha.goatos.MainActivity]'s "robust
  *    static graph" note on [Routes]).
  */
 fun resolvePushRoute(payload: Map<String, String>): String {
+    val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
+    val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
+    val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
+    val role = payload[PushExtras.ROLE]?.lowercase()?.takeIf { it.isNotBlank() }
+    val screen = payload[PushExtras.SCREEN]?.lowercase()?.takeIf { it.isNotBlank() }
+    val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
+
+    if (screen == "scan" || screen == "shed" || screen == "vaccination" || screen == "vaccination_overview" || type == "reminder" || type == "vaccination_reminder") {
+        return Routes.VACCINATION
+    }
+
     val target = payload[PushExtras.TARGET]?.takeIf { it.isNotBlank() }
         ?: payload[PushExtras.HREF]?.takeIf { it.isNotBlank() }
     if (target != null) return calendarTargetRoute(target)
 
-    val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
-    val taskId = payload[PushExtras.TASK_ID]?.takeIf { it.isNotBlank() }
-    val obligationId = payload[PushExtras.OBLIGATION_ID]?.takeIf { it.isNotBlank() }
-    val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
-    val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
-    val screen = payload[PushExtras.SCREEN]?.lowercase()?.takeIf { it.isNotBlank() }
-    val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
-
     return when {
         screen == "verification" || type == "verification_pending" ->
-            if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
-        screen == "leadership_close" || type == "verification_approved" -> Routes.LEADERSHIP
+            when {
+                role == "verifier" -> if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
+                else -> Routes.VACCINATION
+            }
+        screen == "leadership_close" || type == "verification_approved" -> Routes.VACCINATION
         screen in RECORD_TYPES || type in RECORD_TYPES ->
             if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
-        screen == "reschedule" || type == "reschedule" -> Routes.rescheduleRoute(obligationId)
-        screen == "scan" || screen == "shed" || type == "reminder" ->
-            if (shedId != null && taskId != null) Routes.scanRoute(shedId, taskId = taskId) else Routes.VACCINATION
+        screen == "reschedule" || type == "reschedule" -> Routes.VACCINATION
         screen == "calendar" || type == "calendar" -> Routes.CALENDAR
         else -> Routes.VACCINATION
     }

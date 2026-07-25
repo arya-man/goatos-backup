@@ -381,6 +381,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 	}
 	now := s.now().UTC()
+	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -389,14 +390,15 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		DeviceState:            deviceState,
 		AppMinSupportedVersion: "0.1.0",
 		FeatureFlags: map[string]bool{
-			"tasks":          true,
-			"sop_runner":     true,
-			"proof_capture":  hasCapability(caps, "media.video_capture"),
-			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
+			"tasks":                   true,
+			"sop_runner":              true,
+			"proof_capture":           hasCapability(caps, "media.video_capture"),
+			"animal_id_scan":          hasCapability(caps, "animal_id.scan"),
+			"protocol_adherence_card": canViewProtocolAdherenceCard(grants),
 		},
 		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
-		Modules:                 modulesFor(grants, grantedModules, localeTag),
-		NavChrome:               navChromeFor(grants, grantedModules),
+		Modules:                 bootstrapModules,
+		NavChrome:               navChromeFor(grants, bootstrapModules),
 		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -543,6 +545,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrDenied) {
 		return Forbidden("operator_gate_denied", "operator gate denied")
 	}
+	if errors.Is(err, ports.ErrMinOperatorCoverage) {
+		return Conflict("min_operator_coverage", err.Error())
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr
@@ -595,15 +600,14 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 	return false
 }
 
-// leadershipGrantRoles are the workforce grant roles that see the fixed
-// leadership mobile nav (Calendar / Overview / Alerts). Mirrors the role-lens
+// leadershipGrantRoles are the workforce grant roles that get the curated
+// mobile module set (for example Vaccination plus CEO modules). Mirrors the role-lens
 // tiers already used for the admin-web bootstrap (see roleLensForRole in
-// internal/adminui/app/compiler.go): ceo_internal/admin fold to CEO/COO,
-// pc_director is the health director and park_head is the park manager.
+// internal/adminui/app/compiler.go): ceo_internal is CEO/CXO, pc_director is
+// the health director and park_head is the park manager.
 // Verifier is deliberately excluded: it owns a standalone evidence-review app,
 // not leadership action navigation. permissions.RoleOperator is also not leadership.
 var leadershipGrantRoles = map[string]bool{
-	permissions.RoleAdmin:       true,
 	permissions.RoleCEOInternal: true,
 	permissions.RolePCDirector:  true,
 	permissions.RoleParkHead:    true,
@@ -616,6 +620,10 @@ func isVerifierPrincipal(grants []domain.GrantSummary) bool {
 		}
 	}
 	return false
+}
+
+func isStandaloneVerifierPrincipal(grants []domain.GrantSummary) bool {
+	return isVerifierPrincipal(grants) && !isLeadershipPrincipal(grants)
 }
 
 // isLeadershipPrincipal reports whether any active grant carries a
@@ -631,22 +639,29 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor decides the nav chrome based on module count:
-// >=2 modules = drawer (expanded); <2 modules = bottom-bar only (minimal).
-// Leadership principals always get expanded: their nav spans modules by definition.
-// modules is the list of AVAILABLE granted module keys (soon-modules do not count —
-// a disabled roadmap row must not by itself promote a single-module operator to a drawer).
-func navChromeFor(grants []domain.GrantSummary, modules []string) string {
-	if isVerifierPrincipal(grants) {
+// navChromeFor decides the nav chrome from the COMPOSED drawer, following the
+// nav-composition rule "1 module -> bottom bar, >=2 -> drawer". A leadership
+// principal with a single available module (a preventive-care leader whose only
+// drawer entry is the vaccination home) gets the clean bottom bar, not a
+// one-row drawer; a CEO with vaccination + counts gets the expanded drawer.
+// Field operators stay on minimal chrome until the operator drawer rollout is
+// explicitly enabled again.
+func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
+	if isStandaloneVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
 	}
 	if isLeadershipPrincipal(grants) {
-		return domain.NavChromeExpanded
+		available := 0
+		for _, m := range modules {
+			if m.Status == moduleStatusAvailable {
+				available++
+			}
+		}
+		if available >= 2 {
+			return domain.NavChromeExpanded
+		}
+		return domain.NavChromeMinimal
 	}
-	if countAvailableModules(grants, modules) >= 2 {
-		return domain.NavChromeExpanded
-	}
-	// Single module = minimal nav chrome (bottom-bar only)
 	return domain.NavChromeMinimal
 }
 

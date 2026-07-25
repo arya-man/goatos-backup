@@ -8,6 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.network.dto.ScanCaptureDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
@@ -125,6 +128,22 @@ class SyncRepositoryTest {
     }
 
     @Test
+    fun `drive close is durable and grouped by vaccination batch`() = runBlocking {
+        val api = ScriptedAppApi().apply {
+            closeVaccinationBatchFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val repo = repository(api = api)
+
+        val result = repo.enqueueVerificationBatchClose("batch-1")
+
+        assertTrue(result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals(1, status.items.size)
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+        assertEquals(listOf("batch-1" to "batch-1-drive-close"), api.closeBatchCalls)
+    }
+
+    @Test
     fun `re-enqueuing the SAME idempotency key with a different payload is rejected`() = runBlocking {
         val store = FakeOutboxStore()
         val api = ScriptedAppApi()
@@ -236,6 +255,59 @@ class SyncRepositoryTest {
         status = repo.observeStatus().value
         assertTrue(status.online)
         assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+    }
+
+    @Test
+    fun `local backend gate drains scan capture even when platform network is unvalidated`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val calls = mutableListOf<Triple<String, String, ScanCaptureRequestDto>>()
+        api.recordScanCaptureFn = { taskId, key, request ->
+            calls += Triple(taskId, key, request)
+            ScanCaptureResponseDto(
+                capture = ScanCaptureDto(
+                    captureId = "capture-1",
+                    taskId = taskId,
+                    fieldKey = request.fieldKey,
+                    tag = request.tag,
+                    goatId = request.goatId,
+                    obligationId = request.obligationId,
+                ),
+            )
+        }
+        val gate = LocalBackendConnectivityGate(
+            delegate = ConnectivityGate { false },
+            apiBaseUrl = "http://localhost:8080/",
+        )
+        val engine = SyncEngine(store, api, connectivityGate = gate, dispatchers = unconfinedDispatchers, clock = { 0L })
+        val repo = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = gate,
+            appScope = CoroutineScope(Dispatchers.Unconfined),
+            dispatchers = unconfinedDispatchers,
+            clock = { 0L },
+        )
+
+        val result = repo.enqueueScanCapture(
+            taskId = "task-1",
+            groupKey = "task-1",
+            idempotencyKey = "scan:task-1:__scan_roster__:901007000504418",
+            request = ScanCaptureRequestDto(
+                fieldKey = "__scan_roster__",
+                tag = "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obligation-1",
+                capturedAtMs = 42L,
+            ),
+        )
+
+        assertTrue(result is AppResult.Ok)
+        assertTrue(repo.observeStatus().value.online)
+        assertEquals(SyncItemStatus.SUCCEEDED, repo.observeStatus().value.items.single().status)
+        assertEquals(1, calls.size)
+        assertEquals("task-1", calls.single().first)
+        assertEquals("901007000504418", calls.single().third.tag)
     }
 
     @Test

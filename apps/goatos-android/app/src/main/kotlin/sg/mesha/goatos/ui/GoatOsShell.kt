@@ -62,6 +62,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
@@ -155,17 +156,16 @@ fun GoatOsShell(navState: NavState) {
     val profile by profileVm.state.collectAsStateWithLifecycle()
     var showLanguage by remember { mutableStateOf(false) }
 
-    // Bottom-nav reselect pattern (Android nav guidance): pop back to the graph start
-    // and SAVE that destination's state, single-top, and RESTORE state on return. Without
-    // popUpTo(saveState)+restoreState, tapping a tab (or double-tapping it) re-enters a new
-    // back-stack entry each time, re-creating the screen ViewModel and re-firing its load —
-    // which is why rapid taps left the screen stuck "loading". This makes reselect a no-op
-    // that reuses the saved screen state instead of reloading.
+    // Bottom-nav roots are true role roots, not "return me to whatever child screen was last
+    // under this tab" shortcuts. We used to save/restore tab state here; after camera/permission
+    // interruptions that could resurrect a hosted child route as the operator landing page, which
+    // put a Back affordance on a root and hid the bottom bar. Selecting a backend-composed L0 item
+    // now clears any stale child stack and lands on the exact href the backend granted.
     val navigate: (String) -> Unit = { href ->
         navController.navigate(href) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
             launchSingleTop = true
-            restoreState = true
+            restoreState = false
         }
     }
 
@@ -190,6 +190,7 @@ fun GoatOsShell(navState: NavState) {
         AppNavHost(
             navController = navController,
             startDestination = startDestinationFor(navState),
+            showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
         )
     }
 
@@ -249,7 +250,7 @@ fun GoatOsShellChrome(
     // L0 roots: exactly the OPEN module's backend-composed destinations, and nothing else.
     //
     // The You tab used to be appended here as client-static chrome. It is now a nav
-    // contribution like any other (`bootstrap_copy.go` -> vaccination/leadership contribute
+    // contribution like any other (`bootstrap_copy.go` -> vaccination contributes
     // `you`; Counts contributes `approval` in that trailing slot instead), so the L0 set is
     // whatever the backend composed — no client-side addition. That is what let the Counts
     // module replace the trailing tab without a client release.
@@ -330,7 +331,8 @@ fun GoatOsShellChrome(
                     null
                 }
             CompositionLocalProvider(
-                LocalDrawerOpener provides drawerOpener
+                LocalDrawerOpener provides drawerOpener,
+                LocalIsTopLevelRoot provides isTopLevel,
             ) {
                 Column(
                     modifier = Modifier
@@ -349,11 +351,12 @@ fun GoatOsShellChrome(
 }
 
 /**
- * Only exact bootstrap roots own global navigation chrome. A child route must
- * never inherit the bar from a root with a similar path prefix.
+ * Only bootstrap roots own global navigation chrome. A destination must match one of the exact
+ * backend-composed root hrefs to receive the bottom bar/drawer; child routes and route patterns do
+ * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute != null && currentRoute in topLevelRoutes
+    currentRoute?.routeBase() in topLevelRoutes
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every
@@ -402,14 +405,18 @@ private fun MeshaNavBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
+        val currentBaseRoute = currentRoute?.routeBase()
         // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
         // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
+            val isSelected = currentBaseRoute == item.href
             NavigationBarItem(
-                selected = currentRoute == item.href,
-                onClick = { onSelect(item.href) },
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) onSelect(item.href)
+                },
                 icon = {
                     Icon(
                         imageVector = MeshaIcons.forNavKey(item.key),
@@ -423,6 +430,8 @@ private fun MeshaNavBar(
         }
     }
 }
+
+private fun String.routeBase(): String = substringBefore('?')
 
 // ---------------------------------------------------------------------------
 // Module-switcher drawer — ports the mock's `ovl-drawer` (`mock/vaccination-mobile-

@@ -76,14 +76,14 @@ one due population
   -> matrix submission cells
 ```
 
-Example: 300 FMD+HS administrations are due and the daily capacity is 100
-administrations. The planner should create three work sessions across safe days,
+Example: 300 animals have FMD+HS due and one available operator has daily animal
+capacity 100. The planner should create three work sessions across safe days,
 not one impossible session:
 
 ```text
-day 1 -> 100 administration cells
-day 2 -> 100 administration cells
-day 3 -> 100 administration cells
+day 1 -> 100 animals
+day 2 -> 100 animals
+day 3 -> 100 animals
 ```
 
 ## Decision
@@ -150,19 +150,22 @@ Keep these grains separate:
 
 ## Daily Capacity Contract
 
-The daily cap counts vaccination administration cells, not just animals,
-batches, or sessions.
+The drive planning cap counts unique animals assigned to an available operator
+for a business date, not vaccination administrations, vaccine doses, batches, or
+sessions. One animal consumes one operator slot even when the same visit bundles
+multiple due vaccines or boosters.
 
 ```text
-one animal + FMD = 1 administration cell
-one animal + FMD + HS = 2 administration cells
+one animal + FMD = 1 operator animal slot
+one animal + FMD + HS = 1 operator animal slot
 ```
 
-The cap is an operational capacity rule: "do not plan more than N vaccination
-administrations in a day for the configured capacity scope." The default scope
-should support the user's real constraint: across sheds and vaccine types for a
-team/day. Implementations may later narrow or widen the scope by tenant, park,
-team, or operator, but the algorithm must not assume capacity is per shed or per
+The cap is an operational capacity rule: "do not plan more than N animals per
+available operator in a day for the configured capacity scope." The default
+scope should support the user's real constraint: across sheds and vaccine types
+for an operator/day. Implementations may later narrow or widen the scope by
+tenant, park, team, or operator, but the algorithm must not assume capacity is
+per shed or per
 vaccine. Route scope is reserved for future route planning.
 
 Minimum policy fields:
@@ -250,8 +253,8 @@ silently pushing a cell outside its window.
 
 Planning rules:
 
-1. If all due administration cells fit under the cap within the allowed buffer,
-   split sessions so each day stays at or below the cap.
+1. If all due animals fit under available operator capacity within the allowed
+   buffer, split sessions so each day stays at or below the operator animal cap.
 2. If the cap cannot fit all due work before the latest safe date or max buffer,
    do not push animals farther away just to satisfy capacity.
 3. In that breach case, distribute the remaining work as evenly as possible only
@@ -259,15 +262,16 @@ Planning rules:
    safe under-cap allocation exists, and mark a capacity exception on the
    affected work sessions.
 
-The capacity packing atom is an animal's compatible same-session vaccine packet:
+The capacity packing atom is an animal's compatible same-session vaccine packet,
+but the capacity weight is still one animal slot:
 
 ```text
 animal_id + compatible obligation set for the same work session
-weight = number of administration cells in that packet
+weight = 1 operator animal slot
 ```
 
 Example: animal A, such as a goat, with FMD+HS due in one compatible session is
-one packet with weight 2. The planner must not satisfy a daily cap by putting
+one packet with weight 1. The planner must not satisfy a daily cap by putting
 animal A's FMD on day 1 and HS on day 2. It may split only when medical windows,
 compatibility, or the per-animal shot cap mean the vaccines are not actually
 eligible for the same session.
@@ -538,11 +542,11 @@ The preview/impact panel for a draft rule must show the planned split before
 publish:
 
 ```text
-total administration cells
-capacity per day
+total animals
+capacity per operator per day
 number of planned work sessions
 business date and capacity bucket key
-per-day cell counts
+per-day animal counts
 capacity state: within_cap | capacity_breach
 binding deadline per session/day: latest safe date or buffer end
 breach reason when medical windows force over-cap allocation
@@ -584,11 +588,13 @@ Minimum E2E stories:
    one, another is skipped/deferred with reason.
 4. Per-cell idempotency: replay of the same matrix does not duplicate
    completions; same submission key with a changed matrix conflicts.
-5. Capacity split exact: 300 administration cells with cap 100/day becomes three
-   dated work sessions of 100 each.
-6. Capacity split remainder: 250 cells with cap 100/day becomes 100, 100, 50.
-7. Capacity breach: 500 cells with cap 100/day and only four safe days becomes
-   an even over-cap split with `capacity_breach` recorded.
+5. Capacity split exact: 300 animals with one operator at cap 100/day becomes
+   three dated work sessions of 100 animals each.
+6. Capacity split remainder: 250 animals with one operator at cap 100/day
+   becomes 100, 100, 50.
+7. Capacity breach: 500 animals with one operator at cap 100/day and only four
+   safe days records `capacity_breach` / over-cap required instead of quietly
+   delaying unsafe work.
 8. Cap scope across sheds and vaccines: when the configured scope is team/day,
    work from multiple sheds and vaccine types shares the same daily capacity
    bucket.
@@ -654,8 +660,8 @@ the exact blocker.
    - FMD + HS same session, one task, one submission, two completions for one
      animal;
    - one animal receiving only one vaccine while another receives both;
-   - 300 administration cells with cap 100/day split into three dated sessions;
-   - cap breach when 500 cells cannot fit into the remaining safe window;
+   - 300 animals with one operator at cap 100/day split into three dated sessions;
+   - cap breach when 500 animals cannot fit into the remaining safe window;
    - heterogeneous safe-window breach keeps short-window packets inside their
      own eligible dates;
    - planner re-run does not silently move published/in-flight sessions;

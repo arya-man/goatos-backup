@@ -214,11 +214,11 @@ func TestCloseItemRejectedWhenSourceSubmissionIDSet_RealPostgres(t *testing.T) {
 
 	// Create an item owned by a submission.
 	created, err := repo.CreateItem(ctx, domain.CreateItem{
-		TenantID:   tenantID,
-		Vertical:   "preventive_care",
-		Module:     "vaccination",
-		Category:   "vaccination_proof",
-		Source:     domain.SourceRef{
+		TenantID: tenantID,
+		Vertical: "preventive_care",
+		Module:   "vaccination",
+		Category: "vaccination_proof",
+		Source: domain.SourceRef{
 			Module:       "vaccination",
 			SubmissionID: &submissionID,
 			RefType:      "vaccination_goat",
@@ -248,10 +248,10 @@ func TestCloseItemRejectedWhenSourceSubmissionIDSet_RealPostgres(t *testing.T) {
 	// the WHERE clause requires source_submission_id IS NULL, but this item
 	// is owned by a submission.
 	_, err = repo.CloseItem(ctx, domain.CloseAction{
-		TenantID:    tenantID,
-		ItemID:      created.Item.ItemID,
-		ActorID:     tenantID,
-		RowVersion:  approved.RowVersion,
+		TenantID:       tenantID,
+		ItemID:         created.Item.ItemID,
+		ActorID:        tenantID,
+		RowVersion:     approved.RowVersion,
 		IdempotencyKey: "r50-020:close-item",
 	})
 	if !errors.Is(err, ports.ErrConflict) {
@@ -326,7 +326,7 @@ func TestRecordVerdictIdempotencyFirstCallExactReplay_RealPostgres(t *testing.T)
 		Decision:       domain.DecisionApproved,
 		VerifierID:     verifierID,
 		RowVersion:     created.Item.RowVersion, // Note: old row_version, which will fail the storage
-		IdempotencyKey: idemKey,                  // but the idempotency check returns the stored result
+		IdempotencyKey: idemKey,                 // but the idempotency check returns the stored result
 	})
 	if err != nil {
 		t.Fatalf("replay RecordVerdict: %v", err)

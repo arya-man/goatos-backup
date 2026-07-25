@@ -886,7 +886,7 @@ LIMIT 50;"
 # Broad Parks base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestParksVaccinationExecutionProductionQueryPlanUsesIndexes.
 validate_parks_vaccination_base_join_plan() {
-  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
@@ -1074,7 +1074,7 @@ LIMIT 200;"
 # Broad process-integrity base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestProcessIntegrityProductionQueryPlanUsesIndexes.
 validate_vaccination_process_integrity_base_join_plan() {
-  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
@@ -1145,7 +1145,21 @@ WITH raw AS (
    AND vc.status <> 'reversed'
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
-    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+    -- Index-usable SUPERSET of the effective-due-date window (BUG-036b). The serving predicate is
+    -- COALESCE(assignment_planned_at, batch_planned_date, oi.due_at) <= X, which is a predicate over
+    -- LEFT JOIN / LATERAL output and therefore NOT index-usable on its own; expressed alone it made
+    -- the planner Seq Scan the whole obligation table. Every arm below is a bare obligation_instances
+    -- column predicate so the driving scan stays on obligation_instances_due_window_idx /
+    -- obligation_instances_batch_idx.
+    AND (
+      oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+      OR oi.batch_id = ANY (ARRAY(
+        SELECT ob2.batch_id FROM obligation_batches ob2
+        WHERE ob2.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+      ))
+    )
+    AND COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at) <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'missed', 'waived')
       OR oi.due_at >= TIMESTAMPTZ '2026-06-10 00:00:00+00'
@@ -1315,6 +1329,38 @@ ORDER BY
 LIMIT 200;"
 }
 
+# BUG-036a/b regression gate. Both the vaccinationexecution operations aggregate and the
+# process-integrity canonical aggregate bound their window on the EFFECTIVE execution date --
+# COALESCE(drive_assignment_planned_date, batch_planned_date, oi.due_at) -- whose first two arms come
+# from LEFT JOIN / LEFT JOIN LATERAL output. Expressed only that way the predicate is not SARGable,
+# the planner cannot prune obligation_instances, and the reads degraded to a full sequential scan
+# (measured 500001 rows touched / a 2.5s Seq Scan aggregate at the 500k envelope).
+# The fix is an index-usable SUPERSET pre-filter, proven here: the arms are bare obligation_instances
+# columns (due_at window + the batch-id set collected from the small planning tables), so the driving
+# scan rides obligation_instances_due_window_idx / obligation_instances_batch_idx and the exact
+# COALESCE bound runs afterwards only as a residual filter.
+validate_effective_due_window_superset_plan() {
+  explain_must_use_index "EffectiveDueWindowSuperset" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT oi.obligation_id
+FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+  AND (
+    (oi.due_at <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+     AND oi.due_at >= TIMESTAMPTZ '2026-01-01 00:00:00+00')
+    OR oi.batch_id = ANY (ARRAY(
+      SELECT ob2.batch_id FROM obligation_batches ob2
+      WHERE ob2.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+    ))
+  )
+  AND COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at) <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+"
+}
+
 validate_feed_review_queue_plan() {
   explain_must_use_index "FeedReviewQueue" 'Seq Scan on feed_direction_completions' "EXPLAIN (COSTS OFF)
 SELECT completion_id
@@ -1467,6 +1513,21 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_counts_breakdown_lifecycle_facet_plan() {
+  # countsBreakdownFacetsSQL's lifecycle branch (repository.go) groups the WHOLE tenant herd by
+  # lifecycle_status with no lifecycle predicate of its own (a facet never filters by its own
+  # dimension), so the census filter sheet can offer Live/Sold/Culled/Dead/Transferred. Proves the
+  # tenant scan stays on the partial index goats_tenant_lifecycle_shed_idx (tenant_id,
+  # lifecycle_status, shed_id) WHERE merged_into_goat_id IS NULL rather than a sequential scan —
+  # no migration needed, this index already exists.
+  explain_must_use_index "CountsBreakdownLifecycleFacet" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT g.lifecycle_status, count(*)
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.merged_into_goat_id IS NULL
+GROUP BY g.lifecycle_status;"
+}
+
 validate_verification_queue_plan() {
   # Generic Verification vertical (context/architecture/verification-module-design.md): the
   # Verifier's queue read (GET /verification/queue) keysets by (captured_at, item_id) filtered by
@@ -1554,6 +1615,7 @@ validate_vaccination_fanout_plan
 validate_sop_failed_submission_fanouts_plan
 validate_parks_vaccination_base_join_plan
 validate_vaccination_process_integrity_base_join_plan
+validate_effective_due_window_superset_plan
 validate_feed_review_queue_plan
 validate_feed_shed_history_plan
 validate_procurement_source_entry_plans
@@ -1561,6 +1623,7 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
+validate_counts_breakdown_lifecycle_facet_plan
 validate_verification_queue_plan
 validate_feed_config_hot_path_plans
 

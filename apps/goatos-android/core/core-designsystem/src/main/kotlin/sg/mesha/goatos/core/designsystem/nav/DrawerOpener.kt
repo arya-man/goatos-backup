@@ -23,3 +23,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * a screen rendered outside the shell simply shows no drawer affordance.
  */
 val LocalDrawerOpener = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/**
+ * True when the current destination is an exact top-level root from backend-composed
+ * navigation, even when the actor has MINIMAL chrome and therefore no drawer.
+ *
+ * This is separate from [LocalDrawerOpener] because a single-module operator has no
+ * drawer to open, but their landing screen is still a root. Root screens must not
+ * show an Up/Back affordance just because the drawer is unavailable.
+ */
+val LocalIsTopLevelRoot = staticCompositionLocalOf { false }

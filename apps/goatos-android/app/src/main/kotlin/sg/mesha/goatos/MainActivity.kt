@@ -102,17 +102,21 @@ class MainActivity : ComponentActivity() {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
                 // Logout clean-slate (C35-001): BootstrapViewModel is Activity-scoped, so it
                 // otherwise survives a logout with the departing user's Ready(navState) still
-                // held. `null` marks "not yet observed" (first composition, e.g. app cold start
-                // with an existing session) so the ViewModel's own initial load isn't duplicated;
-                // an actual false -> true edge (a fresh sign-in after a logout, same Activity)
-                // forces a real reload instead of ever rendering stale nav/identity.
+                // held. BootstrapViewModel also starts before the auth gate has resolved, so the
+                // first authenticated state must reload from the backend with the now-authoritative
+                // bearer instead of trusting any pre-auth/cached bootstrap. That is what keeps a
+                // dev APK reinstalled with an operator token from rendering a stale leadership
+                // shell that was loaded before the new session became active.
                 var previousAuthed by remember { mutableStateOf<Boolean?>(null) }
                 LaunchedEffect(authed) {
                     val wasAuthed = previousAuthed
                     previousAuthed = authed
                     when {
                         !authed -> bootstrapViewModel.reset()
-                        wasAuthed == false -> bootstrapViewModel.load()
+                        wasAuthed != true -> {
+                            bootstrapViewModel.reset()
+                            bootstrapViewModel.load()
+                        }
                     }
                 }
                 if (!authed) {

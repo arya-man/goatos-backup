@@ -10,6 +10,7 @@ data class ScanRosterRowDto(
     @SerialName("secondaryTag") val secondaryTag: String? = null,
     @SerialName("vaccineLabel") val vaccineLabel: String = "",
     @SerialName("status") val status: String = "",
+    @SerialName("scannedAt") val scannedAt: String? = null,
     @SerialName("obligationId") val obligationId: String = "",
 )
 

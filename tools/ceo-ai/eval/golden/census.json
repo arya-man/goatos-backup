@@ -1,0 +1,121 @@
+[
+  {
+    "id": "census-total-active",
+    "class": "total_animal_census",
+    "question": "How many animals do we have right now?",
+    "notes": "Vocab lock: 'animal' = all species (goat + sheep). Aggregate-first, no row listing. Oracle mirrors the GOVERNED Cube active_animal_count definition (lifecycle_status = 'alive'), NOT exited_at IS NULL — the two can differ (e.g. lost/merged/inactive rows with no exit timestamp), and the assistant answers from the governed metric.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["cube", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive'"
+    }
+  },
+  {
+    "id": "census-species-split",
+    "class": "species_split_count",
+    "question": "How many goats versus sheep do we have today?",
+    "notes": "Must report goat and sheep as distinct numbers; never collapse to one 'animal' total.",
+    "expect": {
+      "species_split": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["cube", "api"]
+    },
+    "oracle": {
+      "kind": "rows",
+      "sql": "SELECT species, count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' GROUP BY species ORDER BY species"
+    }
+  },
+  {
+    "id": "census-goat-count",
+    "class": "species_split_count",
+    "question": "How many goats are active?",
+    "notes": "goat = species='goat' ONLY.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["cube", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND species = 'goat'"
+    }
+  },
+  {
+    "id": "census-sheep-count",
+    "class": "species_split_count",
+    "question": "How many sheep are active?",
+    "notes": "Edge case: if the answer is 0 it must say '0 sheep', not hide the species dimension.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["cube", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND species = 'sheep'"
+    }
+  },
+  {
+    "id": "census-shed-count",
+    "class": "count_by_scope_dimension",
+    "question": "How many sheds do we have?",
+    "notes": "Facility inventory underpinning every scope filter.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "toolbox", "sql"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM locations WHERE tenant_id = :'tenant_id'::uuid AND location_type = 'shed'"
+    }
+  },
+  {
+    "id": "census-park-count",
+    "class": "count_by_scope_dimension",
+    "question": "How many parks do we operate?",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "toolbox", "sql"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM locations WHERE tenant_id = :'tenant_id'::uuid AND location_type = 'park'"
+    }
+  },
+  {
+    "id": "census-named-park",
+    "class": "named_shed_or_park_count",
+    "question": "How many animals are in Castro 1?",
+    "notes": "Named scope. If the park does not exist the assistant must say so, not silently return the company-wide total. Aggregate-only.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "toolbox", "cube"]
+    }
+  },
+  {
+    "id": "census-count-by-breed-sex",
+    "class": "count_by_scope_dimension",
+    "question": "Give me a count by breed and sex.",
+    "notes": "Grouped compact breakdown; must not fan out per animal.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "toolbox", "sql"]
+    }
+  },
+  {
+    "id": "census-capacity-variance",
+    "class": "shed_capacity_variance",
+    "question": "Which sheds look over capacity?",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["toolbox", "sql", "api"]
+    }
+  }
+]

@@ -1,0 +1,684 @@
+<title>Counts module — Old vs New (full parity)</title>
+<style>
+  :root{
+    --page:#0A0F0C;--surf:#131A15;--surf2:#1A241D;--surf3:#222E25;--hair:#28352B;
+    --ink:#ECF4EE;--muted:#8FA497;--faint:#5F7367;--brand:#8AD457;--brand2:#5FB531;
+    --brandd:#B7EA8C;--tint:rgba(138,212,87,.14);--warn:#F0B54B;--warnx:rgba(240,181,75,.15);
+    --teal:#57C9B0;--danger:#E5736B;--dangerx:rgba(229,115,107,.15);--stage:#0E1310;
+    --sys:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(120% 80% at 50% -10%,#0d150f,#080b09 70%);color:var(--ink);
+    font-family:var(--sys);-webkit-font-smoothing:antialiased;padding:30px 18px 70px;min-height:100vh}
+  .wrap{max-width:1140px;margin:0 auto}
+  h1{font-size:25px;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:20px;max-width:76ch;line-height:1.5}
+  .tabs{display:inline-flex;gap:4px;background:var(--surf);border:1px solid var(--hair);
+    border-radius:12px;padding:4px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{border:0;background:transparent;color:var(--muted);font-family:inherit;font-size:13px;
+    font-weight:700;padding:8px 15px;border-radius:9px;cursor:pointer}
+  .tab.on{background:var(--brand);color:#08130a}
+  .hint{display:block;font-size:12px;color:var(--brandd);background:var(--tint);border:1px solid var(--brand);
+    border-radius:10px;padding:9px 13px;margin-bottom:22px;font-weight:600}
+  .hint b{font-weight:800}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
+  @media(max-width:840px){.pair{grid-template-columns:1fr}}
+  .col-head{display:flex;align-items:center;gap:10px;margin:0 0 12px 4px}
+  .badge{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;padding:4px 9px;border-radius:6px}
+  .badge.old{background:var(--warnx);color:var(--warn)}
+  .badge.new{background:var(--tint);color:var(--brandd)}
+  .col-head p{font-size:12px;color:var(--faint)}
+
+  .phone{width:100%;max-width:392px;margin:0 auto;background:var(--page);border:1px solid var(--hair);
+    border-radius:30px;padding:10px;box-shadow:0 30px 60px -30px #000}
+  .screen{background:var(--page);border-radius:22px;overflow:hidden;height:760px;display:flex;
+    flex-direction:column;position:relative}
+  .statusbar{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;
+    font-size:11px;color:var(--faint);font-weight:700}
+  .notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:92px;height:20px;background:#000;border-radius:14px;z-index:5}
+  .body{flex:1;overflow-y:auto;padding:0 14px 22px}
+  .body::-webkit-scrollbar{width:0}
+
+  .app-h{display:flex;align-items:center;gap:10px;padding:8px 4px 6px}
+  .app-h .t{flex:1;min-width:0}
+  .app-h .t h2{font-size:19px;font-weight:800;letter-spacing:-.01em}
+  .app-h .t span{font-size:12px;color:var(--muted)}
+  .icobtn{width:40px;height:40px;border-radius:11px;border:1px solid var(--hair);display:flex;
+    align-items:center;justify-content:center;color:var(--muted);font-size:15px;background:transparent;cursor:pointer;flex:none}
+  .sync{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);padding:2px 4px 12px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--brand)}
+  .card{background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:14px;margin-bottom:10px}
+  .lbl{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  .field{background:var(--surf2);border:1px solid var(--hair);border-radius:11px;padding:11px 13px;
+    display:flex;align-items:center;gap:8px;font-size:13px;margin-top:6px}
+  .field .v{flex:1;color:var(--ink);font-weight:600}
+  .field .ph{flex:1;color:var(--faint)}
+  .field.dis{opacity:.5}
+  .chev{color:var(--faint);font-size:11px}
+  .req{color:var(--brand);margin-left:3px}
+  .fhint{font-size:11px;color:var(--faint);margin-top:5px;padding-left:2px}
+  .row2{display:flex;gap:10px}.row2>*{flex:1}
+  .gt{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;padding:14px 4px 4px}
+  .btn{background:var(--brand);color:#08130a;font-weight:800;font-size:14px;text-align:center;padding:13px;border-radius:12px;margin-top:6px;cursor:pointer}
+  .btn.ghost{background:var(--surf2);color:var(--muted);border:1px solid var(--hair)}
+  .btn.block{opacity:.45}
+  .seg{display:flex;gap:8px;margin-top:6px}
+  .seg .o{flex:1;text-align:center;font-size:12px;font-weight:700;color:var(--muted);background:var(--surf2);
+    border:1px solid var(--hair);border-radius:10px;padding:10px 0;cursor:pointer}
+  .seg .o.on{background:var(--tint);border-color:var(--brand);color:var(--brandd)}
+  .seg.w4{flex-wrap:wrap}.seg.w4 .o{flex:1 1 44%}
+  .matchrow{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--hair);
+    border-radius:12px;padding:10px 12px;margin-top:7px;cursor:pointer}
+  .matchrow.sel{background:var(--tint);border-color:var(--brand)}
+  .matchrow .m{flex:1}.matchrow .id{font-size:13px;font-weight:700}
+  .matchrow .tg{font-size:11px;color:var(--muted)}.matchrow .lc{font-size:11px;color:var(--faint)}
+  .ck{color:var(--brand)}
+  .ro{background:var(--surf2);border-radius:14px;padding:12px;margin-top:8px}
+  .ro .rt{font-size:11px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .ro .rid{font-size:14px;font-weight:800;margin-bottom:4px}
+  .fact{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
+  .fact .l{color:var(--muted)}.fact .r{font-weight:600}
+  .note{font-size:11px;color:var(--faint);line-height:1.5;padding:8px 4px 0}
+  .banner{display:flex;align-items:center;gap:8px;border-radius:12px;padding:11px 12px;font-size:12px;font-weight:600;margin-top:6px}
+  .banner.ok{background:var(--warnx);color:var(--warn)}
+  .banner.err{background:var(--dangerx);color:var(--danger)}
+
+  /* OLD counts */
+  .stat{background:var(--surf2);border-radius:12px;padding:10px 12px}
+  .stat .n{font-size:22px;font-weight:800}.stat .n.b{color:var(--brandd)}.stat .n.i{color:var(--ink)}.stat .n.t{color:var(--teal)}
+  .stat .k{font-size:11px;color:var(--muted);margin-top:2px}
+  .cap{font-size:11px;font-weight:700;color:var(--faint);padding:6px 4px 8px}
+  .brk{display:flex;align-items:center;gap:12px;background:var(--surf);border:1px solid var(--hair);
+    border-radius:14px;padding:12px 14px;margin-bottom:9px}
+  .brk .m{flex:1}.brk .loc{font-size:14px;font-weight:700}.brk .stg{font-size:12px;color:var(--muted)}
+  .brk .bd{font-size:11px;color:var(--faint)}.brk .c{font-size:18px;font-weight:800;color:var(--brandd)}
+
+  /* OLD approval */
+  .apc{background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:12px;margin-bottom:10px}
+  .apc .th{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
+  .apc .rb{font-size:12px;color:var(--muted);margin-top:6px}
+  .apc .ra{font-size:11px;color:var(--faint);margin-top:2px}
+  .apc .sm{font-size:12px;margin-top:4px}
+  .apc .acts{display:flex;gap:8px;margin-top:10px}
+  .apc .act{flex:1;text-align:center;font-size:13px;font-weight:800;padding:11px 0;border-radius:12px;cursor:pointer}
+  .apc .act.rej{background:var(--danger);color:#170a09}
+  .apc .act.app{background:var(--brand);color:#08130a}
+  .apc .act.gh{background:var(--surf3);color:var(--muted)}
+
+  /* NEW shared modern */
+  .hero{background:linear-gradient(150deg,#16211a,#111812);border:1px solid var(--hair);border-radius:20px;
+    padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-40px;top:-40px;width:150px;height:150px;background:radial-gradient(circle,var(--tint),transparent 70%)}
+  .hero .k{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+  .hero .big{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1;margin:6px 0 12px;font-variant-numeric:tabular-nums}
+  .hero .big .u{font-size:15px;color:var(--faint);font-weight:700;margin-left:6px}
+  .splitbar{height:9px;border-radius:6px;overflow:hidden;display:flex;margin-bottom:9px}
+  .splitbar .a{background:var(--brand)}.splitbar .b{background:var(--teal)}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted)}.legend b{color:var(--ink);font-weight:800}
+  .legend .sw{width:8px;height:8px;border-radius:3px;display:inline-block;margin-right:5px}
+  .fbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .fbtn{flex:none;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;padding:8px 13px;
+    border-radius:20px;background:var(--tint);border:1px solid var(--brand);color:var(--brandd);cursor:pointer}
+  .fbtn .fct{background:var(--brand);color:#08130a;font-size:10px;font-weight:800;min-width:16px;height:16px;
+    border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  .fscroll{display:flex;gap:7px;overflow-x:auto;flex:1;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}
+  .fscroll::-webkit-scrollbar{height:0}
+  .chip{flex:none;font-size:12px;font-weight:700;padding:7px 12px;border-radius:20px;background:var(--tint);
+    border:1px solid var(--brand);color:var(--brandd);display:flex;align-items:center;gap:6px}
+  .chip .x{color:var(--faint);font-size:11px;cursor:pointer}
+  .seg-h{display:flex;align-items:center;justify-content:space-between;margin:2px 4px 10px}
+  .seg-h .ttl{font-size:13px;font-weight:800}.seg-h .mt{font-size:11px;color:var(--faint)}
+  .grp{margin-bottom:8px}
+  .grp-h{display:flex;align-items:center;gap:8px;padding:4px 4px 8px}
+  .grp-h .gn{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .grp-h .gc{font-size:11px;color:var(--faint)}.grp-h .ln{flex:1;height:1px;background:var(--hair)}
+  .nr{display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--surf);border:1px solid var(--hair);border-radius:13px;margin-bottom:7px}
+  .nr .av{width:34px;height:34px;border-radius:9px;background:var(--surf3);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .nr .m{flex:1;min-width:0}
+  .nr .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .nr .nm{font-size:14px;font-weight:700}.nr .c{font-size:16px;font-weight:800;color:var(--brandd);font-variant-numeric:tabular-nums}
+  .nr .meta{font-size:11px;color:var(--faint);margin:3px 0 6px}
+  .mini{height:5px;background:var(--stage);border-radius:4px;overflow:hidden}
+  .mini i{display:block;height:100%;background:linear-gradient(90deg,var(--brand2),var(--brand))}
+
+  /* modern form skin (scope .mod) */
+  .mod .gt{font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.12em;padding:16px 4px 8px}
+  .mod .field{background:var(--surf2);border:0;border-radius:14px;padding:14px 16px;font-size:14px}
+  .mod .field .chev{color:var(--brand);opacity:.7}
+  .mod .field.dis{opacity:.45}
+  .mod .seg{background:var(--surf2);border-radius:15px;padding:5px;gap:5px}
+  .mod .seg .o{background:transparent;border:0;border-radius:11px;padding:11px 0;color:var(--muted)}
+  .mod .seg .o.on{background:var(--surf3);color:var(--brandd);box-shadow:0 2px 8px -2px #000}
+  .mod .seg.w4{background:transparent;padding:0;gap:8px}
+  .mod .seg.w4 .o{background:var(--surf2);border-radius:13px;padding:13px 0}
+  .mod .seg.w4 .o.on{background:var(--tint);color:var(--brandd);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .mod .matchrow{border:0;background:var(--surf2);border-radius:14px}
+  .mod .matchrow.sel{background:var(--tint);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .mod .ro{background:rgba(255,255,255,.03)}
+  .msearch{display:flex;align-items:center;gap:10px;background:var(--surf2);border-radius:14px;padding:0 14px;height:50px;margin-top:6px}
+  .msearch .mi{color:var(--brand);font-size:18px}
+  .msearch input{flex:1;background:transparent;border:0;outline:0;color:var(--ink);font-size:14px;font-family:inherit}
+  .msearch input::placeholder{color:var(--faint)}
+  .picked{background:linear-gradient(155deg,#18251d,#101711);border-radius:20px;padding:14px;margin-top:8px;
+    box-shadow:0 1px 0 rgba(138,212,87,.12) inset,0 18px 40px -26px #000}
+  .picked .r1{display:flex;align-items:center;gap:12px}
+  .picked .av{width:44px;height:44px;border-radius:14px;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:20px}
+  .picked .id{font-size:16px;font-weight:800}.picked .tg{font-size:12px;color:var(--muted)}
+  .picked .chg{font-size:11px;font-weight:700;color:var(--brandd);background:rgba(138,212,87,.12);padding:7px 14px;border-radius:20px;cursor:pointer}
+  .move{display:flex;align-items:center;gap:10px;margin-top:14px}
+  .move .box{flex:1;background:rgba(255,255,255,.03);border-radius:14px;padding:10px}
+  .move .box.to{background:var(--tint);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .move .box .k{font-size:10px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .move .box .p{font-size:13px;font-weight:700;margin-top:3px}.move .box .s{font-size:11px;color:var(--muted)}
+  .move .arr{color:var(--brand);font-size:18px}
+  .sticky{position:absolute;left:0;right:0;bottom:0;padding:12px 14px 16px;background:linear-gradient(to top,var(--page) 74%,transparent)}
+  .pend{font-size:12px;color:var(--muted);padding:0 2px 10px;white-space:nowrap}
+  .pend b{color:var(--warn)}
+  .mod .btn{border-radius:16px;padding:15px;box-shadow:0 10px 24px -10px rgba(138,212,87,.5)}
+  /* modern approval */
+  .apn{background:linear-gradient(155deg,#17221b,#101710);border-radius:18px;padding:14px;margin-bottom:11px;
+    box-shadow:0 1px 0 rgba(138,212,87,.08) inset}
+  .apn .th{display:flex;align-items:center;gap:9px}
+  .apn .tico{width:30px;height:30px;border-radius:9px;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .apn .tt{font-size:14px;font-weight:800}
+  .apn .who{font-size:12px;color:var(--muted);margin-top:8px}
+  .apn .sm{font-size:12px;color:var(--ink);margin-top:2px}
+  .apn .when{font-size:11px;color:var(--faint);margin-top:2px}
+  .apn .acts{display:flex;gap:9px;margin-top:12px}
+  .apn .act{flex:1;text-align:center;font-size:13px;font-weight:800;padding:12px 0;border-radius:13px;cursor:pointer}
+  .apn .act.app{background:var(--brand);color:#08130a}
+  .apn .act.rej{background:transparent;color:var(--danger);box-shadow:inset 0 0 0 1.5px rgba(229,115,107,.5)}
+  .apn .act.gh{background:var(--surf3);color:var(--muted)}
+
+  /* overlay filter sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;visibility:hidden;transition:opacity .22s;z-index:8}
+  .scrim.open{opacity:1;visibility:visible}
+  .ovsheet{position:absolute;left:0;right:0;bottom:0;z-index:9;background:var(--surf);border-top:1px solid var(--hair);
+    border-radius:22px 22px 0 0;padding:14px 16px 18px;transform:translateY(105%);transition:transform .26s cubic-bezier(.3,.8,.4,1);
+    max-height:84%;display:flex;flex-direction:column;box-shadow:0 -24px 50px -20px #000}
+  .ovsheet.open{transform:translateY(0)}
+  .grab{width:38px;height:4px;border-radius:3px;background:var(--hair);margin:0 auto 14px}
+  .sh-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .sh-h h4{font-size:16px;font-weight:800}.sh-h .rst{font-size:12px;font-weight:700;color:var(--brandd);cursor:pointer}
+  .ovbody{overflow-y:auto;margin:0 -2px}.ovbody::-webkit-scrollbar{width:0}
+  .dim{border-top:1px solid var(--hair);padding:12px 2px}
+  .dim .dh{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+  .dim .dn{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .dim .dv{font-size:11px;color:var(--faint)}
+  .opts{display:flex;gap:7px;flex-wrap:wrap}
+  .opt{font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;background:var(--surf2);border:1px solid var(--hair);color:var(--muted);cursor:pointer}
+  .opt.on{background:var(--tint);border-color:var(--brand);color:var(--brandd)}
+  .opt.soon{opacity:.5;border-style:dashed;cursor:default}
+  .opt .tag{font-size:9px;color:var(--faint);margin-left:5px}
+
+  /* reworked birth/death — cards, big targets, date picker */
+  .fcard{background:var(--surf);border-radius:18px;padding:14px 14px 16px;margin-top:12px}
+  .fcard .fct{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;display:block}
+  .lblrow{font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin:14px 2px 0}
+  .bigfield{background:var(--surf2);border-radius:14px;padding:0 16px;min-height:54px;display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px;cursor:pointer}
+  .bigfield .ph{color:var(--faint);flex:1}
+  .bigfield .v{color:var(--ink);font-weight:600;flex:1}
+  .bigfield .ic{color:var(--brand);opacity:.8;font-size:16px}
+  .bigfield.dis{opacity:.45;cursor:default}
+  .bigseg{display:flex;gap:8px;margin-top:10px}
+  .bigseg .o{flex:1;text-align:center;font-weight:700;color:var(--muted);background:var(--surf2);border-radius:13px;padding:15px 0;cursor:pointer;font-size:14px}
+  .bigseg .o.on{background:var(--tint);color:var(--brandd);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .expander{margin-top:14px;font-size:13px;font-weight:700;color:var(--brandd);cursor:pointer;display:flex;align-items:center;gap:6px}
+  .opt-block.hide{display:none}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:8px}
+  .cal .dow{text-align:center;font-size:10px;color:var(--faint);font-weight:800;padding-bottom:2px}
+  .cal .d{text-align:center;padding:11px 0;border-radius:10px;font-size:14px;cursor:pointer;color:var(--ink);font-variant-numeric:tabular-nums}
+  .cal .d.mut{color:transparent;cursor:default}
+  .cal .d:not(.mut):hover{background:var(--surf3)}
+  .cal .d.on{background:var(--brand);color:#08130a;font-weight:800}
+  .diffs{margin-top:16px;background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:15px 18px}
+  .diffs h3{font-size:13px;font-weight:800;margin-bottom:10px;color:var(--brandd)}
+  .diffs ul{list-style:none;display:grid;gap:8px}
+  .diffs li{font-size:13px;color:var(--muted);line-height:1.45;padding-left:20px;position:relative}
+  .diffs li::before{content:"→";position:absolute;left:0;color:var(--brand);font-weight:800}
+  .diffs li b{color:var(--ink);font-weight:700}
+  .hide{display:none}
+</style>
+
+<div class="wrap">
+  <h1>Counts module — every screen, old vs new</h1>
+  <p class="sub">All four real screens, each keeping <b>every field and control the app has today</b> — only the look changes. Nothing added, nothing removed. The <b>Proposed</b> phones are clickable; the <b>Now</b> phones are static reference.</p>
+
+  <div class="tabs">
+    <button class="tab on" data-v="counts" onclick="sw('counts',this)">Census (read)</button>
+    <button class="tab" data-v="shift" onclick="sw('shift',this)">Shifting</button>
+    <button class="tab" data-v="bd" onclick="sw('bd',this)">Birth / Death</button>
+    <button class="tab" data-v="appr" onclick="sw('appr',this)">Approvals</button>
+  </div>
+  <div class="hint">👆 On each <b>Proposed</b> phone the controls actually work — tap filters, segments, matches, mode toggles, approve/reject. Same controls as your app, restyled.</div>
+
+  <!-- ============ CENSUS ============ -->
+  <div id="counts">
+    <div class="pair">
+      <!-- OLD -->
+      <div>
+        <div class="col-head"><span class="badge old">Now</span><p>filter card eats the fold · 3 flat tiles · monotone list</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h"><div class="t"><h2>Counts</h2><span>Live herd census</span></div><div class="icobtn">↻</div></div>
+            <div class="sync"><span class="dot"></span>Updated 3m ago</div>
+            <div class="card"><div class="lbl">Filters</div>
+              <div class="row2" style="margin-top:8px">
+                <div class="field"><span class="v">All parks</span><span class="chev">▾</span></div>
+                <div class="field dis"><span class="ph">Pick park first</span><span class="chev">▾</span></div>
+              </div>
+              <div class="field"><span class="ph">All breeds</span><span class="chev">▾</span></div>
+            </div>
+            <div class="card"><div class="lbl">Totals</div>
+              <div class="row2" style="margin-top:8px">
+                <div class="stat"><div class="n b">2,567</div><div class="k">Total</div></div>
+                <div class="stat"><div class="n i">1,908</div><div class="k">Adults</div></div>
+                <div class="stat"><div class="n t">659</div><div class="k">Kids</div></div>
+              </div>
+              <div style="font-size:11px;color:var(--faint);margin-top:10px">Across 214 grains</div>
+            </div>
+            <div class="cap">CENSUS BREAKDOWN</div>
+            <div class="brk"><div class="m"><div class="loc">CBE · Shed 4</div><div class="stg">Pregnant</div><div class="bd">Boer · female</div></div><div class="c">42</div></div>
+            <div class="brk"><div class="m"><div class="loc">CBE · Shed 4</div><div class="stg">Warm-up</div><div class="bd">Boer · male</div></div><div class="c">28</div></div>
+            <div class="brk"><div class="m"><div class="loc">CPT · Gandhi 2</div><div class="stg">Fattening</div><div class="bd">Sirohi · male</div></div><div class="c">61</div></div>
+          </div>
+        </div></div>
+      </div>
+      <!-- NEW -->
+      <div>
+        <div class="col-head"><span class="badge new">Proposed</span><p>census hero · filter button + chips + sheet · grouped rows</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body" id="cbody">
+            <div class="app-h"><div class="t"><h2>Counts</h2></div><div class="icobtn">↻</div></div>
+            <div class="hero"><div class="k">Live herd · updated 3m ago</div>
+              <div class="big">2,567<span class="u">animals</span></div>
+              <div class="splitbar"><div class="a" style="width:74%"></div><div class="b" style="width:26%"></div></div>
+              <div class="legend">
+                <span><span class="sw" style="background:var(--brand)"></span>Adults <b>1,908</b></span>
+                <span><span class="sw" style="background:var(--teal)"></span>Kids <b>659</b></span>
+              </div>
+            </div>
+            <div class="fbar">
+              <div class="fbtn" onclick="openSheet()">⧩ Filters <span class="fct">2</span></div>
+              <div class="fscroll">
+                <div class="chip">CBE <span class="x">✕</span></div>
+                <div class="chip">Sirohi <span class="x">✕</span></div>
+              </div>
+            </div>
+            <div class="seg-h"><span class="ttl">Breakdown</span><span class="mt">214 grains</span></div>
+            <div class="grp"><div class="grp-h"><span class="gn">Shed 4</span><span class="gc">· CBE</span><span class="ln"></span><span class="gc">70</span></div>
+              <div class="nr"><div class="av">🐐</div><div class="m"><div class="top"><span class="nm">Pregnant</span><span class="c">42</span></div><div class="meta">Boer · female</div><div class="mini"><i style="width:60%"></i></div></div></div>
+              <div class="nr"><div class="av">🐐</div><div class="m"><div class="top"><span class="nm">Warm-up</span><span class="c">28</span></div><div class="meta">Boer · male</div><div class="mini"><i style="width:40%"></i></div></div></div>
+            </div>
+            <div class="grp"><div class="grp-h"><span class="gn">Gandhi 2</span><span class="gc">· CPT</span><span class="ln"></span><span class="gc">61</span></div>
+              <div class="nr"><div class="av">🐐</div><div class="m"><div class="top"><span class="nm">Fattening</span><span class="c">61</span></div><div class="meta">Sirohi · male</div><div class="mini"><i style="width:88%"></i></div></div></div>
+            </div>
+          </div>
+          <!-- filter sheet -->
+          <div class="scrim" id="scrim" onclick="closeSheet()"></div>
+          <div class="ovsheet" id="ovsheet">
+            <div class="grab"></div>
+            <div class="sh-h"><h4>Filter census</h4><span class="rst" onclick="resetSheet()">Reset all</span></div>
+            <div class="ovbody">
+              <div class="dim"><div class="dh"><span class="dn">Status</span><span class="dv">lifecycle</span></div>
+                <div class="opts"><div class="opt on">Live</div><div class="opt">Sold</div><div class="opt">Culled</div><div class="opt">Dead</div><div class="opt">Transferred</div></div></div>
+              <div class="dim"><div class="dh"><span class="dn">Park</span></div>
+                <div class="opts"><div class="opt on">CBE</div><div class="opt">CPT</div></div></div>
+              <div class="dim"><div class="dh"><span class="dn">Shed</span><span class="dv">cascades from park</span></div>
+                <div class="opts"><div class="opt">Shed 4</div><div class="opt">Shed 5</div><div class="opt">ICU</div></div></div>
+              <div class="dim"><div class="dh"><span class="dn">Breed</span></div>
+                <div class="opts"><div class="opt on">Sirohi</div><div class="opt">Boer</div><div class="opt">Osmanabadi</div></div></div>
+              <div class="dim"><div class="dh"><span class="dn">Sex &amp; stage</span><span class="dv">future</span></div>
+                <div class="opts"><div class="opt soon">Female <span class="tag">soon</span></div><div class="opt soon">Pregnant <span class="tag">soon</span></div></div></div>
+            </div>
+            <div class="btn" onclick="closeSheet()">Show 1,204 animals</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+    <div class="diffs"><h3>Same data, restyled</h3><ul>
+      <li><b>Kept:</b> total / adults / kids, park→shed→breed filters (with the cascade + disabled states), grain count, breakdown rows (farm·shed·stage·breed·sex·count), refresh, sync freshness, empty/error state.</li>
+      <li><b>Changed:</b> totals → one hero + split bar; the tall filter card → a Filters button + active chips backed by a sheet (scales to lifecycle status & more); rows grouped by shed with a subtotal + share bar.</li>
+    </ul></div>
+  </div>
+
+  <!-- ============ SHIFTING ============ -->
+  <div id="shift" class="hide">
+    <div class="pair">
+      <!-- OLD -->
+      <div>
+        <div class="col-head"><span class="badge old">Now</span><p>plain boxed form, one long scroll</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h"><div class="icobtn">‹</div><div class="t"><h2>Record shifting</h2><span>Move one animal to a new shed</span></div></div>
+            <div class="gt">Find the animal</div>
+            <div class="field"><span class="ph">RFID or tag…</span></div>
+            <div class="fhint">Scan or type a tag, then Search.</div>
+            <div class="btn ghost">Search</div>
+            <div class="matchrow sel"><div class="m"><div class="id">G-10428</div><div class="tg">RFID 982000411…</div><div class="lc">CBE · Shed 4</div></div><span class="ck">✓</span></div>
+            <div class="ro"><div class="rt">Current location</div><div class="rid">G-10428</div>
+              <div class="fact"><span class="l">Farm</span><span class="r">CBE</span></div>
+              <div class="fact"><span class="l">Shed</span><span class="r">Shed 4</span></div>
+            </div>
+            <div class="gt">Destination</div>
+            <div class="field"><span class="ph">Select farm</span><span class="chev">▾</span></div>
+            <div class="field dis"><span class="ph">Select farm first</span><span class="chev">▾</span></div>
+            <div class="gt">Priority</div>
+            <div class="seg"><div class="o">High</div><div class="o on">Low</div></div>
+            <div class="gt">Category</div>
+            <div class="seg w4"><div class="o on">Growth</div><div class="o">Health</div><div class="o">Breeding</div><div class="o">Delivery</div></div>
+            <div class="btn">Create shifting</div>
+            <div class="note">Recorded as pending — a supervisor approves later.<br>Saved offline; syncs when you're back online.</div>
+          </div>
+        </div></div>
+      </div>
+      <!-- NEW -->
+      <div>
+        <div class="col-head"><span class="badge new">Proposed</span><p>same fields · tonal fills · From→To · sticky submit</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body mod" id="sbody" style="padding-bottom:120px">
+            <div class="app-h"><div class="icobtn">‹</div><div class="t"><h2>Shift animal</h2></div></div>
+            <div class="gt">Find the animal</div>
+            <div class="msearch"><span class="mi">⌕</span><input placeholder="Scan RFID or type tag…"></div>
+            <div class="fhint">Tap a match to select — picking another replaces it.</div>
+            <div class="matchrow sel"><div class="m"><div class="id">G-10428</div><div class="tg">RFID 982000411…</div><div class="lc">CBE · Shed 4</div></div><span class="ck">✓</span></div>
+            <div class="picked"><div class="r1"><div class="av">🐐</div>
+              <div style="flex:1"><div class="id">G-10428</div><div class="tg">RFID 982000411…</div></div><div class="chg">Change</div></div>
+              <div class="move"><div class="box"><div class="k">From</div><div class="p">Shed 4</div><div class="s">CBE</div></div>
+                <div class="arr">→</div><div class="box to"><div class="k">To</div><div class="p">—</div><div class="s">pick below</div></div></div>
+            </div>
+            <div class="gt">Destination — pick farm, then shed</div>
+            <div class="field" id="sFarm"><span class="ph">Select farm</span><span class="chev">▾</span></div>
+            <div class="field dis" id="sShed"><span class="ph">Select farm first</span><span class="chev">▾</span></div>
+            <div class="fhint">The animal moves to whatever you pick here — the To card above updates.</div>
+            <div class="gt">Priority</div>
+            <div class="seg"><div class="o">⚡ High</div><div class="o on">Low</div></div>
+            <div class="gt">Category</div>
+            <div class="seg w4"><div class="o on">Growth</div><div class="o">Health</div><div class="o">Breeding</div><div class="o">Delivery</div></div>
+          </div>
+          <div class="sticky">
+            <div class="pend">⏳ Saved as <b>pending</b> · supervisor approves · works offline</div>
+            <div class="btn">Create shifting</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+    <div class="diffs"><h3>Same data, restyled</h3><ul>
+      <li><b>Kept:</b> animal search + hint + Search, single-select match rows, current-location read-only card, farm→shed destination cascade, Priority (High/Low), Category (Growth/Health/Breeding/Delivery), Create shifting, the pending + offline notes.</li>
+      <li><b>Changed:</b> current-location card → animal hero with From→To; borderless tonal fields & segmented tracks; submit + pending pinned to the bottom.</li>
+    </ul></div>
+  </div>
+
+  <!-- ============ BIRTH / DEATH ============ -->
+  <div id="bd" class="hide">
+    <div class="pair">
+      <!-- OLD -->
+      <div>
+        <div class="col-head"><span class="badge old">Now</span><p>mode toggle + long boxed form (Birth shown)</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h"><div class="icobtn">‹</div><div class="t"><h2>Birth / Death</h2><span>Record a lifecycle event</span></div></div>
+            <div class="seg"><div class="o on">Birth</div><div class="o">Death</div></div>
+            <div class="gt">Identity</div>
+            <div class="field"><span class="ph">Tag 1<span class="req">*</span></span></div>
+            <div class="field"><span class="ph">Tag 2</span></div>
+            <div class="seg" style="margin-top:8px"><div class="o on">Goat</div><div class="o">Sheep</div></div>
+            <div class="seg"><div class="o on">Female</div><div class="o">Male</div></div>
+            <div class="field"><span class="ph">Breed</span></div>
+            <div class="gt">Dates</div>
+            <div class="field"><span class="ph">Date of birth<span class="req">*</span></span></div>
+            <div class="fhint">DOB must be on or before entry date.</div>
+            <div class="field"><span class="ph">Entry date<span class="req">*</span></span></div>
+            <div class="gt">Placement</div>
+            <div class="field"><span class="ph">Select farm</span><span class="chev">▾</span></div>
+            <div class="field dis"><span class="ph">Select farm first</span><span class="chev">▾</span></div>
+            <div class="field"><span class="ph">Dam (optional)</span></div>
+            <div class="btn">Record birth</div>
+            <div class="note">Saved offline; syncs when you're back online.</div>
+          </div>
+        </div></div>
+      </div>
+      <!-- NEW -->
+      <div>
+        <div class="col-head"><span class="badge new">Proposed</span><p>same fields both modes · tap Birth/Death to switch</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body mod" id="bdbody" style="padding-bottom:110px">
+            <div class="app-h"><div class="icobtn">‹</div><div class="t"><h2>Birth / Death</h2></div></div>
+            <div class="bigseg" id="bdmode"><div class="o on" data-m="birth">＋ Birth</div><div class="o" data-m="death">✕ Death</div></div>
+
+            <div id="birthFields">
+              <div class="fcard"><span class="fct">Identity</span>
+                <div class="bigfield"><span class="ph">Tag 1<span class="req">*</span></span><span class="ic">⌕</span></div>
+                <div class="lblrow">Species</div>
+                <div class="bigseg"><div class="o on">🐐 Goat</div><div class="o">🐑 Sheep</div></div>
+                <div class="lblrow">Sex</div>
+                <div class="bigseg"><div class="o on">♀ Female</div><div class="o">♂ Male</div></div>
+                <div class="expander" id="birthMore">＋ Add details (Tag 2, breed)</div>
+                <div class="opt-block hide" id="birthMoreBlock">
+                  <div class="bigfield"><span class="ph">Tag 2</span></div>
+                  <div class="bigfield"><span class="ph">Breed</span></div>
+                </div>
+              </div>
+
+              <div class="fcard"><span class="fct">Dates</span>
+                <div class="bigfield" onclick="openDate(this)"><span class="ph">Date of birth<span class="req">*</span></span><span class="ic">📅</span></div>
+                <div class="fhint">Must be on or before entry date.</div>
+                <div class="bigfield" onclick="openDate(this)"><span class="v">23 Jul 2026</span><span class="ic">📅</span></div>
+                <div class="fhint">Entry date — prefilled to today.</div>
+              </div>
+
+              <div class="fcard"><span class="fct">Placement</span>
+                <div class="bigfield" id="bFarm"><span class="ph">Select farm</span><span class="ic">▾</span></div>
+                <div class="bigfield dis" id="bShed"><span class="ph">Pick farm first</span><span class="ic">▾</span></div>
+                <div class="expander" id="birthDam">＋ Dam (optional)</div>
+                <div class="opt-block hide" id="birthDamBlock">
+                  <div class="bigfield"><span class="ph">Dam tag / ID</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="deathFields" class="hide">
+              <div class="fcard"><span class="fct">Find the animal</span>
+                <div class="msearch"><span class="mi">⌕</span><input placeholder="Scan RFID or type tag…"></div>
+                <div class="fhint">Search, then tap the animal that died.</div>
+                <div class="matchrow sel"><div class="m"><div class="id">G-10428</div><div class="tg">RFID 982000411…</div><div class="lc">CBE · Shed 4</div></div><span class="ck">✓</span></div>
+              </div>
+              <div class="picked"><div class="r1"><div class="av">🐐</div>
+                <div style="flex:1"><div class="id">Recording death for G-10428</div><div class="tg">Tag 982000411</div></div></div>
+                <div style="margin-top:12px">
+                  <div class="fact"><span class="l" style="color:var(--muted)">Farm</span><span class="r">CBE</span></div>
+                  <div class="fact"><span class="l" style="color:var(--muted)">Shed</span><span class="r">Shed 4</span></div>
+                  <div class="fact"><span class="l" style="color:var(--muted)">Sex</span><span class="r">Female</span></div>
+                  <div class="fact"><span class="l" style="color:var(--muted)">Status</span><span class="r">Live</span></div>
+                </div>
+              </div>
+              <div class="fcard"><span class="fct">Account of death</span>
+                <div class="bigfield"><span class="ph">Reason<span class="req">*</span></span></div>
+                <div class="fhint">Recorded as died · lifecycle set to dead by the server. Irreversible.</div>
+              </div>
+            </div>
+
+            <!-- date picker sheet -->
+            <div class="scrim" id="dscrim" onclick="closeDate()"></div>
+            <div class="ovsheet" id="dsheet">
+              <div class="grab"></div>
+              <div class="sh-h"><h4>Pick a date</h4><span class="rst" id="dmonth">July 2026</span></div>
+              <div class="cal" id="calGrid"></div>
+            </div>
+          </div>
+          <div class="sticky">
+            <div class="pend">⏳ <b id="bdnote">Birth</b> works offline · syncs when online</div>
+            <div class="btn" id="bdbtn">Record birth</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+    <div class="diffs"><h3>Real UX pass — not just paint</h3><ul>
+      <li><b>Tap-to-pick date pickers</b> (tap DOB / Entry → calendar) instead of typing a date string — kills format typos and makes DOB ≤ entry enforceable in the UI.</li>
+      <li><b>Smart defaults prefilled:</b> Entry = today (23 Jul 2026), Species = Goat, Sex = Female. Common case = scan tag, pick DOB, submit.</li>
+      <li><b>Optional fields collapsed</b> under "＋ Add details" (Tag 2, Breed) and "＋ Dam" — the required path is short; extras are one tap away.</li>
+      <li><b>Grouped into cards</b> (Identity / Dates / Placement) and <b>bigger touch targets</b> (54px fields, chunky segments) for gloved hands in a shed.</li>
+      <li><b>Every real control kept</b> — Tag1*, Tag2, Species, Sex, Breed, DOB*, Entry*, farm→shed placement, Dam; Death: search/match/target-card/Reason* + server-fixed died/dead guardrail.</li>
+    </ul></div>
+  </div>
+
+  <!-- ============ APPROVALS ============ -->
+  <div id="appr" class="hide">
+    <div class="pair">
+      <!-- OLD -->
+      <div>
+        <div class="col-head"><span class="badge old">Now</span><p>bordered cards · reject reason expands inline</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h"><div class="t"><h2>Approvals</h2><span>Pending decisions for you</span></div></div>
+            <div class="banner ok">✓ Shifting approved · G-10402 moved</div>
+            <div class="apc"><div class="th">⇄ Shifting</div>
+              <div class="rb">Raised by Amit Kumar</div><div class="ra">Today 08:14</div>
+              <div class="sm">G-10428 · Shed 4 → Shed 12 · Growth</div>
+              <div class="acts"><div class="act rej">Reject</div><div class="act app">Approve</div></div>
+            </div>
+            <div class="apc"><div class="th">＋ Birth</div>
+              <div class="rb">Raised by Darshan Talwar</div><div class="ra">Today 07:50</div>
+              <div class="sm">New female kid · Boer · Shed 5</div>
+              <div class="field"><span class="ph">Reject reason *</span></div>
+              <div class="fhint">Tell the operator what to fix.</div>
+              <div class="acts"><div class="act gh">Cancel</div><div class="act rej">Confirm reject</div></div>
+            </div>
+            <div class="note">Approving applies the change and generates follow-ups. Offline-safe.</div>
+          </div>
+        </div></div>
+      </div>
+      <!-- NEW -->
+      <div>
+        <div class="col-head"><span class="badge new">Proposed</span><p>same queue · softer cards · tap Reject to expand reason</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body mod" id="apbody">
+            <div class="app-h"><div class="t"><h2>Approvals</h2><span>Pending decisions for you</span></div><div class="icobtn">↻</div></div>
+            <div class="banner ok">✓ Shifting approved · G-10402 moved</div>
+            <div class="apn" data-ap="1"><div class="th"><span class="tico">⇄</span><span class="tt">Shifting</span></div>
+              <div class="who">Raised by Amit Kumar</div>
+              <div class="sm">G-10428 · Shed 4 → Shed 12 · Growth</div>
+              <div class="when">Today 08:14</div>
+              <div class="acts"><div class="act rej" onclick=" apToggle(this,true)">Reject</div><div class="act app">Approve</div></div>
+            </div>
+            <div class="apn" data-ap="2"><div class="th"><span class="tico">＋</span><span class="tt">Birth</span></div>
+              <div class="who">Raised by Darshan Talwar</div>
+              <div class="sm">New female kid · Boer · Shed 5</div>
+              <div class="when">Today 07:50</div>
+              <div class="acts"><div class="act rej" onclick="apToggle(this,true)">Reject</div><div class="act app">Approve</div></div>
+            </div>
+            <div class="apn" data-ap="3"><div class="th"><span class="tico">✕</span><span class="tt">Death</span></div>
+              <div class="who">Raised by Sagar Mahoor</div>
+              <div class="sm">G-10390 · reason: injury</div>
+              <div class="when">Yesterday 18:22</div>
+              <div class="acts"><div class="act rej" onclick="apToggle(this,true)">Reject</div><div class="act app">Approve</div></div>
+            </div>
+            <div class="note">Approving applies the change and generates follow-ups. Offline-safe.</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+    <div class="diffs"><h3>Same queue, restyled</h3><ul>
+      <li><b>Kept:</b> per-request card (type icon + label, raised-by, timestamp, summary line), Approve + Reject, inline reject-reason* with Cancel / Confirm reject, result/stale banners, empty + retry, offline note, ~20/page keyset paging.</li>
+      <li><b>Changed:</b> softer cards, reason expands on demand. Tap <b>Reject</b> on any card to see it.</li>
+    </ul></div>
+  </div>
+</div>
+
+<script>
+  function sw(v,btn){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+    btn.classList.add('on');
+    ['counts','shift','bd','appr'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==v));
+    closeSheet();
+  }
+  // filter sheet
+  var sheet=document.getElementById('ovsheet'),scrim=document.getElementById('scrim'),fbar=document.querySelector('.fscroll');
+  function openSheet(){sheet.classList.add('open');scrim.classList.add('open');}
+  function closeSheet(){if(sheet)sheet.classList.remove('open');if(scrim)scrim.classList.remove('open');}
+  function resetSheet(){sheet.querySelectorAll('.opt.on').forEach(o=>o.classList.remove('on'));
+    var live=[...sheet.querySelectorAll('.opt')].find(o=>o.textContent.trim()==='Live'); if(live)live.classList.add('on'); syncChips();}
+  sheet&&sheet.addEventListener('click',e=>{var o=e.target.closest('.opt');if(!o||o.classList.contains('soon'))return;o.classList.toggle('on');syncChips();});
+  fbar&&fbar.addEventListener('click',e=>{if(e.target.classList.contains('x')){e.target.closest('.chip').remove();updCount();}});
+  function syncChips(){if(!fbar)return;fbar.innerHTML='';sheet.querySelectorAll('.opt.on').forEach(o=>{
+    var l=o.childNodes[0].textContent.trim();var c=document.createElement('div');c.className='chip';c.innerHTML=l+' <span class="x">✕</span>';fbar.appendChild(c);});updCount();}
+  function updCount(){var b=document.querySelector('.fct');if(b)b.textContent=document.querySelectorAll('.fscroll .chip').length;}
+
+  // generic single-select segments (any .seg not in bd-mode handled here)
+  document.addEventListener('click',e=>{
+    var o=e.target.closest('.seg .o'); if(!o)return;
+    if(o.closest('#bdmode'))return; // handled below
+    o.parentElement.querySelectorAll('.o').forEach(x=>x.classList.remove('on')); o.classList.add('on');
+  });
+
+  // shifting: the DESTINATION dropdowns are the pickers; the To card mirrors them
+  var sbody=document.getElementById('sbody');
+  function setField(f,val){var s=f.querySelector('.ph,.v');s.textContent=val;s.className='v';}
+  sbody&&sbody.addEventListener('click',e=>{
+    var farm=e.target.closest('#sFarm'), shed=e.target.closest('#sShed'), chg=e.target.closest('.chg');
+    var sh=document.getElementById('sShed'), to=sbody.querySelector('.box.to');
+    if(farm){ setField(farm,'CPT'); sh.classList.remove('dis'); setField(sh,'Select shed'); sh.querySelector('.v').className='ph';
+      to.querySelector('.p').textContent='—'; to.querySelector('.s').textContent='pick shed'; return; }
+    if(shed && !shed.classList.contains('dis')){ setField(sh,'Shed 12');
+      to.querySelector('.p').textContent='Shed 12'; to.querySelector('.s').textContent='CPT'; return; }
+    if(chg){ /* reset picker + mirror */
+      var f=document.getElementById('sFarm'); f.querySelector('.v,.ph').textContent='Select farm'; f.querySelector('.v,.ph').className='ph';
+      sh.classList.add('dis'); sh.querySelector('.v,.ph').textContent='Select farm first'; sh.querySelector('.v,.ph').className='ph';
+      to.querySelector('.p').textContent='—'; to.querySelector('.s').textContent='pick below'; }
+  });
+
+  // birth/death mode switch + big segments (single-select)
+  var bdbody=document.getElementById('bdbody');
+  bdbody&&bdbody.addEventListener('click',e=>{
+    var o=e.target.closest('.bigseg .o'); if(!o)return;
+    o.parentElement.querySelectorAll('.o').forEach(x=>x.classList.remove('on')); o.classList.add('on');
+    if(o.parentElement.id==='bdmode'){
+      var death=o.dataset.m==='death';
+      document.getElementById('birthFields').classList.toggle('hide',death);
+      document.getElementById('deathFields').classList.toggle('hide',!death);
+      document.getElementById('bdbtn').textContent=death?'Record death':'Record birth';
+      document.getElementById('bdnote').textContent=death?'Death':'Birth';
+    }
+  });
+  // expanders
+  function wireExp(btn,block,label){var b=document.getElementById(btn),bl=document.getElementById(block);
+    b&&b.addEventListener('click',()=>{var open=bl.classList.toggle('hide')===false;b.textContent=(open?'－ ':'＋ ')+label;});}
+  wireExp('birthMore','birthMoreBlock','Add details (Tag 2, breed)');
+  wireExp('birthDam','birthDamBlock','Dam (optional)');
+  // birth placement cascade
+  var bFarm=document.getElementById('bFarm'),bShed=document.getElementById('bShed');
+  bFarm&&bFarm.addEventListener('click',()=>{bFarm.innerHTML='<span class="v">CBE</span><span class="ic">▾</span>';
+    bShed.classList.remove('dis');bShed.innerHTML='<span class="ph">Select shed</span><span class="ic">▾</span>';});
+  bShed&&bShed.addEventListener('click',()=>{if(bShed.classList.contains('dis'))return;
+    bShed.innerHTML='<span class="v">Shed 5</span><span class="ic">▾</span>';});
+  // date picker
+  var dsheet=document.getElementById('dsheet'),dscrim=document.getElementById('dscrim'),dtarget=null;
+  function buildCal(){var g=document.getElementById('calGrid');if(!g||g.dataset.built)return;g.dataset.built=1;
+    ['S','M','T','W','T','F','S'].forEach(d=>{var h=document.createElement('div');h.className='dow';h.textContent=d;g.appendChild(h);});
+    for(var i=0;i<3;i++){var m=document.createElement('div');m.className='d mut';m.textContent='.';g.appendChild(m);} // Jul 1 2026 = Wed
+    for(var day=1;day<=31;day++){var c=document.createElement('div');c.className='d';c.textContent=day;
+      c.onclick=function(){if(dtarget){dtarget.innerHTML='<span class="v">'+this.textContent+' Jul 2026</span><span class="ic">📅</span>';}closeDate();};g.appendChild(c);}}
+  function openDate(el){dtarget=el;buildCal();dsheet.classList.add('open');dscrim.classList.add('open');}
+  function closeDate(){dsheet.classList.remove('open');dscrim.classList.remove('open');}
+  window.openDate=openDate;window.closeDate=closeDate;
+
+  // approvals reject expand
+  function apToggle(el,open){
+    var card=el.closest('.apn'); if(card.querySelector('.rejbox')){card.querySelector('.rejbox').remove();
+      card.querySelector('.acts').style.display='flex';return;}
+    var acts=card.querySelector('.acts'); acts.style.display='none';
+    var box=document.createElement('div'); box.className='rejbox';
+    box.innerHTML='<div class="field" style="background:var(--surf2);border:0;border-radius:12px;padding:12px"><span class="ph">Reject reason *</span></div>'+
+      '<div class="fhint">Tell the operator what to fix.</div>'+
+      '<div class="acts" style="margin-top:10px"><div class="act gh" onclick="apToggle(this)">Cancel</div><div class="act rej">Confirm reject</div></div>';
+    acts.parentNode.appendChild(box);
+  }
+</script>

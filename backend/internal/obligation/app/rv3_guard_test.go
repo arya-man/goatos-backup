@@ -35,9 +35,9 @@ func TestPreflightDetectsSingleVersionMatrixTie(t *testing.T) {
 		VaccineCode:  "Matrix Version",
 		DrivePlanner: domain.DrivePlannerSettings{MaxShotsPerAnimalPerDrive: 2},
 		RuleVaccineIDs: map[string]RuleVaccineIdentity{
-			"rule-a": {VaccineCode: "FMD", VaccinePriority: 5},
-			"rule-b": {VaccineCode: "PPR", VaccinePriority: 5},
-			"rule-c": {VaccineCode: "HS", VaccinePriority: 5},
+			"rule-a": {VaccineCode: "Unmapped FMD", VaccinePriority: 5},
+			"rule-b": {VaccineCode: "Unmapped PPR", VaccinePriority: 5},
+			"rule-c": {VaccineCode: "Unmapped HS", VaccinePriority: 5},
 		},
 	}
 	plans := []SweepVersionPriority{{VersionID: "v-matrix", Config: cfg}}
@@ -129,9 +129,9 @@ func TestPreflightDetectsTieBeyondFirstPage(t *testing.T) {
 		VaccineCode:  "Matrix Version",
 		DrivePlanner: domain.DrivePlannerSettings{MaxShotsPerAnimalPerDrive: 2},
 		RuleVaccineIDs: map[string]RuleVaccineIdentity{
-			"rule-a": {VaccineCode: "FMD", VaccinePriority: 5},
-			"rule-b": {VaccineCode: "PPR", VaccinePriority: 5},
-			"rule-c": {VaccineCode: "HS", VaccinePriority: 5},
+			"rule-a": {VaccineCode: "Unmapped FMD", VaccinePriority: 5},
+			"rule-b": {VaccineCode: "Unmapped PPR", VaccinePriority: 5},
+			"rule-c": {VaccineCode: "Unmapped HS", VaccinePriority: 5},
 		},
 	}
 	plans := []SweepVersionPriority{{VersionID: "v-matrix", Config: cfg}}

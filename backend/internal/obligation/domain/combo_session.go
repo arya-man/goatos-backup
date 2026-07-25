@@ -6,6 +6,8 @@ import "strings"
 // The deterministic session key is shared by sweep batching and recovery/missed-dose alignment.
 func VaccineComboSession(vaccineCode string) string {
 	code := strings.ToLower(strings.TrimSpace(vaccineCode))
+	code = strings.NewReplacer("_", " ", "-", " ").Replace(code)
+	code = strings.Join(strings.Fields(code), " ")
 	if code == "" {
 		return ""
 	}
@@ -45,6 +47,7 @@ func CompatiblePlannedBatchSessions(ruleID, vaccineCode string) []string {
 
 var vaccineComboSessions = map[string]string{
 	"et+tt":       "combo:ET+TT+PPR",
+	"et tt":       "combo:ET+TT+PPR",
 	"ppr":         "combo:PPR+Blue Tongue",
 	"blue tongue": "combo:PPR+Blue Tongue",
 	"sheep pox":   "combo:Sheep Pox+Blue Tongue",

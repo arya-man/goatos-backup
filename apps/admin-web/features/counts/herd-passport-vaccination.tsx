@@ -5,7 +5,6 @@ import { fmtDate } from "@/lib/format";
 import {
   getGoatVaccinationPassport,
   requireAdminWebPageContract,
-  type VaccinationPassportDue,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -48,6 +47,14 @@ function sourceObligationLabel(obligationId: string): string {
 }
 
 const DRAWER_ROW_LIMIT = 5;
+
+function vaccineRowLabel(item: { display_label: string }): string {
+  return item.display_label;
+}
+
+function sameDate(left?: string, right?: string): boolean {
+  return Boolean(left && right && left.slice(0, 10) === right.slice(0, 10));
+}
 
 export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string }) {
   const [res, pageContract] = await Promise.all([
@@ -108,7 +115,7 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
           <div className="v" style={{ fontSize: 13 }}>
             {p.next_due ? (
               <>
-                {fmtDate(p.next_due.due_at)}{" "}
+                {fmtDate(p.next_due.scheduled_for || p.next_due.due_at)}{" "}
                 <Tag tone={obligationTone(p.next_due.status)}>{p.next_due.status}</Tag>
               </>
             ) : (
@@ -150,8 +157,13 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
                 const rowId = realWorkflowRowId(due.workflow_row_id);
                 return (
                   <tr key={due.obligation_id}>
-                    <td>{fmtDate(due.due_at)}</td>
-                    <td>{due.sequence}</td>
+                    <td>
+                      <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                      {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                        <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
+                      ) : null}
+                    </td>
+                    <td>{vaccineRowLabel(due)}</td>
                     <td>
                       <Tag tone={obligationTone(due.status)}>{due.status}</Tag>
                     </td>
@@ -198,7 +210,7 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
               {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
                 <tr key={h.completion_id}>
                   <td>{fmtDate(h.administered_at)}</td>
-                  <td>{h.doses}</td>
+                  <td>{vaccineRowLabel(h)}</td>
                   <td>
                     <Tag tone={historyTone(h.status)}>{h.status}</Tag>
                   </td>

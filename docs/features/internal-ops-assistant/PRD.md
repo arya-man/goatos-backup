@@ -88,7 +88,7 @@ Internal assistant
 ## Users
 
 ```text
-CEO / COO / superadmin
+CEO/CXO
   company-wide monitoring, exception review, drilldown, trend questions,
   cross-park accountability, and escalation follow-up.
 
@@ -273,7 +273,7 @@ Default scope behavior:
 
 | User context | Missing scope behavior |
 | --- | --- |
-| CEO / COO / superadmin | Default company-wide and group by park, then shed. |
+| CEO/CXO | Default company-wide and group by park, then shed. |
 | Vertical director | Default to vertical-wide granted scope and group by park/shed. |
 | Park head | Default to assigned park and group by shed. |
 | Verifier | Default to assigned verification scope. Ask if multiple scopes exist. |

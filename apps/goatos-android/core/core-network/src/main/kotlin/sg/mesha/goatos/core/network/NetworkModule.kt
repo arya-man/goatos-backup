@@ -103,8 +103,10 @@ interface AppApiService {
         @Query("work_state") workState: String?,
         @Query("as_of") asOf: String?,
         @Query("due_before") dueBefore: String?,
+        @Query("open_only") openOnly: Boolean?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
+        @Query("include_filter_options") includeFilterOptions: Boolean?,
     ): VaccinationExecutionResponseDto
 
     @GET("app/vaccination/execution/sheds/{shed_id}")
@@ -168,7 +170,10 @@ interface AppApiService {
     suspend fun getTaskOptionValues(@Path("task_id") taskId: String): TaskOptionValuesResponseDto
 
     @GET("app/tasks/{task_id}/shed-completion-summary")
-    suspend fun getShedCompletionSummary(@Path("task_id") taskId: String): ShedCompletionSummaryDto
+    suspend fun getShedCompletionSummary(
+        @Path("task_id") taskId: String,
+        @Query("shed_id") shedId: String?,
+    ): ShedCompletionSummaryDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -264,6 +269,8 @@ interface AppApiService {
     @GET("verification/queue")
     suspend fun listVerificationQueue(
         @Query("category") category: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): VerificationQueueResponseDto
@@ -271,6 +278,8 @@ interface AppApiService {
     @GET("verification/action-queue")
     suspend fun listVerificationActionQueue(
         @Query("category") category: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): VerificationQueueResponseDto
@@ -292,6 +301,12 @@ interface AppApiService {
     @POST("verification/submissions/{submission_id}/close")
     suspend fun closeVerificationSubmission(
         @Path("submission_id") submissionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto
+
+    @POST("verification/vaccination-batches/{batch_id}/close")
+    suspend fun closeVaccinationBatch(
+        @Path("batch_id") batchId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
     @GET("herd-register/summary")
@@ -394,10 +409,12 @@ class RetrofitAppApi(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto =
-        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit, cursor)
+        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions)
 
     override suspend fun getVaccinationExecutionShed(
         shedId: String,
@@ -469,8 +486,8 @@ class RetrofitAppApi(
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         service.getTaskOptionValues(taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto =
-        service.getShedCompletionSummary(taskId)
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
+        service.getShedCompletionSummary(taskId, shedId)
 
     override suspend fun submitAppTask(
         taskId: String,
@@ -531,6 +548,8 @@ class RetrofitAppApi(
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
         durationMs: Long?,
@@ -539,6 +558,8 @@ class RetrofitAppApi(
             uploadUrl = uploadUrl,
             uploadMethod = uploadMethod,
             uploadHeaders = uploadHeaders,
+            uploadProtocol = uploadProtocol,
+            chunkSizeBytes = chunkSizeBytes,
             mimeType = mimeType,
             filePath = filePath,
         )
@@ -584,15 +605,19 @@ class RetrofitAppApi(
 
     override suspend fun listVerificationQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationQueue(category, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationQueue(category, parkId, shedId, cursor, limit)
 
     override suspend fun listVerificationActionQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationActionQueue(category, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationActionQueue(category, parkId, shedId, cursor, limit)
 
     override suspend fun submitVerificationVerdict(
         itemId: String,
@@ -611,6 +636,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto =
         service.closeVerificationSubmission(submissionId, idempotencyKey)
+
+    override suspend fun closeVaccinationBatch(
+        batchId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto =
+        service.closeVaccinationBatch(batchId, idempotencyKey)
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,

@@ -84,10 +84,10 @@ private class CapturingTasksRepository : TasksRepository {
         detailFlow.value = Resource(data = detail, lastSyncedAt = 1L)
     }
 
-    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
         MutableStateFlow(null)
 
-    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
 }
 
 private class NoopSyncRepository : SyncRepository {

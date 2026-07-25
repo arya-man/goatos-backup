@@ -44,8 +44,9 @@ func TestCanonicalReadQueryPlans(t *testing.T) {
 			name: "execution list (vaccinationExecutionSQL)",
 			sql:  vaccinationExecutionSQL,
 			// $1 tenant, $2 park, $3 shed, $4 dueBefore, $5 limit, $6 workState, $7 asOf,
-			// $8 closedAfter, $9 severity, $10 cursorPresent, $11 rank, $12 dueMicros, $13 rowKey
-			args: []any{testTenant, "", "", dueBefore, 20, "", asOf, closedAfter, "", false, 0, int64(0), ""},
+			// $8 closedAfter, $9 severity, $10 openOnly, $11 cursorPresent, $12 rank,
+			// $13 dueMicros, $14 rowKey, $15 operatorScopeActorID
+			args: []any{testTenant, "", "", dueBefore, 20, "", asOf, closedAfter, "", false, false, 0, int64(0), "", ""},
 		},
 		{
 			name: "operations list (vaccinationOperationsSQL)",

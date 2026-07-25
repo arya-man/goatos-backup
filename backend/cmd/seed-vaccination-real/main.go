@@ -154,6 +154,7 @@ type stats struct {
 	KernelDeferred     int         // kernel-deferred obligations
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
+	RetiredSourceDrift int         // active non-source park/shed locations retired during source-owned local/dev reseed
 	DobNulled          int         // purchased/imported-origin animals with provably-false DOB, nulled via -null-false-dob
 	StagesCorrected    int         // goats whose source stage contradicted age-derived stage, auto-corrected
 
@@ -173,10 +174,10 @@ const (
 	seedFallbackShed = "Seed Intake Shed"
 
 	// vaccinationMatrixProofPolicy is the same proof grain enforced by the bound
-	// vaccination SOP and Android runner: one live in-app-camera clip per goat.
-	// Shed completion is only an acknowledgement; there is no shed-, vial-, or
-	// administration-level summary video.
-	vaccinationMatrixProofPolicy = `{"types":["video"],"required":true,"subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count_per_subject":5,"capture_source":"in_app_camera","one_clip_covers_same_handling_vaccines":true,"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
+	// vaccination SOP and Android runner. Current SOP mode is shed-level video:
+	// one mandatory shed proof video, up to five total, camera or gallery.
+	// Per-goat proof remains supported when the SOP publishes proof_mode=per_goat_video.
+	vaccinationMatrixProofPolicy = `{"types":["video"],"required":true,"proof_mode":"shed_level_video","subject_scope":"shed","expected_subjects":["shed"],"minimum_count":1,"maximum_count":5,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
 )
 
 type oblIns struct {
@@ -646,7 +647,7 @@ func writeStageCorrectionAudit(sourcePath string, runDate time.Time, seedRunID s
 
 type seedGoatUpsertRow struct {
 	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
-	entryDate                                                                                                                                     string
+	entryDate, sourceShedName, partitionLabel                                                                                                     string
 	health                                                                                                                                        *string
 	reproductiveStatus                                                                                                                            *string
 }
@@ -705,7 +706,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	if err := checkNoCrossParkMoves(ctx, tx, tenantID, rows); err != nil {
 		return err
 	}
-	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+	if err := batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
 					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
@@ -718,6 +719,19 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
 			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
 			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
+	}); err != nil {
+		return err
+	}
+	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+		b.Queue(`
+				INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+				VALUES ($1,$2,$3,$4,$5,now())
+				ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+					shed_id=EXCLUDED.shed_id,
+					partition_label=EXCLUDED.partition_label,
+					source_shed_name=EXCLUDED.source_shed_name,
+					updated_at=now()`,
+			tenantID, gi.goatID, gi.shedID, gi.partitionLabel, gi.sourceShedName)
 	})
 }
 
@@ -792,11 +806,15 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		parkByFarm[farm] = parkID
 		st.ParksResolved++
 	}
-
+	sourceParkCodes := make([]string, 0, len(parkByFarm))
+	for farm := range parkByFarm {
+		sourceParkCodes = append(sourceParkCodes, seedLocationCode(farm))
+	}
 	// 2. Sheds: resolve existing park-scoped shed by (name, park); create missing ones
 	//    so EVERY goat maps to its real shed.
 	shedByKey := map[shedKey]string{}
-	for _, k := range distinctShedKeys(goats) {
+	sourceShedKeys := distinctShedKeys(goats)
+	for _, k := range sourceShedKeys {
 		parkID := parkByFarm[k.farm]
 		var shedID string
 		err := tx.QueryRow(ctx, `
@@ -831,6 +849,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		shedByKey[k] = shedID
 		st.ShedsCreated++
 	}
+	retired, err := retireActiveNonSourceLocations(ctx, tx, tenantID, sourceParkCodes, sourceShedKeys)
+	if err != nil {
+		return st, fmt.Errorf("retire non-source locations: %w", err)
+	}
+	st.RetiredSourceDrift = retired
 
 	// Store entry_date source mapping for later use when seeding goats
 	entryDateByAnimalKey := buildEntryDateMapping(goats)
@@ -921,7 +944,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, err
 	}
 
-	// Load all protocol rules (birth_age, post_arrival, revacc for all vaccines)
+	// Load all protocol rules (birth_age, manual_campaign, revacc for all vaccines)
 	// ruleByDoseCode: vaccine_code "_" dose_code → rule_id
 	ruleByDoseCode := map[string]string{}
 	rows, err := tx.Query(ctx, `
@@ -1046,6 +1069,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		species := deriveSeedSpecies(g.Species, g.Breed)
 		breed := normalizeBreed(g.Breed)
+		_, partitionLabel := normalizeSeedShedPartition(seedShed(g))
 		goatRows = append(goatRows, seedGoatUpsertRow{
 			goatID:            goatID,
 			animalKey:         animalKey,
@@ -1069,12 +1093,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			parkID:             parkID,
 			dob:                dobForRow,
 			entryDate:          entryDateValue,
+			sourceShedName:     seedShed(g),
+			partitionLabel:     partitionLabel,
 		})
 	}
 	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
 	if err := verifyActiveGoatsHaveShedInTx(ctx, tx, tenantID); err != nil {
+		return st, err
+	}
+	if err := verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx, tx, tenantID); err != nil {
 		return st, err
 	}
 	st.Animals = len(goatRows)
@@ -1451,7 +1480,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, err
 	}
 
-	// Run kernel generation IN THE SEED to produce derived obligations
+	// Run kernel generation IN THE SEED to produce derived obligations. This
+	// materializes kid DOB rules and history-anchored revac/booster work. Adult
+	// blank-history initial rows are manual campaign rules and must not fire here:
+	// adult entry_date is never a vaccination due anchor, and a campaign trigger is
+	// required before blank-history adult cohorts become work.
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
@@ -1471,10 +1504,20 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if genErr != nil {
 		return st, genErr
 	}
+	satisfied, err := supersedeActiveOneTimeVaccinationObligationsCoveredByHistory(ctx, pool, tenantID)
+	if err != nil {
+		return st, err
+	}
+	if satisfied > 0 {
+		fmt.Printf("seed_reconciliation repair: superseded_active_after_history=%d\n", satisfied)
+	}
 	if err := verifySeedReconciliation(ctx, pool, tenantID, now, st); err != nil {
 		return st, err
 	}
 	if err := verifyActiveGoatsHaveShed(ctx, pool, tenantID); err != nil {
+		return st, err
+	}
+	if err := verifyActiveGoatsUsePhysicalShedLocations(ctx, pool, tenantID); err != nil {
 		return st, err
 	}
 	if err := verifyVaccinationObligationsShedScoped(ctx, pool, tenantID); err != nil {
@@ -1487,6 +1530,37 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 
 	return st, nil
+}
+
+func supersedeActiveOneTimeVaccinationObligationsCoveredByHistory(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int64, error) {
+	tag, err := pool.Exec(ctx, `
+UPDATE obligation_instances current_oi
+SET status = 'superseded',
+    updated_at = now(),
+    row_version = row_version + 1
+FROM protocol_rules current_pr
+WHERE current_oi.tenant_id = $1::uuid
+  AND current_oi.target_type = 'goat'
+  AND current_oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+  AND current_pr.tenant_id = current_oi.tenant_id
+  AND current_pr.rule_id = current_oi.rule_id
+  AND COALESCE(NULLIF(current_pr.repeat, ''), 'none') = 'none'
+  AND EXISTS (
+    SELECT 1
+    FROM obligation_instances history_oi
+    JOIN vaccination_completions history_vc
+      ON history_vc.tenant_id = history_oi.tenant_id
+     AND history_vc.obligation_id = history_oi.obligation_id
+     AND history_vc.status = 'accepted'
+    WHERE history_oi.tenant_id = current_oi.tenant_id
+      AND history_oi.target_id = current_oi.target_id
+      AND history_oi.rule_id = current_oi.rule_id
+      AND history_oi.status = 'completed'
+  )`, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("seed: supersede active one-time vaccination obligations covered by history: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func seedGenerationError(genRes vaccinationdomain.GenerateResult, err error, allowPartialGeneration bool) error {
@@ -1514,6 +1588,7 @@ type seedReconciliation struct {
 	MissingBreedForeignKeys      int64
 	MissingPrimaryIdentifiers    int64
 	MissingAnchorNormalWork      int64
+	MissingAdultETTTDose2        int64
 }
 
 // verifySeedReconciliation is the non-optional seed postflight. A seed command may
@@ -1583,8 +1658,8 @@ SELECT
   (SELECT count(*)
    FROM active
    WHERE status <> 'deferred'
-     AND (due_at AT TIME ZONE 'Asia/Kolkata')::date
-         <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
+     AND (COALESCE(window_end, due_at) AT TIME ZONE 'Asia/Kolkata')::date
+         < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
   (SELECT count(*)
    FROM goats g
    WHERE g.tenant_id = $1::uuid
@@ -1601,6 +1676,29 @@ SELECT
          AND gi.identifier_type = 'animal_identifier_1'
          AND gi.status = 'active'
          AND NULLIF(btrim(gi.identifier_value), '') IS NOT NULL
+     )),
+  (SELECT count(*)
+   FROM vaccination_completions dose1_vc
+   JOIN obligation_instances dose1_oi
+     ON dose1_oi.tenant_id = dose1_vc.tenant_id
+    AND dose1_oi.obligation_id = dose1_vc.obligation_id
+   JOIN protocol_rules dose1_pr
+     ON dose1_pr.tenant_id = dose1_oi.tenant_id
+    AND dose1_pr.rule_id = dose1_oi.rule_id
+    AND dose1_pr.dose_code = 'et_tt_adult_w1'
+   WHERE dose1_vc.tenant_id = $1::uuid
+     AND dose1_vc.status = 'accepted'
+     AND NOT EXISTS (
+       SELECT 1
+       FROM obligation_instances dose2_oi
+       JOIN protocol_rules dose2_pr
+         ON dose2_pr.tenant_id = dose2_oi.tenant_id
+        AND dose2_pr.rule_id = dose2_oi.rule_id
+        AND dose2_pr.dose_code = 'et_tt_adult_w2'
+       WHERE dose2_oi.tenant_id = dose1_oi.tenant_id
+         AND dose2_oi.target_type = 'goat'
+         AND dose2_oi.target_id = dose1_oi.target_id
+         AND dose2_oi.status NOT IN ('canceled', 'superseded', 'waived')
      ))
 `, tenantID, asOf).Scan(
 		&got.SourceAcceptedHistory,
@@ -1612,6 +1710,7 @@ SELECT
 		&got.SchedulableOpenWorkNotFuture,
 		&got.MissingBreedForeignKeys,
 		&got.MissingPrimaryIdentifiers,
+		&got.MissingAdultETTTDose2,
 	)
 	if err != nil {
 		return fmt.Errorf("vaccination seed reconciliation query: %w", err)
@@ -1633,7 +1732,7 @@ SELECT
 	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
 		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
 	}
-	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0\n", got.SourceAcceptedHistory)
+	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0 missing_adult_ettt_dose2=0\n", got.SourceAcceptedHistory)
 	return nil
 }
 
@@ -1853,7 +1952,7 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 		problems = append(problems, fmt.Sprintf("repeat obligations not strictly future=%d", got.RepeatObligationsNotFuture))
 	}
 	if got.SchedulableOpenWorkNotFuture != 0 {
-		problems = append(problems, fmt.Sprintf("schedulable open work not strictly future=%d", got.SchedulableOpenWorkNotFuture))
+		problems = append(problems, fmt.Sprintf("schedulable open work past latest safe date=%d", got.SchedulableOpenWorkNotFuture))
 	}
 	if got.MissingBreedForeignKeys != 0 {
 		problems = append(problems, fmt.Sprintf("goats missing species-owned breed foreign key=%d", got.MissingBreedForeignKeys))
@@ -1863,6 +1962,9 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 	}
 	if got.MissingAnchorNormalWork != 0 {
 		problems = append(problems, fmt.Sprintf("missing trigger anchor goats with normal active work=%d", got.MissingAnchorNormalWork))
+	}
+	if got.MissingAdultETTTDose2 != 0 {
+		problems = append(problems, fmt.Sprintf("adult ET+TT dose 1 completions missing mandatory dose 2 obligations=%d", got.MissingAdultETTTDose2))
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -1882,14 +1984,14 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
 		"  dated_source_facts reconciled=%d (later_administrations=%d unresolved=%d lifecycle_excluded=%d goat_not_placed=%d vaccine_unrecognized=%d)\n"+
-		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d) retired_non_source_locations=%d\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
 		st.Completed+st.Scheduled, st.LaterAdministrationsReconciled, st.UnresolvedDatedFacts,
 		st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts,
 		st.Purged.total(), st.Purged.Obligations, st.Purged.Batches,
-		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows, st.RetiredSourceDrift,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
 }
 
@@ -2016,6 +2118,7 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	// Phase 4 — synthetic goats: delete every referencing child row, then the goats. Each DELETE is
 	// tenant-scoped via junkGoats; tables without a tenant_id column are scoped by goat_id membership.
 	goatChildren := []struct{ label, sql string }{
+		{"goat_shed_partitions", `DELETE FROM goat_shed_partitions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
 		{"vaccination_completions (goat)", `DELETE FROM vaccination_completions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
 		{"obligation_instances (goat target)", `DELETE FROM obligation_instances WHERE tenant_id = $1 AND target_type = 'goat' AND target_id IN ` + junkGoats},
 		{"identity_decision_events", `DELETE FROM identity_decision_events WHERE tenant_id = $1 AND event_id IN (SELECT event_id FROM goat_identity_events WHERE tenant_id = $1 AND goat_id IN ` + junkGoats + `)`},
@@ -2261,7 +2364,9 @@ func mapSheetDoseToRuleCode(vaccine string, sheetDoseCode string, path string, v
 		return "", false
 	}
 
-	// Adult path: map sheet First/Booster to post_arrival waves.
+	// Adult path: map dated sheet First/Booster cells to the adult campaign dose
+	// codes used for accepted history. Blank/pending adult work is generated by
+	// campaign/catch-up cohort logic, never by entry_date/post_arrival.
 	switch {
 	case sheetDoseCode == "first" && len(spec.PostArrivalWaves) > 0:
 		return def.Code + "_adult_w1", false
@@ -2575,6 +2680,72 @@ WHERE g.tenant_id = $1::uuid
   )`
 }
 
+func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	var offenders int64
+	if err := tx.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify physical shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+	}
+	if err := tx.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition lineage: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+	}
+	return nil
+}
+
+func verifyActiveGoatsUsePhysicalShedLocations(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	var offenders int64
+	if err := pool.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify physical shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+	}
+	if err := pool.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition lineage: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+	}
+	return nil
+}
+
+func activeGoatPhysicalShedInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goats g
+JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND g.merged_into_goat_id IS NULL
+  AND shed.location_type = 'shed'
+  AND shed.name ~* ' - Part [0-9]+$'`
+}
+
+func activeGoatPartitionLineageInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND g.merged_into_goat_id IS NULL
+  AND (
+    gsp.goat_id IS NULL
+    OR btrim(gsp.partition_label) = ''
+    OR btrim(gsp.source_shed_name) = ''
+  )`
+}
+
 func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var offenders int64
 	if err := tx.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
@@ -2778,7 +2949,7 @@ func distinctShedKeys(goats []goatRecord) []shedKey {
 }
 
 func seedPlacementKey(g goatRecord) shedKey {
-	return shedKey{farm: seedFarm(g), shed: seedShed(g)}
+	return shedKey{farm: seedFarm(g), shed: seedPhysicalShed(g)}
 }
 
 func seedFarm(g goatRecord) string {
@@ -2795,6 +2966,53 @@ func seedShed(g goatRecord) string {
 		return seedFallbackShed
 	}
 	return shed
+}
+
+func seedPhysicalShed(g goatRecord) string {
+	physical, _ := normalizeSeedShedPartition(seedShed(g))
+	if strings.TrimSpace(physical) == "" {
+		return seedFallbackShed
+	}
+	return physical
+}
+
+func normalizeSeedShedPartition(raw string) (physicalShed, partition string) {
+	name := strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if name == "" {
+		return "", "whole"
+	}
+	if physical, part, ok := splitSeedPartSuffix(name); ok {
+		return physical, part
+	}
+	parts := strings.Fields(name)
+	if len(parts) >= 2 {
+		last := parts[len(parts)-1]
+		if _, err := strconv.Atoi(last); err == nil {
+			physical := strings.TrimSpace(strings.Join(parts[:len(parts)-1], " "))
+			if physical != "" {
+				return physical, last
+			}
+		}
+	}
+	return name, "whole"
+}
+
+func splitSeedPartSuffix(name string) (string, string, bool) {
+	lower := strings.ToLower(name)
+	marker := " - part "
+	idx := strings.LastIndex(lower, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	physical := strings.TrimSpace(name[:idx])
+	partition := strings.TrimSpace(name[idx+len(marker):])
+	if physical == "" || partition == "" {
+		return "", "", false
+	}
+	if _, err := strconv.Atoi(partition); err != nil {
+		return "", "", false
+	}
+	return physical, "Part " + partition, true
 }
 
 func seedLocationCode(name string) string {
@@ -2823,6 +3041,122 @@ func shedCode(farm, shed string) string {
 		slug = "SHED"
 	}
 	return seedLocationCode(farm) + "_SHED_" + slug
+}
+
+func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID string, sourceParkCodes []string, sourceSheds []shedKey) (int, error) {
+	codes := make([]string, 0, len(sourceParkCodes))
+	seen := map[string]struct{}{}
+	for _, code := range sourceParkCodes {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	if len(codes) == 0 {
+		return 0, nil
+	}
+	shedPairs := make([]string, 0, len(sourceSheds))
+	seenSheds := map[string]struct{}{}
+	for _, shed := range sourceSheds {
+		parkCode := seedLocationCode(shed.farm)
+		shedName := strings.ToLower(strings.TrimSpace(shed.shed))
+		if parkCode == "" || shedName == "" {
+			continue
+		}
+		pair := parkCode + "||" + shedName
+		if _, ok := seenSheds[pair]; ok {
+			continue
+		}
+		seenSheds[pair] = struct{}{}
+		shedPairs = append(shedPairs, pair)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('goatos.approved_location_migration_plan', 'vaccination source-owned local/dev non-source location retire', true)`); err != nil {
+		return 0, err
+	}
+	var retired int
+	err := tx.QueryRow(ctx, `
+			WITH source_parks AS (
+			SELECT location_id
+			FROM locations
+			WHERE tenant_id = $1::uuid
+			  AND location_type = 'park'
+				  AND upper(location_code) = ANY($2::text[])
+			),
+			source_sheds AS (
+				SELECT split_part(v, '||', 1) AS park_code,
+				       split_part(v, '||', 2) AS shed_name
+				FROM unnest($3::text[]) AS source(v)
+			),
+			stale_parks AS (
+			SELECT p.location_id
+			FROM locations p
+			WHERE p.tenant_id = $1::uuid
+			  AND p.location_type = 'park'
+			  AND p.status = 'active'
+			  AND NOT EXISTS (SELECT 1 FROM source_parks sp WHERE sp.location_id = p.location_id)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM goats g
+			    WHERE g.tenant_id = p.tenant_id
+			      AND g.park_id = p.location_id
+			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+				  )
+			),
+			stale_source_park_sheds AS (
+				SELECT s.location_id
+				FROM locations s
+				JOIN locations p ON p.location_id = s.parent_location_id AND p.tenant_id = s.tenant_id
+				WHERE s.tenant_id = $1::uuid
+				  AND s.location_type = 'shed'
+				  AND s.status = 'active'
+				  AND p.location_type = 'park'
+				  AND upper(p.location_code) = ANY($2::text[])
+				  AND NOT EXISTS (
+				  	SELECT 1 FROM source_sheds src
+				  	WHERE src.park_code = upper(p.location_code)
+				  	  AND src.shed_name = lower(s.name)
+				  )
+				  AND NOT EXISTS (
+				    SELECT 1 FROM goats g
+				    WHERE g.tenant_id = s.tenant_id
+				      AND g.shed_id = s.location_id
+				      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+				  )
+			),
+			retired_sheds AS (
+				UPDATE locations s
+				SET status = 'inactive', updated_at = now(), row_version = row_version + 1
+				WHERE s.tenant_id = $1::uuid
+				  AND s.location_type = 'shed'
+				  AND s.status = 'active'
+				  AND (
+				  	s.parent_location_id IN (SELECT location_id FROM stale_parks)
+				  	OR s.location_id IN (SELECT location_id FROM stale_source_park_sheds)
+				  )
+				  AND NOT EXISTS (
+			    SELECT 1 FROM goats g
+			    WHERE g.tenant_id = s.tenant_id
+			      AND g.shed_id = s.location_id
+			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+			  )
+			RETURNING 1
+		),
+		retired_parks AS (
+			UPDATE locations p
+			SET status = 'inactive', updated_at = now(), row_version = row_version + 1
+			WHERE p.location_id IN (SELECT location_id FROM stale_parks)
+			RETURNING 1
+			)
+			SELECT (SELECT count(*) FROM retired_sheds) + (SELECT count(*) FROM retired_parks)
+		`, tenantID, codes, shedPairs).Scan(&retired)
+	if err != nil {
+		return 0, err
+	}
+	return retired, nil
 }
 
 func normalizeSex(g string) string {
@@ -2938,12 +3272,11 @@ func excludedLifecycle(s string) bool {
 //   - "Open"     — a currently active, unresolved case            -> sick
 //   - "Extended" — the case ran past its expected close, treatment
 //     continues                                                    -> under_treatment
-//   - "Closed"   — the case has been resolved                     -> recovering (never
-//     jumped straight to "healthy" — matches the fix plan's "recovery -> reopen/
-//     reschedule automatically" language for the generation layer, section 5/B6)
+//   - "Closed"   — the case has been resolved                     -> healthy
+//   - "Fine"     — explicit healthy source status                  -> healthy
 func normalizeHealth(h string) *string {
 	switch strings.ToLower(strings.TrimSpace(h)) {
-	case "healthy", "normal", "ok":
+	case "healthy", "normal", "ok", "closed", "fine":
 		v := "healthy"
 		return &v
 	case "sick", "ill", "diseased", "open":
@@ -2952,7 +3285,7 @@ func normalizeHealth(h string) *string {
 	case "under_treatment", "under treatment", "treatment", "extended":
 		v := "under_treatment"
 		return &v
-	case "recovering", "closed":
+	case "recovering":
 		v := "recovering"
 		return &v
 	case "quarantine":
@@ -3072,7 +3405,7 @@ func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID strin
 		return "", fmt.Errorf("resolve published vaccination.drive SOP version: %w", err)
 	}
 	if err := validateVaccinationSOPContract(formDSL, proofPolicy); err != nil {
-		return "", fmt.Errorf("published vaccination.drive SOP %s violates the Android per-goat execution contract: %w", sopVersionID, err)
+		return "", fmt.Errorf("published vaccination.drive SOP %s violates the Android vaccination execution contract: %w", sopVersionID, err)
 	}
 	return sopVersionID, nil
 }
@@ -3080,10 +3413,11 @@ func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID strin
 func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	var form struct {
 		Fields []struct {
-			Key      string `json:"key"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-			Repeat   bool   `json:"repeat"`
+			Key          string `json:"key"`
+			Type         string `json:"type"`
+			Required     bool   `json:"required"`
+			Repeat       bool   `json:"repeat"`
+			ProofSubject string `json:"proof_subject"`
 		} `json:"fields"`
 		RepeatForEachGoat struct {
 			ItemKey     string `json:"item_key"`
@@ -3093,8 +3427,17 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	if err := json.Unmarshal([]byte(formDSLJSON), &form); err != nil {
 		return fmt.Errorf("invalid form_dsl JSON: %w", err)
 	}
-	if len(form.Fields) != 1 || form.Fields[0].Key != "goat_ids" || form.Fields[0].Type != "goat_scan" || !form.Fields[0].Required || !form.Fields[0].Repeat {
-		return fmt.Errorf("form_dsl must contain exactly one required repeat goat_ids/goat_scan field")
+	var hasGoatScan, hasShedVideo bool
+	for _, field := range form.Fields {
+		if field.Key == "goat_ids" && field.Type == "goat_scan" && field.Required && field.Repeat {
+			hasGoatScan = true
+		}
+		if field.Key == "shed_video" && field.Type == "video_proof" && field.Required && field.Repeat && field.ProofSubject == "shed" {
+			hasShedVideo = true
+		}
+	}
+	if !hasGoatScan || !hasShedVideo {
+		return fmt.Errorf("form_dsl must contain required repeat goat_ids/goat_scan and shed_video/video_proof fields")
 	}
 	if form.RepeatForEachGoat.ItemKey != "goat_id" || form.RepeatForEachGoat.SourceField != "goat_ids" {
 		return fmt.Errorf("form_dsl repeat_for_each_goat must bind goat_id to goat_ids")
@@ -3102,12 +3445,15 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	var proof struct {
 		Types                   []string `json:"types"`
 		Required                bool     `json:"required"`
+		ProofMode               string   `json:"proof_mode"`
 		SubjectScope            string   `json:"subject_scope"`
 		ExpectedSubjects        []string `json:"expected_subjects"`
 		MinimumCount            int      `json:"minimum_count"`
+		MaximumCount            int      `json:"maximum_count"`
 		MinimumCountPerSubject  int      `json:"minimum_count_per_subject"`
 		MaximumCountPerSubject  int      `json:"maximum_count_per_subject"`
 		CaptureSource           string   `json:"capture_source"`
+		AllowedCaptureSources   []string `json:"allowed_capture_sources"`
 		OneClipSameHandlingGoat bool     `json:"one_clip_covers_same_handling_vaccines"`
 		VerifyCapability        string   `json:"verify_capability"`
 		VerifyBeforeApply       bool     `json:"verify_before_apply"`
@@ -3116,14 +3462,25 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	if err := json.Unmarshal([]byte(proofPolicyJSON), &proof); err != nil {
 		return fmt.Errorf("invalid proof_policy JSON: %w", err)
 	}
-	if len(proof.Types) != 1 || proof.Types[0] != "video" || !proof.Required || proof.SubjectScope != "goat" ||
-		len(proof.ExpectedSubjects) != 1 || proof.ExpectedSubjects[0] != "goat" || proof.MinimumCount != 1 ||
-		proof.MinimumCountPerSubject != 1 || proof.MaximumCountPerSubject != 5 || proof.CaptureSource != "in_app_camera" ||
-		!proof.OneClipSameHandlingGoat || proof.VerifyCapability != "proof.verify" || !proof.VerifyBeforeApply ||
+	if len(proof.Types) != 1 || proof.Types[0] != "video" || !proof.Required || proof.ProofMode != "shed_level_video" ||
+		proof.SubjectScope != "shed" || len(proof.ExpectedSubjects) != 1 || proof.ExpectedSubjects[0] != "shed" ||
+		proof.MinimumCount != 1 || proof.MaximumCount != 5 || proof.MaximumCountPerSubject != 5 ||
+		proof.CaptureSource != "in_app_camera" || !stringSliceHas(proof.AllowedCaptureSources, "in_app_camera") ||
+		!stringSliceHas(proof.AllowedCaptureSources, "gallery_picker") ||
+		proof.VerifyCapability != "proof.verify" || !proof.VerifyBeforeApply ||
 		proof.RetentionPolicy != "operational_90d" {
-		return fmt.Errorf("proof_policy must require 1..5 live in-app-camera video clips for each goat and verifier approval before apply")
+		return fmt.Errorf("proof_policy must require 1..5 shed-level video clips, allow camera/gallery sources, and require verifier approval before apply")
 	}
 	return nil
+}
+
+func stringSliceHas(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func nextProtocolVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID string) (int, error) {
@@ -3337,8 +3694,10 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		Schedule    []scheduleRow  `json:"schedule"`
 	}
 
-	// Build the canonical vaccination matrix per spec
-	vaccMatrixDef := buildCanonicalVaccinationMatrix()
+	// Build the canonical vaccination matrix per spec. CPT's ET+TT-only validation seed can publish
+	// a packet-scoped subset, while source/history mapping above keeps using the full canonical
+	// matrix so dated facts still reconcile against reviewed vaccine names.
+	vaccMatrixDef := buildSeedPublicationVaccinationMatrix()
 
 	rows := make([]matrixRow, 0)
 	schedule := []scheduleRow{}
@@ -3377,15 +3736,22 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			schedule = append(schedule, cell)
 		}
 
-		// post_arrival doses (adult procurement path)
+		// Adult course doses. Adult entry_date is never a vaccination due-date
+		// anchor; blank-history adult dose 1 joins campaign/catch-up cohorts packed
+		// by physical shed/partition, while later course doses (for example ET+TT
+		// W2) are anchored to accepted prior-dose history.
 		for waveIdx, wave := range spec.PostArrivalWaves {
 			sequenceCounter++
 			dose := fmt.Sprintf("%s_adult_w%d", def.Code, waveIdx+1)
+			triggerType := "manual_campaign"
+			if waveIdx > 0 {
+				triggerType = "after_previous_completion"
+			}
 			cell := scheduleRow{
 				DoseCode:            dose,
 				SourceDoseCode:      dose,
 				Sequence:            sequenceCounter,
-				TriggerType:         "post_arrival",
+				TriggerType:         triggerType,
 				OffsetDays:          wave.Days,
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
@@ -3511,7 +3877,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_shots_per_animal_per_drive": 2,
 		},
 		"capacity": map[string]any{
-			"max_per_day":     100,
+			"max_per_day":     200,
 			"max_buffer_days": 7,
 			"capacity_scope":  "tenant",
 			"overflow_policy": "split_within_safe_window_last_safe_may_exceed_cap",
@@ -3590,6 +3956,21 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			RevaccinationDays: 365,
 		},
 	}
+}
+
+func buildSeedPublicationVaccinationMatrix() map[string]vaccMatrixSpec {
+	matrix := buildCanonicalVaccinationMatrix()
+	if os.Getenv("GOATOS_CPT_EXCLUDE_PPR_2026") != "1" {
+		return matrix
+	}
+	filtered := make(map[string]vaccMatrixSpec, len(matrix))
+	for name, spec := range matrix {
+		if strings.EqualFold(strings.TrimSpace(name), "PPR") {
+			continue
+		}
+		filtered[name] = spec
+	}
+	return filtered
 }
 
 type vaccMatrixSpec struct {

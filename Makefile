@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails guardrail-registration-guard backend-foundations-guard frontend-foundations-guard domain-event-architecture-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration
+.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -93,11 +93,17 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) git-identity-guard
 	$(MAKE) guardrail-registration-guard
 	$(MAKE) local-stack-service-guard
 	$(MAKE) backend-foundations-guard
+	$(MAKE) test-execution-integrity-guard
+	$(MAKE) operator-cap-fail-closed-guard
+	$(MAKE) cascade-event-wiring-guard
 	$(MAKE) frontend-foundations-guard
 	$(MAKE) domain-event-architecture-guard
+	$(MAKE) leadership-assistant-coverage-guard
+	$(MAKE) assistant-route-closure-guard
 	$(MAKE) local-ci-evidence-guard
 	$(MAKE) stg-promotion-guard
 	bash tools/agent-hooks/check-boundaries.sh --self-test
@@ -107,6 +113,8 @@ guardrails:
 	$(MAKE) aggregate-projection-guard
 	$(MAKE) vaccination-shed-ack-guard
 	$(MAKE) vaccination-schedule-canonical-guard
+	$(MAKE) vaccination-shared-source-sync-guard
+	$(MAKE) fcm-recipient-routing-guard
 	$(MAKE) calendar-endpoint-grain-guard
 	$(MAKE) goat-shed-scope-guard
 	$(MAKE) scale-certification-docs-guard
@@ -114,6 +122,7 @@ guardrails:
 	$(MAKE) api-latency-policy-test
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
+	$(MAKE) ceo-ai-boundary-guard
 	$(MAKE) sweeper-deployment-guard
 	$(MAKE) deployed-job-flags-guard
 	$(MAKE) kernel-worker-cutover-guard
@@ -125,6 +134,7 @@ guardrails:
 	$(MAKE) mobile-contract-ownership-guard
 	$(MAKE) atomic-readmodel-sync-guard
 	$(MAKE) config-validate-guard
+	$(MAKE) ui-vaccine-labels-guard
 	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) review-lens-ledger-guard
 	$(MAKE) seed-migration-guard
@@ -134,6 +144,7 @@ guardrails:
 	$(MAKE) local-single-db-guard
 	$(MAKE) room-migration-guard
 	$(MAKE) mobile-guard
+	$(MAKE) android-compose-lists-guard
 	$(MAKE) android-navigation-stack-guard
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
@@ -142,9 +153,25 @@ guardrails:
 	$(MAKE) telemetry-guard
 	$(MAKE) local-gcp-kernel-parity-guard
 
+git-identity-guard:
+	node tools/ci/check-git-identity.mjs --self-test
+	node tools/ci/check-git-identity.mjs
+
 backend-foundations-guard:
 	node tools/agent-hooks/check-backend-foundations.mjs --self-test
 	node tools/agent-hooks/check-backend-foundations.mjs
+
+test-execution-integrity-guard:
+	node tools/agent-hooks/check-test-execution-integrity.mjs --self-test
+	node tools/agent-hooks/check-test-execution-integrity.mjs
+
+operator-cap-fail-closed-guard:
+	node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test
+	node tools/agent-hooks/check-operator-cap-fail-closed.mjs
+
+cascade-event-wiring-guard:
+	node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test
+	node tools/agent-hooks/check-cascade-event-wiring.mjs
 
 frontend-foundations-guard:
 	node tools/agent-hooks/check-frontend-foundations.mjs --self-test
@@ -157,6 +184,14 @@ guardrail-registration-guard:
 domain-event-architecture-guard:
 	node tools/agent-hooks/check-domain-event-architecture.mjs --self-test
 	node tools/agent-hooks/check-domain-event-architecture.mjs
+
+leadership-assistant-coverage-guard:
+	node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test
+	node tools/agent-hooks/check-leadership-assistant-coverage.mjs
+
+assistant-route-closure-guard:
+	node tools/agent-hooks/check-assistant-route-closure.mjs --self-test
+	node tools/agent-hooks/check-assistant-route-closure.mjs
 
 local-ci-evidence-guard:
 	node tools/ci/check-local-ci-evidence.mjs --self-test
@@ -180,6 +215,10 @@ aggregate-projection-guard:
 vaccination-schedule-canonical-guard:
 	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs --self-test
 	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs
+
+vaccination-shared-source-sync-guard:
+	node tools/agent-hooks/check-vaccination-shared-source-sync.mjs --self-test
+	node tools/agent-hooks/check-vaccination-shared-source-sync.mjs
 
 calendar-endpoint-grain-guard:
 	node tools/agent-hooks/check-calendar-endpoint-grain.mjs --self-test
@@ -209,6 +248,10 @@ vaccination-hrms-seed-fixture-guard:
 	node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs --self-test
 	node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs
 
+fcm-recipient-routing-guard:
+	node tools/agent-hooks/check-fcm-recipient-routing.mjs --self-test
+	node tools/agent-hooks/check-fcm-recipient-routing.mjs
+
 # Validate any normalized vaccination + HRMS source bundle without touching a DB.
 # Override SOURCE=/absolute/path and AS_OF=YYYY-MM-DD for a newly supplied sheet export.
 vaccination-hrms-source-audit:
@@ -228,6 +271,7 @@ telemetry-guard-audit:
 	python3 tools/telemetry-guard/telemetry-guard.py --all
 
 local-gcp-kernel-parity-guard:
+	bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh
 	bash tools/agent-hooks/check-local-gcp-kernel-parity.sh
 
 # clinical-defer-guard: block the C35-010 medical-safety anti-pattern — a PARTIAL
@@ -239,6 +283,17 @@ local-gcp-kernel-parity-guard:
 clinical-defer-guard:
 	node tools/agent-hooks/check-clinical-defer-states.mjs --self-test
 	node tools/agent-hooks/check-clinical-defer-states.mjs
+
+# ceo-ai-boundary-guard: keep the leadership-assistant reporting/assistant
+# namespace (ceo_ai SQL schema + ceo_ai_* tables) OUT of core operator layers.
+# The assistant reads core data (read APIs / MCP / read-only SQL); core BE read
+# paths must never join ceo_ai.* for their own runtime data. Blocks the exact
+# regression that 500'd Control Tower when the ceo_ai schema was absent. Runs
+# its adversarial self-test first, then scans backend/internal. See
+# docs/decisions/ceo-ai-reporting-boundary.md.
+ceo-ai-boundary-guard:
+	node tools/agent-hooks/check-ceo-ai-core-boundary.mjs --self-test
+	node tools/agent-hooks/check-ceo-ai-core-boundary.mjs
 
 vaccination-drive-clubbing-guard:
 	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo|SweepVersionWalksEverySafeOverflowDateWhenShotCapFull|ParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull)' -count=1 -timeout=60s
@@ -375,6 +430,10 @@ atomic-readmodel-sync-guard:
 config-validate-guard:
 	node tools/agent-hooks/check-config-validate-or-reject.mjs --self-test
 	node tools/agent-hooks/check-config-validate-or-reject.mjs
+
+ui-vaccine-labels-guard:
+	node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test
+	node tools/agent-hooks/check-ui-vaccine-labels.mjs
 
 # review-lens-ledger-guard: the review-lens closed-decisions ledger
 # (.agents/skills/goatos-code-review/references/review-lens-ledger.md) is the
@@ -532,6 +591,19 @@ android-bounded-memory-guard:
 android-bounded-memory-guard-audit:
 	node tools/agent-hooks/check-android-bounded-memory.mjs --all
 
+# android-compose-lists-guard: block the Compose lazy-list key crash class — a
+# LazyColumn/LazyRow keyed by a per-ENTITY id on a per-ROW list (a goat with two
+# due vaccines => duplicate key => "Key was already used" crash, shipped in
+# 0.1.6-stg, fixed a9c35a1d), and items()/itemsIndexed() with no stable key.
+# Diff-scoped; `android-compose-lists-guard-audit` scans the whole tree.
+# See docs/decisions/mobile-data-fetch-anti-patterns.md + docs/mobile/android-ui-quality.md.
+android-compose-lists-guard:
+	node tools/agent-hooks/check-android-compose-lists.mjs --self-test
+	node tools/agent-hooks/check-android-compose-lists.mjs
+
+android-compose-lists-guard-audit:
+	node tools/agent-hooks/check-android-compose-lists.mjs --all
+
 # room-migration-guard: block the Room-migration crash anti-pattern — an @Entity added to an
 # Android @Database with no migration to CREATE its table (the roster_timetable_cache /
 # roster_coverage_cache defect). Fresh installs work (Room's createAllTables); every in-place
@@ -631,6 +703,70 @@ seed-dev-email-grants:
 seed-stg-email-grants:
 	cd backend && GOATOS_ENV=stg go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_stg_dashboard_admins $(foreach email,$(GOATOS_STG_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
+# Permanent, idempotent seeder for the 9 canonical STG login accounts
+# (docs/runbooks/stg-login-seed-contract.md): 5 ceo_internal SSO leadership +
+# 3 operators + 1 pc_director. Unlike seed-stg-email-grants, this MATERIALIZES
+# the active user_scope_grants row directly (does not just insert a pending
+# row waiting on a first-sign-in claim event), and binds operators/director
+# onto their existing named workforce_members roster row so /app/bootstrap
+# grants the vaccination bottom bar immediately. See
+# backend/cmd/seed-stg-login-grants/main.go for the full rationale.
+# GOATOS_AUTH_ISSUER must be the stg Firebase issuer, e.g.
+# https://securetoken.google.com/goatos-stg.
+seed-stg-9-person-login:
+	cd backend && GOATOS_ENV=stg GOATOS_TENANT_ID="$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" GOATOS_AUTH_ISSUER="$${GOATOS_AUTH_ISSUER:?set GOATOS_AUTH_ISSUER, e.g. https://securetoken.google.com/goatos-stg}" go run ./cmd/seed-stg-login-grants
+
+# Post-seed verification for the 9-person login contract: confirms all 9
+# accounts have a MATERIALIZED (status='active') user_scope_grants row, not
+# just a pending email grant, and that the 4 field users are department-bound.
+# See docs/runbooks/stg-9-person-login-verification.md for the full checklist
+# this only partially automates (SQL only — bootstrap/app checks stay manual).
+verify-stg-9-person-login:
+	@echo "verify-stg-9-person-login: run the SQL checklist in docs/runbooks/stg-9-person-login-verification.md against the stg DATABASE_URL"
+	@echo "quick check (requires DATABASE_URL + psql):"
+	@psql "$${DATABASE_URL:?set DATABASE_URL to the stg Cloud SQL proxy target}" -c "select role, status, count(*) from user_scope_grants where tenant_id = '$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}' and scope_type = 'tenant' group by role, status order by role, status;"
+
+# STG Firebase Auth credential setup for the canonical seed accounts.
+# This is intentionally STG-only and requires the Firebase users to already
+# exist: backend grant materialization derives user_id from the committed
+# Firebase UID table, so creating a replacement user during seed would produce
+# a different UID and a broken grant. The target sets the documented throwaway
+# passwords for 5 leadership + 4 field users + Jyothi, while leaving Google SSO
+# linked for leadership users.
+GOATOS_STG_FIREBASE_PROJECT ?= goatos-stg
+GOATOS_STG_AUTH_CONTINUE_URL ?= https://stg.dashboard.mesha.sg/login
+seed-stg-firebase-password-users:
+	@if [ "$${GOATOS_ENV:-}" != "stg" ]; then \
+		echo "seed-stg-firebase-password-users: GOATOS_ENV must be stg"; \
+		exit 2; \
+	fi
+	npm --prefix apps/admin-web run auth:seed-password-users -- \
+	  --project "$${GOATOS_STG_FIREBASE_PROJECT:-$(GOATOS_STG_FIREBASE_PROJECT)}" \
+	  --continue-url "$${GOATOS_STG_AUTH_CONTINUE_URL:-$(GOATOS_STG_AUTH_CONTINUE_URL)}" \
+	  --require-existing \
+	  --require-provider "ravi@mesha.sg=google.com" \
+	  --require-provider "manohark@mesha.sg=google.com" \
+	  --require-provider "manju@mesha.sg=google.com" \
+	  --require-provider "abhishek@mesha.sg=google.com" \
+	  --require-provider "aryaman@mesha.sg=google.com" \
+	  --user-password "ravi@mesha.sg=Ravi@2026" \
+	  --user-password "manohark@mesha.sg=Manohar@2026" \
+	  --user-password "manju@mesha.sg=Manju@2026" \
+	  --user-password "abhishek@mesha.sg=Abhishek@2026" \
+	  --user-password "aryaman@mesha.sg=Aryaman@2026" \
+	  --user-password "amit797069@gmail.com=Amit@2026" \
+	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \
+	  --user-password "sagarmahoor143@gmail.com=Sagar@2026" \
+	  --user-password "chandrakanth119527@gmail.com=Chandrakant@2026" \
+	  --user-password "jyothipvg12345@gmail.com=Jyothi@2026"
+
+seed-stg-postflight:
+	@if [ "$${GOATOS_ENV:-}" != "stg" ]; then \
+		echo "seed-stg-postflight: GOATOS_ENV must be stg"; \
+		exit 2; \
+	fi
+	bash tools/dev/stg-seed-postflight.sh
+
 # Full source-backed vaccination seed chain for local/dev rehearsals. This is the
 # safe "whole setup" path after clean slate: access grants, HRMS roster/leave,
 # vaccination source/config seed (which creates canonical shed locations), strict
@@ -640,13 +776,86 @@ seed-stg-email-grants:
 # has passed the read-only preflight. Do not move grants/roster into prerequisites:
 # Make may execute prerequisites before a custom SOURCE has been rejected.
 seed-vaccination-source-full: vaccination-hrms-seed-fixture-guard
+	$(MAKE) seed-checkout-staleness-gate
 	node tools/dev/validate-vaccination-hrms-source.mjs --source "$(GOATOS_VACCINATION_SOURCE_DIR)" --as-of "$${AS_OF:-2026-07-20}" --strict
 	$(MAKE) seed-dev-email-grants
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -strict
 	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -expect-null-false-dob=0
-	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	$(MAKE) seed-closeout
+	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
+		$(MAKE) seed-stg-firebase-password-users; \
+		$(MAKE) seed-stg-9-person-login; \
+		$(MAKE) seed-stg-postflight; \
+	else \
+		echo "GOATOS_ENV != stg: skipping stg login-grant materialization (only required for stg seeds)"; \
+	fi
+
+# BUG-023: fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md
+# lists "the checkout SHA is not the latest origin/main" as an AUTOMATIC FAILURE, but nothing
+# enforced it, so a stale checkout could produce a "clean reseed proof" built from out-of-date
+# rule/seed code. This gate is read-only and runs BEFORE any DB mutation in the seed recipes.
+# Fails closed: an unreachable origin, a diverged/behind HEAD, or a dirty tree stops the seed.
+# GOATOS_ALLOW_STALE_SEED_CHECKOUT=1 is an explicit, loud, throwaway-experiment escape hatch;
+# a run that used it is not a valid reseed proof.
+seed-checkout-staleness-gate:
+	@bash -c 'set -euo pipefail; \
+	repo="$(REPO_ROOT)"; \
+	if [ "$${GOATOS_ALLOW_STALE_SEED_CHECKOUT:-0}" = "1" ]; then \
+	  echo "seed-checkout-staleness-gate: BYPASSED via GOATOS_ALLOW_STALE_SEED_CHECKOUT=1 — this run is NOT a valid reseed proof"; \
+	  exit 0; \
+	fi; \
+	git -C "$$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "seed-checkout-staleness-gate: $$repo is not a git checkout; refusing to seed" >&2; exit 1; }; \
+	git -C "$$repo" fetch --quiet origin main || { echo "seed-checkout-staleness-gate: cannot fetch origin/main; refusing to seed from an unverifiable checkout (set GOATOS_ALLOW_STALE_SEED_CHECKOUT=1 only for a throwaway experiment)" >&2; exit 1; }; \
+	head="$$(git -C "$$repo" rev-parse HEAD)"; \
+	remote="$$(git -C "$$repo" rev-parse origin/main)"; \
+	if [ "$$head" != "$$remote" ]; then \
+	  echo "seed-checkout-staleness-gate: HEAD $$head != origin/main $$remote — a reseed from a non-origin/main checkout is an automatic failure (LOCAL_DB_RESEED_VALIDATION.md)" >&2; \
+	  exit 1; \
+	fi; \
+	dirty="$$(git -C "$$repo" status --porcelain)"; \
+	if [ -n "$$dirty" ]; then \
+	  echo "seed-checkout-staleness-gate: working tree is dirty; the seeded code would not match $$head" >&2; \
+	  echo "$$dirty" >&2; \
+	  exit 1; \
+	fi; \
+	echo "seed-checkout-staleness-gate: HEAD == origin/main ($$head), tree clean"'
+
+# BUG-009: canonical, executable CPT operator-drive rehearsal reseed. The committed packet is
+# documented around raw/ filenames, while the validator and both seed commands require the
+# normalized root-level bundle; this target performs that transformation (materialize-source.mjs)
+# and then runs the documented chain against the materialized bundle, so the documented command
+# and the executable shape agree. CPT/Channapatna only, business date 2026-07-23, the three equal
+# vaccination operators at 200 unique animals/day each, and Chandrakant director-only — all read
+# from the committed cpt-operator-roster.json, never synthesized, and never CBE/Coimbatore.
+GOATOS_CPT_OPERATOR_DRIVE_PACKET ?= $(REPO_ROOT)/fixtures/vaccination-cpt-operator-drive-2026-07-23
+# Outside fixtures/ on purpose: the materialized bundle carries reviewed runtime staff names and
+# receives the seed's audit output. `build/` is gitignored, so it is never committed.
+GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR ?= $(REPO_ROOT)/build/cpt-operator-drive-source
+GOATOS_CPT_OPERATOR_DRIVE_AS_OF ?= 2026-07-24
+
+seed-vaccination-cpt-operator-drive:
+	$(MAKE) seed-checkout-staleness-gate
+	node "$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/materialize-source.mjs" --out "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)"
+	node "$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/check-expected-drive-schedules.mjs" --self-test
+	node tools/dev/validate-vaccination-hrms-source.mjs --source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" --as-of "$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)" --strict
+	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -strict
+	cd backend && GOATOS_CPT_EXCLUDE_PPR_2026=1 go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -expect-null-false-dob=0
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats
+	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
+	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
+	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_only_no_ppr" \
+	  GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF="$${GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF:-$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)T00:00:00+05:30}" \
+	  GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF="$${GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF:-1}" \
+	  $(MAKE) seed-closeout
+	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
+		$(MAKE) seed-stg-firebase-password-users; \
+		$(MAKE) seed-stg-9-person-login; \
+		$(MAKE) seed-stg-postflight; \
+	else \
+		echo "GOATOS_ENV != stg: skipping stg login-grant materialization (only required for stg seeds)"; \
+	fi
 
 # Deterministic post-seed/post-migration closeout. Runs only projectors/backfills
 # that derive app-visible read models from canonical source truth; it never
@@ -754,3 +963,32 @@ android-emulator-ensure:
 # installs, tunnels (adb reverse), and launches. See android-dev-device.md.
 android-dev-run:
 	bash tools/dev/android-dev-run.sh
+
+# grant-assistant-public-read: (re)apply read-only public + ceo_ai SELECT grants
+# to the assistant DB roles after they exist (migration 000031 is guarded and
+# no-ops for a role created after it ran). Idempotent. See the secrets runbook.
+grant-assistant-public-read:
+	tools/dev/grant-assistant-public-read.sh
+
+# ─── CEO-AI answer-quality eval harness (tools/ceo-ai/eval) ──────────────────
+# ceo-ai-eval-selftest: the always-runnable structural gate. No assistant, no
+# database, no Vertex — it validates the golden set (schema, kebab ids, read-only
+# oracles, tier vocab, >=40 Qs / >=20 classes) and unit-tests the deterministic
+# scorer. Cheap enough to run on every backend CI pass. See docs/ceo-ai/eval.md.
+ceo-ai-eval-selftest:
+	cd tools/ceo-ai/eval && test -z "$$(gofmt -l .)" || { echo "gofmt: files need formatting:"; gofmt -l .; exit 1; }
+	cd tools/ceo-ai/eval && go vet ./...
+	cd tools/ceo-ai/eval && go test ./...
+	cd tools/ceo-ai/eval && go run . -validate
+
+# ceo-ai-eval: the LIVE answer-quality regression. Runs every golden question
+# through the assistant endpoint, scores each answer against an independent
+# Postgres oracle, and writes a self-contained HTML + JSON report under
+# tools/ceo-ai/eval/out/. Requires MESHA_ASSISTANT_URL, GOATOS_EVAL_DATABASE_URL,
+# GOATOS_EVAL_TENANT_ID (and usually MESHA_EVAL_BEARER). STRICT=1 turns a missing
+# prerequisite into a hard failure (this target was explicitly requested, so a
+# misconfiguration is an error, not a silent skip). NOT part of the default gate.
+CEO_AI_EVAL_HTML ?= out/ceo-ai-eval-report.html
+CEO_AI_EVAL_JSON ?= out/ceo-ai-eval-report.json
+ceo-ai-eval:
+	cd tools/ceo-ai/eval && mkdir -p out && CEO_AI_EVAL_STRICT=1 go run . -html "$(CEO_AI_EVAL_HTML)" -json "$(CEO_AI_EVAL_JSON)"

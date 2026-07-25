@@ -39,7 +39,7 @@ func main() {
 	var source string
 	var emails emailFlags
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope pending email grants")
-	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: admin, verifier, park_head, pc_director, operator, or ceo_internal")
+	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: verifier, park_head, pc_director, operator, ceo_internal, or a composite org role such as director_preventive_care")
 	flag.StringVar(&source, "source", "manual_dev_seed", "audit/source label for the pending email grants")
 	flag.Var(&emails, "email", "approved email; may be repeated or comma-separated")
 	flag.Parse()

@@ -75,7 +75,12 @@
         "verification.item.pending",
         "verification.verdict.rework",
         "verification.verdict.approved",
-        "verification.item.closed"
+        "verification.item.closed",
+        "verification.vaccination_drive.ready",
+        "verification.vaccination_drive.closed",
+        "vaccination.capacity.changed",
+        "vaccination.roster.changed",
+        "vaccination.leave.changed"
       ]
     },
     "schema_version": {
@@ -104,7 +109,10 @@
         "count_base_anchor",
         "shifting_event",
         "count_projection_exception",
-        "verification_item"
+        "verification_item",
+        "vaccination_batch",
+        "park",
+        "absence"
       ]
     },
     "aggregate_id": {
@@ -129,6 +137,7 @@
         "shifting_event",
         "count_projection_exception",
         "verification_item",
+        "vaccination_batch",
         "notification_request"
       ]
     },

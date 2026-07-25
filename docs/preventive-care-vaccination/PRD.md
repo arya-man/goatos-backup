@@ -75,7 +75,7 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 
 | Actor | Does | Authority |
 |---|---|---|
-| **COO / CEO / superadmin** | Creates, edits, previews, and publishes the vaccine ruleset. Published version is immutable + effective-dated. | `protocol.publish.vaccination` capability (category-specific) plus top-level Config route access |
+| **CEO/CXO** | Creates, edits, previews, and publishes the vaccine ruleset. Published version is immutable + effective-dated. | `protocol.publish.vaccination` capability (category-specific) plus top-level Config route access |
 | **Preventive Care (PC) Director** | Sees effective operational instructions, coverage, exceptions, and escalations only. | No raw Config visibility in V1 unless the product owner later grants a separate read-only config capability |
 | **Park Head / Manager** | Sees their park's drives & overdue; assigns/approves | scoped |
 | **Health worker (field)** | Executes the drive via SOP: scan, administer, record dose, upload proof | `vaccination.execute` |
@@ -83,7 +83,7 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 | **System (engine)** | Generates obligations, batches drives, fires reminders, moves stock via the inventory ledger, surfaces anomalies — **never invents rules** | — |
 
 **Correction:** it is **not** "Preventive Care (PC) Director drafts and CEO/COO reviews."
-For V1, the Config screen is visible only to CEO/COO/superadmin. The durable
+For V1, the Config screen is visible only to CEO/CXO. The durable
 audit is normal protocol version audit: `version`, `created_by`/`created_at`,
 `published_by`/`published_at`, `retired_by`/`retired_at`, and the generated
 impact preview reviewed before publish. A rule change = a new version, never an
@@ -202,13 +202,25 @@ scope override was activated.
 ### 4.2 Herd animal enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the herd animal. The engine reads published vaccination rules matching the animal's `species × breed × sex × shed-tag/stage × age × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
 
-### 4.3 Due → park drive plan appears (the work unit)
-The sweeper/planner batches due per-animal obligations into an optimized
-**park-level vaccination drive plan** with shed/tag breakdowns, then assigns the
-execution work through `vaccination.execute`. The operational goal is to give
-the doctors the maximum safe animal count for one park visit, not to create one
-tiny drive per shed. The plan still carries per-shed/tag counts and animal lists
-for proof and execution.
+### 4.3 Due → operator drive plan appears (the work unit)
+The sweeper/planner batches due per-animal obligations into compatible drive
+work, then the operator-drive planner assigns that work by date, available
+operator, physical shed, partition, animal count, and vaccine bundle. The
+medical obligation kernel remains unchanged: kid/adult rules, boosters, repeat
+cycles, buffers, contraindications, and animal-state deferrals decide what is
+due. The drive planning layer decides who can handle each due animal and when.
+
+Operator capacity is consumed by unique animals handled per operator per
+business date, not by vaccine doses or obligation rows. One animal receiving a
+same-day bundle still consumes one operator animal slot. If available operator
+capacity is insufficient, remaining animals spill to the next date and operator
+availability is recomputed from timetable, leave/day-off, role, and scope.
+
+The operational goal is to give the doctors the maximum safe animal count for
+one park visit while preserving field execution clarity. The plan carries
+physical shed, partition, species, vaccine-bundle, and animal lists for proof
+and execution. Detailed planner rules live in
+[operator-drive-planner-PRD.md](./operator-drive-planner-PRD.md).
 
 Drive grouping is stage-aware:
 - Kid shed/tag groups may combine goat and sheep kids in the same park drive
@@ -325,12 +337,13 @@ The planner works like this:
 8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
    cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
    planner chooses the highest-priority compatible pair that is medically safe
-   today and schedules the remainder on the next safe date using live/killed,
-   priority, and safe-window rules. The normal per-drive animal cap is
+   today and schedules the remainder from that session date using live/killed
+   gap rules, priority, and the +7-day safe scheduling buffer. Operator-cap
+   overflow is never permission to give a next-day third vaccine. The normal
+   per-drive animal cap is
    operational and soft on a last-safe-day overflow: move overflow to the next
    feasible day when safe; keep the animal in the current/last-safe drive even
    over that normal cap when moving would cross its safe-until date.
-   booster, and matrix gap rules.
 9. Create the drive with its animal list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain
    multiple sheds, but each shed keeps its own animal list, proof, and

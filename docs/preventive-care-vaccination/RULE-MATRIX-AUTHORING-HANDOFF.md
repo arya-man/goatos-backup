@@ -218,7 +218,7 @@ business action is selecting the currently active ruleset for a scope.
 ## 4. Correct UI model
 
 The Config page is a generic Admin/Data Ops screen at `/config`, filtered by
-`category=vaccination` for this module. V1 visibility is CEO/COO/superadmin
+`category=vaccination` for this module. V1 visibility is CEO/CXO
 only. Remove source/review authoring sections from the UI. Show normal version
 audit only: version, created by, created time, activated/published by,
 activated/published time, effective from/to, inactive/retired time where
@@ -281,7 +281,7 @@ authoring tool, not a vaccine-first flat form and not one protocol per vaccine.
 
 Context:
 - The page is /config filtered by category=vaccination.
-- It is visible only to CEO/COO/superadmin.
+- It is visible only to CEO/CXO.
 - Remove all source/review UI fields. Keep only version/audit fields:
 - version, created by/time, activated by/time, effective from/to, inactive time.
 - Vaccination has one logical ruleset family: vaccination.matrix.
@@ -373,7 +373,7 @@ Required:
 - Recompute only affected targets on animal CRUD, shed/stage change,
   health/reproductive change, procurement accepted-intake, warm-up expiry, and
   accepted vaccination completion.
-- Activation/publish requires CEO/COO/superadmin authority, valid JSON schema,
+- Activation/publish requires CEO/CXO authority, valid JSON schema,
   published SOP binding where needed, non-overlapping effective dates, active
   cardinality checks, scope override resolution, and impact preview.
 - Add a governed stage/species policy store for `animal_stage_lookup`, exposed to

@@ -1,21 +1,19 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import {
-  currentHistoryEntryIsLocalOverlay,
-  LOCAL_OVERLAY_URL_CHANGE_EVENT,
-  replaceLocalOverlayUrl,
-} from "@/components/local-overlay-link";
-import { X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalOverlaySelection } from "@/components/local-overlay-link";
+import { Syringe, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Tag } from "@/components/ui-primitives";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { dash } from "@/lib/format";
+import { dash, fmtDate } from "@/lib/format";
+import type { VaccinationPassport, VaccinationPassportHistoryItem } from "@/lib/api/server";
 import { HerdReproductiveEdit } from "./herd-actions-ui";
 
 type StatusKind = "lifecycle" | "health" | "breeding";
 type StatusTone = "ok" | "warn" | "dng" | "info" | "mut";
+const DRAWER_ROW_LIMIT = 5;
 
 export type HerdPassportDrawerItem = {
   goatId: string;
@@ -55,6 +53,189 @@ function weightLabel(weight: number | null | undefined): string {
   return typeof weight === "number" && Number.isFinite(weight) ? `${weight.toFixed(weight % 1 === 0 ? 0 : 1)} kg` : "—";
 }
 
+function herdGoatId(item: HerdPassportDrawerItem): string {
+  return item.goatId;
+}
+
+type ReadResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+async function getHerdGoatVaccinationPassport(goatId: string): Promise<ReadResult<VaccinationPassport>> {
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<VaccinationPassport> & { error?: string };
+    if (!response.ok || !payload.goat_id) {
+      return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as VaccinationPassport };
+  } catch {
+    return { ok: false, error: "vaccination_passport_unreachable" };
+  }
+}
+
+function obligationTone(status: string): StatusTone {
+  if (status === "deferred" || status === "missed") return "warn";
+  if (status === "due" || status === "in_progress") return "info";
+  if (status === "scheduled") return "mut";
+  return "mut";
+}
+
+function historyTone(status: string): StatusTone {
+  if (status === "accepted") return "ok";
+  if (status === "rejected") return "dng";
+  if (status === "recorded") return "warn";
+  return "mut";
+}
+
+function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiPageContract) {
+  if (item.status === "accepted") return <Tag tone="ok">{copy(pageContract, "vaccination.proof_verified")}</Tag>;
+  if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
+  if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
+  return <Tag tone="mut">{item.status}</Tag>;
+}
+
+function sourceObligationLabel(obligationId: string): string {
+  return obligationId.slice(0, 8);
+}
+
+function vaccineRowLabel(item: { display_label: string }): string {
+  return item.display_label;
+}
+
+function sameDate(left?: string, right?: string): boolean {
+  return Boolean(left && right && left.slice(0, 10) === right.slice(0, 10));
+}
+
+function passportIdentityLabels(pageContract: AdminUiPageContract): string[] {
+  if (pageContract.route_id === "herd-register") return tableLabels(pageContract, "herd-register");
+  return [
+    copy(pageContract, "calendar.drive.display_id_header"),
+    copy(pageContract, "calendar.drive.tag_1_header"),
+    copy(pageContract, "calendar.drive.tag_2_header"),
+    copy(pageContract, "calendar.drive.park_header"),
+    copy(pageContract, "calendar.drive.shed_header"),
+    copy(pageContract, "calendar.drive.breed_header"),
+    copy(pageContract, "calendar.drive.sex_header"),
+    copy(pageContract, "calendar.drive.weight_header"),
+    copy(pageContract, "calendar.drive.lifecycle_header"),
+    copy(pageContract, "calendar.drive.health_header"),
+    copy(pageContract, "calendar.drive.stage_header"),
+  ];
+}
+
+function HerdDrawerVaccinationBlock({
+  vaccination,
+  error,
+  pageContract,
+}: {
+  vaccination: VaccinationPassport | undefined;
+  error: string | undefined;
+  pageContract: AdminUiPageContract;
+}) {
+  const open = vaccination?.open_obligations ?? [];
+  const history = vaccination?.vaccination_history ?? [];
+  const openCols = tableLabels(pageContract, "vaccination-open-obligations");
+  const historyCols = tableLabels(pageContract, "vaccination-history");
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="muted small" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 10 }}>
+        <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
+        {copy(pageContract, "section.vaccination.title")}
+      </div>
+      {error ? (
+        <p className="muted small" style={{ marginTop: 8 }}>{copy(pageContract, "vaccination.unavailable_prefix")}: {error}</p>
+      ) : !vaccination ? (
+        <p className="muted small" style={{ margin: 0 }} aria-live="polite">...</p>
+      ) : (
+        <>
+          <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 12 }}>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
+              <div className="v" style={{ fontSize: 13 }}>
+                {vaccination.next_due ? (
+                  <>
+                    {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
+                    <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
+                  </>
+                ) : copy(pageContract, "vaccination.no_upcoming")}
+              </div>
+            </div>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
+              <div className="v">{open.length}</div>
+            </div>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
+              <div className="v" style={{ fontSize: 13 }}>
+                {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
+              </div>
+            </div>
+          </div>
+
+          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.open_due_rows")}</div>
+          {open.length === 0 ? (
+            <p className="muted small" style={{ margin: "0 0 12px" }}>{copy(pageContract, "vaccination.empty_open")}</p>
+          ) : (
+            <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+              <table>
+                <thead>
+                  <tr>{openCols.slice(0, 4).map((label) => <th key={label}>{label}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
+                    <tr key={due.obligation_id}>
+                      <td>
+                        <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                        {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                          <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
+                        ) : null}
+                      </td>
+                      <td>{vaccineRowLabel(due)}</td>
+                      <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
+                      <td><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {open.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{open.length - DRAWER_ROW_LIMIT} more</p> : null}
+            </div>
+          )}
+
+          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.history")}</div>
+          {history.length === 0 ? (
+            <p className="muted small" style={{ margin: 0 }}>{copy(pageContract, "vaccination.empty_history")}</p>
+          ) : (
+            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
+              <table>
+                <thead>
+                  <tr>{historyCols.slice(0, 5).map((label) => <th key={label}>{label}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
+                    <tr key={h.completion_id}>
+                      <td>{fmtDate(h.administered_at)}</td>
+                      <td>{vaccineRowLabel(h)}</td>
+                      <td><Tag tone={historyTone(h.status)}>{h.status}</Tag></td>
+                      <td>{proofLabel(h, pageContract)}</td>
+                      <td><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {history.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{history.length - DRAWER_ROW_LIMIT} more</p> : null}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function HerdPassportLocalDrawer({
   items,
   initialSelectedId,
@@ -70,79 +251,38 @@ export function HerdPassportLocalDrawer({
   returnTo: string;
   pageContract: AdminUiPageContract;
 }) {
-  const initialItem = items.find((item) => item.goatId === initialSelectedId);
-  const [activeId, setActiveId] = useState(initialItem?.goatId);
-  const [displayedId, setDisplayedId] = useState(initialItem?.goatId);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
-  const openFrameRef = useRef<number | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
-  const item = items.find((candidate) => candidate.goatId === displayedId);
-  const drawerOpen = Boolean(activeId && item);
-
-  const syncFromUrl = useCallback((): void => {
-    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
-    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-    const id = new URL(window.location.href).searchParams.get("goat_passport") ?? undefined;
-    const selected = items.find((candidate) => candidate.goatId === id);
-    if (selected) {
-      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      setActiveId(undefined);
-      setDisplayedId(selected.goatId);
-      openFrameRef.current = window.requestAnimationFrame(() => {
-        setActiveId(selected.goatId);
-        openFrameRef.current = null;
-      });
-      return;
-    }
-    setActiveId(undefined);
-    closeTimerRef.current = window.setTimeout(() => {
-      setDisplayedId(undefined);
-      closeTimerRef.current = null;
-      triggerRef.current?.focus();
-    }, 280);
-  }, [items]);
+  const { displayedItem: item, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+    items,
+    itemId: herdGoatId,
+    selectionKey: "goat_passport",
+    initialSelectedId,
+    closeHref,
+  });
+  const [vaccinationPassports, setVaccinationPassports] = useState<Record<string, VaccinationPassport>>({});
+  const [vaccinationErrors, setVaccinationErrors] = useState<Record<string, string>>({});
+  const vaccinationRequestsRef = useRef(new Map<string, ReturnType<typeof getHerdGoatVaccinationPassport>>());
 
   useEffect(() => {
-    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncFromUrl);
-    window.addEventListener("popstate", syncFromUrl);
+    if (!item || vaccinationPassports[item.goatId] || vaccinationErrors[item.goatId]) return;
+    const goatId = item.goatId;
+    let active = true;
+    const request = vaccinationRequestsRef.current.get(goatId) ?? getHerdGoatVaccinationPassport(goatId);
+    vaccinationRequestsRef.current.set(goatId, request);
+    void request.then((result) => {
+      if (!active) return;
+      if (result.ok) setVaccinationPassports((current) => ({ ...current, [goatId]: result.data }));
+      else setVaccinationErrors((current) => ({ ...current, [goatId]: result.error }));
+    });
     return () => {
-      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncFromUrl);
-      window.removeEventListener("popstate", syncFromUrl);
-      if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+      active = false;
     };
-  }, [syncFromUrl]);
-
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [drawerOpen]);
-
-  const closeDrawer = useCallback((): void => {
-    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-    setActiveId(undefined);
-    if (currentHistoryEntryIsLocalOverlay()) {
-      window.history.back();
-      return;
-    }
-    replaceLocalOverlayUrl(closeHref);
-  }, [closeHref]);
-
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
+  }, [item, vaccinationErrors, vaccinationPassports]);
 
   if (!item) return null;
-  const cols = tableLabels(pageContract, "herd-register");
+  const vaccination = vaccinationPassports[item.goatId];
+  const vaccinationError = vaccinationErrors[item.goatId];
+  const cols = passportIdentityLabels(pageContract);
+  const canEditReproductiveStatus = pageContract.route_id === "herd-register";
 
   return (
     <>
@@ -186,16 +326,19 @@ export function HerdPassportLocalDrawer({
             <div className="hk">{cols[10]}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{dash(item.reproductiveStatus)}</Tag>
-              <HerdReproductiveEdit
-                goatId={item.goatId}
-                displayId={item.displayId}
-                currentStatus={item.reproductiveStatus}
-                idempotencyKey={reproductiveIdempotencyKey}
-                returnTo={returnTo}
-                pageContract={pageContract}
-              />
+              {canEditReproductiveStatus ? (
+                <HerdReproductiveEdit
+                  goatId={item.goatId}
+                  displayId={item.displayId}
+                  currentStatus={item.reproductiveStatus}
+                  idempotencyKey={reproductiveIdempotencyKey}
+                  returnTo={returnTo}
+                  pageContract={pageContract}
+                />
+              ) : null}
             </div>
           </div>
+          <HerdDrawerVaccinationBlock vaccination={vaccination} error={vaccinationError} pageContract={pageContract} />
         </div>
         <div className="df">
           <Link href={`/goats/${encodeURIComponent(item.goatId)}`} className="btn p">{copy(pageContract, "action.full_change_history")}</Link>

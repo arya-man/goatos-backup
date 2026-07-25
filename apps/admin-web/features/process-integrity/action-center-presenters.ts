@@ -1,5 +1,6 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ActionCenterObligation } from "@/lib/api/server";
+import { vaccinationDriveDisplayName } from "@/lib/vaccine-display";
 
 export function actionDriveLabel(
   pageContract: AdminUiPageContract,
@@ -11,7 +12,7 @@ export function actionDriveLabel(
     .replace(/\s+[-–]\s+[A-Z]+-[A-Z0-9-]+$/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  return cleaned || copy(pageContract, "label.vaccination_drive");
+  return vaccinationDriveDisplayName(cleaned) || copy(pageContract, "label.vaccination_drive");
 }
 
 export function actionWorkTitle(pageContract: AdminUiPageContract, row: ActionCenterObligation): string {

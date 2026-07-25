@@ -1,0 +1,213 @@
+{
+  "schema": "goatos.cpt_operator_drive_roster.v1",
+  "business_date": "2026-07-23",
+  "source_scope": {
+    "tenant": "Mesha / Goat OS",
+    "park_code": "CPT",
+    "park_name": "Channapatna",
+    "centers_allowed": [
+      "CPT"
+    ],
+    "centers_forbidden": [
+      "CBE",
+      "Coimbatore"
+    ],
+    "notes": [
+      "This is the CPT-only operator-drive rehearsal source packet.",
+      "Do not synthesize CBE/Coimbatore rows, owners, operators, or sheds from the full fixture."
+    ]
+  },
+  "operator_capacity": {
+    "unit": "unique_animals_per_operator_per_business_date",
+    "default_animals_per_day": 200,
+    "dose_count_is_not_capacity": true,
+    "seed_catchup_overrides": [
+      {
+        "date": "2026-07-25",
+        "operator_code": "vaccination_operator_darshan",
+        "max_animals": 210,
+        "reason": "one-time initial CPT seed catch-up after 114 ET+TT animals were completed on 2026-07-24; standing operator cap remains 200"
+      }
+    ]
+  },
+  "operator_android_login": {
+    "required_after_database_seed": true,
+    "identity_provider": "firebase_email_password",
+    "source_email_field": "operators[].email_hint",
+    "unique_email_per_operator": true,
+    "unique_temporary_password_per_operator": true,
+    "shared_password_forbidden": true,
+    "plaintext_passwords_in_git_forbidden": true,
+    "must_send_or_record_individual_reset_flow": true,
+    "android_login_smoke_required": true,
+    "notes": [
+      "After the HRMS/vaccination seed completes, every vaccination operator in operators[] must have an individual Firebase/Auth email-password account for Android login.",
+      "Use each operator's email_hint as the login email. Do not seed one common operator email, one shared password, or a CEO/CXO login for field Android execution.",
+      "Generate a different temporary password per operator or send an individual reset flow; never commit passwords into this fixture or any runbook.",
+      "The seed is not closed until Android bootstrap/login is verified for Amit, Darshan, and Sagar against their own identities."
+    ]
+  },
+  "operators": [
+    {
+      "code": "vaccination_operator_amit",
+      "display_name": "Amit Kumar",
+      "email_hint": "amit797069@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": [
+        "CPT"
+      ],
+      "week_off": "friday",
+      "animal_cap_per_day": 200,
+      "shift_label": "am",
+      "shift_start_minute": 420,
+      "shift_end_minute": 900
+    },
+    {
+      "code": "vaccination_operator_darshan",
+      "display_name": "Darshan Talwar",
+      "email_hint": "darshantalawar033@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": [
+        "CPT"
+      ],
+      "week_off": "sunday",
+      "animal_cap_per_day": 200,
+      "shift_label": "rover",
+      "shift_start_minute": 510,
+      "shift_end_minute": 1080
+    },
+    {
+      "code": "vaccination_operator_sagar",
+      "display_name": "Sagar Mahoor",
+      "email_hint": "sagarmahoor143@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": [
+        "CPT"
+      ],
+      "week_off": "saturday",
+      "animal_cap_per_day": 200,
+      "shift_label": "pm",
+      "shift_start_minute": 900,
+      "shift_end_minute": 1439
+    }
+  ],
+  "default_operator_assignment": {
+    "active_operators_per_day": 1,
+    "default_operator_code": "vaccination_operator_darshan",
+    "fallback_operator_code": "vaccination_operator_sagar",
+    "fallback_when": "default_operator_unavailable_or_week_off",
+    "secondary_fallback_operator_code": "vaccination_operator_amit",
+    "secondary_fallback_when": "default_and_primary_fallback_unavailable",
+    "drive_grain": "business_date",
+    "shift_label_semantics": "fallback_identity_only_not_vaccine_time_of_day",
+    "notes": [
+      "All three operators remain in HRMS. active_operators_per_day=1 means only one operator is assigned to this drive day.",
+      "Darshan is the default drive operator. Sagar covers only when Darshan is unavailable or on weekly off. Amit remains a vaccination operator and is only a secondary fallback when both Darshan and Sagar cannot cover."
+    ]
+  },
+  "directors": [
+    {
+      "code": "preventive_care_director_chandrakant",
+      "display_name": "Chandrakant",
+      "role": "preventive_care_director",
+      "can_execute_vaccination": false,
+      "park_scope": [
+        "CPT",
+        "CBE"
+      ],
+      "timetable_required": false,
+      "notes": [
+        "Director monitors across parks and does not add field capacity unless explicitly assigned as an execution operator."
+      ]
+    }
+  ],
+  "verifiers": [
+    {
+      "code": "preventive_care_verifier_jyothi",
+      "display_name": "Jyothi",
+      "email": "jyothipvg12345@gmail.com",
+      "role": "verifier",
+      "identity_provider": "firebase_email_password",
+      "park_scope": [
+        "CPT"
+      ],
+      "can_execute_vaccination": false,
+      "adds_vaccination_capacity": false,
+      "notes": [
+        "Verifier reviews submitted proof and must not add vaccination operator capacity.",
+        "Seed Firebase email/password for STG with the documented temporary password convention."
+      ]
+    }
+  ],
+  "leadership_full_access": {
+    "grant_role": "ceo_internal",
+    "scope_type": "tenant",
+    "workforce_hint": "cxo",
+    "emails": [
+      "ravi@mesha.sg",
+      "manohark@mesha.sg",
+      "manju@mesha.sg",
+      "abhishek@mesha.sg",
+      "aryaman@mesha.sg"
+    ]
+  },
+  "weekly_capacity_examples": [
+    {
+      "weekday": "thursday",
+      "date": "2026-07-23",
+      "available_operators": [
+        "Amit Kumar",
+        "Darshan Talwar",
+        "Sagar Mahoor"
+      ],
+      "total_capacity_animals": 600,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
+    },
+    {
+      "weekday": "friday",
+      "available_operators": [
+        "Darshan Talwar",
+        "Sagar Mahoor"
+      ],
+      "operator_off": [
+        "Amit Kumar"
+      ],
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
+    },
+    {
+      "weekday": "saturday",
+      "available_operators": [
+        "Amit Kumar",
+        "Darshan Talwar"
+      ],
+      "operator_off": [
+        "Sagar Mahoor"
+      ],
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
+    },
+    {
+      "weekday": "sunday",
+      "available_operators": [
+        "Amit Kumar",
+        "Sagar Mahoor"
+      ],
+      "operator_off": [
+        "Darshan Talwar"
+      ],
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
+    }
+  ]
+}

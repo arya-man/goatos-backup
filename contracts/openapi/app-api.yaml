@@ -1491,6 +1491,129 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ServerError"
+  /vaccination/schedule/drive-date-overrides:
+    post:
+      tags:
+        - Vaccination
+      operationId: upsertVaccinationDriveDateOverride
+      summary: Postpone one vaccine within a scheduled vaccination drive.
+      description: >
+        CEO/CXO vaccination campaign command that records a bounded sidecar override for one
+        vaccine code in one park drive date. The sweeper treats the override as a proposed
+        planned date only; max two vaccines per animal session, live/killed spacing, adult booster
+        rules, the +1 week medical window, operator cap, and shed/partition assignment constraints
+        are still enforced by the backend planner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [park_id, vaccine_code, original_drive_date, override_date, reason]
+              properties:
+                park_id:
+                  type: string
+                  format: uuid
+                vaccine_code:
+                  type: string
+                  minLength: 1
+                original_drive_date:
+                  type: string
+                  format: date
+                override_date:
+                  type: string
+                  format: date
+                  description: Must be after original_drive_date.
+                reason:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Active drive date override.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at]
+                properties:
+                  park_id:
+                    type: string
+                    format: uuid
+                  vaccine_code:
+                    type: string
+                  original_drive_date:
+                    type: string
+                    format: date
+                  override_date:
+                    type: string
+                    format: date
+                  reason:
+                    type: string
+                  created_by:
+                    type: string
+                    format: uuid
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/drive-assignments:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationDriveAssignments
+      summary: Persisted operator-cap vaccination drive assignments for one business-calendar month.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: year
+          in: query
+          required: false
+          description: Calendar year in the business timezone. Defaults to the current year.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: month
+          in: query
+          required: false
+          description: Calendar month in the business timezone. Defaults to the current month.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Operator/date/shed/partition assignment rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationDriveAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServerError"
   /vaccination/execution:
     get:
       tags:
@@ -1765,10 +1888,10 @@ paths:
       tags:
         - Vaccination
       operationId: getVaccinationCapacityConfig
-      summary: Read the tenant's daily vaccination capacity config for the admin Config screen.
+      summary: Read the tenant's daily operator animal capacity config for the admin Config screen.
       responses:
         "200":
-          description: The tenant's daily vaccination capacity config.
+          description: The tenant's daily operator animal capacity config.
           content:
             application/json:
               schema:
@@ -1777,6 +1900,116 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: putVaccinationCapacityConfig
+      summary: >-
+        Write the tenant's daily operator animal cap + per-animal shot-cap override
+        (validate-or-reject; optimistic concurrency via rowVersion). A successful write cascades
+        vaccination.capacity.changed (one per active park) which re-plans future vaccination drives.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaccinationCapacityConfigRequest"
+      responses:
+        "200":
+          description: The updated capacity config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCapacityConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The supplied rowVersion no longer matches the stored config (concurrent edit).
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/operator-assignment/config:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationOperatorAssignmentConfig
+      summary: >-
+        Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus
+        every operator's authored shift, for the admin Config screen. Not yet consumed by the drive
+        scheduler (Phase 5).
+      description: >-
+        park_id is OPTIONAL: omit it and the backend resolves the caller's single authorized park
+        scope and echoes it back as parkId, which is the park the client must scope its roster reads
+        to. An actor whose grants do not resolve to exactly one park (for example a tenant-wide CEO
+        grant in a multi-park tenant) receives 409 park_scope_ambiguous and must pass park_id
+        explicitly -- the client must never blend several parks' rosters into one view.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The park's operator assignment config + shifts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorAssignmentConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          description: >-
+            The caller's scope does not resolve to exactly one park. The body carries the parks the
+            caller may choose from so the client renders a backend-owned selector and re-requests with
+            park_id; it must never assemble or label a park list of its own.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationParkScopeAmbiguous"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: putVaccinationOperatorAssignmentConfig
+      summary: >-
+        Phase 1 CONFIG-ONLY: write a park's active-operators-per-day + default-operator config
+        (validate-or-reject; optimistic concurrency via rowVersion). Not yet consumed by the drive
+        scheduler (Phase 5).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaccinationOperatorAssignmentConfigRequest"
+      responses:
+        "200":
+          description: The updated operator assignment config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorAssignmentConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The supplied rowVersion no longer matches the stored config (concurrent edit).
         "500":
           $ref: "#/components/responses/ServerError"
   /feed-direction/generation-preview:
@@ -3422,6 +3655,11 @@ paths:
                         secondaryTag: { type: string, nullable: true }
                         vaccineLabel: { type: string }
                         status: { type: string }
+                        scannedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Exact RFID scan timestamp persisted by the backend for this task row.
                         obligationId: { type: string }
                         taskId: { type: string }
                         batchId: { type: string }
@@ -4397,6 +4635,273 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /ceo-ai/ask:
+    post:
+      operationId: askCeoAssistant
+      summary: Ask the read-only leadership operations assistant
+      description: >
+        CEO/CxO leadership assistant. Read-only over business data. Tenant and
+        role scope come ONLY from the authenticated session, never from the
+        request body. The response carries ONLY the user-facing envelope
+        (answer, source, mode, request_id, conversation_id, citations) — step
+        traces / chain-of-thought are internal and never returned.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoAssistantAskRequest"
+      responses:
+        "200":
+          description: Assistant answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoAssistantAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  # --- ceo-ai conversation persistence (owned by ceoai/persistence) ---
+  # Additive block. Tenant + actor scope come ONLY from the authenticated session,
+  # never from the request body or path. All reads/writes are actor-scoped: one
+  # leadership user can never see or mutate another's threads.
+  /ceo-ai/starters:
+    get:
+      operationId: listCeoStarters
+      summary: Leadership capability probe + starter questions
+      description: >
+        Returns the backend-owned, tenant/role-aware starter questions the
+        assistant can truthfully answer. Doubles as the leadership capability
+        probe the admin-web client uses to decide whether to render the
+        assistant launcher: 200 means the session is authorized leadership
+        (ceo_internal); 403 means it is not, so the launcher stays hidden.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Backend-owned starter questions for this leadership session
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - starters
+                properties:
+                  starters:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations:
+    post:
+      operationId: createCeoConversation
+      summary: Open a leadership assistant conversation thread
+      description: >
+        Creates a durable thread. Idempotent when an Idempotency-Key header is
+        supplied: a replay with the same key returns the original thread (200)
+        instead of forking a new one (201).
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CeoIdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationCreateRequest"
+      responses:
+        "201":
+          description: Thread created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "200":
+          description: Idempotent replay — existing thread returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: listCeoConversations
+      summary: List the actor's conversation threads (keyset paginated)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from a prior page's next_cursor.
+          schema:
+            type: string
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: One keyset page of threads, newest activity first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: getCeoConversation
+      summary: Resume one thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    patch:
+      operationId: updateCeoConversation
+      summary: Rename or archive/unarchive a thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationPatchRequest"
+      responses:
+        "200":
+          description: Updated thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      operationId: deleteCeoConversation
+      summary: Soft-delete a thread (hidden immediately, purged per retention policy)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Thread soft-deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: listCeoConversationMessages
+      summary: Read a thread's message history (keyset paginated, oldest-first)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One keyset page of message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoMessageList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -4404,6 +4909,28 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    CeoConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoMessageId:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Replay-safety key; a repeat create with the same key returns the original thread.
+      schema:
+        type: string
+        maxLength: 200
     GoatId:
       name: goat_id
       in: path
@@ -4611,6 +5138,192 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    CeoConversationCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          description: Optional initial title; when omitted the backend derives one.
+          type: string
+          maxLength: 200
+      # tenant/actor are session-derived and MUST NOT appear in the body.
+    CeoConversationPatchRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Exactly one intent per request. `title` renames; `archived=true` archives;
+        `archived=false` unarchives.
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        archived:
+          type: boolean
+    CeoConversation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - created_at
+        - updated_at
+        - archived
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+    CeoConversationList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoConversation"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - conversation_id
+        - role
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        source:
+          description: Assistant turns only — resolved read surface / routing tier.
+          type: string
+        mode:
+          description: Assistant turns only — governed | operational | exploratory.
+          type: string
+        request_id:
+          type: string
+        citations:
+          description: User-visible provenance chips (structured JSON array).
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      # tool_calls are INTERNAL routing detail and are intentionally NOT exposed here.
+    CeoMessageList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoMessage"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoAssistantAskRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1200
+          description: Natural-language leadership question. Treated as data, never as instructions.
+        conversation_id:
+          type: string
+          description: Optional existing thread id to continue.
+    CeoAssistantCitation:
+      type: object
+      additionalProperties: false
+      required:
+        - surface
+        - route
+        - as_of
+        - planned_by_model
+      properties:
+        surface:
+          type: string
+          description: Human source label, e.g. "Cube · vaccination_overdue" or "Mesha read API".
+        route:
+          type: string
+          enum: [cube, api, toolbox, sql, none]
+        as_of:
+          type: string
+          format: date-time
+          description: Freshness of the underlying read model (IST business day).
+        metric_status:
+          type: string
+          enum: [approved, draft]
+          description: Cube governance status; present only for governed metrics.
+        planned_by_model:
+          type: boolean
+    CeoAssistantAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - answer
+        - source
+        - mode
+        - request_id
+      properties:
+        answer:
+          type: string
+        source:
+          type: string
+          description: Route-attributed source label(s).
+        mode:
+          type: string
+          enum: [planned, fallback, refused, partial]
+        request_id:
+          type: string
+        conversation_id:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CeoAssistantCitation"
     FeedConfigRationRate:
       type: object
       additionalProperties: false
@@ -6165,6 +6878,7 @@ components:
         - upload_method
         - headers
         - expires_at
+        - upload_protocol
       properties:
         proof:
           $ref: "#/components/schemas/ProofArtifact"
@@ -6174,6 +6888,7 @@ components:
           type: string
           enum:
             - PUT
+            - POST
         headers:
           type: object
           additionalProperties:
@@ -6181,6 +6896,15 @@ components:
         expires_at:
           type: string
           format: date-time
+        upload_protocol:
+          type: string
+          enum:
+            - simple_put
+            - gcs_resumable_v1
+        chunk_size_bytes:
+          type: integer
+          format: int64
+          minimum: 262144
     ProofResponse:
       type: object
       additionalProperties: false
@@ -6326,8 +7050,8 @@ components:
       description: >-
         FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed
         completion is an acknowledgement, not a manual medical form: the operator already scanned
-        every animal and attached camera proof per goat row; Submit only confirms the shed is
-        done. shed_name / drive_name / vaccine names are always human, never raw UUIDs.
+        every animal. Proof grain is SOP-controlled: either per-goat video or shed-level video.
+        shed_name / drive_name / vaccine names are always human, never raw UUIDs.
       required:
         - task_id
         - shed_name
@@ -6335,6 +7059,7 @@ components:
         - expected_count
         - handled_count
         - proof_ready_count
+        - proof_mode
         - vaccine_breakdown
         - submit_enabled
         - blocking_reason
@@ -6353,6 +7078,11 @@ components:
           type: integer
         proof_ready_count:
           type: integer
+        proof_mode:
+          type: string
+          enum:
+            - per_goat_video
+            - shed_level_video
         vaccine_breakdown:
           type: array
           items:
@@ -7149,7 +7879,7 @@ components:
     AdminWebRoleLens:
       type: object
       additionalProperties: false
-      required: [id, name, audit_short, scope, description, superadmin]
+      required: [id, name, audit_short, scope, description, full_access]
       properties:
         id:
           type: string
@@ -7161,7 +7891,7 @@ components:
           type: string
         description:
           type: string
-        superadmin:
+        full_access:
           type: boolean
     AdminWebPageContract:
       type: object
@@ -9306,6 +10036,18 @@ components:
           type: string
         audit_ref:
           type: string
+    DriveCapacityState:
+      type: string
+      description: >-
+        Operator-drive capacity state from the canonical vaccination drive planner.
+        Capacity is unique animals per available operator per day, never vaccine
+        doses or obligation cells.
+      enum:
+        - not_planned
+        - within_cap
+        - over_cap_required
+        - medical_defer
+        - terminal_animal_closed
     CountByWorkState:
       type: object
       additionalProperties: false
@@ -9315,6 +10057,25 @@ components:
       properties:
         work_state:
           $ref: "#/components/schemas/WorkState"
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
         count:
           type: integer
           minimum: 0
@@ -9429,6 +10190,25 @@ components:
         expected_count:
           type: integer
           minimum: 0
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
         obligation_status:
           type: string
         batch_status:
@@ -9613,6 +10393,25 @@ components:
           $ref: "#/components/schemas/ProcessIntegrityEvidence"
         work_state:
           $ref: "#/components/schemas/WorkState"
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
     ProtocolAdherenceResponse:
       type: object
       additionalProperties: false
@@ -9713,6 +10512,25 @@ components:
         next_action:
           type: string
         evidence_link:
+          type: string
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
           type: string
         obligation_id:
           type: string
@@ -9862,6 +10680,7 @@ components:
         - proofStatus
         - verificationStatus
         - nextAction
+        - primaryActionKey
       properties:
         parkId:
           type: string
@@ -9873,6 +10692,12 @@ components:
           format: uuid
         shedName:
           type: string
+        physicalShed:
+          type: string
+          description: Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition.
+        partition:
+          type: string
+          description: Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds.
         animalStage:
           type: string
         targetCount:
@@ -9911,6 +10736,12 @@ components:
           $ref: "#/components/schemas/VaccinationExecutionVerificationStatus"
         nextAction:
           type: string
+        primaryActionKey:
+          type: string
+          enum:
+            - scan
+            - none
+          description: Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
         obligationId:
           type: string
           format: uuid
@@ -10298,8 +11129,9 @@ components:
           type: integer
           minimum: 1
           description: >-
-            Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute
-            estimated_days BEFORE publish. Omit to fall back to the published/operational cap.
+            Draft operator animal cap (unique animals per available operator per day) authored in the
+            rule editor, used to compute estimated operator-days BEFORE publish. Omit to fall back to
+            the published/operational cap.
         max_buffer_days:
           type: integer
           minimum: 0
@@ -10316,6 +11148,8 @@ components:
         Aggregate-only config impact preview. Every number is read from the precomputed vaccination
         eligibility rollup (read model); the request path never scans goats. Use the business names
         only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap).
+        vaccination_cells remains a dose-row volume metric for stock planning; drive capacity is based on
+        unique eligible animals per available operator per day.
       required:
         - eligible_animals
         - vaccination_cells
@@ -10331,28 +11165,28 @@ components:
           description: SUM(animal_count) over usable animals matching the filter.
         vaccination_cells:
           type: integer
-          description: eligible_animals × selected dose rows.
+          description: eligible_animals × selected dose rows; stock/dose volume only, not operator capacity.
         affected_sheds:
           type: integer
           description: Distinct sheds holding usable animals in scope.
         estimated_days:
           type: integer
-          description: ceil(vaccination_cells / daily_cap).
+          description: Estimated operator-days from unique eligible animals and daily_cap.
         daily_cap:
           type: integer
-          description: Configured vaccinations/day used for estimated_days.
+          description: Configured unique animals per available operator per day used for estimated_days.
         capacity_status:
           type: string
           enum: [within_cap, over_cap, capacity_breach]
           description: >-
             Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one
-            day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it).
-            Omitted when there are no cells to plan.
+            operator-day), over_cap (Split — fits the safe window), capacity_breach (Capacity action —
+            add operators or finish over cap inside the safe window). Omitted when there is no animal work to plan.
         planned_sessions:
           type: array
           description: >-
-            Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days
-            remains the full duration when the preview is truncated.
+            Pre-publish operator-day estimate under the draft daily cap. Bounded for very large herds;
+            estimated_days remains the full duration when the preview is truncated.
           items:
             $ref: "#/components/schemas/VaccinationPlannedSession"
         doses_available:
@@ -11100,10 +11934,10 @@ components:
         Machine vocabulary for capacity/session-splitting state:
         - within_cap: fits in a single day (sessions <= 1)
         - over_cap: safely split across multiple days within the safe window
-        - capacity_breach: cannot fit within the safe window; needs manager review
+        - capacity_breach: cannot fit within the safe window at authored cap; add operators or finish over cap
 
         NEVER show raw tokens in CEO UI. Frontend renders provided labels:
-        within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+        within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Capacity action"
     VaccinationPlannedSession:
       type: object
       additionalProperties: false
@@ -11118,18 +11952,19 @@ components:
           description: Asia/Kolkata business date (YYYY-MM-DD)
         vaccinations:
           type: integer
-          description: Vaccination cells (obligations) planned for this day
+          description: Animal slots planned for this day
         dailyLimit:
           type: integer
-          description: The configured daily vaccination capacity cap
+          description: The configured daily animals/operator cap
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"
     VaccinationCapacityConfig:
       type: object
       additionalProperties: false
       description: |
-        Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
-        counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
+        Tenant vaccination drive capacity config published from the versioned vaccination rule DSL. The cap
+        counts unique animals per available operator per business date, not vaccine doses or obligation
+        cells. One animal receiving a same-day vaccine bundle still consumes one operator slot.
       required:
         - maxPerDay
         - capacityScope
@@ -11141,7 +11976,7 @@ components:
           type: integer
           minimum: 1
           maximum: 100000
-          description: Max vaccination administrations allowed per day.
+          description: Max unique animals one available operator can handle per business date.
         capacityScope:
           type: string
           enum:
@@ -11153,7 +11988,7 @@ components:
           type: integer
           minimum: 0
           maximum: 60
-          description: Extra safe-window days past the first due day before work is flagged Needs review.
+          description: Extra safe-window days past the first due day before added operators or over-cap completion is required.
         overflowPolicy:
           type: string
           enum:
@@ -11162,6 +11997,195 @@ components:
         rowVersion:
           type: integer
           description: Published capacity config row version.
+        maxShotsPerAnimalPerDrive:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Admin-editable override of the same-day per-animal shot cap enforced by the obligation
+            sweeper. null means "no override" -- the planner falls back to the published rule_dsl
+            drive_policy value / code default.
+    VaccinationOperatorShift:
+      type: object
+      additionalProperties: false
+      description: |
+        Phase 1 CONFIG-ONLY: one operator's authored shift window + week-off for a park. Start/end are
+        minutes-of-day (0-1439) so a non-hour-aligned start (e.g. 08:30) is exact.
+      required:
+        - operatorId
+        - displayName
+        - shiftLabel
+        - shiftStartMinute
+        - shiftEndMinute
+      properties:
+        operatorId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          description: Backend-owned operator display name (workforce_members.display_name).
+        shiftLabel:
+          type: string
+          enum:
+            - am
+            - pm
+            - rover
+        shiftStartMinute:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        shiftEndMinute:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        weekOffWeekday:
+          type: string
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+          description: Lowercase weekday name; absent when the operator has no week-off.
+    VaccinationParkScopeOption:
+      type: object
+      additionalProperties: false
+      description: >-
+        One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical
+        Postgres `locations` rows compiled by the backend; clients render them and send parkId back.
+      required:
+        - parkId
+        - code
+        - name
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Short park code (may be empty when the park has none).
+        name:
+          type: string
+          description: Display name for the park option.
+    VaccinationParkScopeAmbiguous:
+      type: object
+      additionalProperties: false
+      description: >-
+        409 body for a read whose park scope the caller must choose. availableParks is the exact set
+        the caller is authorized for; an empty array means the caller has no active park scope at all
+        (a grant problem), which is a different situation from having several.
+      required:
+        - code
+        - message
+        - trace_id
+        - availableParks
+      properties:
+        code:
+          type: string
+          enum: [park_scope_ambiguous]
+        message:
+          type: string
+          description: Backend-owned user-facing reason. Clients render this text; they do not compose their own.
+        trace_id:
+          type: string
+        availableParks:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationParkScopeOption"
+    VaccinationOperatorAssignmentConfig:
+      type: object
+      additionalProperties: false
+      description: |
+        Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
+        operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
+      required:
+        - parkId
+        - activeOperatorsPerDay
+        - defaultOperatorId
+        - rowVersion
+        - shifts
+      properties:
+        parkId:
+          type: string
+          format: uuid
+          description: >-
+            The park this config belongs to, as RESOLVED by the backend (echoing an explicit park_id,
+            or the caller's single authorized park scope). Clients scope their roster/capacity reads
+            to this value instead of inferring a park from returned rows.
+        activeOperatorsPerDay:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: N operators active per business day for this park. CPT runs N=1 today.
+        defaultOperatorId:
+          type: string
+          format: uuid
+          description: The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
+        selectedOperatorIds:
+          type: array
+          description: Explicit operators selected for parallel mode. When empty, the backend falls back to roster order.
+          items:
+            type: string
+            format: uuid
+          maxItems: 3
+        rowVersion:
+          type: integer
+          format: int64
+          description: Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperatorShift"
+    UpdateVaccinationOperatorAssignmentConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - activeOperatorsPerDay
+        - defaultOperatorId
+        - rowVersion
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        activeOperatorsPerDay:
+          type: integer
+          minimum: 1
+          maximum: 3
+        defaultOperatorId:
+          type: string
+          format: uuid
+        selectedOperatorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 3
+        rowVersion:
+          type: integer
+          format: int64
+          description: The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
+    UpdateVaccinationCapacityConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - maxPerDay
+        - rowVersion
+      properties:
+        maxPerDay:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        maxShotsPerAnimalPerDrive:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Omit or set null to clear the override and fall back to the published rule_dsl value / code default.
+        rowVersion:
+          type: integer
+          description: The rowVersion last read by the admin.
     VaccinationShedStatus:
       type: string
       enum:
@@ -11259,10 +12283,121 @@ components:
           allOf:
             - $ref: "#/components/schemas/VaccinationShedOwner"
             - nullable: true
+        driveOperatorNames:
+          type: array
+          description: Actual vaccination drive operators assigned by the operator-cap planner for this physical shed.
+          items:
+            type: string
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"
         status:
           $ref: "#/components/schemas/VaccinationShedStatus"
+    VaccinationDriveAssignmentRow:
+      type: object
+      additionalProperties: false
+      required:
+        - plannedDate
+        - originalPlannedDate
+        - vaccineOriginalDates
+        - operatorId
+        - operatorName
+        - parkId
+        - parkName
+        - physicalShed
+        - partitionLabel
+        - animals
+        - dueAnimals
+        - doneAnimals
+        - deferredAnimals
+        - overdueAnimals
+        - vaccineNames
+        - vaccineCodes
+        - totalDoses
+        - capacity
+      properties:
+        plannedDate:
+          type: string
+          format: date
+        originalPlannedDate:
+          type: string
+          format: date
+          description: Persisted source drive date before any vaccine-level date override is applied.
+        vaccineOriginalDates:
+          type: object
+          additionalProperties:
+            type: string
+            format: date
+          description: Original drive date keyed by vaccine code, used when a mixed-vaccine operator row is moved one vaccine at a time.
+        operatorId:
+          type: string
+          format: uuid
+        operatorName:
+          type: string
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        physicalShed:
+          type: string
+        partitionLabel:
+          type: string
+        animals:
+          type: integer
+          minimum: 0
+          description: Assigned operator-capacity animals for this operator/date/shed/partition row.
+        dueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still planned or in progress and not yet overdue.
+        doneAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals whose drive batch is completed.
+        deferredAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals held/deferred from the drive.
+        overdueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still open after the planned drive date.
+        vaccineNames:
+          type: array
+          description: Backend-owned vaccine display labels attached to this operator assignment row.
+          items:
+            type: string
+        vaccineCodes:
+          type: array
+          description: Backend-owned vaccine identity codes used for drive-date overrides.
+          items:
+            type: string
+        totalDoses:
+          type: integer
+          description: Number of vaccine tasks/doses represented by this assignment row.
+          minimum: 0
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+    VaccinationDriveAssignmentResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationDriveAssignmentRow"
     VaccinationShedVaccineRow:
       type: object
       additionalProperties: false
@@ -11445,7 +12580,11 @@ components:
         - workflow_row_id
         - status
         - due_at
+        - clinical_due_at
         - sequence
+        - dose_code
+        - vaccine_label
+        - display_label
       properties:
         obligation_id:
           type: string
@@ -11462,6 +12601,18 @@ components:
         due_at:
           type: string
           format: date-time
+        clinical_due_at:
+          type: string
+          format: date-time
+        scheduled_for:
+          type: string
+          format: date-time
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         sequence:
           type: integer
     VaccinationPassportHistoryItem:
@@ -11473,6 +12624,9 @@ components:
         - status
         - administered_at
         - doses
+        - dose_code
+        - vaccine_label
+        - display_label
         - adverse_reaction
       properties:
         completion_id:
@@ -11490,6 +12644,12 @@ components:
           format: date-time
         doses:
           type: integer
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         adverse_reaction:
           type: boolean
         withdrawal_until:
@@ -12070,11 +13230,21 @@ components:
       type: object
       additionalProperties: false
       required:
+        - lifecycle
         - stages
         - breeds
         - parks
         - sheds
       properties:
+        lifecycle:
+          type: array
+          description: >-
+            Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/
+            culled/transferred), independent of the currently-selected lifecycle filter — this is
+            what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather
+            than only ever showing the live herd.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
         stages:
           type: array
           description: Distinct management_stage values actually present, so a filter cannot offer a dead option.

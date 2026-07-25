@@ -14,7 +14,11 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import android.content.Context
+import org.junit.Assert.assertNotNull
+import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.datastore.FakeDeviceStore
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
@@ -39,16 +43,26 @@ class BootstrapViewModelAnalyticsTest {
         override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
     }
 
+    private class FakeAuthRepository(private val email: String?) : AuthRepository {
+        override suspend fun signInWithEmailPassword(email: String, password: String): Result<Unit> = Result.success(Unit)
+        override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
+        override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
+        override suspend fun currentIdToken(forceRefresh: Boolean): String? = null
+        override fun currentEmail(): String? = email
+        override fun signOut() {}
+    }
+
     @Test
     fun `resolved bootstrap logs bootstrap_loaded with chrome and stamps role and park identity`() = runTest {
         val analytics = RecordingAnalytics()
         val context = AnalyticsContext(flavor = "dev")
+        var pushSyncCalls = 0
         val repo = FakeBootstrapRepository(
             navState = NavState(NavChrome.EXPANDED, emptyList()),
             profile = BootstrapOperatorProfileDto(operatorId = "member-123", primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
 
-        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync { pushSyncCalls++ })
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -60,6 +74,13 @@ class BootstrapViewModelAnalyticsTest {
         assertEquals("Park A", analytics.userProps[AnalyticsEvents.UserProps.PRIMARY_PARK])
         assertEquals("dev", analytics.userProps[AnalyticsEvents.UserProps.FLAVOR])
         assertEquals("member-123", analytics.userId)
+
+        // Email (business-owner decision) is set as a user property from the signed-in Firebase user.
+        assertEquals("ravi@mesha.sg", analytics.userProps[AnalyticsEvents.UserProps.EMAIL])
+        // Device id resolved from DeviceStore.appInstallId(); set as user property + on the context.
+        assertNotNull("device id resolved", context.deviceId)
+        assertEquals(context.deviceId, analytics.userProps[AnalyticsEvents.UserProps.DEVICE_ID])
+        assertEquals("successful bootstrap must refresh-register the current FCM token", 1, pushSyncCalls)
     }
 
     @Test
@@ -71,7 +92,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = null,
         )
 
-        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync {})
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -94,7 +115,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "   ", primaryLocation = ""),
         )
 
-        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync {})
         advanceUntilIdle()
 
         assertNull("blank role hint -> null identity", context.role)
@@ -110,7 +131,7 @@ class BootstrapViewModelAnalyticsTest {
             navState = NavState(NavChrome.EXPANDED, listOf()),
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
-        val vm = BootstrapViewModel(repo, analytics, context, PushTokenSync {})
+        val vm = BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync {})
         advanceUntilIdle()
         check(vm.state.value is BootstrapUiState.Ready) { "precondition: vm should be Ready before reset" }
 

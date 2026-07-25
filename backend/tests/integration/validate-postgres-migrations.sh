@@ -505,10 +505,15 @@ BEGIN
   FROM sop_versions sv
   JOIN sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
   WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
-    AND COALESCE(sv.proof_policy ->> 'subject_scope', '') <> 'goat';
+    AND (
+      COALESCE(sv.proof_policy ->> 'proof_mode', '') <> 'shed_level_video'
+      OR COALESCE(sv.proof_policy ->> 'subject_scope', '') <> 'shed'
+      OR COALESCE(NULLIF(sv.proof_policy ->> 'minimum_count', '')::int, 0) < 1
+      OR COALESCE(NULLIF(sv.proof_policy ->> 'maximum_count', '')::int, 0) > 5
+    );
 
   IF bad_rows <> 0 THEN
-    RAISE EXCEPTION '% vaccination sop_versions row(s) not on goat-scan subject_scope', bad_rows;
+    RAISE EXCEPTION '% vaccination sop_versions row(s) not on shed-level video proof contract', bad_rows;
   END IF;
 END $$;
 R50SQL
@@ -516,6 +521,13 @@ R50SQL
 
 echo "Running R50 forward-compatibility assertions (clean install)"
 printf '%s\n' "$r50_forward_compat_assertions_sql" | run_psql
+
+delta_count="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' ! -name '000001_goatos_clean_slate_baseline.sql' | wc -l | tr -d '[:space:]')"
+if [[ "$delta_count" == "0" ]]; then
+  echo "Single clean-slate baseline detected; skipping historical old-baseline upgrade validation."
+  echo "Migration validation passed"
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Old-baseline upgrade validation: a dev/stg database that applied the ORIGINAL

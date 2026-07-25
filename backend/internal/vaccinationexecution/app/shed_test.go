@@ -154,13 +154,13 @@ func TestShedSummaryPassesThroughPlannerAndOwners(t *testing.T) {
 func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 	next := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 	proj := []domain.ShedSummaryProjection{
-		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Godell 1", Animals: 300, DueAnimals: 300, OpenCells: 250, Sessions: 3, Capacity: domain.CapacityOverCap, Status: domain.ShedStatusSplit, NextDue: &next, TotalCount: 1},
+		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Godell 1", Animals: 300, DueAnimals: 300, OpenCells: 250, Sessions: 2, Capacity: domain.CapacityOverCap, Status: domain.ShedStatusSplit, NextDue: &next, TotalCount: 1},
 	}
 	ops := []domain.OperationsRow{
 		{ParkID: "p1", ShedID: "s1", ProtocolID: "fmd", ProtocolName: "Preventive Care Vaccination Matrix", VaccineNames: []string{"FMD"}, Stage: "kid", Animals: 150, DueCount: 150, TotalCount: 150},
 		{ParkID: "p1", ShedID: "s1", ProtocolID: "hs", ProtocolName: "Preventive Care Vaccination Matrix", VaccineNames: []string{"HS"}, Stage: "kid", Animals: 100, DueCount: 100, TotalCount: 100},
 	}
-	svc := NewService(fakeRepo{shedRows: proj, opsRows: ops}) // default cap config 100/3
+	svc := NewService(fakeRepo{shedRows: proj, opsRows: ops}) // default cap config 200/7
 
 	detail, found, err := svc.ShedDetail(context.Background(), "s1", domain.OperationsQuery{TenantID: "t1"})
 	if err != nil || !found {
@@ -169,16 +169,16 @@ func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 	if detail.Animals != 300 || detail.Due != 300 || detail.Done != 0 {
 		t.Errorf("header %d/%d/%d", detail.Animals, detail.Due, detail.Done)
 	}
-	if detail.Sessions != 3 || detail.Capacity != domain.CapacityOverCap || detail.Status != domain.ShedStatusSplit {
+	if detail.Sessions != 2 || detail.Capacity != domain.CapacityOverCap || detail.Status != domain.ShedStatusSplit {
 		t.Errorf("header planner: sessions=%d cap=%q status=%q", detail.Sessions, detail.Capacity, detail.Status)
 	}
-	// Planned sessions re-planned from 250 open cells at cap 100 -> 100/100/50 across 3 days from next_due.
-	if len(detail.PlannedSessions) != 3 {
-		t.Fatalf("planned sessions = %d, want 3", len(detail.PlannedSessions))
+	// Planned sessions re-planned from 300 due animals at cap 200 -> 200/100 across 2 days from next_due.
+	if len(detail.PlannedSessions) != 2 {
+		t.Fatalf("planned sessions = %d, want 2", len(detail.PlannedSessions))
 	}
-	wantVax := []int{100, 100, 50}
+	wantVax := []int{200, 100}
 	for i, ps := range detail.PlannedSessions {
-		if ps.Vaccinations != wantVax[i] || ps.DailyLimit != 100 || ps.Capacity != domain.CapacityWithinCap {
+		if ps.Vaccinations != wantVax[i] || ps.DailyLimit != 200 || ps.Capacity != domain.CapacityWithinCap {
 			t.Errorf("planned[%d] = %+v", i, ps)
 		}
 	}
@@ -194,6 +194,32 @@ func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 	}
 	if !gotNames["FMD"] || !gotNames["HS"] || gotNames["Preventive Care Vaccination Matrix"] {
 		t.Errorf("vaccine names = %+v, want FMD/HS not protocol title", gotNames)
+	}
+}
+
+func TestShedDetailPrefersPersistedOperatorDriveSessions(t *testing.T) {
+	next := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	proj := []domain.ShedSummaryProjection{
+		{ParkID: "p1", ParkName: "CPT", ShedID: "s1", ShedName: "Gandhi 1", Animals: 300, DueAnimals: 300, Sessions: 2, Capacity: domain.CapacityOverCap, Status: domain.ShedStatusSplit, NextDue: &next, TotalCount: 1},
+	}
+	persisted := []domain.PlannedSession{
+		{Date: "2026-07-23", Vaccinations: 90, DailyLimit: 200, Capacity: domain.CapacityWithinCap},
+		{Date: "2026-07-24", Vaccinations: 210, DailyLimit: 200, Capacity: domain.CapacityBreach},
+	}
+	svc := NewService(fakeRepo{shedRows: proj, planned: persisted})
+
+	detail, found, err := svc.ShedDetail(context.Background(), "s1", domain.OperationsQuery{TenantID: "t1"})
+	if err != nil || !found {
+		t.Fatalf("ShedDetail found=%v err=%v", found, err)
+	}
+	if len(detail.PlannedSessions) != len(persisted) {
+		t.Fatalf("planned sessions = %d, want persisted %d", len(detail.PlannedSessions), len(persisted))
+	}
+	if detail.PlannedSessions[0].Date != "2026-07-23" || detail.PlannedSessions[0].Vaccinations != 90 {
+		t.Fatalf("first planned session = %#v, want persisted assignment row", detail.PlannedSessions[0])
+	}
+	if detail.PlannedSessions[1].Capacity != domain.CapacityBreach {
+		t.Fatalf("second planned capacity = %q, want capacity breach from persisted assignment", detail.PlannedSessions[1].Capacity)
 	}
 }
 

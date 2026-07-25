@@ -121,4 +121,20 @@
     <string name="counts_hint_reason">3 से 500 वर्णों के बीच।</string>
     <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होता है जिसे आप यहाँ चुनते हैं।</string>
     <string name="counts_hint_death_lookup">मृत्यु दर्ज करने पर ठीक वही पशु बाहर होता है जिसे आप यहाँ चुनते हैं।</string>
+
+    <!-- Census hero, filter sheet + lifecycle facet, shed subtotals -->
+    <string name="counts_filter_lifecycle">स्थिति</string>
+    <string name="counts_filter_all_lifecycles">जीवित झुंड</string>
+    <string name="counts_filter_lifecycle_unavailable">उपलब्ध नहीं</string>
+    <string name="counts_filters_button">फ़िल्टर</string>
+    <string name="counts_filters_sheet_title">जनगणना फ़िल्टर करें</string>
+    <string name="counts_filters_sheet_done">हो गया</string>
+    <string name="counts_hero_total_label">कुल झुंड</string>
+    <string name="counts_hero_adults_label">वयस्क</string>
+    <string name="counts_hero_kids_label">बच्चे</string>
+    <string name="counts_shed_subtotal_fmt">इस शेड में %1$d</string>
+    <string name="counts_shed_unassigned">कोई शेड निर्धारित नहीं</string>
+    <string name="counts_shifting_from">से</string>
+    <string name="counts_shifting_to">तक</string>
+    <string name="counts_more_fields">अधिक विवरण</string>
 </resources>

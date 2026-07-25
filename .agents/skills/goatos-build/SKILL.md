@@ -11,6 +11,71 @@ argument-hint: "[area: backend|forms|mobile|dashboard|analytics|infra|contracts|
 Use this skill for Goat OS engineering work. This file is the single entry point
 for references. Do not route from memory alone.
 
+RBAC vocabulary rule: do not introduce a separate admin person/business role.
+CEO/CXO full access is represented by the `ceo_internal` grant role and `cxo`
+workforce hint. Product route/package names such as `/admin/*` or `admin-web`
+are not grant roles.
+
+CPT operator-drive rehearsal seed packet: when seeding the supplied CPT source,
+use `fixtures/vaccination-cpt-operator-drive-2026-07-23/` and business date
+`2026-07-23`. The packet is CPT/Channapatna only; do not synthesize CBE/
+Coimbatore. The only field operators are Amit Kumar, Darshan Talwar, and Sagar
+Mahoor, all equal vaccination operators at `200` unique animals/day/operator.
+Chandrakant is director-only monitoring scope. The five founder/CXO emails in
+`docs/runbooks/auth.md` must receive tenant-scoped `ceo_internal` grants. The
+same roster may include verifier-only Firebase email-password grants; Jyothi
+`jyothipvg12345@gmail.com` is a verifier for CPT seed review and must not gain a
+vaccination operator seat or animal capacity.
+`Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
+rules still come from the backend vaccination rule engine. Adult vaccination
+generation must not use `entry_date` / `post_arrival` as a due-date anchor:
+accepted same-vaccine history drives adult booster/repeat timing, and adult
+blank-history animals enter the reviewed manual campaign/catch-up cohort packed
+by whole physical shed/partition. Kid/young DOB and age-window timing remains
+strict.
+Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
+the packet's documented `raw/` layout into the normalized bundle both seed
+commands require and then runs the documented chain against it, so the documented
+command and the executable shape agree. Do not hand-run the individual binaries.
+The materialized CPT bundle must include reviewed shed-manager rows for every
+active Channapatna physical shed. Darshan Talwar is the manager/default drive
+owner and Sagar Mahoor is the reviewed backup; `seed-shed-positions` must run
+even when `cpt-operator-roster.json` is present. A completed accepted-history
+shed, such as Gandhi ET+TT, still resolves to Darshan in shed summaries rather
+than showing `Operators unassigned`.
+The director and the CEO/CXO grants come from the committed
+`cpt-operator-roster.json` (`directors[]`, `leadership_full_access`), which
+`backend/cmd/seed-roster-real` now genuinely consumes; a director is seeded with
+no `workforce_positions` row, so he carries zero field execution capacity, and
+that is asserted rather than assumed.
+After that DB seed, provision Android login for the three field operators from
+the same roster: Amit, Darshan, and Sagar each need their own Firebase/Auth
+email-password identity using their `operators[].email_hint`. Never use one
+common operator account, one shared password, or a CEO/CXO account for field
+Android execution; use unique temporary passwords or individual reset flows, do
+not commit plaintext passwords, and smoke-test Android bootstrap/login for each
+operator before calling the seed complete.
+
+Git identity rule: Goat OS commits must use a Mesha identity. Before committing
+or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
+push with Heva, Slice, gmail, or personal identities. `make git-identity-guard`
+and `make ci-local` enforce this.
+
+Leadership assistant coverage rule: every current or future
+leadership-relevant backend module, migration, OpenAPI contract, admin-web
+route, mobile workflow, reporting table, or domain event must update the
+leadership assistant read path in the same change. Update a Mesha read API
+mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
+document an explicit exclusion. `make leadership-assistant-coverage-guard`
+enforces this in local CI.
+
+CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
+`ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
+action_center, vaccination_operator_status) that read canonical vaccination/
+procurement/obligation/workforce tables but do NOT modify the vaccination seed/
+config/SOP schema. These migrations support the leadership assistant's
+operational read path and are not part of the vaccination protocol contract.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.
@@ -88,6 +153,45 @@ Permanent scale and guard-authoring rules:
 - Vaccination seed/config changes must keep the committed fixture contract in
   sync. Matrix schedule rows require `route_site=subcutaneous` as protocol
   metadata only; do not add route/site back to vaccination SOP/operator forms.
+- ET+TT adult booster is mandatory schedule work: adult ET+TT dose 2 is due 21
+  days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
+  optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
+  / course completion.
+  Post-seed guard: accepted `et_tt_adult_w1` without same-goat
+  `et_tt_adult_w2` obligation/completion is a broken DB and must block handoff.
+- Vaccination drive capacity is per available operator per business date and
+  counts unique animals, not doses or vaccine obligation rows. Persist generated
+  operator/shed/partition assignments set-wise; if the safe buffer would be
+  breached, mark the drive over-cap required and finish instead of silently
+  pushing animals beyond the latest-safe date.
+- Operator drive assignments are generated metadata, not obligation membership.
+  Review SQL joins at exact assignment grain so multiple operators, planned
+  dates, or partitions cannot multiply counts or expose another operator's
+  partition work.
+- `vaccination_drive_assignments` is the canonical operator-day source for
+  scheduled drive execution once rows exist. Full Schedule, Calendar L1/L2/L3,
+  Action Center, Protocol Adherence, Control Tower, Workflows, execution pages,
+  and leadership/operator reads must prefer assignment `planned_date` before
+  batch `planned_date` or obligation `due_at`. A date move or vaccine override is
+  not complete until every command lens reads the same assignment/effective-date
+  grain and local CI's `vaccination-schedule-canonical-guard` would fail if any
+  consumer falls back to stale dates.
+- Shed partition labels are not canonical sheds. `Gandhi 1`, `Gandhi 2`, and
+  `Godel 1 - Part 3` must normalize to physical-shed owner/count rows plus
+  partition metadata. CPT-only rehearsal seeds must not pull CBE/Coimbatore
+  into HRMS, parks, APIs, or UI just because the full fixture has both centers.
+  Strict source-backed shed ownership applies to active sheds that contain live
+  source goats; empty baseline catalog sheds are not vaccination drive truth.
+  In CPT operator-drive rehearsal seeds, Amit, Darshan, and Sagar are all
+  vaccination operators; do not treat Amit as park-head-only or
+  Sagar as backup/support-only for drive assignment. Preserve the source
+  week-offs: Amit Friday, Darshan Sunday, Sagar Saturday.
+- Vaccination operator availability/capacity is a sweep-session fact. Load it
+  once per `(tenant, park, business_date, cap_per_operator)` and pass/cache it
+  through date scoring, `ConductedBy` selection, effective cap calculation, and
+  assignment splitting. Never call `AvailableVaccinationOperatorsForDrive` from
+  multiple helpers or from park/date loops; that is the same N+1 fan-out bug
+  wearing a different shirt.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.
@@ -109,6 +213,13 @@ verification -> read-model chain from
 `context/architecture/operational-kernel.md`. The end goal is always process
 integrity: was the expected process followed, where broken, who owns next action,
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
+For vaccination FCM, do not stop at "an alert exists": each rule must name its
+trigger, audience source, cadence/SLA, message summary, and tap route. Routine
+day-start/afternoon nudges are field-scoped; the 20:30 IST due-today checkpoint
+adds PC director/CEO leadership only when scheduled sheds are still not
+submitted. Proof submission sends role-specific rows: verifier devices deep-link
+to video review, leadership devices deep-link to Vaccination overview. Run
+`make fcm-recipient-routing-guard` before landing notification changes.
 For any backend/frontend/mobile CRUD, import, mobile offline write, domain event,
 or future module such as shifting, dead birth, or feed direction, also load
 `context/architecture/domain-event-integration-contract.md` and keep
@@ -237,6 +348,19 @@ one product; this skill is the navigation layer.
   until vaccination generation and the drive-batching sweeper have also run
   through the visible schedule horizon and the closeout check proves zero
   in-window `scheduled`/`due` vaccination obligations remain unbatched.
+- **A reseed proof requires a clean, origin/main-identical checkout, and it is
+  gated.** `make seed-checkout-staleness-gate` runs read-only as the first step
+  of every seed target, before any DB write, and fails closed on an unreachable
+  origin, a `HEAD` that differs from `origin/main`, or a dirty tree.
+  `GOATOS_ALLOW_STALE_SEED_CHECKOUT=1` bypasses it loudly and voids the proof.
+- **A documented DB comparison must be executed, not just described.**
+  `tools/dev/seed-closeout.sh` runs the drive packet's
+  `check-expected-drive-schedules.mjs` (self-test, then the real row comparison)
+  whenever `GOATOS_EXPECTED_DRIVE_SCHEDULES` names a packet expectation file; a
+  missing file or a packet without the checker fails the closeout. Without this
+  the reseed can report "clean" while breaching a per-operator animal cap,
+  fanning out past `active_operators_per_day`, assigning a non-contract
+  operator, or presenting superseded/zero-obligation shell batches.
 - **Any new vaccination/HRMS sheet is validated before DB access.** Normalize it
   to the canonical six-file bundle and run `make vaccination-hrms-source-audit
   SOURCE=/absolute/path AS_OF=YYYY-MM-DD`. Read every failure category, apply
@@ -248,6 +372,23 @@ one product; this skill is the navigation layer.
   validator, adversarial self-test, transform, fixture hashes,
   `docs/runbooks/source-seed-data-validation.md`, source-date contract, and
   anti-pattern docs in the same patch; the coupling guard must fail otherwise.
+  A source-audit range must be identical to the DB `CHECK` and the domain
+  validator for the same field, or the preflight does not predict the seed:
+  operator `shift_start_minute`/`shift_end_minute` are minutes-of-day `0..1439`
+  on both bounds, in all three places.
+  Committed fixture/contract loaders must fail loud on unknown keys.
+  `backend/cmd/seed-roster-real` decodes `cpt-operator-roster.json` with
+  `Decoder.DisallowUnknownFields()`, so a declared block with no consuming struct
+  field is a hard named error instead of an `encoding/json` silent drop. Adding a
+  block to that contract requires adding its consumer in the same change.
+  For vaccination `health_status` source data, keep case-log vocabulary separate
+  from clinical state: `Open -> sick`, `Extended -> under_treatment`,
+  `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
+  `recovering` or as a defer.
+  Accepted one-time vaccination completion history is canonical: if generation
+  recreates an active obligation for the same goat/rule during seed, the seed
+  must supersede the active duplicate and preserve the accepted completion as
+  goat history.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
@@ -312,9 +453,13 @@ one product; this skill is the navigation layer.
   into a false empty/error screen while the developer machine is compiling or
   running CI. The supervisor must fast-forward only a clean ancestor checkout,
   re-exec before DB preparation, and restart FE and BE together when either
-  fails or `origin/main` advances. An isolated E2E stack is unrelated: it must
-  have non-shared FE/BE ports and an explicit throwaway DB; never stop, sync,
-  seed, migrate, reuse, or delete it while fixing the shared stack. Run `make
+  fails or `origin/main` advances. Admin-web dev startup must always go through
+  `apps/admin-web/scripts/run-local-next.mjs`, including isolated/custom ports
+  such as `--port 3318`. Plain `next dev` bypasses the local bearer environment
+  and causes `/admin-web/bootstrap` to fail with `invalid_bearer_token`. An
+  isolated E2E stack is unrelated: it must have non-shared FE/BE ports and an
+  explicit throwaway DB; never stop, sync, seed, migrate, reuse, or delete it
+  while fixing the shared stack. Run `make
   local-stack-service-guard`; it is a registered, required standard local-CI
   guard. Canonical operating details:
   `docs/runbooks/local-full-stack-rehearsal.md`.
@@ -375,6 +520,13 @@ one product; this skill is the navigation layer.
   Do not copy or hand-roll kid/adult path logic in seeders; call the live
   vaccination schedule-path helper/config. Checklist:
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+- Vaccination proof grain is SOP-owned and must flow through backend config/API
+  into Android. Current source fixture contract is shed-level video proof:
+  one-to-five shed videos (camera or gallery) plus per-goat scan timestamps.
+  Do not hardcode per-goat video proof in seeders, Android, verifier bridge, or
+  assistant copy. Any change to this proof grain must update the migration,
+  committed fixture manifest, validator, runbook, Android UI, and verifier path
+  in the same patch.
 - Local vaccination proof after a seed/reseed/import/change of goat shed, goat
   health state, goat lifecycle, source history, protocol rules, or HRMS
   ownership must run the same closeout chain: generation, sweeper drive
@@ -410,6 +562,40 @@ one product; this skill is the navigation layer.
   back to animal `due_at` only for unbatched work. Guard:
   `make vaccination-drive-clubbing-guard`. Post-reseed/local proof also requires
   `make vaccination-drive-clubbing-db-proof` after the sweeper.
+- Vaccination drive date override is a write-path/kernel operation, not a
+  frontend/read-model illusion. When a vaccine is moved out of a mixed
+  operator-cap drive, raw `vaccination_drive_assignments` must be split so only
+  the moved vaccine leaves the original date. Selecting the original date is the
+  supported revert path: cancel the active override and restore the raw
+  assignment membership. Proof must cover move and revert with raw DB assertions
+  plus existing clinical-rule outcomes and operator animal caps.
+- Vaccination operator animal capacity is HRMS-owned. The live source is
+  `workforce_positions.vaccination_daily_animal_cap` per operator position;
+  `vaccination_capacity_config.max_per_day` is only a fallback when HRMS has no
+  explicit cap. Operator shift configuration (shift_label, shift_start_minute,
+  shift_end_minute) seeds into `vaccination_operator_shift_config` via the
+  operator-roster overlay; operator assignment config (active_operators_per_day,
+  default_operator_code) seeds into `vaccination_operator_assignment_config`
+  (scheduler-consumed operator assignment config). HRMS edits,
+  operator-roster seed overlays, planner assignment splitting, timetable
+  capacity, admin-web display, and leadership reads must all use the same
+  per-position cap field. Any change to cap source, shift fields, or assignment
+  config must update the migration/seed fixture companions, admin UI, scheduler
+  tests, and capacity/date-move E2E in one patch. Clearing
+  `vaccination_daily_animal_cap` to null is a valid HRMS edit that restores
+  tenant-default capacity; never coerce it to zero or silently leave the
+  previous custom cap. Operator-cap SQL proof must be a real Postgres test for
+  custom/null-default/week-off rows; a source-string guard is only a lint.
+- Date-scoped operator capacity overrides are explicit exceptions, not a new
+  normal cap source. CPT operator-drive seed uses one override for Darshan on
+  2026-07-25 so ET+TT can schedule 210 after only 114 completions on
+  2026-07-24; every other CPT operator/date remains governed by the standing
+  HRMS cap of 200 unless a future fixture explicitly declares another
+  `seed_catchup_overrides` row.
+- Adult non-repeating physical-partition campaign obligations must be
+  idempotent at campaign grain across seed replays. A corrected seed as-of may
+  realign an unbatched open obligation to the reviewed campaign day, but must
+  not create another open obligation for the same goat+dose.
 
 ## Must Not
 
@@ -417,6 +603,7 @@ one product; this skill is the navigation layer.
 - Do not add direct BigQuery queries to React pages.
 - Do not add direct Firestore/GCS writes to the operator app.
 - Do not let AI-created decisions become canonical without deterministic validation and evidence.
+  When an agent claims a test passes, the test must have actually executed (not "[no test files]"/"no tests to run"/skipped). Paste the real test RUN line, its pass/fail output, and commit SHA. A reviewer or orchestrator MUST re-run the claimed test independently to verify the agent's result. Any code review claiming a fix is complete must have pasted test evidence on the real production path, not only a unit test in isolation — the production caller, the retry path, the race condition, or the edge case must reproduce the exact failure first, then pass after the fix.
 - Do not copy old repos blindly into `goatos/`; dashboard frontends are the
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.
@@ -433,3 +620,14 @@ one product; this skill is the navigation layer.
   exercising a disposable tree.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
+
+<!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
+<!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
+
+<!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
+<!-- Coupling review 2026-07-24: for CPT operator-drive reseeds, keep the canonical source/history vaccination matrix intact but run the Makefile target with GOATOS_CPT_EXCLUDE_PPR_2026=1 so the packet publishes no PPR obligations in 2026. -->
+<!-- Coupling review 2026-07-24: CPT adult campaign generation ignores entry_date/post_arrival as a strict splitter; adults group by vaccine/rule plus physical shed/partition under the configured cap, using last vaccination date when present and otherwise the partition campaign start. Kid/young schedules keep strict age/entry timing. The one-time 2026-07-25 ET+TT 210-animal allowance is represented only as an explicit seed_catchup_overrides row; normal operator cap semantics remain 200. -->
+<!-- Coupling review 2026-07-24: CPT operator-drive clean reseed may start from a freshly migrated local DB. seed-roster-real resolves only centers present in the selected source bundle and can create that required park row before HRMS import; generation history uses the full as-of business day so same-day accepted completions suppress duplicate open work before the 2026-07-25 ET+TT 210 catch-up proof runs. -->
+<!-- Coupling review 2026-07-25: Editable vaccination caps (migration 000045 + PUT /vaccination/capacity-config): the operator daily animal cap and a new nullable per-animal shot-cap override are edited on the People/vaccination-operators screen and written to vaccination_capacity_config, cascading vaccination.capacity.changed per active park to re-plan future drives. Seed leaves the override NULL (planner falls back to rule_dsl/default), so no seed fixture, roster, or SOP contract changes. The apply-leave path additionally enforces a min-1-operator-per-day coverage guard (min_operator_coverage 409). -->
+<!-- Coupling review 2026-07-25: selected_operator_ids on vaccination_operator_assignment_config is an admin-selected parallel roster preference. Seed leaves it empty; saving config may reassign current/future open planned drive rows, but source fixture bytes, HRMS roster import, SOP definitions, and completed proofs remain unchanged. -->

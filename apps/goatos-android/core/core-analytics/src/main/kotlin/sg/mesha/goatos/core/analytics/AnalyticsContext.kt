@@ -14,4 +14,8 @@ class AnalyticsContext(val flavor: String) {
 
     @Volatile
     var parkScope: String? = null
+
+    /** Stable per-install device id, stamped onto every event by [FirebaseAnalyticsAdapter.track]. */
+    @Volatile
+    var deviceId: String? = null
 }

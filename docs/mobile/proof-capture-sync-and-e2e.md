@@ -30,61 +30,68 @@ vendor SDK, no visible or invisible `EditText` (see `rfid-keyboard-reader.md`).
 - Each completed tag is written to **Room first** (see §3), appended to the
   drive's scanned-goat list (deduped by tag), and only then reflected in the UI.
   The UI never owns the scan list as transient state — Room is the source of truth.
+- The RFID capture timestamp is the medical administration timestamp. Android
+  sends the device-capture epoch milliseconds with the draft scan, backend stores
+  it on `sop_task_scan_captures.captured_at`, and vaccination fan-out persists it
+  as `vaccination_completions.administered_at` for that goat. Submission time is
+  only a fallback for non-scan legacy paths. UI must display the scanned time in
+  the operator's local/India time zone so the operator can see the exact recorded
+  vaccination time.
 
 ## 2. Video proof capture
 
-The vaccination SOP requires proof on each scanned goat row:
+Vaccination proof grain is SOP-controlled by backend `proof_policy`, never by a
+hardcoded Android/frontend assumption. Supported modes:
 
-- Every scanned goat needs at least one completed camera clip before shed/drive
-  finalization. Proof is linked with `subject_type=goat` and that goat's UUID.
-- One clear handling clip can cover all vaccines administered to that goat in
-  the same handling. The UI never asks for one video per vaccine.
-- An operator can attach up to five clips to one goat row, allowing a second
-  angle or corrected clip without task-level shed/vial/administration slots.
-- The backend-owned `proof_policy` declares goat scope, clip limits, camera
-  source, and verify-before-apply. Android renders status on the goat row and
-  finalization validates the already-synced references.
+- `proof_mode=per_goat_video`, `subject_scope=goat`: every scanned goat needs
+  at least one completed live in-app camera clip before shed/drive finalization.
+  Proof is linked with `subject_type=goat` and that goat's UUID. One clear
+  handling clip can cover all vaccines administered to that goat in the same
+  handling. Up to five clips may be attached to one goat row.
+- `proof_mode=shed_level_video`, `subject_scope=shed`: the shed submit screen
+  shows a shed-level proof field. One shed video is mandatory; up to five shed
+  videos are allowed. The current SOP allows both live camera and gallery picker
+  (`allowed_capture_sources=["in_app_camera","gallery_picker"]`) because the
+  proof is a long shed-level submission video, not a per-goat anti-fraud clip.
 
-## 2a. Camera-only capture (anti-fraud) — HARD BUSINESS RULE
+The backend-owned `proof_policy` declares the mode, subject scope, clip limits,
+allowed capture sources, and verify-before-apply. Android must render from that
+policy. Backend submit/readiness must validate against the same policy. Changing
+the SOP from per-goat to shed-level must not delete the other mode.
 
-Every goat proof clip **must be captured by LIVE, in-app camera recording only.**
+## 2a. Capture-source rules
 
-- **Banned:** any file picker, gallery import, `ACTION_GET_CONTENT`,
-  `ACTION_PICK`, or a generic gallery-capable chooser (including the platform
-  `ACTION_VIDEO_CAPTURE` intent, which can itself surface a chooser on some
-  OEM camera apps) — there is no code path anywhere in the capture surface
-  that can turn an existing file on the device into a `video_proof` capture.
-- **Why:** the proof only means something if the operator is physically
-  present recording live, right now. A picker lets them submit an old or
-  unrelated video and fake verification — that defeats the entire point of a
-  medical proof video.
-- **Implementation:** in-app CameraX live recording
+Per-goat proof clips remain **LIVE in-app camera only**. Shed-level proof clips
+may use camera or gallery only when the SOP explicitly allows gallery.
+
+- **Per-goat banned:** file picker, gallery import, `ACTION_GET_CONTENT`,
+  `ACTION_PICK`, and generic gallery-capable choosers. A per-goat proof only
+  means something if the operator is physically present recording live, right
+  now.
+- **Shed-level allowed when SOP says so:** gallery picker for long shed-level
+  submission videos. The selected `content://` video is immediately copied into
+  app-private storage before Room/outbox sees it, so background upload does not
+  depend on temporary picker permission.
+- Shed-level video capture still uses the same Room/outbox/upload contract as
+  per-goat proof. The submit button must gate on at least one completed shed
+  proof and must cap the proof count at the SOP-declared maximum, currently five.
+  Do not implement a screen-local "one video is enough" assumption; read the min,
+  max, subject, and allowed sources from the backend task/SOP payload.
+- **Implementation:** live camera uses in-app CameraX
   (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, `androidx.camera:camera-view`'s
-  `PreviewView` for the live preview) — see `InAppVideoRecorderOverlay`
-  (`apps/goatos-android/app/.../capture/InAppVideoRecorder.kt`). The recorded
-  file is written to this app's **own private storage**
-  (`Context.filesDir`, never `getExternalFilesDir`/MediaStore/the shared
-  gallery), so it is never visible to — or swappable by — any other app.
-- **Freshness/attribution metadata:** every capture stores its device-clock
-  record start (`capturedStartMs`) and stop (`capturedEndMs`) — duration is
-  derived — plus the recording operator's principal id
-  (`capturedByPrincipalId`), on the Room proof row and in the metadata sent
-  with the registration upload (`captured_start_ms`/`captured_end_ms`/
-  `duration_ms`/`captured_by_principal_id`). A verifier can see this was a
-  live, timed, attributable recording. Geotag/park-location capture is a
-  nice-to-have this build does NOT implement — noted as REMAINING.
-- The captured file still goes Room-first (proof row + sync status), then a
-  background metadata-registration upload, exactly like every other capture
-  in this design — camera-only changes WHERE the bytes come from, not the
-  Room-first/outbox pipeline that follows.
+  `PreviewView`) — see `InAppVideoRecorderOverlay`
+  (`apps/goatos-android/app/.../capture/InAppVideoRecorder.kt`). Camera files
+  are written to app-private storage; gallery files are copied to app-private
+  cache before upload.
+- **Freshness/attribution metadata:** every video proof stores device-clock
+  capture/import start (`capturedStartMs`) and stop (`capturedEndMs`) plus the
+  operator principal id (`capturedByPrincipalId`) on the Room proof row and in
+  upload metadata (`capture_source`, `captured_start_ms`, `captured_end_ms`,
+  `duration_ms`, `captured_by_principal_id`).
 
-The proof subject is always `goat`; the goat row already carries the shed,
-drive, vaccine/lot, and administration context. Capture is abstracted behind a
-`ProofCaptureSource` port — in production, LIVE
-in-app CameraX recording ONLY (§2a, camera-only anti-fraud rule); a
-fake/injected file in tests — for the same testability reasons as `ScanSource`.
-Each captured video is written to Room first (§3) as a proof row with its
-goat `subject_id`, then queued for upload.
+Capture is abstracted behind a `ProofCaptureSource` port. Each captured/picked
+video is written to Room first (§3) as a proof row with its SOP subject, then
+queued for upload.
 
 ## 3. Room-first, single source of truth, background sync
 
@@ -159,9 +166,17 @@ in the emulator with **no physical reader and no real camera**:
   resumable).
 - **What still needs a physical device (final QA only):** real Bluetooth pairing
   with the actual reader, and real camera capture quality. Everything else —
-  scan→Room, one-to-five clips per goat, mandatory-permission gate, background
+  scan→Room, SOP proof min/max, mandatory-permission gate, background
   upload, role gating, and submit→verify→leadership close is covered by
   emulator and isolated-backend E2E.
+
+## STG GCS Verification
+
+Local proof capture/storage tests do not prove STG GCS wiring.
+
+For staging, verify bucket/env/IAM/signed URL/upload/DB linkage using:
+
+`docs/runbooks/stg-gcs-video-upload-wiring.md`
 
 ## 7. Anti-pattern guardrails this must respect
 
@@ -170,5 +185,9 @@ in the emulator with **no physical reader and no real camera**:
   (`android-offline-first.md`).
 - Lists (scanned goats, proof rows) paginate / stay bounded per the mobile
   list-fetch rule; never render an unbounded accumulated blob.
+- Mobile lists must auto-fetch the next page when the user approaches the end of
+  the viewport and may show only a spinner/progress footer. Do not expose a
+  manual "Load more" button on operator work queues, scan rosters, verification
+  queues, alerts, or drawers.
 - Server-driven form: field set, labels, descriptions, required/optional, and the
   video cap come from `form_dsl` / `proof_policy`, not hardcoded on the client.

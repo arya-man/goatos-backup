@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -32,12 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
@@ -64,6 +67,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.ui.CoverageBanner
 import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.calendar.R
 
@@ -85,14 +90,52 @@ fun CalendarScreen(
     val selected = state.segments.firstOrNull { it.id == state.selectedSegmentId }
         ?: state.segments.firstOrNull()
     var showMonthFilters by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    // Refresh-on-open (offline-first stale-while-revalidate): auto-sync every time the screen
+    // resumes/foregrounds, not just on first ViewModel creation. Without this, a retained
+    // ViewModel on the nav backstack shows the value it fetched once — so data that changed on the
+    // server after that first load (e.g. a drive-date move / a fixed dose count) stayed stale until
+    // the user tapped the manual sync button. The Room cache keeps the last value visible while the
+    // background refresh runs; it never blanks the screen.
+    RefreshOnResume { onEvent(CalendarEvent.Refresh) }
+    LaunchedEffect(
+        listState,
+        selected?.kind,
+        state.weekHasMore,
+        state.weekLoadingMore,
+        state.weekItems.size,
+    ) {
+        val shouldAutoLoad = when (selected?.kind) {
+            CalendarSegmentKind.Week -> state.weekHasMore && !state.weekLoadingMore && state.weekItems.isNotEmpty()
+            else -> false
+        }
+        if (!shouldAutoLoad) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4) {
+                    when (selected?.kind) {
+                        CalendarSegmentKind.Week ->
+                            if (state.weekHasMore && !state.weekLoadingMore) onEvent(CalendarEvent.LoadMoreWeek)
+                        else -> Unit
+                    }
+                }
+            }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .background(MeshaColors.PageBg)
             .padding(horizontal = Gutter),
     ) {
-        item { CalendarHeader(state, onEvent) }
+        item {
+            CalendarHeader(
+                state = state,
+                onEvent = onEvent,
+                onOpenFilters = { showMonthFilters = true },
+            )
+        }
         state.errorMessage?.let { message ->
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
@@ -129,15 +172,13 @@ fun CalendarScreen(
                 state = state,
                 monthItems = monthItems,
                 onEvent = onEvent,
-                onOpenFilters = { showMonthFilters = true },
             )
-            CalendarSegmentKind.History -> historyContent(state, onEvent)
             null -> Unit
         }
         item { Spacer(Modifier.size(24.dp)) }
     }
 
-    if (showMonthFilters && selected?.kind == CalendarSegmentKind.Month) {
+    if (showMonthFilters) {
         MonthFilterSheet(
             state = state,
             onDismiss = { showMonthFilters = false },
@@ -166,8 +207,13 @@ fun CalendarScreen(
  * [MeshaScreenHeader], driven by the shell's backend-composed L0 membership.
  */
 @Composable
-private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> Unit) {
+private fun CalendarHeader(
+    state: CalendarUiState,
+    onEvent: (CalendarEvent) -> Unit,
+    onOpenFilters: () -> Unit,
+) {
     val window = state.windowLabel
+    val activeFilterCount = state.monthFilters.secondaryFilterCount
     MeshaScreenHeader(
         // Static screen chrome — localized client-side (the VM values are the English module
         // name/title; the visible chrome must follow the app locale).
@@ -197,8 +243,18 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
         },
         actions = {
             HeaderIconButton(
-                onClick = { onEvent(CalendarEvent.Refresh) },
-                icon = MeshaIcons.Refresh,
+                onClick = onOpenFilters,
+                icon = MeshaIcons.Filter,
+                contentDescription = if (activeFilterCount > 0) {
+                    "${stringResource(R.string.calendar_filters)} ($activeFilterCount)"
+                } else {
+                    stringResource(R.string.calendar_filters)
+                },
+            )
+            Spacer(Modifier.size(8.dp))
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = { onEvent(CalendarEvent.Refresh) },
                 contentDescription = stringResource(R.string.calendar_button_refresh),
             )
         },
@@ -276,7 +332,6 @@ private fun SegmentedControl(
 private fun segmentLabel(kind: CalendarSegmentKind, fallback: String): String = when (kind) {
     CalendarSegmentKind.Week -> stringResource(R.string.calendar_segment_week)
     CalendarSegmentKind.Month -> stringResource(R.string.calendar_segment_month)
-    CalendarSegmentKind.History -> stringResource(R.string.calendar_segment_history)
 }
 
 /* --------------------------------------------------------------------------- */
@@ -312,15 +367,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
-            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target)) })
+            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) })
         }
-        if (state.weekHasMore) {
+        if (state.weekLoadingMore) {
             item {
-                LoadMoreButton(
-                    label = stringResource(R.string.calendar_load_more_day),
-                    loading = state.weekLoadingMore,
-                    onClick = { onEvent(CalendarEvent.LoadMoreWeek) },
-                )
+                InlineLoadingFooter()
             }
         }
     }
@@ -546,35 +597,17 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                 }
             }
         }
-        val ownerLabel = drive?.ownerLabel?.takeIf { it.isNotEmpty() }
-        if (item.ctaLabel != null || ownerLabel != null) {
+        // The whole card is the tap target (drillable is still driven by ctaLabel above); the
+        // redundant "Open"/"Open drive ›" verb is intentionally NOT rendered.
+        val ownerLabel = item.assigneeLabel?.takeIf { it.isNotEmpty() }
+            ?: drive?.ownerLabel?.takeIf { it.isNotEmpty() }
+        if (ownerLabel != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 11.dp),
             ) {
                 // Footer owner (v4 drive card): who owns follow-up on this drive.
-                ownerLabel?.let {
-                    Text(text = it, color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
-                    if (item.ctaLabel != null) {
-                        Text(text = "  ·  ", color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
-                    }
-                }
-                item.ctaLabel?.let {
-                    // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized
-                    // here (the VM's English "Open"/"Open drive" is ignored so it follows the
-                    // app locale). Drive cards (v4) get the more specific "Open drive →".
-                    val (ctaText, ctaGlyph) = if (drive != null) {
-                        stringResource(R.string.calendar_drive_open) to "→"
-                    } else {
-                        stringResource(R.string.calendar_cta_open) to "›"
-                    }
-                    Text(
-                        text = "$ctaText  $ctaGlyph",
-                        color = MeshaColors.Brand2,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.W700,
-                    )
-                }
+                Text(text = ownerLabel, color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
             }
         }
     }
@@ -759,7 +792,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             }
         }
     }
-    items(state.monthDays.chunked(7)) { week ->
+    items(state.monthDays.chunked(7), key = { week -> week.firstOrNull { it.dateKey != null }?.dateKey ?: week.hashCode().toString() }) { week ->
         Row(
             Modifier.fillMaxWidth().padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -844,8 +877,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
     state: CalendarUiState,
     monthItems: LazyPagingItems<CalendarItem>?,
     onEvent: (CalendarEvent) -> Unit,
-    onOpenFilters: () -> Unit,
 ) {
+    val fallbackItems = state.monthFallbackItems
     item {
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
@@ -864,17 +897,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.W600,
                     modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-            TextButton(onClick = onOpenFilters) {
-                val count = state.monthFilters.secondaryFilterCount
-                Text(
-                    text = if (count > 0) {
-                        "${stringResource(R.string.calendar_filters)} ($count)"
-                    } else {
-                        stringResource(R.string.calendar_filters)
-                    },
-                    fontWeight = FontWeight.W800,
                 )
             }
         }
@@ -906,6 +928,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             )
         }
 
+        monthItems.itemCount == 0 && fallbackItems.isNotEmpty() -> items(
+            fallbackItems,
+            key = { item -> item.id },
+        ) { item ->
+            EventCard(
+                item = item,
+                showScheduleContext = true,
+                onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
+            )
+        }
+
         monthItems.itemCount == 0 -> item {
             EmptyState(
                 title = state.monthEmptyLabel.ifEmpty { stringResource(R.string.calendar_month_empty) },
@@ -922,7 +955,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 EventCard(
                     item = item,
                     showScheduleContext = true,
-                    onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target)) },
+                    onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
                 )
             }
         }
@@ -930,7 +963,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
 
     when (monthItems.loadState.append) {
         is LoadState.Loading -> item {
-            MonthPagingMessage(label = stringResource(R.string.calendar_loading_more), loading = true)
+            MonthPagingMessage(label = "", loading = true)
         }
         is LoadState.Error -> item {
             MonthPagingMessage(
@@ -957,14 +990,18 @@ private fun MonthPagingMessage(
     ) {
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.size(8.dp))
+            if (label.isNotBlank()) {
+                Spacer(Modifier.size(8.dp))
+            }
         }
-        Text(
-            text = label,
-            color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
-        )
+        if (label.isNotBlank()) {
+            Text(
+                text = label,
+                color = MeshaColors.Muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
         if (actionLabel != null) {
             Spacer(Modifier.size(8.dp))
             TextButton(onClick = onAction) { Text(actionLabel) }
@@ -1152,6 +1189,16 @@ fun CalendarDayScreen(
     onLoadMore: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.items.size) {
+        if (!state.hasMore || state.isLoadingMore || state.items.isEmpty()) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4 && state.hasMore && !state.isLoadingMore) {
+                    onLoadMore()
+                }
+            }
+    }
     Column(
         modifier
             .fillMaxSize()
@@ -1183,7 +1230,7 @@ fun CalendarDayScreen(
                 )
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (state.items.isEmpty()) {
                 item {
                     EmptyState(
@@ -1199,13 +1246,9 @@ fun CalendarDayScreen(
                 items(state.items, key = { it.id }) { item ->
                     EventCard(item = item, onClick = { onItemTap(item.id) })
                 }
-                if (state.hasMore) {
+                if (state.isLoadingMore) {
                     item {
-                        LoadMoreButton(
-                            label = stringResource(R.string.calendar_load_more_day),
-                            loading = state.isLoadingMore,
-                            onClick = onLoadMore,
-                        )
+                        InlineLoadingFooter()
                     }
                 }
             }
@@ -1215,92 +1258,6 @@ fun CalendarDayScreen(
 }
 
 /* --------------------------------------------------------------------------- */
-/* History                                                                     */
-/* --------------------------------------------------------------------------- */
-
-private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
-    state: CalendarUiState,
-    onEvent: (CalendarEvent) -> Unit,
-) {
-    item {
-        SectionLabel(
-            state.historyLabel.ifEmpty {
-                stringResource(R.string.calendar_history_label) + " · " + state.historyCount
-            },
-        )
-    }
-    if (state.historyRows.isEmpty()) {
-        item {
-            EmptyState(
-                title = state.historyEmptyLabel.ifEmpty { stringResource(R.string.calendar_history_empty) },
-                icon = MeshaIcons.Clock,
-            )
-        }
-    } else {
-        items(state.historyRows, key = { it.id }) { row ->
-            HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id, row.target)) })
-        }
-        if (state.historyHasMore) {
-            item {
-                LoadMoreButton(
-                    label = stringResource(R.string.calendar_load_more_history),
-                    loading = state.historyLoadingMore,
-                    onClick = { onEvent(CalendarEvent.LoadMoreHistory) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 9.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(15.dp))
-            .clickable(enabled = row.target != null, onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(MeshaColors.OkX),
-            contentAlignment = Alignment.Center,
-        ) {
-            // Syringe = Vaccination module marker (mock icon set).
-            Icon(
-                imageVector = MeshaIcons.Syringe,
-                contentDescription = null,
-                tint = MeshaColors.Brand,
-                modifier = Modifier.size(17.dp),
-            )
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-            Text(
-                text = row.title,
-                color = MeshaColors.Ink,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.W700,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = row.subtitle,
-                color = MeshaColors.Muted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W500,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        StatusPill(row.badgeLabel, row.badgeTone)
-    }
-}
-
 /* --------------------------------------------------------------------------- */
 /* Shared primitives                                                           */
 /* --------------------------------------------------------------------------- */
@@ -1319,23 +1276,17 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit) {
+private fun InlineLoadingFooter() {
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .clickable(enabled = !loading, onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(top = 8.dp, bottom = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = if (loading) stringResource(R.string.calendar_loading_more) else label,
-            color = if (loading) MeshaColors.Muted else MeshaColors.Brand2,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.W700,
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = MeshaColors.Muted,
+            strokeWidth = 2.dp,
         )
     }
 }
@@ -1463,7 +1414,6 @@ private fun previewState(): CalendarUiState = CalendarUiState(
     segments = listOf(
         CalendarSegment("week", "Week", CalendarSegmentKind.Week),
         CalendarSegment("month", "Month", CalendarSegmentKind.Month),
-        CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
     weekDays = listOf(
@@ -1506,12 +1456,6 @@ private fun previewState(): CalendarUiState = CalendarUiState(
     monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
     monthDays = buildMonthPreview(),
     monthHint = "Tap a day for its drives · dots = drive days",
-    historyLabel = "Past drives · 2",
-    historyRows = listOf(
-        CalendarHistoryRow("h0", "ET + TT · Primary", "Jul 1 2026 · done", "98%", CalendarTone.Ok, "record/h0"),
-        CalendarHistoryRow("h1", "FMD · Booster", "Jun 28 2026 · done", "95%", CalendarTone.Ok, "record/h1"),
-    ),
-    historyEmptyLabel = "No past drives",
 )
 
 private fun buildMonthPreview(): List<CalendarMonthDay> {

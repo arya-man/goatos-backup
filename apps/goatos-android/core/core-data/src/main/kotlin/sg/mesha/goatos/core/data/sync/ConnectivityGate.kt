@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import java.net.URI
 
 /** Whether the device currently has validated internet — gates [SyncEngine.drainOnce] (TRD:
  *  "Connectivity: ConnectivityManager gates sync workers; capture always works offline"). */
@@ -21,6 +22,28 @@ class AndroidConnectivityGate(private val context: Context) : ConnectivityGate {
         val capabilities = manager.getNetworkCapabilities(network) ?: return false
         return capabilities.hasValidatedInternet()
     }
+}
+
+/**
+ * Local Android device proof runs the app against a laptop backend through `adb reverse`
+ * (`http://localhost:8080/` on the phone). Android can mark that network as not having
+ * validated internet even though the loopback API is reachable, so the outbox must still
+ * attempt a drain for local API bases. Non-local API bases keep the platform gate.
+ */
+class LocalBackendConnectivityGate(
+    private val delegate: ConnectivityGate,
+    private val apiBaseUrl: String,
+) : ConnectivityGate {
+    override fun isOnline(): Boolean =
+        delegate.isOnline() || apiBaseUrl.isLoopbackHttpBase()
+}
+
+private fun String.isLoopbackHttpBase(): Boolean {
+    val uri = runCatching { URI(this) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase() ?: return false
+    if (scheme != "http" && scheme != "https") return false
+    val host = uri.host?.lowercase() ?: return false
+    return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 /**

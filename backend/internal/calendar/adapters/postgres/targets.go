@@ -29,19 +29,68 @@ import (
 //     columns to the batch's scope, so an obligation's own scope can be stale once batched. Includes
 //     'completed' (unlike the catch-up branch) so the full roster -- done and pending -- is visible,
 //     matching drive_summary's total_count = completed + due + overdue + deferred invariant.
+//
+// projection-review: membership=matched_batches -- obligation_batches rows admitted for $3::date either by a vaccination_drive_assignments row on that planned_date or, only when the batch has NO assignment rows at all, by the batch's own planned_date/window date, carrying that date's vaccine rule set; group_key=batch_id (GROUP BY ob.batch_id, the obligation_batches PK) on the producer, matched by (oi.batch_id, oi.rule_id) on the consumer; join_cardinality=the only many side is vaccination_drive_assignments (0..N rows per batch+date, fanned further by unnest of its vaccine_rule_ids) and it is PRE-AGGREGATED into one uuid[] per batch inside matched_batches, so the CTE is strictly 1:1 on batch_id and the consumer's EXISTS admission cannot fan obligation_instances rows out (1 row per obligation_id) -- scope_loc is a PK lookup and assignment_presence a scalar LATERAL, both 1:1; pagination=n/a -- matched_batches is an unpaged per-day admission set and paging is applied by the caller over matched_obligations, so no aggregate is computed across a page boundary; scope=park/shed/tenant resolved from the BATCH's own scope_type/scope_id via obligation_batches + locations.parent_location_id, never from the member obligation's own scope columns, which AttachObligationsToBatch leaves stale
+//
+// BUG-008: matched_batches must carry the MATCHED assignment's vaccine rule set, not just the batch
+// id, or a per-vaccine date-override split leaks the sibling vaccine's animals into the queried
+// day's drawer.
+//
+//	Producer unique columns : matched_batches -> (batch_id)                [GROUP BY ob.batch_id]
+//	Consumer match columns  : matched_obligations -> (oi.batch_id, oi.rule_id)
+//	Row multiplicity        : obligation_batches = 1 row per batch_id (PK, the GROUP BY key);
+//	                          locations scope_loc = 1 row per location_id (PK lookup);
+//	                          assignment_presence = scalar LATERAL aggregate, 1 row;
+//	                          vaccination_drive_assignments = 0..N rows per (batch_id, $3::date),
+//	                          fanned further by unnest(vda.vaccine_rule_ids) -- the MANY side,
+//	                          PRE-AGGREGATED here into one uuid[] per batch, so matched_batches
+//	                          stays strictly 1:1 on batch_id and the consumer's EXISTS admission
+//	                          cannot fan rows out; obligation_instances = 1 row per obligation_id.
+//	Numerator/denominator   : membership is a set test, not a ratio -- the key set on BOTH sides is
+//	                          the rule_id set of ONE batch on ONE business date: produced as
+//	                          matched_batches.rule_ids (union over that date's assignment rows) and
+//	                          consumed as {oi.rule_id}. cardinality(rule_ids) = 0 is the legacy /
+//	                          pre-split unspecific row and admits the whole batch, matching
+//	                          canonical_read.go:578-620.
 const calendarDriveTargetsSQL = `
 WITH matched_batches AS (
-  SELECT ob.batch_id
+  SELECT
+    ob.batch_id,
+    array_remove(array_agg(DISTINCT matched_rule.rule_id), NULL)::uuid[] AS rule_ids
   FROM obligation_batches ob
   LEFT JOIN locations scope_loc
     ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
+  LEFT JOIN LATERAL (
+    SELECT count(*) > 0 AS has_any_assignment
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = ob.tenant_id
+      AND assignment.batch_id = ob.batch_id
+  ) assignment_presence ON true
+  LEFT JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
+   AND vda.planned_date = $3::date
+  LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS matched_rule(rule_id) ON true
   WHERE ob.tenant_id = $1::uuid
     AND $12::bool
     AND ob.status NOT IN ('superseded', 'canceled')
-    AND to_char((COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+    AND (
+      vda.assignment_id IS NOT NULL
+      OR (
+        NOT COALESCE(assignment_presence.has_any_assignment, false)
+        AND (
+          ob.planned_date = $3::date
+          OR (
+            ob.planned_date IS NULL
+            AND to_char((COALESCE(ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+          )
+        )
+      )
+    )
     AND (
       ($4::uuid IS NOT NULL AND (
-        (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)
+        vda.park_id = $4::uuid
+        OR (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)
         OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id = $4::uuid)
       ))
       OR ($6::uuid IS NOT NULL AND (
@@ -50,6 +99,7 @@ WITH matched_batches AS (
         OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id IS NULL)
       ))
     )
+  GROUP BY ob.batch_id
 ),
 matched_obligations AS (
 SELECT
@@ -65,7 +115,8 @@ SELECT
   g.exit_reason,
   defer_event.defer_status,
   oi.status,
-  COALESCE(target_batch.planned_date, oi.due_at) AS scheduled_at
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so scheduled_at is 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- scheduled_at is a per-obligation scalar, not an aggregate across a page boundary (caller pages matched_obligations); scope=park/shed from the batch's own scope, unchanged by this member join
+  COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at
 FROM obligation_instances oi
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
@@ -101,6 +152,29 @@ LEFT JOIN locations goat_current_grand
 LEFT JOIN obligation_batches target_batch
   ON target_batch.tenant_id = oi.tenant_id
  AND target_batch.batch_id = oi.batch_id
+-- projection-review: membership=vaccination_drive_assignment_members(tenant_id, obligation_id) UNIQUE exact 1:1 binding for the obligation, falling back to the guess LATERAL (target_assignment_guess) only when the obligation has no member row; group_key=(tenant_id, obligation_id) -- one member row per obligation; join_cardinality=members->assignment is many-to-one on the assignment PK (tenant_id, assignment_id) so it is 1:1 per obligation, and the guess LATERAL is a LIMIT 1 scalar fallback only, so neither path fans obligation_instances out; pagination=n/a -- this is a per-obligation scalar assignment lookup, no aggregate computed across a page boundary (the caller pages matched_obligations); scope=park/shed resolved from the BATCH's own scope via the matched_batches CTE, unchanged by this member join
+-- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound
+LEFT JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = oi.tenant_id
+ AND m.obligation_id = oi.obligation_id
+LEFT JOIN vaccination_drive_assignments assignment
+  ON assignment.tenant_id = m.tenant_id
+ AND assignment.assignment_id = m.assignment_id
+ AND assignment.planned_date = $3::date
+-- Guess path: find assignment via LATERAL when no membership
+LEFT JOIN LATERAL (
+  SELECT vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
+  FROM vaccination_drive_assignments vda_guess
+  WHERE vda_guess.tenant_id = oi.tenant_id
+    AND vda_guess.batch_id = oi.batch_id
+    AND vda_guess.planned_date = $3::date
+  ORDER BY vda_guess.created_at DESC
+  LIMIT 1
+) target_assignment_guess ON true
+-- Member path: formatted assignment when membership exists
+LEFT JOIN LATERAL (
+  SELECT assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
+) target_assignment ON assignment.assignment_id IS NOT NULL
 LEFT JOIN locations batch_scope_loc
   ON batch_scope_loc.tenant_id = target_batch.tenant_id
  AND batch_scope_loc.location_id = target_batch.scope_id
@@ -173,7 +247,15 @@ WHERE oi.tenant_id = $1::uuid
       $12::bool
       AND oi.status NOT IN ('waived', 'canceled', 'superseded')
       AND (
-        oi.batch_id IN (SELECT batch_id FROM matched_batches)
+        EXISTS (
+          SELECT 1
+          FROM matched_batches mb
+          WHERE mb.batch_id = oi.batch_id
+            AND (
+              cardinality(mb.rule_ids) = 0
+              OR oi.rule_id = ANY(mb.rule_ids)
+            )
+        )
         OR (
           oi.batch_id IS NULL
           AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text

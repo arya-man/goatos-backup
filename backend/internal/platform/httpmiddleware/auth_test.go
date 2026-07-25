@@ -418,7 +418,7 @@ func TestAuthRunsBeforeNotImplementedStubs(t *testing.T) {
 }
 
 func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
-	mw := testBearerMiddleware(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleAdmin}}})
+	mw := testBearerMiddleware(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleCEOInternal}}})
 	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))

@@ -46,11 +46,12 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 	expiresAt := time.Now().UTC().Add(expires)
 	path := "/app/proofs/" + proof.ProofID + "/upload"
 	return domain.UploadTarget{
-		UploadURL: signedPath(path, "PUT", proof.TenantID, expiresAt, s.secret),
-		Method:    "PUT",
-		Headers:   map[string]string{"Content-Type": proof.MimeType},
-		ExpiresAt: expiresAt,
-		Proof:     proof,
+		UploadURL:      signedPath(path, "PUT", proof.TenantID, expiresAt, s.secret),
+		Method:         "PUT",
+		Headers:        map[string]string{"Content-Type": proof.MimeType},
+		ExpiresAt:      expiresAt,
+		Proof:          proof,
+		UploadProtocol: "simple_put",
 	}, nil
 }
 

@@ -46,10 +46,9 @@ Two facts drive it:
   at 3–5 items no matter how many modules a person holds; the drawer, not the bar,
   absorbs the growth.
 - **`shared_key` dedupe still applies** wherever several modules are composed into
-  ONE bar. That is not dead code: `composeNavigationFromModules()` takes a module
-  list, and the leadership bar is exactly that case (Overview + the cross-module
-  Calendar/Alerts). A module contributing `calendar`/`alerts` under the same
-  `shared_key` appears once, at the first contributing module's priority.
+  ONE bar. `composeNavigationFromModules()` takes a module list, and a module
+  contributing `calendar`/`alerts` under the same `shared_key` appears once, at
+  the first contributing module's priority.
 - **"Soon" modules are backend-declared.** A registry entry with
   `status: "soon"` (`feed_direction`, `breeding`) renders as a disabled drawer row
   for every principal via `soonModuleKeys` — it advertises the roadmap and confers
@@ -100,8 +99,14 @@ module grants resolve `user → workforce_members.department_id →
 department_module_grants.module_key`, and leadership roles are **org-level — a CEO or
 Director is not a member of a department**, so department-scoping them would resolve
 to zero grants and hide every module. Their access is decided by permission alone.
-This is a widening of *candidates*, not of access: a leadership principal still
-receives only the modules and items whose permissions they hold.
+
+> **Superseded 2026-07-25 (see "Leadership drawer per-role matrix" below).** Leadership
+> candidates are curated by leadership TIER (`leadershipModuleKeys`), but the synthetic
+> `leadership` / Overview module has been removed. CEO gets the shared Vaccination
+> module + Counts + soon rows; PC Director / Park Head get the shared Vaccination module
+> only. So the "park_head sees Counts" rows in the Counts worked example just below are
+> historical — a preventive-care leader's drawer no longer contains the Counts module at
+> all, even though he still holds the counts permissions.
 
 **Worked example — the Counts matrix (maintainer decision 2026-07-18).** Counts
 contributes three items under two permissions: the census page `/counts` requires
@@ -115,16 +120,18 @@ authorities.** One registry entry then yields:
 | role | census `/counts` | `/counts/birth-death` | `/counts/shifting` | module in drawer |
 |---|---|---|---|---|
 | `operator` | — | yes | yes | yes (2-item bar) |
-| `park_head` | — | yes | yes | yes (2-item bar) |
+| `park_head` | — | (holds `counts.write`) | (holds `counts.write`) | **NO — preventive-care leader, Vaccination-only drawer (2026-07-24)** |
 | `admin` | yes | yes | yes | yes (3-item bar) |
 | `ceo_internal` | yes | yes | yes | yes (3-item bar) |
-| `pc_director` | — | — | — | **NO — all items gated, module omitted** |
+| `pc_director` | — | — | — | **NO — all items gated + preventive-care leader** |
 | `verifier` | — | — | — | **NO — all items gated, module omitted** |
 
-Operator and Park Head land on `/counts/birth-death` via the landing-href fallback,
-since the declared `/counts` landing is gated away from them. `pc_director` and
-`verifier` hold neither counts permission, so the module disappears from their drawer
-entirely. Pinned by `TestCountsModuleRoleMatrix`
+Operator lands on `/counts/birth-death` via the landing-href fallback, since the
+declared `/counts` landing is gated away from it. `pc_director` and `verifier` hold no
+counts permission; `park_head` still holds `counts.write` but, as a preventive-care
+leader, no longer receives the Counts MODULE in his drawer (the item composition still
+holds by permission, the module is dropped at the leadership-tier candidate step).
+Pinned by `TestCountsModuleRoleMatrix`
 (`backend/internal/workforce/app/service_test.go`), which asserts the item sets, the
 two omissions, and that every module's landing href is among its permitted items.
 
@@ -172,3 +179,50 @@ chrome are both gone. Seed coupling for that table is
 `backend/cmd/seed-roster-real` (department defaults for the source seed) and
 `backend/cmd/seed-dev-grant -modules` (dev identities) — see
 `docs/runbooks/android-dev-device.md`.
+
+## Leadership drawer per-role matrix (maintainer decision 2026-07-25)
+
+Updated 2026-07-25: there is no mobile Leadership / Overview screen and no synthetic
+`leadership` module. Vaccination-related leadership users and legacy vaccination FCM
+payloads land in the shared **Vaccination** module.
+
+Leadership principals are still composed by leadership **tier**, not "all modules":
+
+| role         | drawer modules                                   | chrome   | park scope        |
+|--------------|--------------------------------------------------|----------|-------------------|
+| ceo_internal | Vaccination + Counts + Feed(soon) + Breeding(soon) | expanded | all / multi-park |
+| pc_director  | Vaccination only                                 | minimal  | multi-park        |
+| park_head    | Vaccination only                                 | minimal  | own park (grant scope) |
+| verifier     | Verification only                                | minimal  | n/a               |
+| operator     | department-granted modules                       | minimal  | grant scope       |
+
+Rules encoded (`bootstrap_copy.go`):
+
+- `leadershipModuleKeys(grants)` returns the tier's set: CEO gets
+  `{vaccination, counts, feed_direction, breeding}`; a preventive-care leader
+  (PC Director, Park Head) gets `{vaccination}` only. Counts, Feed, and Breeding
+  are not preventive-care surfaces, so a PC leader never sees them.
+- The **verification** module belongs to the verifier role. Vaccination leadership
+  uses the shared Vaccination module rather than a private leadership overview.
+- The Vaccination module lands on `/vaccination`. For CEO/CXO, the module's
+  bottom bar is Overview (`/vaccination`) / Calendar (`/calendar`) / Alerts / You.
+  For operators and preventive-care field leaders, the module's bottom bar is
+  Drives (`/vaccination`) / Alerts / You. FCM payloads for vaccination reminders, verification-pending
+  non-verifiers, verification-approved, and legacy `leadership_close` values resolve
+  to `/vaccination`, never `/leadership`.
+- `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =
+  expanded drawer (CEO), a single available module = minimal bottom bar
+  (PC leaders). "Soon" roadmap rows are only shown to a leadership tier that is
+  actually offered them (CEO), never to a PC leader.
+- Park Head's single-park limit is **data scope** (his `user_scope_grant` /
+  `scope_id`), not nav — the drawer change does not alter it.
+
+Read path for scan: a leadership principal opens the Vaccination area → shed/partition
+list read-only. The scan/capture screen is already gated by the operator capability
+(`ScanViewModel.operatorAllowed`, bootstrap `primaryRoleHint == operator`), so no
+leadership tier reaches scan. No change was needed there.
+
+Guard + tests: `TestLeadershipDrawerCompositionPerRole` (per-role drawer set +
+chrome) and the updated `TestNavChromeFor` / `TestCountsModuleRoleMatrix` pin this
+matrix; `make nav-composition-guard` still passes because the tiering lives in
+composition helpers, not a per-role nav-template literal.

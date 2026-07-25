@@ -81,9 +81,21 @@ func TestResolveProofRefsRequiresCompletedTaskBoundProof(t *testing.T) {
 		t.Fatalf("unexpected ref = %#v", refs[0])
 	}
 
+	// A shed-level video (shed_level_video) is captured against the task's own shed scope
+	// (scope_type='shed', scope_id=<the task's shed>). It is bound to the task when its scope
+	// matches the binding's scope — consistent with ShedCompletionReadiness, which accepts a
+	// shed-scoped proof for the same task. So this proof resolves rather than being rejected.
 	repo.proof.ScopeType = "shed"
 	repo.proof.ScopeID = proofTestShed
 	repo.proof.Metadata = map[string]any{"task_id": proofTestTask, "sop_task_id": proofTestTask}
+	if _, err := service.ResolveProofRefs(context.Background(), proofTestTenant, binding, []sopdomain.ProofReference{{ProofID: proofTestID}}); err != nil {
+		t.Fatalf("shed-scoped proof matching the binding scope should resolve, got err = %v", err)
+	}
+
+	// A proof scoped to a DIFFERENT shed than the binding is still unbound and rejected.
+	repo.proof.ScopeType = "shed"
+	repo.proof.ScopeID = proofTestID2 // any shed id that is not binding.ScopeID
+	repo.proof.SubjectID = nil        // isolate the scope-binding check from the subject check
 	if _, err := service.ResolveProofRefs(context.Background(), proofTestTenant, binding, []sopdomain.ProofReference{{ProofID: proofTestID}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unbound proof error = %v, want ErrInvalid", err)
 	}
@@ -121,6 +133,21 @@ func TestResolveProofRefsFetchesProofsInBulk(t *testing.T) {
 	}
 	if repo.getProofCalls != 0 || repo.getProofsCalls != 1 {
 		t.Fatalf("repo calls get=%d bulk=%d, want one bulk lookup", repo.getProofCalls, repo.getProofsCalls)
+	}
+}
+
+func TestRetentionExpiryPolicyWindows(t *testing.T) {
+	acceptedAt := time.Date(2026, time.July, 25, 4, 30, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	got := retentionExpiry("operational_90d", acceptedAt)
+	if got == nil {
+		t.Fatal("operational_90d returned nil expiry")
+	}
+	want := time.Date(2026, time.October, 22, 23, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("operational_90d expiry = %s, want %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+	if got := retentionExpiry("legal_hold", acceptedAt); got != nil {
+		t.Fatalf("legal_hold expiry = %v, want nil", got)
 	}
 }
 
@@ -192,6 +219,60 @@ func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
 		SubjectID:   stringPtr(proofTestShed),
 		UploadedBy:  stringPtr(proofTestActor),
 		Metadata:    map[string]any{},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateUpload() error = %v, want ErrInvalid", err)
+	}
+	if repo.created.ProofType != "" {
+		t.Fatalf("invalid upload reached repository: %#v", repo.created)
+	}
+}
+
+func TestCreateUploadAllowsGalleryForShedSubject(t *testing.T) {
+	repo := &fakeProofRepo{proof: baseProof()}
+	service := NewService(repo, &fakeProofStorage{})
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "shed",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata: map[string]any{
+			"capture_source":    "gallery_picker",
+			"captured_start_ms": float64(1000),
+			"captured_end_ms":   float64(2000),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateUpload() error = %v", err)
+	}
+	if repo.created.SubjectType != "shed" || repo.created.Metadata["capture_source"] != "gallery_picker" {
+		t.Fatalf("gallery shed upload not persisted correctly: %#v", repo.created)
+	}
+}
+
+func TestCreateUploadRejectsGalleryForGoatSubject(t *testing.T) {
+	repo := &fakeProofRepo{proof: baseProof()}
+	service := NewService(repo, &fakeProofStorage{})
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "goat",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata: map[string]any{
+			"capture_source":    "gallery_picker",
+			"captured_start_ms": float64(1000),
+			"captured_end_ms":   float64(2000),
+		},
 	})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("CreateUpload() error = %v, want ErrInvalid", err)
@@ -275,6 +356,22 @@ func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUploa
 	out.SizeBytes = in.SizeBytes
 	out.UploadState = "completed"
 	return out, nil
+}
+
+func (r *fakeProofRepo) ApplyRetention(context.Context, string, []string, string, *time.Time) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeProofRepo) BackfillSubmissionRetention(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeProofRepo) PurgeExpired(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeProofRepo) PurgeAbandonedUploads(context.Context, time.Time, int) (int, error) {
+	return 0, nil
 }
 
 type fakeProofStorage struct {

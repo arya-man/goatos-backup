@@ -1,7 +1,20 @@
 // Package domain holds the obligation (due-state) domain types.
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrOperatorAssignmentConfigPresentButEmpty signals that a park HAS a vaccination
+// operator-assignment config, but resolving it yielded zero executable operators for
+// the drive day (all off/leave with no cover, missing shift config, or the resolved
+// operator is not in the executable candidate set). Callers MUST fail closed
+// (defer/zero-capacity, no base-cap batch, no unassigned conducted_by) — they must NOT
+// treat this like "no config present" and fall back to base-capacity planning. This is
+// distinct from a genuinely absent config, which returns the operators unchanged with
+// a nil error. See docs/decisions/scale-anti-patterns.md "config-present must fail closed".
+var ErrOperatorAssignmentConfigPresentButEmpty = errors.New("obligation: operator assignment config present but no executable operator for drive day")
 
 // NewObligation is the input to generate one obligation instance. IdempotencyKey is the
 // deterministic key that makes generation a no-op on replay.
@@ -63,6 +76,10 @@ type OpenObligation struct {
 	ScopeType         string
 	ScopeID           string
 	DueAt             time.Time
+	ClinicalDueAt     time.Time
+	ScheduledFor      *time.Time
+	DoseCode          string
+	VaccineLabel      string
 	Status            string
 	Sequence          int32
 }
@@ -85,6 +102,39 @@ type NewBatch struct {
 	SopTaskID             *string
 	ConductedBy           *string
 	BatchingHoldUntil     *time.Time
+	DriveAssignments      []DriveAssignment
+}
+
+type DriveAssignment struct {
+	BatchID        string
+	PlannedDate    time.Time
+	OperatorID     *string
+	ParkID         string
+	ShedID         *string
+	PhysicalShed   string
+	PartitionLabel string
+	AnimalCount    int32
+	VaccineRuleIDs []string
+	TotalDoses     int32
+	CapacityStatus string
+	Warnings       []string
+}
+
+type DriveOperatorCapacity struct {
+	OperatorID    string
+	Cap           int32
+	ConfiguredCap int32
+}
+
+type VaccineDriveDateOverride struct {
+	TenantID          string
+	ParkID            string
+	VaccineCode       string
+	OriginalDriveDate time.Time
+	OverrideDate      time.Time
+	Reason            string
+	CreatedBy         string
+	CreatedAt         time.Time
 }
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
@@ -94,6 +144,7 @@ type UnbatchedDue struct {
 	ScopeType                string
 	ScopeID                  string
 	ParkID                   string
+	ShedName                 string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string
@@ -111,6 +162,7 @@ type ParkConsolidationCandidate struct {
 	ObligationID             string
 	RuleID                   string
 	ShedID                   string
+	ShedName                 string
 	ParkID                   string
 	TargetID                 string
 	TargetSpecies            string

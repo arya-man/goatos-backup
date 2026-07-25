@@ -44,6 +44,8 @@ type CompletionHistoryItem struct {
 	Status              string
 	Doses               int32
 	RouteSite           string
+	DoseCode            string
+	VaccineLabel        string
 	AdverseReaction     bool
 	WithdrawalUntilDate *time.Time
 }
@@ -153,7 +155,7 @@ type ImpactRequest struct {
 	VaccineItemID *string
 	LocationID    *string
 	DoseRows      int32 // number of selected dose/schedule rows (vaccination cells per eligible animal)
-	// DailyCap is the DRAFT daily vaccination cap authored in the rule editor, used to compute
+	// DailyCap is the DRAFT animals/operator/day cap authored in the rule editor, used to compute
 	// estimated_days before publish. 0 = fall back to the published/operational cap (CapacityMaxPerDay).
 	DailyCap int64
 	// MaxBufferDays is the DRAFT safe-window buffer authored in the rule editor. nil = fall back to the
@@ -180,6 +182,7 @@ type EligibleGoat struct {
 	ReproductiveStatus   string
 	ShedID               string
 	ParkID               string
+	PartitionLabel       string
 	Sex                  string
 	Breed                string
 	Stage                string
@@ -267,11 +270,11 @@ type ImpactPreview struct {
 	EligibleAnimals  int64 // SUM(animal_count) WHERE usable_for_vaccination
 	VaccinationCells int64 // eligible_animals × selected dose rows
 	AffectedSheds    int64 // distinct sheds with usable animals
-	EstimatedDays    int64 // ceil(vaccination_cells / daily_cap)
-	DailyCap         int64 // configured vaccinations/day used for estimated_days
-	// CapacityStatus classifies the draft under the daily cap + buffer window, mirroring the planner:
+	EstimatedDays    int64 // ceil(eligible_animals / daily_cap)
+	DailyCap         int64 // configured animals/operator/day used for estimated_days
+	// CapacityStatus classifies the draft under the operator animal cap + buffer window, mirroring the planner:
 	// within_cap (fits one day), over_cap (fits the safe window = buffer + 1 days), capacity_breach
-	// (beyond the window → needs review). Empty when there are no cells to plan.
+	// (beyond the window -> needs review). Empty when there are no eligible animals to plan.
 	CapacityStatus  string
 	PlannedSessions []ImpactPlannedSession
 	// Optional stock check — populated only when a vaccine item is set. Kept because the lookup is a
@@ -290,8 +293,8 @@ type ImpactPreview struct {
 // source of truth for total duration.
 type ImpactPlannedSession struct {
 	Date         string `json:"date"`         // Asia/Kolkata business date, YYYY-MM-DD
-	Vaccinations int64  `json:"vaccinations"` // cells planned that day
-	DailyLimit   int64  `json:"dailyLimit"`   // daily cap used for the preview
+	Vaccinations int64  `json:"vaccinations"` // eligible animals planned that day
+	DailyLimit   int64  `json:"dailyLimit"`   // operator animal cap used for the preview
 	Capacity     string `json:"capacity"`     // within_cap | capacity_breach
 }
 
@@ -332,8 +335,66 @@ type ShedCompletionSummary struct {
 	ExpectedCount    int64
 	HandledCount     int64
 	ProofReadyCount  int64
+	ProofMode        string
 	VaccineBreakdown []VaccineBreakdownItem
 	SubmitEnabled    bool
 	BlockingReason   *string
 	SubmitState      string // draft | submitted | verified | closed
+}
+
+// --- BUG-017: pre-arrival accepted-history channel -------------------------------------------
+//
+// Procurement forwards a supplier-attested pre-arrival vaccination card in the `goat.created`
+// payload key `trusted_vaccination_history`. Those claims have no proof artifact and no
+// holding-farm warm-up window, so they can never satisfy the proof-backed
+// `procurement_hf_vaccination_evidence` trust gate. They land in their own reviewed channel
+// (`vaccination_prearrival_history_entries`) where each claim is validated against the published
+// protocol rules and the animal's INDEPENDENTLY classified schedule path before it may become
+// accepted history.
+
+// PreArrivalHistoryReviewAccepted / PreArrivalHistoryReviewRejected are the two terminal review
+// states of a pre-arrival claim. Only accepted entries feed vaccination generation.
+const (
+	PreArrivalHistoryReviewAccepted = "accepted"
+	PreArrivalHistoryReviewRejected = "rejected"
+)
+
+// PreArrivalHistorySourceProcurementHandoff is the only source system that writes this channel today.
+const PreArrivalHistorySourceProcurementHandoff = "procurement_pc_handoff"
+
+// PreArrivalHistoryEntry is one reviewed supplier claim. RuleID/ProtocolVersionID are empty when
+// the claim could not be resolved to a published rule; such an entry is always rejected.
+type PreArrivalHistoryEntry struct {
+	VaccineCode        string
+	DoseCode           string
+	Sequence           int32
+	AdministeredAt     time.Time
+	SchedulePath       string
+	ProtocolVersionID  string
+	RuleID             string
+	ReviewStatus       string
+	RejectionReason    string
+	Claim              []byte
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// PreArrivalHistoryIngest is one goat's reviewed pre-arrival claim set, persisted atomically.
+type PreArrivalHistoryIngest struct {
+	TenantID      string
+	GoatID        string
+	SourceSystem  string
+	SourceEventID string
+	ReviewedBy    *string
+	ReviewedAt    time.Time
+	Entries       []PreArrivalHistoryEntry
+}
+
+// PreArrivalHistoryIngestResult reports what the write actually did. Replayed counts entries that
+// already existed with an identical fingerprint (exact replay: no new side effects).
+type PreArrivalHistoryIngestResult struct {
+	Accepted int
+	Rejected int
+	Inserted int
+	Replayed int
 }

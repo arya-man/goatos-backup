@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.PerformanceTracer
 import sg.mesha.goatos.core.analytics.PerformanceTraceNames
 import sg.mesha.goatos.core.analytics.TraceHandle
+import sg.mesha.goatos.core.data.cache.ExecutionCacheVersionGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.push.PushNotifications
 import sg.mesha.goatos.sync.SyncWorkScheduler
@@ -43,6 +44,7 @@ class GoatOsApplication : Application(), Configuration.Provider {
     @Inject lateinit var crashReporter: CrashReporter
     @Inject lateinit var performanceTracer: PerformanceTracer
     @Inject lateinit var pushNotifications: PushNotifications
+    @Inject lateinit var executionCacheVersionGate: ExecutionCacheVersionGate
 
     /** Started here, stopped on the first post-auth `MainActivity.onResume` (see
      *  `docs/TELEMETRY.md`). Public var (not Hilt-scoped) so `MainActivity` can stop the SAME
@@ -87,6 +89,12 @@ class GoatOsApplication : Application(), Configuration.Provider {
         appScope.launch {
             connectivitySyncTrigger.start()
             syncWorkScheduler.schedule()
+            // Invalidate stale execution read caches once after an in-place update: an app update
+            // keeps app data, so a drive-row/shed blob written before a serving-shape change (e.g. a
+            // vaccination drive-date move) can survive as a ghost when a refresh fails/absent. Wipes
+            // only the read blobs — never the outbox — so unsynced operator writes are preserved.
+            runCatching { executionCacheVersionGate.purgeIfVersionChanged(BuildConfig.VERSION_CODE) }
+                .onFailure { crashReporter.recordException(it, "execution cache version purge failed") }
         }
     }
 

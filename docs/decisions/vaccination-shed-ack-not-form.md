@@ -8,7 +8,7 @@ Decision owner: Goat OS product owner (vaccination workflow and clinical clarity
 
 ## Decision
 
-Vaccination shed completion is a final **acknowledgement** that every expected animal in a shed has been scanned and has proof media ready, NOT a manual medical form where operators fill in batch numbers, cold-chain verification, dose amounts, route/site, or adverse reaction data. The operator already does the real work at animal level: scans each goat's RFID and attaches one live camera proof clip per goat. Shed completion adds nothing clinically — it is administrative closure.
+Vaccination shed completion is a final **acknowledgement** that every expected animal in a shed has been scanned and the SOP-required proof media is ready, NOT a manual medical form where operators fill in batch numbers, cold-chain verification, dose amounts, route/site, or adverse reaction data. The proof grain is SOP-controlled: either per-goat live camera proof, or shed-level video proof. Shed completion remains administrative closure; the shed video is evidence media, not a place to re-enter medical facts.
 
 ### Banned Field Keys (Do Not Reintroduce)
 
@@ -23,16 +23,18 @@ The following field keys are **permanently removed** from the vaccination SOP fo
 - `adverse_reaction` (boolean, part of a manual reaction report form)
 - `adverse_reaction_notes` (text, paired with adverse_reaction)
 
-Related proof-capture keys that were already stripped in migration 000006 and remain gone:
+Related retired batch-proof keys that were already stripped in migration 000006 and remain gone:
 
-- `shed_video`, `vial_lot_video`, `administration_video`, `extra_video_*` (batch-level proof videos)
+- `vial_lot_video`, `administration_video`, `extra_video_*`
+
+`shed_video` is allowed only when the backend SOP publishes `proof_mode=shed_level_video`, `subject_scope=shed`, and a required shed proof field. It must not be used as a manual medical recap field.
 
 ## The Core Principle
 
 A vaccination dose is a clinical event. Clinical data — what vaccine, what dose, what route, what time, what adverse outcome — must be **captured at the moment of administration** at the animal's side, not filled in after the fact by someone reviewing a list of animals. The operator captures this at animal level through:
 
 1. **Scan** — identify the animal (RFID or old tag)
-2. **Proof** — one live video clip from the operator's phone, recorded during or immediately after the event, showing the injection or delivery
+2. **Proof** — the backend SOP-selected proof media: per-goat live camera proof, or one-to-five shed-level videos when the SOP allows shed proof
 
 Shed completion is NOT a recap form; it is a readiness checkpoint that confirms: "Every expected animal in this shed has been scanned and proofed. The shed is done."
 
@@ -44,7 +46,7 @@ Derived values like `administered_at` (the submit time, when the operator hit 'c
 
 **Before:** vaccination.drive and vaccination.session SOP versions included fields for vaccine_lot_id, cold_chain_verified, dose_ml_given, route_site, administered_at, adverse_reaction, adverse_reaction_notes. Submission was blocked if cold_chain_verified was false. Adverse reaction notes were required if adverse_reaction was true.
 
-**After:** only `goat_ids` (per-animal scans) + per-goat `proof_policy` (proof required). No manual medical fields. Submission is enabled only when all expected animals are scanned AND all have proof.
+**After:** `goat_ids` (per-animal scans) + SOP-owned `proof_policy` (proof required). No manual medical fields. Submission is enabled only when all expected animals are scanned AND the configured proof grain is satisfied.
 
 ### Submission Validation (Backend)
 
@@ -61,9 +63,9 @@ A new read contract `GET /app/tasks/{task_id}/shed-completion-summary` surfaces:
 - `drive_name` — human drive label
 - `expected_count` — animals expected in this shed for the drive
 - `handled_count` — animals scanned
-- `proof_ready_count` — animals with >=1 ready proof clip
+- `proof_ready_count` — proof readiness count for the configured proof grain
 - `vaccine_breakdown` — [{vaccine name, count}] for display
-- `submit_enabled` — true only when handled_count == expected_count AND proof_ready_count == expected_count
+- `submit_enabled` — true only when handled_count == expected_count AND proof readiness satisfies the SOP policy
 - `blocking_reason` — human-readable reason if submit is not enabled, null otherwise
 - `submit_state` — one of draft/submitted/verified/closed
 
@@ -88,7 +90,7 @@ This decision reinforces:
 - A "dose given" field pre-filled with the protocol dose amount. The operator is administering a dose they already prepared; the actual amount is derived from stock consumption, not from a re-entry field.
 - A "route / site" selector that defaults to "subcutaneous". Route is part of the protocol, not a per-dose operator decision. Clinical exceptions (allergic to subcutaneous, wound at site) are handled as problem reports.
 - An "adverse reaction observed" checkbox. Clinical adverse events go through the problem-report path, not a form field on a vaccination task.
-- A shed-level video field or vial-lot video field. Proof is per-animal, captured during administration, not a summary video after the fact.
+- A vial-lot/administration video field used as manual recap evidence. Shed-level video is allowed only when SOP explicitly selects shed-level proof and declares its min/max/capture-source policy.
 
 ## Migration Path
 
@@ -103,16 +105,18 @@ This decision reinforces:
 
 Early vaccination SOP implementations (prototypes and initial phases) included shed-level manual fields for batch, cold chain, dose, and route. These were attempts to create an "all-in-one" form where the operator recap the shed's work after the fact. This violated the principle: **proof captured during an event is the only clinical record.** The operator already captured per-animal proof; recapping it on a shed recap form is ceremony, not evidence.
 
-This ADR ensures the pattern is not reintroduced and codifies the correct model: scan + proof at animal level, acknowledgement at shed level.
+This ADR ensures the pattern is not reintroduced and codifies the correct model: scan every animal, satisfy the SOP-selected proof media, acknowledge at shed level.
 
 ## CI Guard
 
 **Guard script:** `tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs` (or .sh)
 
-The guard FAILS if any of the banned field keys (`vaccine_lot_id`, `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`, `adverse_reaction`, `adverse_reaction_notes`, `shed_video`, `vial_lot_video`, `administration_video`, `extra_video_*`) reappears in:
+The guard FAILS if any of the banned field keys (`vaccine_lot_id`, `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`, `adverse_reaction`, `adverse_reaction_notes`, `vial_lot_video`, `administration_video`, `extra_video_*`) reappears in:
 - Migration files (*.sql) as a field being re-added to a vaccination SOP form_dsl.
 - Seed files (backend/cmd/seed-*) as a field being seeded into a vaccination SOP form_dsl.
 - Taxonomy or enum definitions (vaccination_route_sites, vaccination_form_fields, etc.) if they are explicitly for vaccination SOP manual collection.
+
+The guard must allow `shed_video` only as a required `video_proof` field with `proof_subject=shed` under SOP `proof_mode=shed_level_video`.
 
 The guard ignores:
 - vaccination_completions column definitions (columns may stay as nullable or with defaults, they are server-side values now).

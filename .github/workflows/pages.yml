@@ -76,7 +76,7 @@ jobs:
         run: |
           {
             echo "### Mobile screenshot gallery"
-            echo "12 screens + 6 role-chrome variants (CEO, CEO w/ drawer, Director, Park Head, Park Manager, Operator) rendered — see the Pages artifact \`screenshot-gallery\` below once deployed."
+            echo "Paparazzi screen and role-chrome variants rendered fresh — see the Pages artifact \`screenshot-gallery\` below once deployed."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -94,7 +94,7 @@ jobs:
         run: |
           {
             echo "### Mobile nav-graph"
-            echo "Regenerated from AppNavHost.kt's hand-verified routes/edges."
+            echo "Regenerated route graph plus role-wise navigation contract."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -223,7 +223,6 @@ jobs:
     needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report, scale-audit-e2e-report]
     if: >-
       always() &&
-      needs.mobile-screenshots.result == 'success' &&
       needs.nav-graph.result == 'success' &&
       needs.scale-audit-e2e-report.result == 'success' &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-report.result) &&
@@ -236,6 +235,7 @@ jobs:
       - name: Assemble the combined site
         env:
           POSTGRES_REPORTS: ${{ needs.e2e-report.result == 'success' && needs.e2e-hrms-report.result == 'success' }}
+          SCREENSHOT_GALLERY: ${{ needs.mobile-screenshots.result == 'success' }}
         run: |
           mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report _site/scale-audit-e2e-report
           cat > _site/index.html <<'HTML'
@@ -254,8 +254,19 @@ jobs:
             .card p{margin:6px 0 0;font-size:13px;color:#8aa196}
           </style></head><body>
           <h1>Goat OS — CI reports</h1>
+          HTML
+          if [ "$SCREENSHOT_GALLERY" = "true" ]; then
+            cat >> _site/index.html <<'HTML'
           <a class="card" href="screenshot-gallery/index.html"><b>Mobile screenshot gallery</b>
             <p>Every screen, rendered fresh via Paparazzi.</p></a>
+          HTML
+          else
+            cat >> _site/index.html <<'HTML'
+          <div class="card"><b>Mobile screenshot gallery unavailable</b>
+            <p>Paparazzi gallery generation is non-blocking; compile, unit, lint, and release checks remain authoritative.</p></div>
+          HTML
+          fi
+          cat >> _site/index.html <<'HTML'
           <a class="card" href="nav-graph/index.html"><b>Mobile nav-graph</b>
             <p>Compose Navigation routes + navigate() edges.</p></a>
           HTML
@@ -278,6 +289,7 @@ jobs:
           </body></html>
           HTML
       - uses: actions/download-artifact@v4
+        if: needs.mobile-screenshots.result == 'success'
         with:
           name: screenshot-gallery
           path: _site/screenshot-gallery

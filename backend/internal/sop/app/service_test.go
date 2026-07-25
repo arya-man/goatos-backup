@@ -276,6 +276,48 @@ func TestCreateVersionRejectsVaccinationDriveShedProofPolicy(t *testing.T) {
 	}
 }
 
+func TestCreateVersionAcceptsVaccinationDriveShedLevelProofPolicy(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = "vaccination.drive"
+	service := NewService(repo)
+	dsl := vaccinationDSL()
+	fields := dsl["fields"].([]any)
+	fields = append(fields, map[string]any{
+		"key":           "shed_video",
+		"label":         "Shed vaccination video",
+		"type":          "video_proof",
+		"required":      true,
+		"repeat":        true,
+		"proof_subject": "shed",
+	})
+	dsl["fields"] = fields
+	_, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		SOPID:    testSOPID,
+		Body: domain.CreateSOPVersionRequest{
+			VersionLabel: "shed-level-proof",
+			FormDSL:      dsl,
+			ProofPolicy: map[string]any{
+				"required":                  true,
+				"proof_mode":                "shed_level_video",
+				"subject_scope":             "shed",
+				"types":                     []any{"video"},
+				"minimum_count":             float64(1),
+				"maximum_count":             float64(5),
+				"maximum_count_per_subject": float64(5),
+				"expected_subjects":         []any{"shed"},
+				"capture_source":            "in_app_camera",
+				"allowed_capture_sources":   []any{"in_app_camera", "gallery_picker"},
+				"verify_before_apply":       true,
+			},
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("valid vaccination.drive shed-level proof policy should be accepted: %#v", err)
+	}
+}
+
 func TestValidateRejectsUnsupportedRuleKinds(t *testing.T) {
 	for _, ruleType := range []string{"validation_rule", "calculated_value", "branch_to"} {
 		t.Run(ruleType, func(t *testing.T) {
@@ -802,6 +844,122 @@ func TestSubmitVaccinationReplaySkipsSubmissionFanout(t *testing.T) {
 	}
 }
 
+func TestSubmitReplaySkipsProofRetention(t *testing.T) {
+	repo := newFakeRepo()
+	repo.submitReplay = true
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.version.ProofPolicy["retention_policy"] = "operational_90d"
+	proofs := &fakeProofValidator{resolved: completedProof()}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-retention-replay",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if proofs.retentionCalls != 0 {
+		t.Fatalf("retention calls = %d, want replay to skip proof mutation", proofs.retentionCalls)
+	}
+}
+
+func TestSubmitFailureSkipsProofRetention(t *testing.T) {
+	repo := newFakeRepo()
+	repo.submitErr = errors.New("submit transaction failed")
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.version.ProofPolicy["retention_policy"] = "operational_90d"
+	proofs := &fakeProofValidator{resolved: completedProof()}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-retention-fail",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("SubmitTask() error = nil, want submit failure")
+	}
+	if proofs.retentionCalls != 0 {
+		t.Fatalf("retention calls = %d, want failed submit to skip proof mutation", proofs.retentionCalls)
+	}
+}
+
+func TestSubmitSuccessAppliesProofRetention(t *testing.T) {
+	repo := newFakeRepo()
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.version.ProofPolicy["retention_policy"] = "operational_90d"
+	proofs := &fakeProofValidator{resolved: completedProof()}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-retention-success",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if proofs.retentionCalls != 1 || proofs.retentionPolicy != "operational_90d" {
+		t.Fatalf("retention calls/policy = %d/%q, want one operational_90d call", proofs.retentionCalls, proofs.retentionPolicy)
+	}
+}
+
+func TestSubmitRetentionFailureDoesNotFailCommittedSubmissionOrBlockFanout(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.version.ProofPolicy["retention_policy"] = "operational_90d"
+	proofs := &fakeProofValidator{resolved: completedProof(), retentionErr: errors.New("proof retention temporarily unavailable")}
+	hook := &fakeSubmissionHook{}
+	service := NewService(repo).WithProofValidator(proofs).WithSubmissionHook(hook)
+
+	result, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-retention-post-commit",
+			Answers:        validAnswers(),
+			ProofRefs:      completedProof(),
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v, want committed response despite retention failure", err)
+	}
+	if result == nil || result.Submission.SubmissionID == "" {
+		t.Fatalf("result = %#v, want committed submission response", result)
+	}
+	if proofs.retentionCalls != 1 {
+		t.Fatalf("retention calls = %d, want one best-effort attempt", proofs.retentionCalls)
+	}
+	if hook.submitted != 1 {
+		t.Fatalf("submission hook calls = %d, want fanout after retention failure", hook.submitted)
+	}
+}
+
 func TestVerifyTaskRejectsTaskWithoutReviewSubmission(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.State = "assigned"
@@ -1308,6 +1466,7 @@ type fakeRepo struct {
 	scanAttempts                []domain.ScanAttemptSummary
 	lastScanAttempt             ports.RecordScanAttemptCommand
 	submitReplay                bool
+	submitErr                   error
 	reviewCalls                 int
 	listSOPsResult              []domain.SOPDefinition
 	lastListSOPs                ports.ListSOPsParams
@@ -1477,14 +1636,17 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
 }
-func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string) (ports.ShedCompletionReadiness, error) {
+func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string, string, string, int, int) (ports.ShedCompletionReadiness, error) {
 	return f.shedReadiness, f.shedReadinessErr
 }
-func (f *fakeRepo) CompletedTaskGoatProofRefs(context.Context, string, string) ([]domain.ProofReference, error) {
+func (f *fakeRepo) CompletedTaskProofRefs(context.Context, string, string, string) ([]domain.ProofReference, error) {
 	return f.completedTaskGoatProofRefs, f.completedTaskGoatProofErr
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {
 	f.lastSubmit = cmd
+	if f.submitErr != nil {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, f.submitErr
+	}
 	if f.submitReplay {
 		submission := domain.SubmissionSummary{
 			SubmissionID:   "65000000-0000-4000-8000-000000000001",
@@ -1615,11 +1777,14 @@ func (f *fakeSubmissionHook) OnTaskSubmitted(context.Context, string, domain.Tas
 }
 
 type fakeProofValidator struct {
-	calls    int
-	binding  domain.ProofBinding
-	refs     []domain.ProofReference
-	resolved []domain.ProofReference
-	err      error
+	calls           int
+	binding         domain.ProofBinding
+	refs            []domain.ProofReference
+	resolved        []domain.ProofReference
+	err             error
+	retentionCalls  int
+	retentionPolicy string
+	retentionErr    error
 }
 
 func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error) {
@@ -1630,4 +1795,11 @@ func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, bindi
 		return nil, f.err
 	}
 	return f.resolved, nil
+}
+
+func (f *fakeProofValidator) ApplyRetentionPolicy(_ context.Context, _ string, refs []domain.ProofReference, policy string, _ time.Time) error {
+	f.retentionCalls++
+	f.retentionPolicy = policy
+	f.refs = refs
+	return f.retentionErr
 }

@@ -219,19 +219,45 @@ private class FakeExecutionRepository : ExecutionRepository {
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
     override suspend fun rows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?, cursor: String?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto = error("unused")
 
     override fun observeRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Flow<Resource<VaccinationExecutionResponseDto>> = error("unused")
 
     override suspend fun refreshRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun appendRows(
-        cursor: String, parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        cursor: String,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        openOnly: Boolean?,
+        limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =

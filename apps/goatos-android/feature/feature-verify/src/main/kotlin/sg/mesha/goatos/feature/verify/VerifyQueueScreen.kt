@@ -16,13 +16,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,11 +33,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
@@ -62,6 +68,22 @@ data class VerificationQueueRow(
     val statusTone: VerifyTone,
 )
 
+data class VerifyDriveClosure(
+    val batchId: String,
+    val driveLabel: String,
+    val batchLabel: String,
+    val totalCount: Int,
+    val approvedCount: Int,
+    val rejectedCount: Int,
+    val pendingCount: Int,
+    val videoCount: Int,
+    val approvedVideos: Int,
+    val rejectedVideos: Int,
+    val pendingVideos: Int,
+    val shedCount: Int,
+    val ready: Boolean,
+)
+
 /** A category filter chip. [value] is the raw category key sent to the backend
  *  (`null` = every category this verifier is assigned, [label] then `null` so the Screen
  *  substitutes the localized "All" chrome string — the one label here that is NOT backend
@@ -71,14 +93,21 @@ data class VerificationQueueRow(
  *  verification-module-design.md §2.3). */
 data class VerifyCategoryOption(val value: String?, val label: String?)
 
+data class VerifyLocationFilterOption(val value: String?, val label: String)
+
 enum class VerifyModuleTab { VACCINATION, COUNTS, FEED_DIRECTION }
 
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
     val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
+    val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
+    val parkOptions: List<VerifyLocationFilterOption> = emptyList(),
+    val selectedParkId: String? = null,
+    val shedOptions: List<VerifyLocationFilterOption> = emptyList(),
+    val selectedShedId: String? = null,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
@@ -86,10 +115,16 @@ data class VerifyQueueUiState(
     // Keyset pagination (~20/page) — see docs/decisions/mobile-data-fetch-anti-patterns.md.
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    val driveClosures: List<VerifyDriveClosure> = emptyList(),
+    val closingBatchId: String? = null,
+    val closeErrorBatchId: String? = null,
+    val closeErrorMessage: String? = null,
 )
 
 sealed interface VerifyQueueEvent {
     data class SelectCategory(val category: String?) : VerifyQueueEvent
+    data class SelectPark(val parkId: String?) : VerifyQueueEvent
+    data class SelectShed(val shedId: String?) : VerifyQueueEvent
     /** [category] is the tapped row's OWN category (never the queue's filter selection) — the
      *  nav host threads it into the detail route so that screen re-observes the exact same Room
      *  cache scope this row came from, with no extra network call. */
@@ -97,6 +132,7 @@ sealed interface VerifyQueueEvent {
     data object Refresh : VerifyQueueEvent
     data object LoadMore : VerifyQueueEvent
     data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
+    data class CloseDrive(val batchId: String) : VerifyQueueEvent
 }
 
 @Composable
@@ -105,16 +141,36 @@ fun VerifyQueueScreen(
     onEvent: (VerifyQueueEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
+        if (
+            state.selectedModule != VerifyModuleTab.VACCINATION ||
+            !state.hasMore ||
+            state.isLoadingMore ||
+            state.rows.isEmpty()
+        ) {
+            return@LaunchedEffect
+        }
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= state.rows.lastIndex - 3 && state.hasMore && !state.isLoadingMore) {
+                    onEvent(VerifyQueueEvent.LoadMore)
+                }
+            }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MeshaColors.PageBg),
     ) {
         QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        ModuleTabs(
-            selected = state.selectedModule,
-            onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
-        )
+        if (!state.isActionQueue) {
+            ModuleTabs(
+                selected = state.selectedModule,
+                onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
+            )
+        }
         if (state.categoryOptions.size > 1) {
             CategoryFilterRow(
                 options = state.categoryOptions,
@@ -122,10 +178,37 @@ fun VerifyQueueScreen(
                 onSelect = { onEvent(VerifyQueueEvent.SelectCategory(it)) },
             )
         }
+        if (state.parkOptions.size > 1) {
+            LocationFilterRow(
+                options = state.parkOptions,
+                selected = state.selectedParkId,
+                onSelect = { onEvent(VerifyQueueEvent.SelectPark(it)) },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+        if (state.shedOptions.size > 1) {
+            LocationFilterRow(
+                options = state.shedOptions,
+                selected = state.selectedShedId,
+                onSelect = { onEvent(VerifyQueueEvent.SelectShed(it)) },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
+            if (state.isActionQueue) {
+                items(state.driveClosures, key = { it.batchId }) { closure ->
+                    DriveCloseCard(
+                        closure = closure,
+                        isClosing = state.closingBatchId == closure.batchId,
+                        errorMessage = state.closeErrorMessage.takeIf { state.closeErrorBatchId == closure.batchId },
+                        onClose = { onEvent(VerifyQueueEvent.CloseDrive(closure.batchId)) },
+                    )
+                }
+            }
             if (state.selectedModule != VerifyModuleTab.VACCINATION) {
                 item {
                     EmptyState(
@@ -140,8 +223,8 @@ fun VerifyQueueScreen(
             } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
-                        title = stringResource(R.string.verify_queue_empty),
-                        subtitle = stringResource(R.string.verify_queue_empty_subtitle),
+                        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty else R.string.verify_queue_empty),
+                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Positive,
                     )
@@ -150,17 +233,104 @@ fun VerifyQueueScreen(
                 items(state.rows, key = { it.id }) { row ->
                     QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
                 }
-                if (state.hasMore) {
+                if (state.isLoadingMore) {
                     item {
-                        LoadMoreButton(
-                            label = stringResource(R.string.verify_queue_load_more),
-                            loading = state.isLoadingMore,
-                            onClick = { onEvent(VerifyQueueEvent.LoadMore) },
-                        )
+                        InlineLoadingFooter()
                     }
                 }
             }
             item { Spacer(Modifier.size(24.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun DriveCloseCard(
+    closure: VerifyDriveClosure,
+    isClosing: Boolean,
+    errorMessage: String?,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.OkX)
+            .border(1.dp, MeshaColors.Ok.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = closure.batchLabel.ifBlank { stringResource(R.string.verify_drive_ready_title) },
+                    color = MeshaColors.Ink,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.W800,
+                )
+                if (closure.driveLabel.isNotBlank()) {
+                    Text(
+                        text = closure.driveLabel,
+                        color = MeshaColors.Muted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.W700,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        R.string.verify_drive_ready_subtitle,
+                        closure.totalCount,
+                        closure.shedCount,
+                        closure.approvedVideos,
+                        closure.videoCount,
+                    ),
+                    color = MeshaColors.Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Text(
+                    text = stringResource(
+                        R.string.verify_drive_ready_detail,
+                        closure.pendingVideos,
+                        closure.rejectedVideos,
+                    ),
+                    color = MeshaColors.Faint,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MeshaColors.Ok)
+                    .clickable(enabled = !isClosing, onClick = onClose)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isClosing) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Surf, strokeWidth = 2.dp)
+                } else {
+                    Icon(MeshaIcons.CheckCircle, contentDescription = null, tint = MeshaColors.Surf, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        text = stringResource(R.string.verify_drive_close),
+                        color = MeshaColors.Surf,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.W800,
+                    )
+                }
+            }
+        }
+        errorMessage?.let {
+            Text(
+                text = it,
+                color = MeshaColors.Danger,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W600,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }
@@ -188,19 +358,9 @@ private fun ModuleTabs(
 
 @Composable
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.verify_queue_title),
-                color = MeshaColors.Ink,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.W800,
-            )
+    MeshaScreenHeader(
+        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
+        below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
                 lastSyncedAt = state.lastSyncedAt,
@@ -208,23 +368,15 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
                 isOffline = state.isOffline,
                 modifier = Modifier.padding(top = 2.dp),
             )
-        }
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MeshaColors.Surf2)
-                .clickable(onClick = onRefresh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Refresh,
+        },
+        actions = {
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = onRefresh,
                 contentDescription = stringResource(R.string.verify_queue_refresh),
-                tint = MeshaColors.Muted,
-                modifier = Modifier.size(18.dp),
             )
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -241,6 +393,28 @@ private fun CategoryFilterRow(
         items(options, key = { it.value ?: "__all__" }) { option ->
             CategoryChip(
                 label = option.label ?: stringResource(R.string.verify_category_all),
+                selected = option.value == selected,
+                onClick = { onSelect(option.value) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LocationFilterRow(
+    options: List<VerifyLocationFilterOption>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier,
+    ) {
+        items(options, key = { it.value ?: "__all__" }) { option ->
+            CategoryChip(
+                label = option.label,
                 selected = option.value == selected,
                 onClick = { onSelect(option.value) },
             )
@@ -351,22 +525,14 @@ internal fun StatusPill(tone: VerifyTone) {
 }
 
 @Composable
-private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit) {
+private fun InlineLoadingFooter() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .clickable(enabled = !loading, onClick = onClick)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
-        } else {
-            Text(text = label, color = MeshaColors.Brand2, fontSize = 12.5.sp, fontWeight = FontWeight.W700)
-        }
+        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
     }
 }

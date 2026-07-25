@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
@@ -6,8 +7,9 @@ import { assertMutableLocalDb, classifyLocalDatabaseUrl } from "./lib/db-mutatio
 import { assertOriginMainLocalStack } from "./lib/origin-main-local-stack-guard.mjs";
 
 const mode = process.argv[2];
-const host = "127.0.0.1";
-const port = 3300;
+const extraArgs = process.argv.slice(3);
+const host = optionValue(extraArgs, ["-H", "--hostname"]) || process.env.HOSTNAME || "127.0.0.1";
+const port = Number(optionValue(extraArgs, ["-p", "--port"]) || process.env.PORT || "3300");
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const backendDir = path.join(repoRoot, "backend");
 
@@ -26,7 +28,11 @@ const defaultDatabaseUrl = databaseClassification.url;
 const defaultHS256Secret = "goatos-local-dev-secret-32-bytes-min";
 
 if (mode !== "dev" && mode !== "start") {
-  console.error("Usage: npm run dev:local|start:local");
+  console.error("Usage: npm run dev[:local] [-- --hostname 127.0.0.1 --port 3300] | npm run start[:local]");
+  process.exit(2);
+}
+if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  console.error(`Invalid admin-web port: ${String(port)}`);
   process.exit(2);
 }
 
@@ -34,6 +40,7 @@ assertOriginMainLocalStack(repoRoot, "admin-web", { port });
 assertNotTempCheckout();
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();
+ensureStandaloneStaticAssets();
 
 const nextArgs = [mode, "-H", host, "-p", String(port)];
 if (mode === "dev") {
@@ -208,6 +215,7 @@ function isLocalAppPostgresContainer(name) {
 
 function assertNotTempCheckout() {
   if (process.env.GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK === "1") return;
+  if (port !== 3300) return;
 
   let topLevel = repoRoot;
   try {
@@ -226,6 +234,26 @@ function assertNotTempCheckout() {
     console.error("GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1 for an explicit throwaway experiment.");
     process.exit(2);
   }
+}
+
+function ensureStandaloneStaticAssets() {
+  const appRoot = path.join(repoRoot, "apps/admin-web");
+  const builtStatic = path.join(appRoot, ".next/static");
+  const standaloneStatic = path.join(appRoot, ".next/standalone/apps/admin-web/.next/static");
+  if (!fs.existsSync(builtStatic)) return;
+  fs.mkdirSync(standaloneStatic, { recursive: true });
+  fs.cpSync(builtStatic, standaloneStatic, { recursive: true, force: true });
+}
+
+function optionValue(args, names) {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    for (const name of names) {
+      if (arg === name) return args[i + 1] || "";
+      if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1);
+    }
+  }
+  return "";
 }
 
 function runSeedCloseoutIfPresent(env) {

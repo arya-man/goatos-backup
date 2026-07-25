@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
@@ -82,6 +83,7 @@ fun MeshaScreenHeader(
     // Shell-owned, route-derived. Non-null ⇒ this destination is an exact L0 root whose
     // module drawer can be opened; null ⇒ hosted drill or single-module (MINIMAL) chrome.
     val openDrawer = LocalDrawerOpener.current
+    val isTopLevelRoot = LocalIsTopLevelRoot.current
 
     Row(
         modifier = modifier.fillMaxWidth().padding(contentPadding),
@@ -100,7 +102,7 @@ fun MeshaScreenHeader(
                 )
                 Spacer(Modifier.width(12.dp))
             }
-            onBack != null -> {
+            onBack != null && !isTopLevelRoot -> {
                 MeshaIconButton(
                     icon = MeshaIcons.ChevronLeft,
                     contentDescription = stringResource(R.string.nav_back),

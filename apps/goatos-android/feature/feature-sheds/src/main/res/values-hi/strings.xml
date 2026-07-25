@@ -2,7 +2,7 @@
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">ताज़ा करें</string>
-    <string name="sheds_title">टीकाकरण अभियान</string>
+    <string name="sheds_title">टीकाकरण शेड</string>
     <string name="sheds_count_fmt">%1$d शेड</string>
     <string name="sheds_due_fmt">%1$d खुले</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d पूर्ण</string>
@@ -14,6 +14,7 @@
     <string name="sheds_num_cell_in_shed">लक्षित</string>
     <string name="sheds_num_cell_due">शेष</string>
     <string name="sheds_num_cell_done">पूर्ण</string>
+    <string name="sheds_partition_fmt">भाग %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>

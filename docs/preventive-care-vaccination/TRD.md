@@ -397,7 +397,7 @@ later drive optimizer uses the same stored policy fields only for operational
 partitioning.
 
 **Audit metadata, not a source-review UI:** the Config UI is visible only to
-CEO/COO/superadmin in V1. Do not add source-system/reviewer/approved-by fields
+CEO/CXO in V1. Do not add source-system/reviewer/approved-by fields
 to the authoring surface or persisted rule JSON. The rule version is audited by
 the protocol tables: `version`, `created_at`, `drafted_by`/creator,
 `published_by`, `published_at`, `effective_from`, `effective_to`, `retired_at`,
@@ -414,11 +414,12 @@ bug-for-bug row copying. Known legacy gaps to close are row/header evidence bein
 treated as dose proof, optional/weak medicine-batch capture, adverse reactions
 without durable notes/follow-up, and review confidence not being first-class.
 
-- `sop_versions.form_dsl` for vaccination carries a **single** operator field:
-  `goat_ids` (the per-animal scan roster, `repeat`), each scanned row bound to its
-  own live camera proof via the per-goat `proof_policy`. There is **no shed-level
-  manual medical form**: vaccine + dose come from the drive/obligation config,
-  `administered_at` is derived server-side (the submit time), and adverse events go
+- `sop_versions.form_dsl` for vaccination carries the operator execution fields
+  published by backend SOP: `goat_ids` (the per-animal scan roster, `repeat`) plus
+  the SOP-selected proof field. Supported proof grains are per-goat live camera
+  proof and shed-level video proof. Shed-level proof is still proof media only,
+  not a manual medical recap form: vaccine + dose come from the drive/obligation
+  config, scan timestamps capture administration timing, and adverse events go
   through the health problem-report path. The manual field keys `vaccine_lot_id`,
   `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`,
   `adverse_reaction`, `adverse_reaction_notes` are **banned** from the vaccination
@@ -656,11 +657,15 @@ stay available to detail and audit surfaces.
    loaded. A sweep run on Aug 20 with `dueBefore=Aug31` must still plan the
    Aug19/Aug20 clubbed drive on Aug 20, not Aug31 and not the earliest animal
    due date.
-9. Batched read models are drive-date-first. Calendar, Vaccination Execution,
-   Process Integrity, Action Center, Protocol Adherence, and Control Tower style
-   rows must render, sort, and classify batched drive work from
-   `obligation_batches.planned_date`; animal `due_at` remains per-animal
-   obligation truth and is only the fallback for unbatched work.
+9. Batched read models are assignment-date-first. Once
+   `vaccination_drive_assignments` rows exist, Calendar L1/L2/L3, Vaccination
+   Execution, Process Integrity, Action Center, Protocol Adherence, Control
+   Tower, Workflows, and leadership/operator reads must render, sort, classify,
+   and roster batched drive work from the assignment `planned_date` (or the
+   override-effective assignment date in the schedule ledger). Fall back to
+   `obligation_batches.planned_date` only when no assignment exists, and to
+   animal `due_at` only for unbatched work. A move/date override is incomplete
+   until every lens shows the same park/date/animal membership.
 10. Enforce per-animal shot cap. Default policy is
    `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
    are not unlimited. If more than 2 vaccines are due for an animal, choose the

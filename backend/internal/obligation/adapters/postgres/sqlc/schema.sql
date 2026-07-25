@@ -24,6 +24,13 @@ CREATE SCHEMA analytics;
 
 
 --
+-- Name: ceo_ai; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA ceo_ai;
+
+
+--
 -- Name: btree_gist; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -35,6 +42,40 @@ CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
 --
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+--
+-- Name: run_readonly_sql(text, uuid); Type: FUNCTION; Schema: ceo_ai; Owner: -
+--
+
+CREATE FUNCTION ceo_ai.run_readonly_sql(sql text, tenant uuid) RETURNS SETOF jsonb
+    LANGUAGE plpgsql
+    SET search_path TO 'ceo_ai', 'pg_temp'
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'ceo_ai.run_readonly_sql: implement through the Mesha backend SQL validator first (SELECT-only, ceo_ai.* allowlist, mandatory tenant filter, LIMIT<=100)';
+END;
+$$;
+
+
+--
+-- Name: vaccine_label_for(text); Type: FUNCTION; Schema: ceo_ai; Owner: -
+--
+
+CREATE FUNCTION ceo_ai.vaccine_label_for(p_dose_code text) RETURNS text
+    LANGUAGE sql STABLE
+    AS $$
+    SELECT CASE
+        WHEN m.vaccine_label IS NULL THEN NULL
+        WHEN p_dose_code LIKE '%revac%' OR p_dose_code LIKE '%booster%'
+            THEN m.vaccine_label || ' · Booster'
+        ELSE m.vaccine_label
+    END
+    FROM ceo_ai.vaccine_label_map m
+    WHERE p_dose_code LIKE m.family_prefix || '%'
+    ORDER BY length(m.family_prefix) DESC
+    LIMIT 1;
+$$;
 
 
 --
@@ -777,6 +818,17 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: feed_config_norm(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.feed_config_norm(value text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+    AS $$
+      SELECT lower(regexp_replace(btrim(value), '[\s_-]+', '_', 'g'))
+    $$;
 
 
 --
@@ -1648,6 +1700,20 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF NEW.aggregate_type = 'vaccination_batch' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_batches
+      WHERE tenant_id = NEW.tenant_id
+        AND batch_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'vaccination batch outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'count_base_anchor' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -1783,6 +1849,34 @@ BEGIN
         AND correction_request_id = NEW.aggregate_id
     ) THEN
       RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'absence' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM workforce_absences
+      WHERE tenant_id = NEW.tenant_id
+        AND absence_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'absence outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'park' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM locations
+      WHERE tenant_id = NEW.tenant_id
+        AND location_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'park outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
 
@@ -2011,6 +2105,2107 @@ ALTER TABLE analytics.rollup_run ALTER COLUMN run_id ADD GENERATED ALWAYS AS IDE
 
 
 --
+-- Name: counts_approval_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_approval_requests (
+    approval_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    request_type text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    shifting_event_id uuid,
+    subject_goat_id uuid,
+    status text DEFAULT 'pending'::text NOT NULL,
+    raised_by_user_id uuid NOT NULL,
+    raised_at timestamp with time zone DEFAULT now() NOT NULL,
+    decided_by_user_id uuid,
+    decided_at timestamp with time zone,
+    decision_reason text,
+    applied_result_type text,
+    applied_result_id uuid,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    decision_idempotency_key text,
+    decision_request_fingerprint text,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_approval_requests_applied_result_check CHECK ((((status = 'approved'::text) AND (applied_result_type IS NOT NULL) AND (applied_result_id IS NOT NULL)) OR ((status <> 'approved'::text) AND (applied_result_type IS NULL) AND (applied_result_id IS NULL)))),
+    CONSTRAINT counts_approval_requests_decision_shape_check CHECK ((((status = 'pending'::text) AND (decided_by_user_id IS NULL) AND (decided_at IS NULL)) OR ((status <> 'pending'::text) AND (decided_by_user_id IS NOT NULL) AND (decided_at IS NOT NULL)))),
+    CONSTRAINT counts_approval_requests_fingerprint_check CHECK ((btrim(request_fingerprint) <> ''::text)),
+    CONSTRAINT counts_approval_requests_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT counts_approval_requests_payload_object_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT counts_approval_requests_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((decision_reason IS NOT NULL) AND (btrim(decision_reason) <> ''::text)))),
+    CONSTRAINT counts_approval_requests_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT counts_approval_requests_shifting_link_check CHECK (((request_type = 'shifting'::text) = (shifting_event_id IS NOT NULL))),
+    CONSTRAINT counts_approval_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT counts_approval_requests_subject_goat_check CHECK (((subject_goat_id IS NULL) OR (request_type = 'death'::text))),
+    CONSTRAINT counts_approval_requests_type_check CHECK ((request_type = ANY (ARRAY['birth'::text, 'death'::text, 'shifting'::text])))
+);
+
+
+--
+-- Name: locations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.locations (
+    location_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    location_type text NOT NULL,
+    location_code text,
+    name text NOT NULL,
+    parent_location_id uuid,
+    country text DEFAULT 'IN'::text NOT NULL,
+    state_region text,
+    district text,
+    pincode text,
+    lat numeric,
+    lng numeric,
+    timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
+    status text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    operational_notes text,
+    retired_at timestamp with time zone,
+    retired_by uuid,
+    CONSTRAINT locations_lat_check CHECK (((lat IS NULL) OR ((lat >= ('-90'::integer)::numeric) AND (lat <= (90)::numeric)))),
+    CONSTRAINT locations_lng_check CHECK (((lng IS NULL) OR ((lng >= ('-180'::integer)::numeric) AND (lng <= (180)::numeric)))),
+    CONSTRAINT locations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'staging'::text, 'review'::text]))),
+    CONSTRAINT locations_type_check CHECK ((location_type = ANY (ARRAY['farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'pen'::text, 'unknown'::text])))
+);
+
+
+--
+-- Name: obligation_instances; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_instances (
+    obligation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    rule_id uuid NOT NULL,
+    batch_id uuid,
+    target_type text NOT NULL,
+    target_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    sop_task_id uuid,
+    idempotency_key text NOT NULL,
+    generated_by_trigger_id uuid,
+    sequence integer DEFAULT 1 NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    batching_hold_count integer DEFAULT 0,
+    first_batching_hold_until timestamp with time zone,
+    CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
+    CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text]))),
+    CONSTRAINT obligation_instances_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
+);
+
+
+--
+-- Name: protocol_rules; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_rules (
+    rule_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    dose_code text NOT NULL,
+    sequence integer DEFAULT 1 NOT NULL,
+    trigger_type text NOT NULL,
+    offset_days integer DEFAULT 0 NOT NULL,
+    due_window_days integer DEFAULT 0 NOT NULL,
+    min_gap_days integer DEFAULT 0 NOT NULL,
+    repeat text DEFAULT 'none'::text NOT NULL,
+    repeat_until_after_age text,
+    catch_up text DEFAULT 'pc_approval'::text NOT NULL,
+    eligibility_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    sop_version_id uuid,
+    proof_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
+    withdrawal_days integer,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'pc_approval'::text, 'defer'::text]))),
+    CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
+    CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
+    CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text]))),
+    CONSTRAINT protocol_rules_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['birth_age'::text, 'post_arrival'::text, 'calendar'::text, 'after_previous_completion'::text, 'manual_campaign'::text]))),
+    CONSTRAINT protocol_rules_window_check CHECK ((due_window_days >= 0))
+);
+
+
+--
+-- Name: workforce_members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_members (
+    workforce_member_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    user_id uuid,
+    display_code text NOT NULL,
+    display_name text NOT NULL,
+    status text DEFAULT 'candidate'::text NOT NULL,
+    primary_role_hint text DEFAULT 'operator'::text NOT NULL,
+    primary_location_id uuid,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    department_id uuid,
+    hr_designation_grade text,
+    CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
+    CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
+    CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
+);
+
+
+--
+-- Name: workforce_positions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_positions (
+    position_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    position_code text NOT NULL,
+    position_tier text NOT NULL,
+    is_backup_slot boolean DEFAULT false NOT NULL,
+    backup_group_code text,
+    week_off_weekday text,
+    status text DEFAULT 'active'::text NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    vaccination_daily_animal_cap integer,
+    CONSTRAINT workforce_positions_backup_group_check CHECK (((backup_group_code IS NULL) OR (backup_group_code ~ '^[a-z][a-z0-9_]*$'::text))),
+    CONSTRAINT workforce_positions_position_code_check CHECK ((position_code ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT workforce_positions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text]))),
+    CONSTRAINT workforce_positions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text]))),
+    CONSTRAINT workforce_positions_tier_check CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text]))),
+    CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check CHECK (((vaccination_daily_animal_cap IS NULL) OR ((vaccination_daily_animal_cap >= 1) AND (vaccination_daily_animal_cap <= 100000)))),
+    CONSTRAINT workforce_positions_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text])))),
+    CONSTRAINT workforce_positions_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: action_center_current; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.action_center_current AS
+ SELECT oi.tenant_id,
+    'vaccination'::text AS area,
+        CASE
+            WHEN (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date) THEN 'high'::text
+            ELSE 'medium'::text
+        END AS severity,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    COALESCE(ceo_ai.vaccine_label_for(pr.dose_code), 'Vaccination'::text) AS title,
+    om.display_name AS owner_label,
+    NULL::text AS backup_label,
+    oi.due_at,
+    oi.status
+   FROM ((((public.obligation_instances oi
+     LEFT JOIN public.locations sh ON ((sh.location_id = oi.scope_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
+     LEFT JOIN public.protocol_rules pr ON ((pr.rule_id = oi.rule_id)))
+     LEFT JOIN LATERAL ( SELECT wm.display_name
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.tenant_id = oi.tenant_id) AND (wp.scope_type = 'shed'::text) AND (wp.scope_id = oi.scope_id) AND (wp.is_backup_slot = false) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+         LIMIT 1) om ON (true))
+  WHERE ((oi.scope_type = 'shed'::text) AND (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])))
+UNION ALL
+ SELECT ca.tenant_id,
+    'counts'::text AS area,
+    'medium'::text AS severity,
+    NULL::text AS park_label,
+    NULL::text AS shed_label,
+    COALESCE(ca.request_type, 'count_approval'::text) AS title,
+    NULL::text AS owner_label,
+    NULL::text AS backup_label,
+    ca.raised_at AS due_at,
+    ca.status
+   FROM public.counts_approval_requests ca
+  WHERE (ca.status = 'pending'::text);
+
+
+--
+-- Name: breeds; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.breeds (
+    breed_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    species text DEFAULT 'goat'::text NOT NULL,
+    canonical_name text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    review_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goats (
+    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
+    species text DEFAULT 'goat'::text NOT NULL,
+    breed text,
+    breed_id uuid,
+    sex text NOT NULL,
+    approx_dob date,
+    age_band text,
+    lifecycle_status text NOT NULL,
+    reproductive_status text,
+    growth_cohort_tag text,
+    management_stage text,
+    health_status text,
+    custodian_party_id uuid NOT NULL,
+    current_location_id uuid,
+    farm_id uuid,
+    park_id uuid,
+    shed_id uuid,
+    cohort_id uuid,
+    merged_into_goat_id uuid,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    dob date,
+    dob_estimated boolean DEFAULT true NOT NULL,
+    origin_type text,
+    entry_date date,
+    exited_at timestamp with time zone,
+    exit_reason text,
+    breeding_date date,
+    last_delivery_date date,
+    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
+    CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
+    CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
+    CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
+    CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
+    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+);
+
+
+--
+-- Name: animal_current_scope; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.animal_current_scope AS
+ SELECT g.tenant_id,
+    g.goat_id AS animal_id,
+    g.park_id,
+    pk.name AS park_label,
+    g.shed_id,
+    sh.name AS shed_label,
+    g.species,
+    g.management_stage,
+    g.lifecycle_status,
+    g.sex,
+    COALESCE(b.canonical_name, g.breed) AS breed,
+    (((now() AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) AS age_days
+   FROM (((public.goats g
+     LEFT JOIN public.locations pk ON ((pk.location_id = g.park_id)))
+     LEFT JOIN public.locations sh ON ((sh.location_id = g.shed_id)))
+     LEFT JOIN public.breeds b ON ((b.breed_id = g.breed_id)));
+
+
+--
+-- Name: animals_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.animals_base AS
+ SELECT g.goat_id,
+    g.tenant_id,
+    g.species,
+    g.lifecycle_status,
+    g.management_stage,
+    g.park_id,
+    pk.name AS park_label,
+    g.shed_id,
+    sh.name AS shed_label,
+    g.entry_date,
+    ((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS exit_business_day,
+    g.exit_reason
+   FROM ((public.goats g
+     LEFT JOIN public.locations pk ON ((pk.location_id = g.park_id)))
+     LEFT JOIN public.locations sh ON ((sh.location_id = g.shed_id)));
+
+
+--
+-- Name: audit_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_log (
+    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid,
+    actor_id uuid,
+    actor_type text NOT NULL,
+    action text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id uuid,
+    scope_type text,
+    scope_id uuid,
+    decision_id uuid,
+    before_state jsonb,
+    after_state jsonb,
+    metadata jsonb NOT NULL,
+    trace_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: audit_activity_summary; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.audit_activity_summary AS
+ SELECT tenant_id,
+    ((created_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS business_date,
+    COALESCE(resource_type, scope_type, 'general'::text) AS area,
+    COALESCE(actor_type, 'system'::text) AS actor_label,
+    action AS action_label,
+    (metadata ->> 'result'::text) AS result,
+    count(*) AS count,
+    max(created_at) AS last_activity_at
+   FROM public.audit_log al
+  GROUP BY tenant_id, (((created_at AT TIME ZONE 'Asia/Kolkata'::text))::date), COALESCE(resource_type, scope_type, 'general'::text), COALESCE(actor_type, 'system'::text), action, (metadata ->> 'result'::text);
+
+
+--
+-- Name: shifting_event_impacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shifting_event_impacts (
+    shifting_event_impact_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    shifting_event_id uuid NOT NULL,
+    grain_key text NOT NULL,
+    breed_id uuid,
+    breed_key text NOT NULL,
+    breed_label text NOT NULL,
+    stage_tag text,
+    age_class text,
+    sex text,
+    head_count integer NOT NULL,
+    pregnant_count integer DEFAULT 0 NOT NULL,
+    lactating_count integer DEFAULT 0 NOT NULL,
+    warmup_count integer DEFAULT 0 NOT NULL,
+    risk_flags jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ration_context_resolution_state text DEFAULT 'unresolved'::text NOT NULL,
+    ration_context_ref text,
+    blocker_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shifting_event_impacts_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
+    CONSTRAINT shifting_event_impacts_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT shifting_event_impacts_head_count_check CHECK ((head_count > 0)),
+    CONSTRAINT shifting_event_impacts_resolution_check CHECK ((ration_context_resolution_state = ANY (ARRAY['resolved'::text, 'unresolved'::text, 'blocked'::text, 'not_required'::text]))),
+    CONSTRAINT shifting_event_impacts_risk_counts_check CHECK (((pregnant_count >= 0) AND (lactating_count >= 0) AND (warmup_count >= 0) AND (pregnant_count <= head_count) AND (lactating_count <= head_count) AND (warmup_count <= head_count))),
+    CONSTRAINT shifting_event_impacts_risk_flags_object_check CHECK ((jsonb_typeof(risk_flags) = 'object'::text))
+);
+
+
+--
+-- Name: shifting_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shifting_events (
+    shifting_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    logical_shifting_event_key text NOT NULL,
+    priority text NOT NULL,
+    category text NOT NULL,
+    source_park_id uuid,
+    source_shed_id uuid,
+    destination_park_id uuid NOT NULL,
+    destination_shed_id uuid NOT NULL,
+    raised_at timestamp with time zone NOT NULL,
+    effective_at timestamp with time zone NOT NULL,
+    authorized_at timestamp with time zone,
+    authorized_by uuid,
+    authorization_state text DEFAULT 'pending'::text NOT NULL,
+    verification_state text DEFAULT 'unverified'::text NOT NULL,
+    event_status text DEFAULT 'pending'::text NOT NULL,
+    source_system text NOT NULL,
+    source_ref text NOT NULL,
+    proof_ref text,
+    payload_hash text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    applied_at timestamp with time zone,
+    applied_by uuid,
+    canceled_at timestamp with time zone,
+    canceled_by uuid,
+    cancel_reason text,
+    completion_idempotency_key text,
+    completion_request_fingerprint text,
+    cancel_idempotency_key text,
+    cancel_request_fingerprint text,
+    CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
+    CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))),
+    CONSTRAINT shifting_events_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),
+    CONSTRAINT shifting_events_payload_hash_check CHECK ((btrim(payload_hash) <> ''::text)),
+    CONSTRAINT shifting_events_priority_check CHECK ((priority = ANY (ARRAY['high'::text, 'low'::text]))),
+    CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
+    CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
+    CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
+);
+
+
+--
+-- Name: counts_movement_daily; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.counts_movement_daily AS
+ WITH events AS (
+         SELECT b.tenant_id,
+            b.shed_id,
+            b.event_date,
+            b.births,
+            (0)::bigint AS deaths,
+            (0)::bigint AS transfers_out,
+            (0)::bigint AS shifts_in,
+            (0)::bigint AS shifts_out,
+            (0)::bigint AS approvals_pending
+           FROM ( SELECT goats.tenant_id,
+                    goats.shed_id,
+                    COALESCE(goats.entry_date, ((goats.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS event_date,
+                    count(*) AS births
+                   FROM public.goats
+                  WHERE (goats.origin_type = 'birth'::text)
+                  GROUP BY goats.tenant_id, goats.shed_id, COALESCE(goats.entry_date, ((goats.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) b
+        UNION ALL
+         SELECT d.tenant_id,
+            d.shed_id,
+            d.event_date,
+            0,
+            d.deaths,
+            0,
+            0,
+            0,
+            0
+           FROM ( SELECT goats.tenant_id,
+                    goats.shed_id,
+                    ((goats.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    count(*) AS deaths
+                   FROM public.goats
+                  WHERE ((goats.exited_at IS NOT NULL) AND (goats.exit_reason = 'died'::text))
+                  GROUP BY goats.tenant_id, goats.shed_id, (((goats.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) d
+        UNION ALL
+         SELECT t.tenant_id,
+            t.shed_id,
+            t.event_date,
+            0,
+            0,
+            t.transfers_out,
+            0,
+            0,
+            0
+           FROM ( SELECT se.tenant_id,
+                    se.source_shed_id AS shed_id,
+                    ((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    sum(im.head_count) AS transfers_out
+                   FROM (public.shifting_events se
+                     JOIN public.shifting_event_impacts im ON ((im.shifting_event_id = se.shifting_event_id)))
+                  WHERE ((se.applied_at IS NOT NULL) AND (se.event_status = 'completed'::text) AND (se.category = ANY (ARRAY['transfer'::text, 'sale'::text, 'exit'::text])))
+                  GROUP BY se.tenant_id, se.source_shed_id, (((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) t
+        UNION ALL
+         SELECT si.tenant_id,
+            si.shed_id,
+            si.event_date,
+            0,
+            0,
+            0,
+            si.shifts_in,
+            0,
+            0
+           FROM ( SELECT se.tenant_id,
+                    se.destination_shed_id AS shed_id,
+                    ((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    sum(im.head_count) AS shifts_in
+                   FROM (public.shifting_events se
+                     JOIN public.shifting_event_impacts im ON ((im.shifting_event_id = se.shifting_event_id)))
+                  WHERE ((se.applied_at IS NOT NULL) AND (se.event_status = 'completed'::text))
+                  GROUP BY se.tenant_id, se.destination_shed_id, (((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) si
+        UNION ALL
+         SELECT so.tenant_id,
+            so.shed_id,
+            so.event_date,
+            0,
+            0,
+            0,
+            0,
+            so.shifts_out,
+            0
+           FROM ( SELECT se.tenant_id,
+                    se.source_shed_id AS shed_id,
+                    ((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    sum(im.head_count) AS shifts_out
+                   FROM (public.shifting_events se
+                     JOIN public.shifting_event_impacts im ON ((im.shifting_event_id = se.shifting_event_id)))
+                  WHERE ((se.applied_at IS NOT NULL) AND (se.event_status = 'completed'::text))
+                  GROUP BY se.tenant_id, se.source_shed_id, (((se.applied_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) so
+        UNION ALL
+         SELECT a.tenant_id,
+            a.shed_id,
+            a.event_date,
+            0,
+            0,
+            0,
+            0,
+            0,
+            a.approvals_pending
+           FROM ( SELECT ca.tenant_id,
+                    se.source_shed_id AS shed_id,
+                    ((ca.raised_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    count(*) AS approvals_pending
+                   FROM (public.counts_approval_requests ca
+                     LEFT JOIN public.shifting_events se ON ((se.shifting_event_id = ca.shifting_event_id)))
+                  WHERE (ca.status = 'pending'::text)
+                  GROUP BY ca.tenant_id, se.source_shed_id, (((ca.raised_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) a
+        )
+ SELECT e.tenant_id,
+    e.event_date,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    (sum(e.births))::bigint AS births,
+    (sum(e.deaths))::bigint AS deaths,
+    (sum(e.transfers_out))::bigint AS transfers_out,
+    (sum(e.shifts_in))::bigint AS shifts_in,
+    (sum(e.shifts_out))::bigint AS shifts_out,
+    (sum(e.approvals_pending))::bigint AS approvals_pending
+   FROM ((events e
+     LEFT JOIN public.locations sh ON ((sh.location_id = e.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
+  GROUP BY e.tenant_id, e.event_date, e.shed_id, sh.name, pk.name;
+
+
+--
+-- Name: feed_direction_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_direction_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    batch_id uuid,
+    shed_id uuid NOT NULL,
+    ration_protocol_version_id uuid,
+    sop_submission_item_id uuid,
+    feed_inventory_lot_id uuid,
+    quantity_fed numeric,
+    quantity_unit text,
+    head_count integer,
+    fed_at timestamp with time zone NOT NULL,
+    status text DEFAULT 'recorded'::text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rejection_reason text,
+    recorded_by uuid,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_direction_completions_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
+    CONSTRAINT feed_direction_completions_quantity_check CHECK (((quantity_fed IS NULL) OR (quantity_fed > (0)::numeric))),
+    CONSTRAINT feed_direction_completions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT feed_direction_completions_status_check CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: feed_direction_issue_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_direction_issue_rows (
+    feed_direction_issue_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    feed_direction_issue_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    park_label text NOT NULL,
+    shed_id uuid NOT NULL,
+    shed_label text NOT NULL,
+    shed_tag text DEFAULT ''::text NOT NULL,
+    shed_tag_key text GENERATED ALWAYS AS (public.feed_config_norm(shed_tag)) STORED,
+    breed text DEFAULT ''::text NOT NULL,
+    breed_key text GENERATED ALWAYS AS (public.feed_config_norm(breed)) STORED,
+    ration_group text DEFAULT ''::text NOT NULL,
+    experiment_arm text DEFAULT ''::text NOT NULL,
+    session_no integer NOT NULL,
+    session_label text DEFAULT ''::text NOT NULL,
+    head_count bigint NOT NULL,
+    head_count_informational boolean NOT NULL,
+    workflow text NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    quantity_kg numeric(12,3),
+    grams_per_head numeric(12,3),
+    shed_factor numeric(8,4),
+    blocked_reason_code text,
+    blocked_reason_detail text,
+    session_total_kg numeric(12,3) NOT NULL,
+    overdue_pending boolean NOT NULL,
+    row_seq integer NOT NULL,
+    item_seq integer NOT NULL,
+    amended boolean DEFAULT false NOT NULL,
+    amended_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_direction_issue_rows_amended_shape_check CHECK (((amended = false) OR (amended_at IS NOT NULL))),
+    CONSTRAINT feed_direction_issue_rows_blocked_shape_check CHECK ((((quantity_kg IS NULL) AND (blocked_reason_code IS NOT NULL)) OR ((quantity_kg IS NOT NULL) AND (blocked_reason_code IS NULL)))),
+    CONSTRAINT feed_direction_issue_rows_seq_check CHECK (((row_seq >= 0) AND (item_seq >= 0))),
+    CONSTRAINT feed_direction_issue_rows_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+);
+
+
+--
+-- Name: feed_direction_issues; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_direction_issues (
+    feed_direction_issue_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    feed_day date NOT NULL,
+    workflow text NOT NULL,
+    state text DEFAULT 'issued'::text NOT NULL,
+    issued_at timestamp with time zone NOT NULL,
+    amended_at timestamp with time zone,
+    locked_at timestamp with time zone,
+    generation_input_fingerprint text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    source_contract text NOT NULL,
+    source_contract_version text NOT NULL,
+    amendment_count integer DEFAULT 0 NOT NULL,
+    generated_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_direction_issues_amended_shape_check CHECK (((state <> 'amended'::text) OR (amended_at IS NOT NULL))),
+    CONSTRAINT feed_direction_issues_amendment_count_check CHECK ((amendment_count >= 0)),
+    CONSTRAINT feed_direction_issues_fingerprint_check CHECK ((btrim(generation_input_fingerprint) <> ''::text)),
+    CONSTRAINT feed_direction_issues_generated_by_check CHECK ((btrim(generated_by) <> ''::text)),
+    CONSTRAINT feed_direction_issues_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
+    CONSTRAINT feed_direction_issues_locked_shape_check CHECK (((state <> 'locked'::text) OR (locked_at IS NOT NULL))),
+    CONSTRAINT feed_direction_issues_source_check CHECK (((btrim(source_contract) <> ''::text) AND (btrim(source_contract_version) <> ''::text))),
+    CONSTRAINT feed_direction_issues_state_check CHECK ((state = ANY (ARRAY['issued'::text, 'amended'::text, 'locked'::text]))),
+    CONSTRAINT feed_direction_issues_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+);
+
+
+--
+-- Name: feed_adherence; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.feed_adherence AS
+ WITH directed AS (
+         SELECT r.tenant_id,
+            i.feed_day,
+            r.shed_id,
+            sum(r.quantity_kg) AS directed_kg,
+            count(*) FILTER (WHERE (r.blocked_reason_code IS NOT NULL)) AS blocked_cells
+           FROM (public.feed_direction_issue_rows r
+             JOIN public.feed_direction_issues i ON ((i.feed_direction_issue_id = r.feed_direction_issue_id)))
+          GROUP BY r.tenant_id, i.feed_day, r.shed_id
+        ), fed AS (
+         SELECT feed_direction_completions.tenant_id,
+            feed_direction_completions.shed_id,
+            ((feed_direction_completions.fed_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS feed_day,
+            sum(feed_direction_completions.quantity_fed) AS fed_kg
+           FROM public.feed_direction_completions
+          WHERE (feed_direction_completions.status = ANY (ARRAY['accepted'::text, 'verified'::text, 'completed'::text]))
+          GROUP BY feed_direction_completions.tenant_id, feed_direction_completions.shed_id, (((feed_direction_completions.fed_at AT TIME ZONE 'Asia/Kolkata'::text))::date)
+        )
+ SELECT d.tenant_id,
+    d.feed_day,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    d.directed_kg,
+    COALESCE(f.fed_kg, (0)::numeric) AS fed_kg,
+    (COALESCE(f.fed_kg, (0)::numeric) - d.directed_kg) AS variance_kg,
+    (d.blocked_cells > 0) AS blocked
+   FROM (((directed d
+     LEFT JOIN public.locations sh ON ((sh.location_id = d.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
+     LEFT JOIN fed f ON (((f.tenant_id = d.tenant_id) AND (f.shed_id = d.shed_id) AND (f.feed_day = d.feed_day))));
+
+
+--
+-- Name: feed_completions_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.feed_completions_base AS
+ SELECT c.completion_id,
+    c.tenant_id,
+    c.shed_id,
+    sh.name AS shed_label,
+    sh.parent_location_id AS park_id,
+    pk.name AS park_label,
+    c.quantity_fed,
+    c.head_count,
+    c.status,
+    ((c.fed_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS fed_business_day
+   FROM ((public.feed_direction_completions c
+     LEFT JOIN public.locations sh ON ((sh.location_id = c.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)));
+
+
+--
+-- Name: feed_direction_current; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.feed_direction_current AS
+ SELECT r.tenant_id,
+    i.feed_day,
+    r.park_label,
+    r.shed_label,
+    r.workflow,
+    r.session_no,
+    r.feed_item_label,
+    r.quantity_kg,
+    r.blocked_reason_code AS blocked_reason,
+    COALESCE(r.amended, false) AS amended
+   FROM (public.feed_direction_issue_rows r
+     JOIN public.feed_direction_issues i ON ((i.feed_direction_issue_id = r.feed_direction_issue_id)));
+
+
+--
+-- Name: inventory_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_items (
+    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_code text NOT NULL,
+    name text NOT NULL,
+    category text NOT NULL,
+    base_unit text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT inventory_items_category_check CHECK ((category = ANY (ARRAY['vaccine'::text, 'dewormer'::text, 'medicine'::text, 'feed'::text, 'supplement'::text, 'consumable'::text, 'other'::text]))),
+    CONSTRAINT inventory_items_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT inventory_items_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: inventory_stock; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_stock (
+    stock_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    lot_code text,
+    expiry_date date,
+    quantity_in_stock numeric DEFAULT 0 NOT NULL,
+    quantity_reserved numeric DEFAULT 0 NOT NULL,
+    quantity_unit text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT inventory_stock_qty_check CHECK ((quantity_in_stock >= (0)::numeric)),
+    CONSTRAINT inventory_stock_reserved_check CHECK ((quantity_reserved >= (0)::numeric)),
+    CONSTRAINT inventory_stock_reserved_le_check CHECK ((quantity_reserved <= quantity_in_stock)),
+    CONSTRAINT inventory_stock_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT inventory_stock_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'quarantined'::text, 'depleted'::text])))
+);
+
+
+--
+-- Name: inventory_stock_movements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_stock_movements (
+    movement_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    lot_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    movement_type text NOT NULL,
+    quantity numeric NOT NULL,
+    quantity_unit text NOT NULL,
+    batch_id uuid,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    reason text,
+    idempotency_key text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT inventory_stock_movements_quantity_check CHECK ((quantity > (0)::numeric)),
+    CONSTRAINT inventory_stock_movements_type_check CHECK ((movement_type = ANY (ARRAY['receive'::text, 'reserve'::text, 'consume'::text, 'release'::text, 'adjust'::text, 'expire'::text, 'transfer_out'::text, 'transfer_in'::text])))
+);
+
+
+--
+-- Name: inventory_stock_position; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.inventory_stock_position AS
+ WITH stock AS (
+         SELECT s.tenant_id,
+            s.item_id,
+            s.location_id,
+            sum(s.quantity_in_stock) AS stock_on_hand,
+            max(s.quantity_unit) AS unit,
+            max(s.updated_at) AS last_updated_at
+           FROM public.inventory_stock s
+          WHERE (s.status IS DISTINCT FROM 'retired'::text)
+          GROUP BY s.tenant_id, s.item_id, s.location_id
+        ), last_recon AS (
+         SELECT inventory_stock_movements.tenant_id,
+            inventory_stock_movements.item_id,
+            inventory_stock_movements.location_id,
+            max(inventory_stock_movements.occurred_at) AS last_reconciled_at
+           FROM public.inventory_stock_movements
+          WHERE (inventory_stock_movements.movement_type = ANY (ARRAY['reconcile'::text, 'adjust'::text, 'adjustment'::text, 'count'::text]))
+          GROUP BY inventory_stock_movements.tenant_id, inventory_stock_movements.item_id, inventory_stock_movements.location_id
+        )
+ SELECT st.tenant_id,
+    it.name AS item_label,
+    it.category,
+    st.stock_on_hand,
+    COALESCE(st.unit, it.base_unit) AS unit,
+    COALESCE(pk.name, loc.name) AS park_label,
+    NULL::boolean AS reorder_flag,
+    COALESCE(lr.last_reconciled_at, st.last_updated_at) AS last_reconciled_at
+   FROM ((((stock st
+     JOIN public.inventory_items it ON ((it.item_id = st.item_id)))
+     LEFT JOIN public.locations loc ON ((loc.location_id = st.location_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = loc.parent_location_id)))
+     LEFT JOIN last_recon lr ON (((lr.tenant_id = st.tenant_id) AND (lr.item_id = st.item_id) AND (lr.location_id = st.location_id))));
+
+
+--
+-- Name: mortality_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.mortality_base AS
+ WITH deaths AS (
+         SELECT g.tenant_id,
+            g.park_id,
+            ((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+            count(*) AS deaths
+           FROM public.goats g
+          WHERE ((g.exited_at IS NOT NULL) AND (g.exit_reason = ANY (ARRAY['death'::text, 'dead'::text, 'mortality'::text])))
+          GROUP BY g.tenant_id, g.park_id, (((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date)
+        ), pop AS (
+         SELECT goats.tenant_id,
+            goats.park_id,
+            count(*) AS active_population
+           FROM public.goats
+          WHERE (goats.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text]))
+          GROUP BY goats.tenant_id, goats.park_id
+        )
+ SELECT d.tenant_id,
+    d.event_date,
+    pk.name AS park_label,
+    d.deaths,
+    COALESCE(pop.active_population, (0)::bigint) AS active_population
+   FROM ((deaths d
+     LEFT JOIN public.locations pk ON ((pk.location_id = d.park_id)))
+     LEFT JOIN pop ON (((pop.tenant_id = d.tenant_id) AND (NOT (pop.park_id IS DISTINCT FROM d.park_id)))));
+
+
+--
+-- Name: notification_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_requests (
+    notification_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    calendar_event_id text NOT NULL,
+    target_type text NOT NULL,
+    target_id uuid,
+    notification_type text NOT NULL,
+    channel text NOT NULL,
+    recipient_ref text,
+    title text NOT NULL,
+    body text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    requested_by uuid,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    sent_at timestamp with time zone,
+    read_at timestamp with time zone,
+    failure_reason text,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    trace_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivery_attempts integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone,
+    leased_at timestamp with time zone,
+    lease_token uuid,
+    delivered_by text,
+    CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text, 'incident'::text, 'opsgenie'::text, 'pagerduty'::text]))),
+    CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
+    CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'verification_approved'::text, 'verification_closed'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
+);
+
+
+--
+-- Name: notification_delivery_health; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.notification_delivery_health AS
+ SELECT tenant_id,
+    ((requested_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS business_date,
+    channel,
+    notification_type,
+    count(*) AS requested,
+    count(*) FILTER (WHERE (status = ANY (ARRAY['sent'::text, 'delivered'::text, 'read'::text]))) AS sent,
+    count(*) FILTER (WHERE (status = 'failed'::text)) AS failed,
+    count(*) FILTER (WHERE (status = ANY (ARRAY['pending'::text, 'queued'::text, 'retrying'::text]))) AS pending,
+    min(requested_at) FILTER (WHERE (status = ANY (ARRAY['pending'::text, 'queued'::text, 'retrying'::text]))) AS oldest_pending_at
+   FROM public.notification_requests nr
+  GROUP BY tenant_id, (((requested_at AT TIME ZONE 'Asia/Kolkata'::text))::date), channel, notification_type;
+
+
+--
+-- Name: count_projection_exceptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_exceptions (
+    count_projection_exception_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    count_projection_snapshot_id uuid,
+    exception_type text NOT NULL,
+    source_key text NOT NULL,
+    grain_key text NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    breed_key text,
+    stage_tag text,
+    severity text DEFAULT 'blocking'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    owner_ref text,
+    blocker_reason text NOT NULL,
+    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    work_type text DEFAULT 'counts_projection_exception'::text NOT NULL,
+    work_state text DEFAULT 'blocked'::text NOT NULL,
+    due_at timestamp with time zone DEFAULT now() NOT NULL,
+    next_action text DEFAULT 'Review Counts/Shifting projection exception'::text NOT NULL,
+    evidence_link text DEFAULT '/feed-direction/counts-projection/exceptions'::text NOT NULL,
+    resolution_id uuid,
+    resolved_by_ref text,
+    resolution_reason text,
+    resolution_ref text,
+    CONSTRAINT count_projection_exceptions_evidence_link_check CHECK ((btrim(evidence_link) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
+    CONSTRAINT count_projection_exceptions_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_next_action_check CHECK ((btrim(next_action) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_reason_check CHECK ((btrim(blocker_reason) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_severity_check CHECK ((severity = ANY (ARRAY['warning'::text, 'blocking'::text, 'critical'::text]))),
+    CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text]))),
+    CONSTRAINT count_projection_exceptions_work_state_check CHECK ((work_state = ANY (ARRAY['blocked'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT count_projection_exceptions_work_type_check CHECK ((work_type = 'counts_projection_exception'::text))
+);
+
+
+--
+-- Name: obligation_escalations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_escalations (
+    escalation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    level integer NOT NULL,
+    escalated_to_user_id uuid,
+    escalated_to_role text,
+    reason text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL,
+    acknowledged_at timestamp with time zone,
+    resolved_at timestamp with time zone,
+    acknowledged_by uuid,
+    resolved_by uuid,
+    acknowledgement_note text DEFAULT ''::text NOT NULL,
+    resolution_note text DEFAULT ''::text NOT NULL,
+    CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
+    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
+    CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: verification_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_items (
+    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    vertical text NOT NULL,
+    module text NOT NULL,
+    category text NOT NULL,
+    source_module text NOT NULL,
+    source_task_id uuid,
+    source_submission_id uuid,
+    source_ref_type text NOT NULL,
+    source_ref_id uuid NOT NULL,
+    media_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    verdict_reason text,
+    operator_id uuid,
+    shed_id uuid,
+    park_id uuid,
+    captured_at timestamp with time zone NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    subject_label text,
+    closed_by uuid,
+    closed_at timestamp with time zone,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
+    CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
+    CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
+    CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
+    CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT verification_items_subject_label_check CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text)))
+);
+
+
+--
+-- Name: ops_exception_queue; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.ops_exception_queue AS
+ SELECT cpe.tenant_id,
+    'counts'::text AS area,
+    cpe.severity,
+    cpe.status,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    cpe.exception_type AS title,
+    cpe.created_at AS opened_at,
+    cpe.owner_ref AS owner_label,
+    (cpe.count_projection_exception_id)::text AS source_id
+   FROM ((public.count_projection_exceptions cpe
+     LEFT JOIN public.locations sh ON ((sh.location_id = cpe.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = cpe.park_id)))
+  WHERE (cpe.status <> ALL (ARRAY['resolved'::text, 'closed'::text]))
+UNION ALL
+ SELECT oe.tenant_id,
+    'vaccination'::text AS area,
+        CASE oe.level
+            WHEN 0 THEN 'low'::text
+            WHEN 1 THEN 'medium'::text
+            WHEN 2 THEN 'high'::text
+            ELSE 'critical'::text
+        END AS severity,
+    oe.status,
+    NULL::text AS park_label,
+    NULL::text AS shed_label,
+    COALESCE(oe.reason, 'obligation_escalation'::text) AS title,
+    oe.opened_at,
+    oe.escalated_to_role AS owner_label,
+    (oe.escalation_id)::text AS source_id
+   FROM public.obligation_escalations oe
+  WHERE (oe.status <> ALL (ARRAY['resolved'::text, 'closed'::text, 'acknowledged'::text]))
+UNION ALL
+ SELECT fr.tenant_id,
+    'feed'::text AS area,
+    'medium'::text AS severity,
+    'blocked'::text AS status,
+    fr.park_label,
+    fr.shed_label,
+    COALESCE(fr.blocked_reason_code, 'feed_blocked'::text) AS title,
+    fr.created_at AS opened_at,
+    NULL::text AS owner_label,
+    (fr.feed_direction_issue_row_id)::text AS source_id
+   FROM public.feed_direction_issue_rows fr
+  WHERE (fr.blocked_reason_code IS NOT NULL)
+UNION ALL
+ SELECT vi.tenant_id,
+    COALESCE(vi.vertical, 'verification'::text) AS area,
+    'high'::text AS severity,
+    vi.status,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    COALESCE(vi.subject_label, vi.category, 'verification_rejected'::text) AS title,
+    vi.captured_at AS opened_at,
+    NULL::text AS owner_label,
+    (vi.item_id)::text AS source_id
+   FROM ((public.verification_items vi
+     LEFT JOIN public.locations sh ON ((sh.location_id = vi.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
+  WHERE (vi.status = 'rejected'::text);
+
+
+--
+-- Name: procurement_loads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_loads (
+    load_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_party_id uuid NOT NULL,
+    source_location_id uuid,
+    expected_count integer DEFAULT 0 NOT NULL,
+    purchase_date date,
+    planned_dispatch_at timestamp with time zone,
+    status text DEFAULT 'source_warmup'::text NOT NULL,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT procurement_loads_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT procurement_loads_expected_count_check CHECK ((expected_count >= 0)),
+    CONSTRAINT procurement_loads_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT procurement_loads_status_check CHECK ((status = ANY (ARRAY['source_warmup'::text, 'health_pending'::text, 'pre_dispatch_pending'::text, 'dispatch_ready'::text, 'in_transit'::text, 'arrival_review'::text, 'accepted_intake'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: procurement_loads_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.procurement_loads_base AS
+ SELECT pl.load_id,
+    pl.tenant_id,
+    pl.status,
+    pl.expected_count,
+    pl.source_location_id,
+    loc.name AS source_label,
+    pl.purchase_date,
+    ((pl.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS entered_business_day
+   FROM (public.procurement_loads pl
+     LEFT JOIN public.locations loc ON ((loc.location_id = pl.source_location_id)));
+
+
+--
+-- Name: parties; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parties (
+    party_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    party_type text NOT NULL,
+    display_name text NOT NULL,
+    status text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT parties_party_type_check CHECK ((party_type = ANY (ARRAY['org'::text, 'person'::text, 'token_pool'::text, 'system'::text]))),
+    CONSTRAINT parties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'review'::text])))
+);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_hf_vaccination_evidence (
+    evidence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    rule_id uuid NOT NULL,
+    dose_code text NOT NULL,
+    administered_at timestamp with time zone NOT NULL,
+    vaccine_name text DEFAULT ''::text NOT NULL,
+    lot_number text DEFAULT ''::text NOT NULL,
+    proof_ref_id uuid,
+    source_ref text DEFAULT ''::text NOT NULL,
+    review_status text DEFAULT 'imported'::text NOT NULL,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone,
+    review_reason text DEFAULT ''::text NOT NULL,
+    idempotency_key text NOT NULL,
+    imported_by uuid,
+    imported_at timestamp with time zone DEFAULT now() NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT procurement_hf_vaccination_evidence_dose_code_check CHECK ((btrim(dose_code) <> ''::text)),
+    CONSTRAINT procurement_hf_vaccination_evidence_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT procurement_hf_vaccination_evidence_review_status_check CHECK ((review_status = ANY (ARRAY['imported'::text, 'trusted'::text, 'rejected'::text, 'conflicting'::text, 'duplicate'::text]))),
+    CONSTRAINT procurement_hf_vaccination_evidence_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
+-- Name: procurement_load_goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_load_goats (
+    load_goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    animal_identifier_1 text,
+    animal_identifier_2 text,
+    selection_state text DEFAULT 'candidate'::text NOT NULL,
+    selection_reason text DEFAULT ''::text NOT NULL,
+    current_state text DEFAULT 'source_candidate'::text NOT NULL,
+    source_entry_state text DEFAULT 'pending'::text NOT NULL,
+    source_entry_ref text,
+    ownership_state text DEFAULT 'pending'::text NOT NULL,
+    health_state text DEFAULT 'pending'::text NOT NULL,
+    warmup_started_at timestamp with time zone,
+    warmup_ended_at timestamp with time zone,
+    warmup_days integer,
+    holding_location_id uuid,
+    loaded_at timestamp with time zone,
+    arrived_at timestamp with time zone,
+    intake_accepted_at timestamp with time zone,
+    exit_reason text,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    purpose text DEFAULT 'unspecified'::text NOT NULL,
+    CONSTRAINT procurement_load_goats_current_state_check CHECK ((current_state = ANY (ARRAY['source_holding'::text, 'source_warmup'::text, 'source_candidate'::text, 'source_health_pending'::text, 'source_health_passed'::text, 'source_health_failed'::text, 'source_rejected'::text, 'pre_dispatch_pending'::text, 'pre_dispatch_accepted'::text, 'pre_dispatch_rejected'::text, 'pre_dispatch_deferred'::text, 'pre_dispatch_blocked'::text, 'dispatch_ready'::text, 'loading_pending'::text, 'loaded'::text, 'in_transit'::text, 'arrival_review_pending'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text]))),
+    CONSTRAINT procurement_load_goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['died'::text, 'sold'::text, 'lost'::text, 'canceled'::text])))),
+    CONSTRAINT procurement_load_goats_health_state_check CHECK ((health_state = ANY (ARRAY['pending'::text, 'passed'::text, 'failed'::text, 'deferred'::text]))),
+    CONSTRAINT procurement_load_goats_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT procurement_load_goats_ownership_state_check CHECK ((ownership_state = ANY (ARRAY['pending'::text, 'shared_pending'::text, 'mesha_owned'::text, 'blocked'::text, 'not_owned'::text, 'settled'::text]))),
+    CONSTRAINT procurement_load_goats_proof_refs_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT procurement_load_goats_purpose_check CHECK ((purpose = ANY (ARRAY['breeding'::text, 'fattening'::text, 'non_breeding'::text, 'unspecified'::text]))),
+    CONSTRAINT procurement_load_goats_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT procurement_load_goats_selection_state_check CHECK ((selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'purchased'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'loaded'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text]))),
+    CONSTRAINT procurement_load_goats_source_entry_state_check CHECK ((source_entry_state = ANY (ARRAY['pending'::text, 'accepted'::text, 'blocked'::text]))),
+    CONSTRAINT procurement_load_goats_warmup_days_check CHECK (((warmup_days IS NULL) OR (warmup_days >= 0))),
+    CONSTRAINT procurement_load_goats_warmup_window_check CHECK (((warmup_ended_at IS NULL) OR (warmup_started_at IS NULL) OR (warmup_ended_at >= warmup_started_at)))
+);
+
+
+--
+-- Name: procurement_pipeline; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.procurement_pipeline AS
+ WITH lg AS (
+         SELECT procurement_load_goats.tenant_id,
+            procurement_load_goats.load_id,
+            count(*) AS animals,
+            count(*) FILTER (WHERE ((procurement_load_goats.current_state = 'rejected'::text) OR (procurement_load_goats.selection_state = 'rejected'::text))) AS rejected
+           FROM public.procurement_load_goats
+          GROUP BY procurement_load_goats.tenant_id, procurement_load_goats.load_id
+        ), vpend AS (
+         SELECT procurement_hf_vaccination_evidence.tenant_id,
+            procurement_hf_vaccination_evidence.load_id,
+            count(*) FILTER (WHERE (procurement_hf_vaccination_evidence.review_status = ANY (ARRAY['pending'::text, 'unreviewed'::text, 'needs_review'::text]))) AS vaccination_pending
+           FROM public.procurement_hf_vaccination_evidence
+          GROUP BY procurement_hf_vaccination_evidence.tenant_id, procurement_hf_vaccination_evidence.load_id
+        )
+ SELECT l.tenant_id,
+    COALESCE(pt.display_name, loc.name) AS source_label,
+    (('Load '::text || "left"((l.load_id)::text, 8)) || COALESCE((' · '::text || to_char((l.purchase_date)::timestamp with time zone, 'DD Mon'::text)), ''::text)) AS batch_label,
+    l.status AS current_stage,
+    COALESCE(lg.animals, (0)::bigint) AS animals,
+    COALESCE(vpend.vaccination_pending, (0)::bigint) AS vaccination_pending,
+    COALESCE(lg.rejected, (0)::bigint) AS rejected,
+    l.created_at AS entered_at
+   FROM ((((public.procurement_loads l
+     LEFT JOIN public.parties pt ON ((pt.party_id = l.source_party_id)))
+     LEFT JOIN public.locations loc ON ((loc.location_id = l.source_location_id)))
+     LEFT JOIN lg ON (((lg.tenant_id = l.tenant_id) AND (lg.load_id = l.load_id))))
+     LEFT JOIN vpend ON (((vpend.tenant_id = l.tenant_id) AND (vpend.load_id = l.load_id))));
+
+
+--
+-- Name: shed_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shed_profiles (
+    location_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    animal_stage_id uuid,
+    shed_lifecycle_status_id uuid,
+    sex text,
+    capacity integer,
+    has_icu boolean DEFAULT false NOT NULL,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shed_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
+    CONSTRAINT shed_profiles_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT shed_profiles_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'mixed'::text]))))
+);
+
+
+--
+-- Name: shed_capacity_current; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.shed_capacity_current AS
+ WITH occ AS (
+         SELECT goats.tenant_id,
+            goats.shed_id,
+            count(*) AS animals
+           FROM public.goats
+          WHERE ((goats.shed_id IS NOT NULL) AND (goats.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))
+          GROUP BY goats.tenant_id, goats.shed_id
+        ), owner_seat AS (
+         SELECT wp.tenant_id,
+            wp.scope_id AS shed_id,
+            wm.display_name AS owner_label
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = false) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        ), backup_seat AS (
+         SELECT wp.tenant_id,
+            wp.scope_id AS shed_id,
+            wm.display_name AS backup_label
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        )
+ SELECT s.tenant_id,
+    pk.name AS park_label,
+    s.name AS shed_label,
+    COALESCE(occ.animals, (0)::bigint) AS animals,
+    sp.capacity,
+    (sp.capacity - COALESCE(occ.animals, (0)::bigint)) AS variance,
+        CASE
+            WHEN (sp.capacity IS NULL) THEN 'unknown_capacity'::text
+            WHEN (COALESCE(occ.animals, (0)::bigint) > sp.capacity) THEN 'over_capacity'::text
+            WHEN (COALESCE(occ.animals, (0)::bigint) = sp.capacity) THEN 'at_capacity'::text
+            ELSE 'under_capacity'::text
+        END AS status,
+    o.owner_label,
+    bk.backup_label
+   FROM (((((public.locations s
+     LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
+     LEFT JOIN public.shed_profiles sp ON ((sp.location_id = s.location_id)))
+     LEFT JOIN occ ON (((occ.tenant_id = s.tenant_id) AND (occ.shed_id = s.location_id))))
+     LEFT JOIN owner_seat o ON (((o.tenant_id = s.tenant_id) AND (o.shed_id = s.location_id))))
+     LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
+  WHERE (s.location_type = 'shed'::text);
+
+
+--
+-- Name: sop_submissions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_submissions (
+    submission_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    sop_version_id uuid NOT NULL,
+    submitted_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    answers jsonb NOT NULL,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    state text DEFAULT 'submitted'::text NOT NULL,
+    validation_report jsonb DEFAULT '{}'::jsonb NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    accepted_at timestamp with time zone,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_submissions_answers_object_check CHECK ((jsonb_typeof(answers) = 'object'::text)),
+    CONSTRAINT sop_submissions_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_submissions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT sop_submissions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_submissions_state_check CHECK ((state = ANY (ARRAY['submitted'::text, 'accepted'::text, 'needs_review'::text, 'rejected'::text, 'voided'::text])))
+);
+
+
+--
+-- Name: sop_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_tasks (
+    task_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    sop_id uuid NOT NULL,
+    sop_version_id uuid NOT NULL,
+    task_type text NOT NULL,
+    title text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    state text DEFAULT 'assigned'::text NOT NULL,
+    assigned_to uuid,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    due_at timestamp with time zone,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_by uuid,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_tasks_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT sop_tasks_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text]))),
+    CONSTRAINT sop_tasks_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_tasks_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT sop_tasks_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'assigned'::text, 'in_progress'::text, 'submitted'::text, 'accepted'::text, 'needs_review'::text, 'rework_requested'::text, 'rejected'::text, 'canceled'::text]))),
+    CONSTRAINT sop_tasks_task_type_check CHECK ((btrim(task_type) <> ''::text)),
+    CONSTRAINT sop_tasks_title_check CHECK ((btrim(title) <> ''::text))
+);
+
+
+--
+-- Name: sop_execution_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.sop_execution_status AS
+ SELECT t.tenant_id,
+    COALESCE(t.task_type, 'sop'::text) AS area,
+        CASE
+            WHEN (t.scope_type = 'park'::text) THEN loc.name
+            ELSE NULL::text
+        END AS park_label,
+        CASE
+            WHEN (t.scope_type = 'shed'::text) THEN loc.name
+            ELSE NULL::text
+        END AS shed_label,
+    t.title AS task_label,
+    t.state AS status,
+    t.due_at,
+    COALESCE(sub.accepted_at, t.verified_at) AS completed_at,
+    vm.display_name AS verifier_label
+   FROM (((public.sop_tasks t
+     LEFT JOIN public.locations loc ON ((loc.location_id = t.scope_id)))
+     LEFT JOIN LATERAL ( SELECT s.accepted_at
+           FROM public.sop_submissions s
+          WHERE ((s.tenant_id = t.tenant_id) AND (s.task_id = t.task_id) AND (s.accepted_at IS NOT NULL))
+          ORDER BY s.accepted_at DESC
+         LIMIT 1) sub ON (true))
+     LEFT JOIN public.workforce_members vm ON (((vm.tenant_id = t.tenant_id) AND (vm.user_id = t.verified_by))));
+
+
+--
+-- Name: arrival_intake_reviews; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.arrival_intake_reviews (
+    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    park_location_id uuid NOT NULL,
+    expected_count integer DEFAULT 0 NOT NULL,
+    loaded_count integer DEFAULT 0 NOT NULL,
+    arrived_count integer DEFAULT 0 NOT NULL,
+    matched_count integer DEFAULT 0 NOT NULL,
+    missing_count integer DEFAULT 0 NOT NULL,
+    extra_count integer DEFAULT 0 NOT NULL,
+    rejected_count integer DEFAULT 0 NOT NULL,
+    health_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    weight_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    media_proof_id uuid,
+    status text DEFAULT 'pending'::text NOT NULL,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT arrival_intake_reviews_counts_check CHECK (((expected_count >= 0) AND (loaded_count >= 0) AND (arrived_count >= 0) AND (matched_count >= 0) AND (missing_count >= 0) AND (extra_count >= 0) AND (rejected_count >= 0))),
+    CONSTRAINT arrival_intake_reviews_health_flags_array_check CHECK ((jsonb_typeof(health_flags) = 'array'::text)),
+    CONSTRAINT arrival_intake_reviews_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT arrival_intake_reviews_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'mismatch'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text]))),
+    CONSTRAINT arrival_intake_reviews_weight_flags_array_check CHECK ((jsonb_typeof(weight_flags) = 'array'::text))
+);
+
+
+--
+-- Name: procurement_source_health_checks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_source_health_checks (
+    health_check_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    health_state text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    checked_by uuid,
+    checked_at timestamp with time zone NOT NULL,
+    proof_ref_id uuid,
+    sop_task_id uuid,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT procurement_source_health_checks_state_check CHECK ((health_state = ANY (ARRAY['passed'::text, 'failed'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: source_entry_health_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.source_entry_health_status AS
+ WITH hc AS (
+         SELECT procurement_source_health_checks.tenant_id,
+            procurement_source_health_checks.load_id,
+            count(*) FILTER (WHERE (procurement_source_health_checks.health_state = ANY (ARRAY['blocked'::text, 'failed'::text, 'sick'::text, 'quarantine'::text]))) AS health_blockers
+           FROM public.procurement_source_health_checks
+          GROUP BY procurement_source_health_checks.tenant_id, procurement_source_health_checks.load_id
+        ), ev AS (
+         SELECT procurement_hf_vaccination_evidence.tenant_id,
+            procurement_hf_vaccination_evidence.load_id,
+            count(*) AS evidence_total,
+            count(*) FILTER (WHERE (procurement_hf_vaccination_evidence.review_status = ANY (ARRAY['pending'::text, 'unreviewed'::text, 'needs_review'::text]))) AS evidence_pending
+           FROM public.procurement_hf_vaccination_evidence
+          GROUP BY procurement_hf_vaccination_evidence.tenant_id, procurement_hf_vaccination_evidence.load_id
+        )
+ SELECT l.tenant_id,
+    (('Load '::text || "left"((l.load_id)::text, 8)) || COALESCE((' · '::text || to_char((l.purchase_date)::timestamp with time zone, 'DD Mon'::text)), ''::text)) AS load_label,
+    COALESCE(pt.display_name, loc.name) AS source_label,
+    COALESCE(air.expected_count, l.expected_count) AS animals_expected,
+    air.arrived_count AS animals_received,
+    air.matched_count AS animals_accepted,
+    air.rejected_count AS animals_rejected,
+    COALESCE(hc.health_blockers, (0)::bigint) AS health_blockers,
+        CASE
+            WHEN ((ev.evidence_total IS NULL) OR (ev.evidence_total = 0)) THEN 'no_evidence'::text
+            WHEN (ev.evidence_pending > 0) THEN 'evidence_pending'::text
+            ELSE 'evidence_complete'::text
+        END AS evidence_status
+   FROM (((((public.procurement_loads l
+     LEFT JOIN public.parties pt ON ((pt.party_id = l.source_party_id)))
+     LEFT JOIN public.locations loc ON ((loc.location_id = l.source_location_id)))
+     LEFT JOIN public.arrival_intake_reviews air ON (((air.tenant_id = l.tenant_id) AND (air.load_id = l.load_id))))
+     LEFT JOIN hc ON (((hc.tenant_id = l.tenant_id) AND (hc.load_id = l.load_id))))
+     LEFT JOIN ev ON (((ev.tenant_id = l.tenant_id) AND (ev.load_id = l.load_id))));
+
+
+--
+-- Name: obligation_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_batches (
+    batch_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    session text,
+    planned_date date,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    status text DEFAULT 'planned'::text NOT NULL,
+    estimated_targets integer DEFAULT 0 NOT NULL,
+    planned_quantity numeric,
+    reserved_quantity numeric DEFAULT 0 NOT NULL,
+    used_quantity numeric DEFAULT 0 NOT NULL,
+    quantity_unit text,
+    primary_inventory_lot_id uuid,
+    sop_task_id uuid,
+    conducted_by uuid,
+    proof_ref text,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT obligation_batches_reserved_check CHECK ((reserved_quantity >= (0)::numeric)),
+    CONSTRAINT obligation_batches_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT obligation_batches_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT obligation_batches_status_check CHECK ((status = ANY (ARRAY['planned'::text, 'in_progress'::text, 'completed'::text, 'superseded'::text, 'canceled'::text]))),
+    CONSTRAINT obligation_batches_used_check CHECK ((used_quantity >= (0)::numeric))
+);
+
+
+--
+-- Name: vaccination_dose_pickup; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.vaccination_dose_pickup AS
+ WITH obl AS (
+         SELECT oi.tenant_id,
+            oi.batch_id,
+            oi.scope_id AS shed_id,
+            oi.rule_id,
+            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS animals_due,
+            count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS animals_overdue
+           FROM public.obligation_instances oi
+          WHERE ((oi.scope_type = 'shed'::text) AND (oi.batch_id IS NOT NULL))
+          GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id
+        )
+ SELECT ob.tenant_id,
+    bt.planned_date AS business_date,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    ceo_ai.vaccine_label_for(pr.dose_code) AS vaccine_label,
+    bt.reserved_quantity AS doses_to_pick,
+    ob.animals_due,
+    ob.animals_overdue,
+    ownm.display_name AS owner_label,
+    bkm.display_name AS backup_label,
+        CASE
+            WHEN (ob.animals_overdue > 0) THEN 'catch_up_overdue'::text
+            WHEN (ob.animals_due > 0) THEN 'pick_and_administer'::text
+            ELSE 'no_action'::text
+        END AS next_action
+   FROM ((((((obl ob
+     JOIN public.obligation_batches bt ON (((bt.tenant_id = ob.tenant_id) AND (bt.batch_id = ob.batch_id))))
+     LEFT JOIN public.locations sh ON ((sh.location_id = ob.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
+     LEFT JOIN public.protocol_rules pr ON ((pr.rule_id = ob.rule_id)))
+     LEFT JOIN public.workforce_members ownm ON (((ownm.tenant_id = bt.tenant_id) AND (ownm.user_id = bt.conducted_by))))
+     LEFT JOIN LATERAL ( SELECT wm.display_name
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.tenant_id = ob.tenant_id) AND (wp.scope_type = 'shed'::text) AND (wp.scope_id = ob.shed_id) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+         LIMIT 1) bkm ON (true));
+
+
+--
+-- Name: vaccination_obligations_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.vaccination_obligations_base AS
+ SELECT o.obligation_id,
+    o.tenant_id,
+    o.status,
+    o.due_at,
+    o.completed_at,
+    o.scope_id AS shed_id,
+    sh.name AS shed_label,
+    sh.parent_location_id AS park_id,
+    pk.name AS park_label,
+    g.species,
+    ((o.due_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS due_business_day,
+    ((o.completed_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS completed_business_day
+   FROM (((public.obligation_instances o
+     LEFT JOIN public.locations sh ON ((sh.location_id = o.scope_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
+     LEFT JOIN public.goats g ON ((g.goat_id = o.target_id)));
+
+
+--
+-- Name: vaccination_capacity_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_capacity_config (
+    tenant_id uuid NOT NULL,
+    max_per_day integer NOT NULL,
+    capacity_scope text NOT NULL,
+    max_buffer_days integer NOT NULL,
+    overflow_policy text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    max_shots_per_animal_per_drive integer,
+    CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
+    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
+    CONSTRAINT vaccination_capacity_config_max_shots_check CHECK (((max_shots_per_animal_per_drive IS NULL) OR (max_shots_per_animal_per_drive >= 1))),
+    CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text)),
+    CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
+);
+
+
+--
+-- Name: vaccination_drive_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_drive_assignments (
+    assignment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    planned_date date NOT NULL,
+    operator_id uuid,
+    park_id uuid NOT NULL,
+    shed_id uuid,
+    physical_shed text NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    animal_count integer NOT NULL,
+    capacity_status text DEFAULT 'within_cap'::text NOT NULL,
+    warnings jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    vaccine_rule_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
+    total_doses integer DEFAULT 0 NOT NULL,
+    CONSTRAINT vaccination_drive_assignments_animals_check CHECK ((animal_count >= 0)),
+    CONSTRAINT vaccination_drive_assignments_capacity_check CHECK ((capacity_status = ANY (ARRAY['within_cap'::text, 'over_cap_required'::text, 'capacity_action'::text]))),
+    CONSTRAINT vaccination_drive_assignments_total_doses_check CHECK ((total_doses >= 0)),
+    CONSTRAINT vaccination_drive_assignments_warnings_array_check CHECK ((jsonb_typeof(warnings) = 'array'::text))
+);
+
+
+--
+-- Name: vaccination_operator_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.vaccination_operator_status AS
+ WITH assigned AS (
+         SELECT a.tenant_id,
+            a.operator_id,
+            a.park_id,
+            a.shed_id,
+            a.planned_date,
+            COALESCE(sum(a.animal_count), (0)::bigint) AS assigned_animals,
+            COALESCE(sum(a.animal_count) FILTER (WHERE (b.status = ANY (ARRAY['planned'::text, 'in_progress'::text]))), (0)::bigint) AS due,
+            COALESCE(sum(a.animal_count) FILTER (WHERE (b.status = 'completed'::text)), (0)::bigint) AS done,
+            COALESCE(sum(a.animal_count) FILTER (WHERE ((b.status = ANY (ARRAY['planned'::text, 'in_progress'::text])) AND (a.planned_date < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))), (0)::bigint) AS overdue,
+            bool_or((a.capacity_status = ANY (ARRAY['over_cap_required'::text, 'capacity_action'::text]))) AS any_over_cap
+           FROM (public.vaccination_drive_assignments a
+             LEFT JOIN public.obligation_batches b ON (((b.tenant_id = a.tenant_id) AND (b.batch_id = a.batch_id))))
+          WHERE (a.operator_id IS NOT NULL)
+          GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, a.planned_date
+        ), cap AS (
+         SELECT vaccination_capacity_config.tenant_id,
+            vaccination_capacity_config.max_per_day
+           FROM public.vaccination_capacity_config
+          WHERE (vaccination_capacity_config.capacity_scope = 'tenant'::text)
+        )
+ SELECT s.tenant_id,
+    s.operator_id,
+    wm.display_name AS operator_label,
+    s.park_id,
+    pk.name AS park_label,
+    s.shed_id,
+    sh.name AS shed_label,
+    s.planned_date,
+    s.assigned_animals,
+    s.due,
+    s.done,
+    s.overdue,
+    COALESCE(cap.max_per_day, 200) AS daily_capacity,
+    sum(s.assigned_animals) OVER (PARTITION BY s.tenant_id, s.operator_id, s.planned_date) AS operator_day_assigned,
+    round((sum(s.assigned_animals) OVER (PARTITION BY s.tenant_id, s.operator_id, s.planned_date) / (NULLIF(COALESCE(cap.max_per_day, 200), 0))::numeric), 3) AS utilization,
+        CASE
+            WHEN (s.overdue > 0) THEN 'catch_up_overdue'::text
+            WHEN (sum(s.assigned_animals) OVER (PARTITION BY s.tenant_id, s.operator_id, s.planned_date) > (COALESCE(cap.max_per_day, 200))::numeric) THEN 'rebalance_overloaded'::text
+            WHEN (s.due > 0) THEN 'run_drive'::text
+            WHEN ((s.done > 0) AND (s.due = 0)) THEN 'completed'::text
+            ELSE 'no_action'::text
+        END AS next_action
+   FROM ((((assigned s
+     LEFT JOIN public.workforce_members wm ON ((wm.workforce_member_id = s.operator_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = s.park_id)))
+     LEFT JOIN public.locations sh ON ((sh.location_id = s.shed_id)))
+     LEFT JOIN cap ON ((cap.tenant_id = s.tenant_id)));
+
+
+--
+-- Name: vaccination_prearrival_history_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_prearrival_history_entries (
+    entry_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    source_system text DEFAULT 'procurement_pc_handoff'::text NOT NULL,
+    source_event_id text NOT NULL,
+    protocol_version_id uuid,
+    rule_id uuid,
+    vaccine_code text NOT NULL,
+    dose_code text NOT NULL,
+    sequence integer DEFAULT 0 NOT NULL,
+    administered_at timestamp with time zone NOT NULL,
+    schedule_path text NOT NULL,
+    review_status text NOT NULL,
+    rejection_reason text,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone NOT NULL,
+    claim jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_prearrival_history_accepted_rule_check CHECK (((review_status <> 'accepted'::text) OR ((protocol_version_id IS NOT NULL) AND (rule_id IS NOT NULL) AND (NULLIF(btrim(vaccine_code), ''::text) IS NOT NULL) AND (NULLIF(btrim(dose_code), ''::text) IS NOT NULL)))),
+    CONSTRAINT vaccination_prearrival_history_claim_object_check CHECK ((jsonb_typeof(claim) = 'object'::text)),
+    CONSTRAINT vaccination_prearrival_history_path_check CHECK ((schedule_path = ANY (ARRAY['kid'::text, 'adult_procurement'::text]))),
+    CONSTRAINT vaccination_prearrival_history_rejected_reason_check CHECK (((review_status <> 'rejected'::text) OR (NULLIF(btrim(rejection_reason), ''::text) IS NOT NULL))),
+    CONSTRAINT vaccination_prearrival_history_status_check CHECK ((review_status = ANY (ARRAY['accepted'::text, 'rejected'::text])))
+);
+
+
+--
+-- Name: vaccination_prearrival_history_review; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.vaccination_prearrival_history_review AS
+ SELECT tenant_id,
+    ((reviewed_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS reviewed_date_ist,
+    source_system,
+    schedule_path,
+    review_status,
+    rejection_reason,
+    count(*) AS claims,
+    count(DISTINCT goat_id) AS distinct_animals,
+    min(((administered_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS earliest_administered_date,
+    max(((administered_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS latest_administered_date,
+    NULL::text AS vaccine_label
+   FROM public.vaccination_prearrival_history_entries e
+  GROUP BY tenant_id, (((reviewed_at AT TIME ZONE 'Asia/Kolkata'::text))::date), source_system, schedule_path, review_status, rejection_reason;
+
+
+--
+-- Name: vaccination_eligibility_rollups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_eligibility_rollups (
+    rollup_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    species text DEFAULT ''::text NOT NULL,
+    management_stage text DEFAULT ''::text NOT NULL,
+    sex text DEFAULT ''::text NOT NULL,
+    breed text DEFAULT ''::text NOT NULL,
+    health_status text DEFAULT ''::text NOT NULL,
+    usable_for_vaccination boolean NOT NULL,
+    animal_count bigint NOT NULL,
+    source_revision bigint DEFAULT 0 NOT NULL,
+    recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
+);
+
+
+--
+-- Name: vaccination_shed_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.vaccination_shed_status AS
+ WITH obl AS (
+         SELECT obligation_instances.tenant_id,
+            obligation_instances.scope_id AS shed_id,
+            count(*) FILTER (WHERE (obligation_instances.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS due,
+            count(*) FILTER (WHERE (obligation_instances.status = ANY (ARRAY['completed'::text, 'accepted'::text]))) AS done,
+            count(*) FILTER (WHERE ((obligation_instances.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (obligation_instances.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS overdue,
+            min(obligation_instances.due_at) FILTER (WHERE (obligation_instances.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS next_due,
+            count(DISTINCT obligation_instances.batch_id) FILTER (WHERE (obligation_instances.batch_id IS NOT NULL)) AS planned_sessions
+           FROM public.obligation_instances
+          WHERE (obligation_instances.scope_type = 'shed'::text)
+          GROUP BY obligation_instances.tenant_id, obligation_instances.scope_id
+        ), anim AS (
+         SELECT vaccination_eligibility_rollups.tenant_id,
+            vaccination_eligibility_rollups.shed_id,
+            (sum(vaccination_eligibility_rollups.animal_count) FILTER (WHERE vaccination_eligibility_rollups.usable_for_vaccination))::bigint AS animals
+           FROM public.vaccination_eligibility_rollups
+          GROUP BY vaccination_eligibility_rollups.tenant_id, vaccination_eligibility_rollups.shed_id
+        ), owner_seat AS (
+         SELECT wp.tenant_id,
+            wp.scope_id AS shed_id,
+            wm.display_name AS manager_label
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = false) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        ), backup_seat AS (
+         SELECT wp.tenant_id,
+            wp.scope_id AS shed_id,
+            wm.display_name AS backup_label
+           FROM (public.workforce_positions wp
+             JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
+          WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        )
+ SELECT s.tenant_id,
+    pk.name AS park_label,
+    s.name AS shed_label,
+    COALESCE(anim.animals, (0)::bigint) AS animals,
+    COALESCE(obl.due, (0)::bigint) AS due,
+    COALESCE(obl.done, (0)::bigint) AS done,
+    COALESCE(obl.planned_sessions, (0)::bigint) AS planned_sessions,
+    ((obl.next_due AT TIME ZONE 'Asia/Kolkata'::text))::date AS next_due_date,
+    om.manager_label,
+    bk.backup_label,
+        CASE
+            WHEN (COALESCE(obl.overdue, (0)::bigint) > 0) THEN 'overdue'::text
+            WHEN (COALESCE(obl.due, (0)::bigint) > 0) THEN 'due'::text
+            WHEN (COALESCE(obl.done, (0)::bigint) > 0) THEN 'complete'::text
+            ELSE 'no_work_due'::text
+        END AS status
+   FROM (((((public.locations s
+     LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
+     LEFT JOIN obl ON (((obl.tenant_id = s.tenant_id) AND (obl.shed_id = s.location_id))))
+     LEFT JOIN anim ON (((anim.tenant_id = s.tenant_id) AND (anim.shed_id = s.location_id))))
+     LEFT JOIN owner_seat om ON (((om.tenant_id = s.tenant_id) AND (om.shed_id = s.location_id))))
+     LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
+  WHERE (s.location_type = 'shed'::text);
+
+
+--
+-- Name: vaccine_label_map; Type: TABLE; Schema: ceo_ai; Owner: -
+--
+
+CREATE TABLE ceo_ai.vaccine_label_map (
+    family_prefix text NOT NULL,
+    vaccine_label text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: verification_queue_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.verification_queue_status AS
+ SELECT vi.tenant_id,
+    COALESCE(vi.vertical, 'verification'::text) AS area,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    count(*) FILTER (WHERE (vi.status = 'pending'::text)) AS pending,
+    count(*) FILTER (WHERE (vi.status = 'rejected'::text)) AS rejected,
+    count(*) FILTER (WHERE (vi.status = ANY (ARRAY['accepted'::text, 'verified'::text]))) AS accepted,
+    min(vi.captured_at) FILTER (WHERE (vi.status = 'pending'::text)) AS oldest_pending_at,
+    NULL::text AS owner_label
+   FROM ((public.verification_items vi
+     LEFT JOIN public.locations sh ON ((sh.location_id = vi.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
+  GROUP BY vi.tenant_id, COALESCE(vi.vertical, 'verification'::text), pk.name, sh.name;
+
+
+--
+-- Name: org_role_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_role_catalog (
+    role_key text NOT NULL,
+    tier_code text NOT NULL,
+    vertical_code text,
+    is_legacy boolean DEFAULT false NOT NULL,
+    label text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT org_role_catalog_role_key_shape_check CHECK ((role_key ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT org_role_catalog_vertical_or_legacy_check CHECK (((vertical_code IS NOT NULL) OR is_legacy))
+);
+
+
+--
+-- Name: workforce_absences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_absences (
+    absence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    starts_at timestamp with time zone NOT NULL,
+    ends_at timestamp with time zone NOT NULL,
+    reason_code text NOT NULL,
+    status text DEFAULT 'reported'::text NOT NULL,
+    replacement_member_id uuid,
+    created_by uuid,
+    approved_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    coverage_override_reason text,
+    CONSTRAINT workforce_absences_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_absences_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text]))),
+    CONSTRAINT workforce_absences_status_check CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'escalation_required'::text, 'rejected'::text, 'canceled'::text]))),
+    CONSTRAINT workforce_absences_window_check CHECK ((ends_at > starts_at))
+);
+
+
+--
+-- Name: workforce_coverage_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.workforce_coverage_status AS
+ WITH active_absence AS (
+         SELECT workforce_absences.tenant_id,
+            workforce_absences.workforce_member_id,
+            workforce_absences.replacement_member_id
+           FROM public.workforce_absences
+          WHERE ((workforce_absences.status = 'approved'::text) AND (now() >= workforce_absences.starts_at) AND (now() < COALESCE(workforce_absences.ends_at, 'infinity'::timestamp with time zone)))
+        ), work_load AS (
+         SELECT sop_tasks.tenant_id,
+            sop_tasks.assigned_to AS user_scope_member,
+            count(*) FILTER (WHERE (sop_tasks.state <> ALL (ARRAY['completed'::text, 'verified'::text, 'canceled'::text]))) AS active_work_count,
+            count(*) FILTER (WHERE ((sop_tasks.state <> ALL (ARRAY['completed'::text, 'verified'::text, 'canceled'::text])) AND (sop_tasks.due_at < now()))) AS overdue_work_count
+           FROM public.sop_tasks
+          WHERE (sop_tasks.assigned_to IS NOT NULL)
+          GROUP BY sop_tasks.tenant_id, sop_tasks.assigned_to
+        )
+ SELECT wm.tenant_id,
+    loc.name AS park_label,
+    COALESCE(rc.label, wm.primary_role_hint) AS role_label,
+    wm.display_name AS owner_label,
+    rep.display_name AS backup_label,
+        CASE
+            WHEN (aa.workforce_member_id IS NULL) THEN 'present'::text
+            WHEN (aa.replacement_member_id IS NOT NULL) THEN 'covered_by_backup'::text
+            ELSE 'uncovered_absence'::text
+        END AS coverage_status,
+    COALESCE(wl.active_work_count, (0)::bigint) AS active_work_count,
+    COALESCE(wl.overdue_work_count, (0)::bigint) AS overdue_work_count
+   FROM (((((public.workforce_members wm
+     LEFT JOIN public.locations loc ON ((loc.location_id = wm.primary_location_id)))
+     LEFT JOIN public.org_role_catalog rc ON ((rc.role_key = wm.primary_role_hint)))
+     LEFT JOIN active_absence aa ON (((aa.tenant_id = wm.tenant_id) AND (aa.workforce_member_id = wm.workforce_member_id))))
+     LEFT JOIN public.workforce_members rep ON ((rep.workforce_member_id = aa.replacement_member_id)))
+     LEFT JOIN work_load wl ON (((wl.tenant_id = wm.tenant_id) AND (wl.user_scope_member = wm.user_id))))
+  WHERE (wm.status = 'active'::text);
+
+
+--
+-- Name: workforce_tasks_base; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.workforce_tasks_base AS
+ SELECT t.task_id,
+    t.tenant_id,
+    t.state,
+    t.task_type,
+    t.assigned_to AS operator_id,
+    t.scope_id,
+    sh.name AS shed_label,
+    sh.parent_location_id AS park_id,
+    pk.name AS park_label,
+    t.verified_at,
+    ((t.due_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS due_business_day
+   FROM ((public.sop_tasks t
+     LEFT JOIN public.locations sh ON ((sh.location_id = t.scope_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)));
+
+
+--
 -- Name: admin_ui_config_entries; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2120,64 +4315,6 @@ CREATE TABLE public.arrival_intake_review_goats (
 
 
 --
--- Name: arrival_intake_reviews; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.arrival_intake_reviews (
-    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    load_id uuid NOT NULL,
-    park_location_id uuid NOT NULL,
-    expected_count integer DEFAULT 0 NOT NULL,
-    loaded_count integer DEFAULT 0 NOT NULL,
-    arrived_count integer DEFAULT 0 NOT NULL,
-    matched_count integer DEFAULT 0 NOT NULL,
-    missing_count integer DEFAULT 0 NOT NULL,
-    extra_count integer DEFAULT 0 NOT NULL,
-    rejected_count integer DEFAULT 0 NOT NULL,
-    health_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
-    weight_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
-    media_proof_id uuid,
-    status text DEFAULT 'pending'::text NOT NULL,
-    reviewed_by uuid,
-    reviewed_at timestamp with time zone NOT NULL,
-    idempotency_key text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT arrival_intake_reviews_counts_check CHECK (((expected_count >= 0) AND (loaded_count >= 0) AND (arrived_count >= 0) AND (matched_count >= 0) AND (missing_count >= 0) AND (extra_count >= 0) AND (rejected_count >= 0))),
-    CONSTRAINT arrival_intake_reviews_health_flags_array_check CHECK ((jsonb_typeof(health_flags) = 'array'::text)),
-    CONSTRAINT arrival_intake_reviews_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT arrival_intake_reviews_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'mismatch'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text]))),
-    CONSTRAINT arrival_intake_reviews_weight_flags_array_check CHECK ((jsonb_typeof(weight_flags) = 'array'::text))
-);
-
-
---
--- Name: audit_log; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: auth_pending_email_grants; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2219,22 +4356,6 @@ CREATE TABLE public.breed_aliases (
     normalized_alias text NOT NULL,
     source_system text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: breeds; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.breeds (
-    breed_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    species text DEFAULT 'goat'::text NOT NULL,
-    canonical_name text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    review_notes text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
 );
 
 
@@ -2321,6 +4442,100 @@ CREATE TABLE public.calendar_snoozes (
     trace_id text,
     CONSTRAINT calendar_snoozes_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT calendar_snoozes_status_check CHECK ((status = ANY (ARRAY['active'::text, 'replaced'::text, 'expired'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: ceo_ai_assistant_audit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ceo_ai_assistant_audit (
+    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    actor_id uuid,
+    actor_role text,
+    conversation_id uuid,
+    request_id text NOT NULL,
+    question_hash text NOT NULL,
+    question_redacted text,
+    route_tier text,
+    tool_called text,
+    generated_sql_hash text,
+    source_views text[] DEFAULT '{}'::text[] NOT NULL,
+    row_count integer,
+    latency_ms integer,
+    status text DEFAULT 'ok'::text NOT NULL,
+    rejection_reason text,
+    step_trace jsonb DEFAULT '[]'::jsonb NOT NULL,
+    review_verdict text,
+    model_version text,
+    prompt_version text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: ceo_ai_conversations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ceo_ai_conversations (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    title text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    retention_expires_at timestamp with time zone,
+    idempotency_key text
+);
+
+
+--
+-- Name: ceo_ai_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ceo_ai_messages (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    conversation_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    role text NOT NULL,
+    content text NOT NULL,
+    tool_calls jsonb DEFAULT '[]'::jsonb NOT NULL,
+    citations jsonb DEFAULT '[]'::jsonb NOT NULL,
+    source text,
+    mode text,
+    request_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ceo_ai_messages_role_chk CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text, 'system'::text])))
+);
+
+
+--
+-- Name: ceo_ai_rate_limit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ceo_ai_rate_limit (
+    tenant_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    window_start timestamp with time zone NOT NULL,
+    count integer DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: ceo_ai_response_cache; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ceo_ai_response_cache (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    question_hash text NOT NULL,
+    answer jsonb NOT NULL,
+    source_views text[] DEFAULT '{}'::text[] NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL
 );
 
 
@@ -2445,52 +4660,6 @@ CREATE TABLE public.count_projection_exception_resolutions (
     CONSTRAINT count_projection_exception_resolutions_actor_check CHECK ((btrim(resolved_by_ref) <> ''::text)),
     CONSTRAINT count_projection_exception_resolutions_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
     CONSTRAINT count_projection_exception_resolutions_reason_check CHECK ((btrim(resolution_reason) <> ''::text))
-);
-
-
---
--- Name: count_projection_exceptions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.count_projection_exceptions (
-    count_projection_exception_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    count_projection_snapshot_id uuid,
-    exception_type text NOT NULL,
-    source_key text NOT NULL,
-    grain_key text NOT NULL,
-    park_id uuid,
-    shed_id uuid,
-    breed_key text,
-    stage_tag text,
-    severity text DEFAULT 'blocking'::text NOT NULL,
-    status text DEFAULT 'open'::text NOT NULL,
-    owner_ref text,
-    blocker_reason text NOT NULL,
-    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    resolved_at timestamp with time zone,
-    work_type text DEFAULT 'counts_projection_exception'::text NOT NULL,
-    work_state text DEFAULT 'blocked'::text NOT NULL,
-    due_at timestamp with time zone DEFAULT now() NOT NULL,
-    next_action text DEFAULT 'Review Counts/Shifting projection exception'::text NOT NULL,
-    evidence_link text DEFAULT '/feed-direction/counts-projection/exceptions'::text NOT NULL,
-    resolution_id uuid,
-    resolved_by_ref text,
-    resolution_reason text,
-    resolution_ref text,
-    CONSTRAINT count_projection_exceptions_evidence_link_check CHECK ((btrim(evidence_link) <> ''::text)),
-    CONSTRAINT count_projection_exceptions_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
-    CONSTRAINT count_projection_exceptions_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
-    CONSTRAINT count_projection_exceptions_next_action_check CHECK ((btrim(next_action) <> ''::text)),
-    CONSTRAINT count_projection_exceptions_reason_check CHECK ((btrim(blocker_reason) <> ''::text)),
-    CONSTRAINT count_projection_exceptions_severity_check CHECK ((severity = ANY (ARRAY['warning'::text, 'blocking'::text, 'critical'::text]))),
-    CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
-    CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
-    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text, 'missing_projection_snapshot'::text, 'stale_projection'::text]))),
-    CONSTRAINT count_projection_exceptions_work_state_check CHECK ((work_state = ANY (ARRAY['blocked'::text, 'resolved'::text, 'dismissed'::text]))),
-    CONSTRAINT count_projection_exceptions_work_type_check CHECK ((work_type = 'counts_projection_exception'::text))
 );
 
 
@@ -2669,6 +4838,23 @@ CREATE TABLE public.counts_shifting_readiness_subgates (
 
 
 --
+-- Name: department_module_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.department_module_grants (
+    department_module_grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    department_id uuid NOT NULL,
+    module_key text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT department_module_grants_module_key_check CHECK ((module_key ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT department_module_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+
+--
 -- Name: departments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2731,35 +4917,264 @@ CREATE TABLE public.farm_profiles (
 
 
 --
--- Name: feed_direction_completions; Type: TABLE; Schema: public; Owner: -
+-- Name: feed_config_write_log; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.feed_direction_completions (
-    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+CREATE TABLE public.feed_config_write_log (
+    feed_config_write_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    batch_id uuid,
-    shed_id uuid NOT NULL,
-    ration_protocol_version_id uuid,
-    sop_submission_item_id uuid,
-    feed_inventory_lot_id uuid,
-    quantity_fed numeric,
-    quantity_unit text,
-    head_count integer,
-    fed_at timestamp with time zone NOT NULL,
-    status text DEFAULT 'recorded'::text NOT NULL,
-    verified_by uuid,
-    verified_at timestamp with time zone,
-    rejection_reason text,
-    recorded_by uuid,
+    write_kind text NOT NULL,
     idempotency_key text NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
+    request_fingerprint text NOT NULL,
+    outcome text NOT NULL,
+    result_row_id uuid,
+    superseded_row_id uuid,
+    effective_from date NOT NULL,
+    actor_ref text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
+    CONSTRAINT feed_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
+    CONSTRAINT feed_config_write_log_insert_shape_check CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL))),
+    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text]))),
+    CONSTRAINT feed_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text]))),
+    CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
+);
+
+
+--
+-- Name: feed_conversions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_conversions (
+    conversion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    from_item_label text NOT NULL,
+    from_item_key text GENERATED ALWAYS AS (public.feed_config_norm(from_item_label)) STORED,
+    to_item_label text NOT NULL,
+    to_item_key text GENERATED ALWAYS AS (public.feed_config_norm(to_item_label)) STORED,
+    ratio numeric(12,6) NOT NULL,
+    notes text,
+    status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT feed_direction_completions_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
-    CONSTRAINT feed_direction_completions_quantity_check CHECK (((quantity_fed IS NULL) OR (quantity_fed > (0)::numeric))),
-    CONSTRAINT feed_direction_completions_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT feed_direction_completions_status_check CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+    CONSTRAINT feed_conversions_from_label_not_blank CHECK ((btrim(from_item_label) <> ''::text)),
+    CONSTRAINT feed_conversions_not_self CHECK ((public.feed_config_norm(from_item_label) <> public.feed_config_norm(to_item_label))),
+    CONSTRAINT feed_conversions_ratio_check CHECK ((ratio > (0)::numeric)),
+    CONSTRAINT feed_conversions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text]))),
+    CONSTRAINT feed_conversions_to_label_not_blank CHECK ((btrim(to_item_label) <> ''::text))
+);
+
+
+--
+-- Name: feed_experiment_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_experiment_config (
+    experiment_config_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    absolute_kg numeric(12,3) NOT NULL,
+    head_count integer,
+    experiment_category text NOT NULL,
+    notes text,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_experiment_config_absolute_kg_check CHECK ((absolute_kg >= (0)::numeric)),
+    CONSTRAINT feed_experiment_config_category_not_blank CHECK ((btrim(experiment_category) <> ''::text)),
+    CONSTRAINT feed_experiment_config_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
+    CONSTRAINT feed_experiment_config_item_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
+    CONSTRAINT feed_experiment_config_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: feed_item_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_item_catalog (
+    feed_item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    energy_kcal_per_kg numeric(10,3),
+    dry_matter_factor numeric(6,4),
+    wastage_factor numeric(6,4),
+    display_order integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_item_catalog_dry_matter_check CHECK (((dry_matter_factor IS NULL) OR ((dry_matter_factor > (0)::numeric) AND (dry_matter_factor <= (1)::numeric)))),
+    CONSTRAINT feed_item_catalog_energy_check CHECK (((energy_kcal_per_kg IS NULL) OR (energy_kcal_per_kg >= (0)::numeric))),
+    CONSTRAINT feed_item_catalog_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
+    CONSTRAINT feed_item_catalog_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text]))),
+    CONSTRAINT feed_item_catalog_wastage_check CHECK (((wastage_factor IS NULL) OR ((wastage_factor >= (0)::numeric) AND (wastage_factor < (1)::numeric))))
+);
+
+
+--
+-- Name: feed_ration_groups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_ration_groups (
+    ration_group_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    breed_label text NOT NULL,
+    breed_key text GENERATED ALWAYS AS (public.feed_config_norm(breed_label)) STORED,
+    ration_group_label text NOT NULL,
+    ration_group_key text GENERATED ALWAYS AS (public.feed_config_norm(ration_group_label)) STORED,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_ration_groups_breed_label_not_blank CHECK ((btrim(breed_label) <> ''::text)),
+    CONSTRAINT feed_ration_groups_group_label_not_blank CHECK ((btrim(ration_group_label) <> ''::text))
+);
+
+
+--
+-- Name: feed_ration_rates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_ration_rates (
+    ration_rate_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    ration_group_label text NOT NULL,
+    ration_group_key text GENERATED ALWAYS AS (public.feed_config_norm(ration_group_label)) STORED,
+    shed_tag_label text NOT NULL,
+    shed_tag_key text GENERATED ALWAYS AS (public.feed_config_norm(shed_tag_label)) STORED,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    grams_per_head numeric(12,3) NOT NULL,
+    valid_from date DEFAULT CURRENT_DATE NOT NULL,
+    valid_to date,
+    source_system text DEFAULT 'manual'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_ration_rates_grams_check CHECK ((grams_per_head >= (0)::numeric)),
+    CONSTRAINT feed_ration_rates_group_label_not_blank CHECK ((btrim(ration_group_label) <> ''::text)),
+    CONSTRAINT feed_ration_rates_item_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
+    CONSTRAINT feed_ration_rates_tag_label_not_blank CHECK ((btrim(shed_tag_label) <> ''::text)),
+    CONSTRAINT feed_ration_rates_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: feed_schedule_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_schedule_config (
+    feed_schedule_config_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    workflow text NOT NULL,
+    direction_time time without time zone NOT NULL,
+    correction_time time without time zone NOT NULL,
+    transport_time time without time zone,
+    valid_from date DEFAULT CURRENT_DATE NOT NULL,
+    valid_to date,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_schedule_config_correction_order_check CHECK ((correction_time >= direction_time)),
+    CONSTRAINT feed_schedule_config_transport_order_check CHECK (((transport_time IS NULL) OR (transport_time >= correction_time))),
+    CONSTRAINT feed_schedule_config_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from))),
+    CONSTRAINT feed_schedule_config_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+);
+
+
+--
+-- Name: feed_session_template_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_session_template_items (
+    session_template_item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    session_no integer NOT NULL,
+    slot_no integer NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    status text DEFAULT 'active'::text NOT NULL,
+    valid_from date DEFAULT CURRENT_DATE NOT NULL,
+    valid_to date,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_session_template_items_item_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
+    CONSTRAINT feed_session_template_items_session_no_check CHECK ((session_no >= 1)),
+    CONSTRAINT feed_session_template_items_slot_no_check CHECK ((slot_no >= 1)),
+    CONSTRAINT feed_session_template_items_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text]))),
+    CONSTRAINT feed_session_template_items_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: feed_session_templates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_session_templates (
+    session_template_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    session_no integer NOT NULL,
+    session_label text NOT NULL,
+    split_fraction numeric(6,4) NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_session_templates_label_not_blank CHECK ((btrim(session_label) <> ''::text)),
+    CONSTRAINT feed_session_templates_session_no_check CHECK ((session_no >= 1)),
+    CONSTRAINT feed_session_templates_split_check CHECK (((split_fraction > (0)::numeric) AND (split_fraction <= (1)::numeric))),
+    CONSTRAINT feed_session_templates_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: feed_shed_factors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_shed_factors (
+    shed_factor_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key text GENERATED ALWAYS AS (public.feed_config_norm(feed_item_label)) STORED,
+    multiplier numeric(8,4) DEFAULT 1.0 NOT NULL,
+    valid_from date DEFAULT CURRENT_DATE NOT NULL,
+    valid_to date,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_shed_factors_item_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
+    CONSTRAINT feed_shed_factors_multiplier_check CHECK ((multiplier >= (0)::numeric)),
+    CONSTRAINT feed_shed_factors_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: feed_shed_tags; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_shed_tags (
+    shed_tag_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    shed_tag_label text NOT NULL,
+    shed_tag_key text GENERATED ALWAYS AS (public.feed_config_norm(shed_tag_label)) STORED,
+    applies_to text NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_shed_tags_applies_to_check CHECK ((applies_to = ANY (ARRAY['adult'::text, 'kid'::text]))),
+    CONSTRAINT feed_shed_tags_label_not_blank CHECK ((btrim(shed_tag_label) <> ''::text)),
+    CONSTRAINT feed_shed_tags_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
 );
 
 
@@ -2907,51 +5322,18 @@ CREATE TABLE public.goat_ownership (
 
 
 --
--- Name: goats; Type: TABLE; Schema: public; Owner: -
+-- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.goats (
-    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+CREATE TABLE public.goat_shed_partitions (
     tenant_id uuid NOT NULL,
-    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
-    species text DEFAULT 'goat'::text NOT NULL,
-    breed text,
-    breed_id uuid,
-    sex text NOT NULL,
-    approx_dob date,
-    age_band text,
-    lifecycle_status text NOT NULL,
-    reproductive_status text,
-    growth_cohort_tag text,
-    management_stage text,
-    health_status text,
-    custodian_party_id uuid NOT NULL,
-    current_location_id uuid,
-    farm_id uuid,
-    park_id uuid,
-    shed_id uuid,
-    cohort_id uuid,
-    merged_into_goat_id uuid,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    goat_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    source_shed_name text NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by uuid,
-    dob date,
-    dob_estimated boolean DEFAULT true NOT NULL,
-    origin_type text,
-    entry_date date,
-    exited_at timestamp with time zone,
-    exit_reason text,
-    breeding_date date,
-    last_delivery_date date,
-    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
-    CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
-    CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
-    CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
-    CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
 );
 
 
@@ -3026,6 +5408,7 @@ CREATE TABLE public.idempotency_keys (
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     completed_at timestamp with time zone,
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval),
+    result_snapshot jsonb,
     CONSTRAINT idempotency_keys_completed_shape_check CHECK (((status <> 'completed'::text) OR (completed_at IS NOT NULL))),
     CONSTRAINT idempotency_keys_status_check CHECK ((status = ANY (ARRAY['started'::text, 'completed'::text, 'failed'::text])))
 );
@@ -3244,79 +5627,6 @@ CREATE TABLE public.identity_decisions (
 
 
 --
--- Name: inventory_items; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.inventory_items (
-    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    item_code text NOT NULL,
-    name text NOT NULL,
-    category text NOT NULL,
-    base_unit text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT inventory_items_category_check CHECK ((category = ANY (ARRAY['vaccine'::text, 'dewormer'::text, 'medicine'::text, 'feed'::text, 'supplement'::text, 'consumable'::text, 'other'::text]))),
-    CONSTRAINT inventory_items_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT inventory_items_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
-);
-
-
---
--- Name: inventory_stock; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.inventory_stock (
-    stock_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    item_id uuid NOT NULL,
-    location_id uuid NOT NULL,
-    lot_code text,
-    expiry_date date,
-    quantity_in_stock numeric DEFAULT 0 NOT NULL,
-    quantity_reserved numeric DEFAULT 0 NOT NULL,
-    quantity_unit text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT inventory_stock_qty_check CHECK ((quantity_in_stock >= (0)::numeric)),
-    CONSTRAINT inventory_stock_reserved_check CHECK ((quantity_reserved >= (0)::numeric)),
-    CONSTRAINT inventory_stock_reserved_le_check CHECK ((quantity_reserved <= quantity_in_stock)),
-    CONSTRAINT inventory_stock_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT inventory_stock_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'quarantined'::text, 'depleted'::text])))
-);
-
-
---
--- Name: inventory_stock_movements; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.inventory_stock_movements (
-    movement_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    lot_id uuid NOT NULL,
-    item_id uuid NOT NULL,
-    location_id uuid NOT NULL,
-    movement_type text NOT NULL,
-    quantity numeric NOT NULL,
-    quantity_unit text NOT NULL,
-    batch_id uuid,
-    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    reason text,
-    idempotency_key text NOT NULL,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    CONSTRAINT inventory_stock_movements_quantity_check CHECK ((quantity > (0)::numeric)),
-    CONSTRAINT inventory_stock_movements_type_check CHECK ((movement_type = ANY (ARRAY['receive'::text, 'reserve'::text, 'consume'::text, 'release'::text, 'adjust'::text, 'expire'::text, 'transfer_out'::text, 'transfer_in'::text])))
-);
-
-
---
 -- Name: location_aliases; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3433,39 +5743,6 @@ CREATE TABLE public.location_review_items (
 
 
 --
--- Name: locations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.locations (
-    location_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    location_type text NOT NULL,
-    location_code text,
-    name text NOT NULL,
-    parent_location_id uuid,
-    country text DEFAULT 'IN'::text NOT NULL,
-    state_region text,
-    district text,
-    pincode text,
-    lat numeric,
-    lng numeric,
-    timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
-    status text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    display_order integer DEFAULT 0 NOT NULL,
-    operational_notes text,
-    retired_at timestamp with time zone,
-    retired_by uuid,
-    CONSTRAINT locations_lat_check CHECK (((lat IS NULL) OR ((lat >= ('-90'::integer)::numeric) AND (lat <= (90)::numeric)))),
-    CONSTRAINT locations_lng_check CHECK (((lng IS NULL) OR ((lng >= ('-180'::integer)::numeric) AND (lng <= (180)::numeric)))),
-    CONSTRAINT locations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'staging'::text, 'review'::text]))),
-    CONSTRAINT locations_type_check CHECK ((location_type = ANY (ARRAY['farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'pen'::text, 'unknown'::text])))
-);
-
-
---
 -- Name: movement_commands; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3505,108 +5782,6 @@ CREATE TABLE public.notification_delivery_attempts (
 
 
 --
--- Name: notification_requests; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.notification_requests (
-    notification_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    calendar_event_id text NOT NULL,
-    target_type text NOT NULL,
-    target_id uuid,
-    notification_type text NOT NULL,
-    channel text NOT NULL,
-    recipient_ref text,
-    title text NOT NULL,
-    body text DEFAULT ''::text NOT NULL,
-    status text DEFAULT 'queued'::text NOT NULL,
-    requested_by uuid,
-    requested_at timestamp with time zone DEFAULT now() NOT NULL,
-    sent_at timestamp with time zone,
-    read_at timestamp with time zone,
-    failure_reason text,
-    idempotency_key text NOT NULL,
-    request_fingerprint text NOT NULL,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    delivery_attempts integer DEFAULT 0 NOT NULL,
-    next_attempt_at timestamp with time zone,
-    leased_at timestamp with time zone,
-    lease_token uuid,
-    delivered_by text,
-    CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text, 'incident'::text, 'opsgenie'::text, 'pagerduty'::text]))),
-    CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
-    CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
-    CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
-    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'verification_approved'::text, 'verification_closed'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
-);
-
-
---
--- Name: obligation_batches; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_batches (
-    batch_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    protocol_version_id uuid NOT NULL,
-    scope_type text NOT NULL,
-    scope_id uuid NOT NULL,
-    session text,
-    planned_date date,
-    window_start timestamp with time zone,
-    window_end timestamp with time zone,
-    status text DEFAULT 'planned'::text NOT NULL,
-    estimated_targets integer DEFAULT 0 NOT NULL,
-    planned_quantity numeric,
-    reserved_quantity numeric DEFAULT 0 NOT NULL,
-    used_quantity numeric DEFAULT 0 NOT NULL,
-    quantity_unit text,
-    primary_inventory_lot_id uuid,
-    sop_task_id uuid,
-    conducted_by uuid,
-    proof_ref text,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT obligation_batches_reserved_check CHECK ((reserved_quantity >= (0)::numeric)),
-    CONSTRAINT obligation_batches_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT obligation_batches_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
-    CONSTRAINT obligation_batches_status_check CHECK ((status = ANY (ARRAY['planned'::text, 'in_progress'::text, 'completed'::text, 'superseded'::text, 'canceled'::text]))),
-    CONSTRAINT obligation_batches_used_check CHECK ((used_quantity >= (0)::numeric))
-);
-
-
---
--- Name: obligation_escalations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_escalations (
-    escalation_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    level integer NOT NULL,
-    escalated_to_user_id uuid,
-    escalated_to_role text,
-    reason text DEFAULT ''::text NOT NULL,
-    status text DEFAULT 'open'::text NOT NULL,
-    opened_at timestamp with time zone DEFAULT now() NOT NULL,
-    acknowledged_at timestamp with time zone,
-    resolved_at timestamp with time zone,
-    acknowledged_by uuid,
-    resolved_by uuid,
-    acknowledgement_note text DEFAULT ''::text NOT NULL,
-    resolution_note text DEFAULT ''::text NOT NULL,
-    CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
-    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
-    CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
-);
-
-
---
 -- Name: obligation_goat_shift_watermarks; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3622,38 +5797,16 @@ CREATE TABLE public.obligation_goat_shift_watermarks (
 
 
 --
--- Name: obligation_instances; Type: TABLE; Schema: public; Owner: -
+-- Name: obligation_operator_config_replan_watermarks; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.obligation_instances (
-    obligation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+CREATE TABLE public.obligation_operator_config_replan_watermarks (
     tenant_id uuid NOT NULL,
-    protocol_version_id uuid NOT NULL,
-    rule_id uuid NOT NULL,
-    batch_id uuid,
-    target_type text NOT NULL,
-    target_id uuid NOT NULL,
-    scope_type text NOT NULL,
-    scope_id uuid NOT NULL,
-    due_at timestamp with time zone NOT NULL,
-    window_start timestamp with time zone,
-    window_end timestamp with time zone,
-    status text DEFAULT 'scheduled'::text NOT NULL,
-    sop_task_id uuid,
-    idempotency_key text NOT NULL,
-    generated_by_trigger_id uuid,
-    sequence integer DEFAULT 1 NOT NULL,
-    completed_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    batching_hold_count integer DEFAULT 0,
-    first_batching_hold_until timestamp with time zone,
-    CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
-    CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
-    CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text]))),
-    CONSTRAINT obligation_instances_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
+    event_id text NOT NULL,
+    park_id uuid NOT NULL,
+    event_type text NOT NULL,
+    processed_at timestamp with time zone DEFAULT now() NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL
 );
 
 
@@ -3672,22 +5825,6 @@ CREATE TABLE public.obligation_status_events (
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
     CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: org_role_catalog; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.org_role_catalog (
-    role_key text NOT NULL,
-    tier_code text NOT NULL,
-    vertical_code text,
-    is_legacy boolean DEFAULT false NOT NULL,
-    label text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT org_role_catalog_role_key_shape_check CHECK ((role_key ~ '^[a-z][a-z0-9_]*$'::text)),
-    CONSTRAINT org_role_catalog_vertical_or_legacy_check CHECK (((vertical_code IS NOT NULL) OR is_legacy))
 );
 
 
@@ -3803,22 +5940,6 @@ CREATE TABLE public.park_profiles (
 
 
 --
--- Name: parties; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.parties (
-    party_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    party_type text NOT NULL,
-    display_name text NOT NULL,
-    status text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT parties_party_type_check CHECK ((party_type = ANY (ARRAY['org'::text, 'person'::text, 'token_pool'::text, 'system'::text]))),
-    CONSTRAINT parties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'review'::text])))
-);
-
-
---
 -- Name: position_module_duties; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3837,115 +5958,6 @@ CREATE TABLE public.position_module_duties (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT position_module_duties_duty_type_check CHECK ((duty_type = ANY (ARRAY['execute'::text, 'verify'::text, 'manage'::text, 'support'::text]))),
     CONSTRAINT position_module_duties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
-);
-
-
---
--- Name: procurement_hf_vaccination_evidence; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.procurement_hf_vaccination_evidence (
-    evidence_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    load_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    protocol_version_id uuid NOT NULL,
-    rule_id uuid NOT NULL,
-    dose_code text NOT NULL,
-    administered_at timestamp with time zone NOT NULL,
-    vaccine_name text DEFAULT ''::text NOT NULL,
-    lot_number text DEFAULT ''::text NOT NULL,
-    proof_ref_id uuid,
-    source_ref text DEFAULT ''::text NOT NULL,
-    review_status text DEFAULT 'imported'::text NOT NULL,
-    reviewed_by uuid,
-    reviewed_at timestamp with time zone,
-    review_reason text DEFAULT ''::text NOT NULL,
-    idempotency_key text NOT NULL,
-    imported_by uuid,
-    imported_at timestamp with time zone DEFAULT now() NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT procurement_hf_vaccination_evidence_dose_code_check CHECK ((btrim(dose_code) <> ''::text)),
-    CONSTRAINT procurement_hf_vaccination_evidence_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
-    CONSTRAINT procurement_hf_vaccination_evidence_review_status_check CHECK ((review_status = ANY (ARRAY['imported'::text, 'trusted'::text, 'rejected'::text, 'conflicting'::text, 'duplicate'::text]))),
-    CONSTRAINT procurement_hf_vaccination_evidence_row_version_check CHECK ((row_version >= 1))
-);
-
-
---
--- Name: procurement_load_goats; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.procurement_load_goats (
-    load_goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    load_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    animal_identifier_1 text,
-    animal_identifier_2 text,
-    selection_state text DEFAULT 'candidate'::text NOT NULL,
-    selection_reason text DEFAULT ''::text NOT NULL,
-    current_state text DEFAULT 'source_candidate'::text NOT NULL,
-    source_entry_state text DEFAULT 'pending'::text NOT NULL,
-    source_entry_ref text,
-    ownership_state text DEFAULT 'pending'::text NOT NULL,
-    health_state text DEFAULT 'pending'::text NOT NULL,
-    warmup_started_at timestamp with time zone,
-    warmup_ended_at timestamp with time zone,
-    warmup_days integer,
-    holding_location_id uuid,
-    loaded_at timestamp with time zone,
-    arrived_at timestamp with time zone,
-    intake_accepted_at timestamp with time zone,
-    exit_reason text,
-    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    purpose text DEFAULT 'unspecified'::text NOT NULL,
-    CONSTRAINT procurement_load_goats_current_state_check CHECK ((current_state = ANY (ARRAY['source_holding'::text, 'source_warmup'::text, 'source_candidate'::text, 'source_health_pending'::text, 'source_health_passed'::text, 'source_health_failed'::text, 'source_rejected'::text, 'pre_dispatch_pending'::text, 'pre_dispatch_accepted'::text, 'pre_dispatch_rejected'::text, 'pre_dispatch_deferred'::text, 'pre_dispatch_blocked'::text, 'dispatch_ready'::text, 'loading_pending'::text, 'loaded'::text, 'in_transit'::text, 'arrival_review_pending'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text]))),
-    CONSTRAINT procurement_load_goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['died'::text, 'sold'::text, 'lost'::text, 'canceled'::text])))),
-    CONSTRAINT procurement_load_goats_health_state_check CHECK ((health_state = ANY (ARRAY['pending'::text, 'passed'::text, 'failed'::text, 'deferred'::text]))),
-    CONSTRAINT procurement_load_goats_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
-    CONSTRAINT procurement_load_goats_ownership_state_check CHECK ((ownership_state = ANY (ARRAY['pending'::text, 'shared_pending'::text, 'mesha_owned'::text, 'blocked'::text, 'not_owned'::text, 'settled'::text]))),
-    CONSTRAINT procurement_load_goats_proof_refs_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
-    CONSTRAINT procurement_load_goats_purpose_check CHECK ((purpose = ANY (ARRAY['breeding'::text, 'fattening'::text, 'non_breeding'::text, 'unspecified'::text]))),
-    CONSTRAINT procurement_load_goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT procurement_load_goats_selection_state_check CHECK ((selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'purchased'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'loaded'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text]))),
-    CONSTRAINT procurement_load_goats_source_entry_state_check CHECK ((source_entry_state = ANY (ARRAY['pending'::text, 'accepted'::text, 'blocked'::text]))),
-    CONSTRAINT procurement_load_goats_warmup_days_check CHECK (((warmup_days IS NULL) OR (warmup_days >= 0))),
-    CONSTRAINT procurement_load_goats_warmup_window_check CHECK (((warmup_ended_at IS NULL) OR (warmup_started_at IS NULL) OR (warmup_ended_at >= warmup_started_at)))
-);
-
-
---
--- Name: procurement_loads; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.procurement_loads (
-    load_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    source_party_id uuid NOT NULL,
-    source_location_id uuid,
-    expected_count integer DEFAULT 0 NOT NULL,
-    purchase_date date,
-    planned_dispatch_at timestamp with time zone,
-    status text DEFAULT 'source_warmup'::text NOT NULL,
-    notes text DEFAULT ''::text NOT NULL,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT procurement_loads_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
-    CONSTRAINT procurement_loads_expected_count_check CHECK ((expected_count >= 0)),
-    CONSTRAINT procurement_loads_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT procurement_loads_status_check CHECK ((status = ANY (ARRAY['source_warmup'::text, 'health_pending'::text, 'pre_dispatch_pending'::text, 'dispatch_ready'::text, 'in_transit'::text, 'arrival_review'::text, 'accepted_intake'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'canceled'::text])))
 );
 
 
@@ -3971,27 +5983,6 @@ CREATE TABLE public.procurement_pc_handoffs (
     CONSTRAINT procurement_pc_handoffs_history_array_check CHECK ((jsonb_typeof(trusted_vaccination_history) = 'array'::text)),
     CONSTRAINT procurement_pc_handoffs_signal_check CHECK (((intake_health_signal IS NULL) OR (intake_health_signal = ANY (ARRAY['clear'::text, 'defer'::text, 'quarantine'::text, 'review'::text])))),
     CONSTRAINT procurement_pc_handoffs_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'emitted'::text, 'canceled'::text])))
-);
-
-
---
--- Name: procurement_source_health_checks; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.procurement_source_health_checks (
-    health_check_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    load_id uuid NOT NULL,
-    health_state text NOT NULL,
-    reason text DEFAULT ''::text NOT NULL,
-    checked_by uuid,
-    checked_at timestamp with time zone NOT NULL,
-    proof_ref_id uuid,
-    sop_task_id uuid,
-    idempotency_key text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT procurement_source_health_checks_state_check CHECK ((health_state = ANY (ARRAY['passed'::text, 'failed'::text, 'deferred'::text])))
 );
 
 
@@ -4022,11 +6013,15 @@ CREATE TABLE public.proof_artifacts (
     row_version integer DEFAULT 1 NOT NULL,
     idempotency_key text,
     request_fingerprint text DEFAULT ''::text NOT NULL,
+    retention_policy text DEFAULT ''::text NOT NULL,
+    retention_expires_at timestamp with time zone,
+    upload_expires_at timestamp with time zone,
     CONSTRAINT proof_artifacts_duration_check CHECK (((duration_ms IS NULL) OR (duration_ms >= 0))),
     CONSTRAINT proof_artifacts_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT proof_artifacts_object_key_check CHECK ((btrim(object_key) <> ''::text)),
     CONSTRAINT proof_artifacts_proof_type_check CHECK ((proof_type = ANY (ARRAY['photo'::text, 'video'::text, 'attachment'::text]))),
     CONSTRAINT proof_artifacts_provider_check CHECK ((storage_provider = ANY (ARRAY['local'::text, 'gcs'::text]))),
+    CONSTRAINT proof_artifacts_retention_policy_check CHECK ((retention_policy = ANY (ARRAY[''::text, 'operational_90d'::text, 'standard_1y'::text, 'critical_7y'::text, 'legal_hold'::text]))),
     CONSTRAINT proof_artifacts_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT proof_artifacts_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'batch'::text, 'task'::text, 'goat'::text]))),
     CONSTRAINT proof_artifacts_size_check CHECK ((size_bytes >= 0)),
@@ -4102,38 +6097,6 @@ CREATE TABLE public.protocol_rule_dimensions (
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
-);
-
-
---
--- Name: protocol_rules; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.protocol_rules (
-    rule_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    protocol_version_id uuid NOT NULL,
-    dose_code text NOT NULL,
-    sequence integer DEFAULT 1 NOT NULL,
-    trigger_type text NOT NULL,
-    offset_days integer DEFAULT 0 NOT NULL,
-    due_window_days integer DEFAULT 0 NOT NULL,
-    min_gap_days integer DEFAULT 0 NOT NULL,
-    repeat text DEFAULT 'none'::text NOT NULL,
-    repeat_until_after_age text,
-    catch_up text DEFAULT 'pc_approval'::text NOT NULL,
-    eligibility_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    sop_version_id uuid,
-    proof_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
-    withdrawal_days integer,
-    sort_order integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'pc_approval'::text, 'defer'::text]))),
-    CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
-    CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
-    CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text]))),
-    CONSTRAINT protocol_rules_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['birth_age'::text, 'post_arrival'::text, 'calendar'::text, 'after_previous_completion'::text, 'manual_campaign'::text]))),
-    CONSTRAINT protocol_rules_window_check CHECK ((due_window_days >= 0))
 );
 
 
@@ -4235,105 +6198,6 @@ CREATE TABLE public.shed_lifecycle_status_lookup (
 
 
 --
--- Name: shed_profiles; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.shed_profiles (
-    location_id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    animal_stage_id uuid,
-    shed_lifecycle_status_id uuid,
-    sex text,
-    capacity integer,
-    has_icu boolean DEFAULT false NOT NULL,
-    notes text DEFAULT ''::text NOT NULL,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT shed_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
-    CONSTRAINT shed_profiles_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT shed_profiles_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'mixed'::text]))))
-);
-
-
---
--- Name: shifting_event_impacts; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.shifting_event_impacts (
-    shifting_event_impact_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    shifting_event_id uuid NOT NULL,
-    grain_key text NOT NULL,
-    breed_id uuid,
-    breed_key text NOT NULL,
-    breed_label text NOT NULL,
-    stage_tag text,
-    age_class text,
-    sex text,
-    head_count integer NOT NULL,
-    pregnant_count integer DEFAULT 0 NOT NULL,
-    lactating_count integer DEFAULT 0 NOT NULL,
-    warmup_count integer DEFAULT 0 NOT NULL,
-    risk_flags jsonb DEFAULT '{}'::jsonb NOT NULL,
-    ration_context_resolution_state text DEFAULT 'unresolved'::text NOT NULL,
-    ration_context_ref text,
-    blocker_reason text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT shifting_event_impacts_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
-    CONSTRAINT shifting_event_impacts_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
-    CONSTRAINT shifting_event_impacts_head_count_check CHECK ((head_count > 0)),
-    CONSTRAINT shifting_event_impacts_resolution_check CHECK ((ration_context_resolution_state = ANY (ARRAY['resolved'::text, 'unresolved'::text, 'blocked'::text, 'not_required'::text]))),
-    CONSTRAINT shifting_event_impacts_risk_counts_check CHECK (((pregnant_count >= 0) AND (lactating_count >= 0) AND (warmup_count >= 0) AND (pregnant_count <= head_count) AND (lactating_count <= head_count) AND (warmup_count <= head_count))),
-    CONSTRAINT shifting_event_impacts_risk_flags_object_check CHECK ((jsonb_typeof(risk_flags) = 'object'::text))
-);
-
-
---
--- Name: shifting_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.shifting_events (
-    shifting_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    logical_shifting_event_key text NOT NULL,
-    priority text NOT NULL,
-    category text NOT NULL,
-    source_park_id uuid,
-    source_shed_id uuid,
-    destination_park_id uuid NOT NULL,
-    destination_shed_id uuid NOT NULL,
-    raised_at timestamp with time zone NOT NULL,
-    effective_at timestamp with time zone NOT NULL,
-    authorized_at timestamp with time zone,
-    authorized_by uuid,
-    authorization_state text DEFAULT 'pending'::text NOT NULL,
-    verification_state text DEFAULT 'unverified'::text NOT NULL,
-    event_status text DEFAULT 'pending'::text NOT NULL,
-    source_system text NOT NULL,
-    source_ref text NOT NULL,
-    proof_ref text,
-    payload_hash text NOT NULL,
-    idempotency_key text NOT NULL,
-    request_fingerprint text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
-    CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['routine'::text, 'high_priority'::text, 'pregnancy'::text, 'warmup'::text, 'medical'::text, 'quarantine'::text, 'other'::text]))),
-    CONSTRAINT shifting_events_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
-    CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),
-    CONSTRAINT shifting_events_payload_hash_check CHECK ((btrim(payload_hash) <> ''::text)),
-    CONSTRAINT shifting_events_priority_check CHECK ((priority = ANY (ARRAY['normal'::text, 'high'::text, 'emergency'::text]))),
-    CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
-    CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
-    CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
-    CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
-);
-
-
---
 -- Name: sop_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4372,32 +6236,6 @@ CREATE TABLE public.sop_submission_items (
     CONSTRAINT sop_submission_items_key_check CHECK ((btrim(item_key) <> ''::text)),
     CONSTRAINT sop_submission_items_result_object_check CHECK ((jsonb_typeof(result) = 'object'::text)),
     CONSTRAINT sop_submission_items_state_check CHECK ((state = ANY (ARRAY['accepted'::text, 'needs_review'::text, 'rejected'::text, 'skipped'::text])))
-);
-
-
---
--- Name: sop_submissions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sop_submissions (
-    submission_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    task_id uuid NOT NULL,
-    sop_version_id uuid NOT NULL,
-    submitted_by uuid NOT NULL,
-    idempotency_key text NOT NULL,
-    answers jsonb NOT NULL,
-    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
-    state text DEFAULT 'submitted'::text NOT NULL,
-    validation_report jsonb DEFAULT '{}'::jsonb NOT NULL,
-    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
-    accepted_at timestamp with time zone,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT sop_submissions_answers_object_check CHECK ((jsonb_typeof(answers) = 'object'::text)),
-    CONSTRAINT sop_submissions_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
-    CONSTRAINT sop_submissions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
-    CONSTRAINT sop_submissions_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT sop_submissions_state_check CHECK ((state = ANY (ARRAY['submitted'::text, 'accepted'::text, 'needs_review'::text, 'rejected'::text, 'voided'::text])))
 );
 
 
@@ -4499,41 +6337,6 @@ CREATE TABLE public.sop_task_submission_fanouts (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sop_task_submission_fanouts_attempt_check CHECK ((attempt_count >= 0)),
     CONSTRAINT sop_task_submission_fanouts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text, 'skipped'::text])))
-);
-
-
---
--- Name: sop_tasks; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sop_tasks (
-    task_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    sop_id uuid NOT NULL,
-    sop_version_id uuid NOT NULL,
-    task_type text NOT NULL,
-    title text NOT NULL,
-    description text DEFAULT ''::text NOT NULL,
-    state text DEFAULT 'assigned'::text NOT NULL,
-    assigned_to uuid,
-    scope_type text NOT NULL,
-    scope_id uuid NOT NULL,
-    priority text DEFAULT 'normal'::text NOT NULL,
-    due_at timestamp with time zone,
-    context jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_by uuid,
-    verified_by uuid,
-    verified_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT sop_tasks_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
-    CONSTRAINT sop_tasks_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text]))),
-    CONSTRAINT sop_tasks_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT sop_tasks_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
-    CONSTRAINT sop_tasks_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'assigned'::text, 'in_progress'::text, 'submitted'::text, 'accepted'::text, 'needs_review'::text, 'rework_requested'::text, 'rejected'::text, 'canceled'::text]))),
-    CONSTRAINT sop_tasks_task_type_check CHECK ((btrim(task_type) <> ''::text)),
-    CONSTRAINT sop_tasks_title_check CHECK ((btrim(title) <> ''::text))
 );
 
 
@@ -4714,26 +6517,6 @@ CREATE TABLE public.user_scope_grants (
 
 
 --
--- Name: vaccination_capacity_config; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.vaccination_capacity_config (
-    tenant_id uuid NOT NULL,
-    max_per_day integer NOT NULL,
-    capacity_scope text NOT NULL,
-    max_buffer_days integer NOT NULL,
-    overflow_policy text NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
-    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
-    CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text)),
-    CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
-);
-
-
---
 -- Name: vaccination_completions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4751,7 +6534,7 @@ CREATE TABLE public.vaccination_completions (
     adverse_reaction boolean DEFAULT false NOT NULL,
     adverse_reaction_problem_id uuid,
     cold_chain_verified boolean DEFAULT false NOT NULL,
-    administered_at timestamp with time zone NOT NULL,
+    administered_at timestamp with time zone DEFAULT now(),
     status text DEFAULT 'recorded'::text NOT NULL,
     verified_by uuid,
     verified_at timestamp with time zone,
@@ -4770,25 +6553,38 @@ CREATE TABLE public.vaccination_completions (
 
 
 --
--- Name: vaccination_eligibility_rollups; Type: TABLE; Schema: public; Owner: -
+-- Name: vaccination_drive_assignment_members; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.vaccination_eligibility_rollups (
-    rollup_id bigint NOT NULL,
+CREATE TABLE public.vaccination_drive_assignment_members (
     tenant_id uuid NOT NULL,
-    park_id uuid,
-    shed_id uuid,
-    species text DEFAULT ''::text NOT NULL,
-    management_stage text DEFAULT ''::text NOT NULL,
-    sex text DEFAULT ''::text NOT NULL,
-    breed text DEFAULT ''::text NOT NULL,
-    health_status text DEFAULT ''::text NOT NULL,
-    usable_for_vaccination boolean NOT NULL,
-    animal_count bigint NOT NULL,
-    source_revision bigint DEFAULT 0 NOT NULL,
-    recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
+    assignment_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: vaccination_drive_date_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_drive_date_overrides (
+    override_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    vaccine_code text NOT NULL,
+    original_drive_date date NOT NULL,
+    override_date date NOT NULL,
+    reason text NOT NULL,
+    created_by uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    canceled_at timestamp with time zone,
+    canceled_by uuid,
+    cancel_reason text,
+    CONSTRAINT vaccination_drive_date_overrides_postpone_check CHECK ((override_date > original_drive_date)),
+    CONSTRAINT vaccination_drive_date_overrides_reason_not_blank CHECK ((btrim(reason) <> ''::text)),
+    CONSTRAINT vaccination_drive_date_overrides_vaccine_code_not_blank CHECK ((btrim(vaccine_code) <> ''::text))
 );
 
 
@@ -4836,6 +6632,62 @@ CREATE TABLE public.vaccination_generation_runs (
     CONSTRAINT vaccination_generation_runs_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT vaccination_generation_runs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT vaccination_generation_runs_trigger_check CHECK ((trigger_type = ANY (ARRAY['publish'::text, 'cli'::text, 'goat_created'::text, 'stage_changed'::text, 'manual_campaign'::text, 'retry'::text])))
+);
+
+
+--
+-- Name: vaccination_operator_assignment_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_operator_assignment_config (
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    active_operators_per_day integer DEFAULT 1 NOT NULL,
+    default_operator_id uuid NOT NULL,
+    row_version bigint DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_operator_assignment_config_n_check CHECK (((active_operators_per_day >= 1) AND (active_operators_per_day <= 3))),
+    CONSTRAINT vaccination_operator_assignment_config_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
+-- Name: vaccination_operator_capacity_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_operator_capacity_overrides (
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    operator_id uuid NOT NULL,
+    capacity_date date NOT NULL,
+    max_animals integer NOT NULL,
+    reason text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_operator_capacity_overrides_max_check CHECK ((max_animals >= 1)),
+    CONSTRAINT vaccination_operator_capacity_overrides_reason_not_blank CHECK ((btrim(reason) <> ''::text))
+);
+
+
+--
+-- Name: vaccination_operator_shift_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_operator_shift_config (
+    operator_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shift_start_minute integer NOT NULL,
+    shift_end_minute integer NOT NULL,
+    shift_label text NOT NULL,
+    week_off_weekday text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_operator_shift_config_end_minute_check CHECK (((shift_end_minute >= 0) AND (shift_end_minute <= 1439))),
+    CONSTRAINT vaccination_operator_shift_config_label_check CHECK ((shift_label = ANY (ARRAY['am'::text, 'pm'::text, 'rover'::text]))),
+    CONSTRAINT vaccination_operator_shift_config_start_minute_check CHECK (((shift_start_minute >= 0) AND (shift_start_minute <= 1439))),
+    CONSTRAINT vaccination_operator_shift_config_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text]))))
 );
 
 
@@ -4902,48 +6754,6 @@ CREATE TABLE public.vaccines (
 
 
 --
--- Name: verification_items; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.verification_items (
-    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    vertical text NOT NULL,
-    module text NOT NULL,
-    category text NOT NULL,
-    source_module text NOT NULL,
-    source_task_id uuid,
-    source_submission_id uuid,
-    source_ref_type text NOT NULL,
-    source_ref_id uuid NOT NULL,
-    media_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    verdict_reason text,
-    operator_id uuid,
-    shed_id uuid,
-    park_id uuid,
-    captured_at timestamp with time zone NOT NULL,
-    verified_by uuid,
-    verified_at timestamp with time zone,
-    subject_label text,
-    closed_by uuid,
-    closed_at timestamp with time zone,
-    idempotency_key text NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
-    CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
-    CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
-    CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
-    CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
-    CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
-    CONSTRAINT verification_items_subject_label_check CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text)))
-);
-
-
---
 -- Name: vw_goat_tagging; Type: VIEW; Schema: public; Owner: -
 --
 
@@ -4982,34 +6792,6 @@ CREATE VIEW public.vw_procurement_vaccination_excluded_goats AS
    FROM (public.goats g
      LEFT JOIN public.procurement_load_goats plg ON (((plg.tenant_id = g.tenant_id) AND (plg.goat_id = g.goat_id))))
   WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.merged_into_goat_id IS NOT NULL) OR ((plg.goat_id IS NOT NULL) AND ((plg.current_state <> 'accepted_herd_intake'::text) OR (plg.selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.source_entry_state <> 'accepted'::text) OR (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) OR (plg.health_state <> 'passed'::text))));
-
-
---
--- Name: workforce_absences; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.workforce_absences (
-    absence_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    workforce_member_id uuid NOT NULL,
-    scope_type text NOT NULL,
-    scope_id uuid NOT NULL,
-    starts_at timestamp with time zone NOT NULL,
-    ends_at timestamp with time zone NOT NULL,
-    reason_code text NOT NULL,
-    status text DEFAULT 'reported'::text NOT NULL,
-    replacement_member_id uuid,
-    created_by uuid,
-    approved_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    coverage_override_reason text,
-    CONSTRAINT workforce_absences_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT workforce_absences_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text]))),
-    CONSTRAINT workforce_absences_status_check CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'escalation_required'::text, 'rejected'::text, 'canceled'::text]))),
-    CONSTRAINT workforce_absences_window_check CHECK ((ends_at > starts_at))
-);
 
 
 --
@@ -5141,68 +6923,6 @@ CREATE TABLE public.workforce_member_devices (
 
 
 --
--- Name: workforce_members; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.workforce_members (
-    workforce_member_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    user_id uuid,
-    display_code text NOT NULL,
-    display_name text NOT NULL,
-    status text DEFAULT 'candidate'::text NOT NULL,
-    primary_role_hint text DEFAULT 'operator'::text NOT NULL,
-    primary_location_id uuid,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    department_id uuid,
-    hr_designation_grade text,
-    CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
-    CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
-    CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
-    CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
-);
-
-
---
--- Name: workforce_positions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.workforce_positions (
-    position_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    workforce_member_id uuid NOT NULL,
-    scope_type text NOT NULL,
-    scope_id uuid NOT NULL,
-    position_code text NOT NULL,
-    position_tier text NOT NULL,
-    is_backup_slot boolean DEFAULT false NOT NULL,
-    backup_group_code text,
-    week_off_weekday text,
-    status text DEFAULT 'active'::text NOT NULL,
-    valid_from timestamp with time zone DEFAULT now() NOT NULL,
-    valid_to timestamp with time zone,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT workforce_positions_backup_group_check CHECK (((backup_group_code IS NULL) OR (backup_group_code ~ '^[a-z][a-z0-9_]*$'::text))),
-    CONSTRAINT workforce_positions_position_code_check CHECK ((position_code ~ '^[a-z][a-z0-9_]*$'::text)),
-    CONSTRAINT workforce_positions_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text]))),
-    CONSTRAINT workforce_positions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text]))),
-    CONSTRAINT workforce_positions_tier_check CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text]))),
-    CONSTRAINT workforce_positions_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text])))),
-    CONSTRAINT workforce_positions_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
-);
-
-
---
 -- Name: workforce_roster_assignments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5268,6 +6988,14 @@ ALTER TABLE ONLY analytics.journey_daily
 
 ALTER TABLE ONLY analytics.rollup_run
     ADD CONSTRAINT rollup_run_pkey PRIMARY KEY (run_id);
+
+
+--
+-- Name: vaccine_label_map vaccine_label_map_pkey; Type: CONSTRAINT; Schema: ceo_ai; Owner: -
+--
+
+ALTER TABLE ONLY ceo_ai.vaccine_label_map
+    ADD CONSTRAINT vaccine_label_map_pkey PRIMARY KEY (family_prefix);
 
 
 --
@@ -5455,6 +7183,54 @@ ALTER TABLE ONLY public.calendar_snoozes
 
 
 --
+-- Name: ceo_ai_assistant_audit ceo_ai_assistant_audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_assistant_audit
+    ADD CONSTRAINT ceo_ai_assistant_audit_pkey PRIMARY KEY (audit_id);
+
+
+--
+-- Name: ceo_ai_conversations ceo_ai_conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_conversations
+    ADD CONSTRAINT ceo_ai_conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ceo_ai_messages ceo_ai_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_messages
+    ADD CONSTRAINT ceo_ai_messages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ceo_ai_rate_limit ceo_ai_rate_limit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_rate_limit
+    ADD CONSTRAINT ceo_ai_rate_limit_pkey PRIMARY KEY (tenant_id, actor_id, window_start);
+
+
+--
+-- Name: ceo_ai_response_cache ceo_ai_response_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_response_cache
+    ADD CONSTRAINT ceo_ai_response_cache_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ceo_ai_response_cache ceo_ai_response_cache_tenant_hash_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_response_cache
+    ADD CONSTRAINT ceo_ai_response_cache_tenant_hash_unique UNIQUE (tenant_id, question_hash);
+
+
+--
 -- Name: count_base_anchors count_base_anchors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5527,6 +7303,22 @@ ALTER TABLE ONLY public.count_source_import_runs
 
 
 --
+-- Name: counts_approval_requests counts_approval_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_approval_requests
+    ADD CONSTRAINT counts_approval_requests_pkey PRIMARY KEY (approval_request_id);
+
+
+--
+-- Name: counts_approval_requests counts_approval_requests_tenant_id_approval_request_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_approval_requests
+    ADD CONSTRAINT counts_approval_requests_tenant_id_approval_request_id_key UNIQUE (tenant_id, approval_request_id);
+
+
+--
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5540,6 +7332,22 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_pkey PRIMARY KEY (tenant_id, subgate_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_pkey PRIMARY KEY (department_module_grant_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_tenant_department_module_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_tenant_department_module_key UNIQUE (tenant_id, department_id, module_key);
 
 
 --
@@ -5575,6 +7383,22 @@ ALTER TABLE ONLY public.farm_profiles
 
 
 --
+-- Name: feed_config_write_log feed_config_write_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_config_write_log
+    ADD CONSTRAINT feed_config_write_log_pkey PRIMARY KEY (feed_config_write_id);
+
+
+--
+-- Name: feed_conversions feed_conversions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_conversions
+    ADD CONSTRAINT feed_conversions_pkey PRIMARY KEY (conversion_id);
+
+
+--
 -- Name: feed_direction_completions feed_direction_completions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5596,6 +7420,94 @@ ALTER TABLE ONLY public.feed_direction_completions
 
 ALTER TABLE ONLY public.feed_direction_completions
     ADD CONSTRAINT feed_direction_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: feed_direction_issue_rows feed_direction_issue_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issue_rows
+    ADD CONSTRAINT feed_direction_issue_rows_pkey PRIMARY KEY (feed_direction_issue_row_id);
+
+
+--
+-- Name: feed_direction_issues feed_direction_issues_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issues
+    ADD CONSTRAINT feed_direction_issues_pkey PRIMARY KEY (feed_direction_issue_id);
+
+
+--
+-- Name: feed_experiment_config feed_experiment_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_experiment_config
+    ADD CONSTRAINT feed_experiment_config_pkey PRIMARY KEY (experiment_config_id);
+
+
+--
+-- Name: feed_item_catalog feed_item_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_item_catalog
+    ADD CONSTRAINT feed_item_catalog_pkey PRIMARY KEY (feed_item_id);
+
+
+--
+-- Name: feed_ration_groups feed_ration_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_ration_groups
+    ADD CONSTRAINT feed_ration_groups_pkey PRIMARY KEY (ration_group_id);
+
+
+--
+-- Name: feed_ration_rates feed_ration_rates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_ration_rates
+    ADD CONSTRAINT feed_ration_rates_pkey PRIMARY KEY (ration_rate_id);
+
+
+--
+-- Name: feed_schedule_config feed_schedule_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_schedule_config
+    ADD CONSTRAINT feed_schedule_config_pkey PRIMARY KEY (feed_schedule_config_id);
+
+
+--
+-- Name: feed_session_template_items feed_session_template_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_template_items
+    ADD CONSTRAINT feed_session_template_items_pkey PRIMARY KEY (session_template_item_id);
+
+
+--
+-- Name: feed_session_templates feed_session_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_templates
+    ADD CONSTRAINT feed_session_templates_pkey PRIMARY KEY (session_template_id);
+
+
+--
+-- Name: feed_shed_factors feed_shed_factors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_factors
+    ADD CONSTRAINT feed_shed_factors_pkey PRIMARY KEY (shed_factor_id);
+
+
+--
+-- Name: feed_shed_tags feed_shed_tags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_tags
+    ADD CONSTRAINT feed_shed_tags_pkey PRIMARY KEY (shed_tag_id);
 
 
 --
@@ -5668,6 +7580,14 @@ ALTER TABLE ONLY public.goat_merge_links
 
 ALTER TABLE ONLY public.goat_ownership
     ADD CONSTRAINT goat_ownership_pkey PRIMARY KEY (ownership_id);
+
+
+--
+-- Name: goat_shed_partitions goat_shed_partitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_pkey PRIMARY KEY (tenant_id, goat_id);
 
 
 --
@@ -6079,6 +7999,14 @@ ALTER TABLE ONLY public.obligation_instances
 
 
 --
+-- Name: obligation_operator_config_replan_watermarks obligation_operator_config_replan_watermarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_operator_config_replan_watermarks
+    ADD CONSTRAINT obligation_operator_config_replan_watermarks_pkey PRIMARY KEY (tenant_id, event_id);
+
+
+--
 -- Name: obligation_status_events obligation_status_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6463,6 +8391,30 @@ ALTER TABLE ONLY public.shifting_event_impacts
 
 
 --
+-- Name: shifting_events shifting_events_applied_requires_authorization_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_applied_requires_authorization_check CHECK (((event_status <> 'applied'::text) OR (authorization_state = 'authorized'::text))) NOT VALID;
+
+
+--
+-- Name: shifting_events shifting_events_applied_shape_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_applied_shape_check CHECK ((((event_status = 'applied'::text) AND (applied_at IS NOT NULL)) OR ((event_status <> 'applied'::text) AND (applied_at IS NULL) AND (applied_by IS NULL)))) NOT VALID;
+
+
+--
+-- Name: shifting_events shifting_events_canceled_shape_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_canceled_shape_check CHECK ((((event_status = 'canceled'::text) AND (canceled_at IS NOT NULL) AND (canceled_by IS NOT NULL) AND (cancel_reason IS NOT NULL) AND (btrim(cancel_reason) <> ''::text)) OR ((event_status <> 'canceled'::text) AND (canceled_at IS NULL) AND (canceled_by IS NULL) AND (cancel_reason IS NULL)))) NOT VALID;
+
+
+--
 -- Name: shifting_events shifting_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6679,6 +8631,38 @@ ALTER TABLE ONLY public.vaccination_completions
 
 
 --
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_pkey PRIMARY KEY (assignment_id, obligation_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_tenant_obligation_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_tenant_obligation_uq UNIQUE (tenant_id, obligation_id);
+
+
+--
+-- Name: vaccination_drive_assignments vaccination_drive_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignments
+    ADD CONSTRAINT vaccination_drive_assignments_pkey PRIMARY KEY (assignment_id);
+
+
+--
+-- Name: vaccination_drive_date_overrides vaccination_drive_date_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_date_overrides
+    ADD CONSTRAINT vaccination_drive_date_overrides_pkey PRIMARY KEY (override_id);
+
+
+--
 -- Name: vaccination_eligibility_rollups vaccination_eligibility_rollups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6700,6 +8684,38 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 ALTER TABLE ONLY public.vaccination_generation_runs
     ADD CONSTRAINT vaccination_generation_runs_pkey PRIMARY KEY (run_id);
+
+
+--
+-- Name: vaccination_operator_assignment_config vaccination_operator_assignment_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_assignment_config
+    ADD CONSTRAINT vaccination_operator_assignment_config_pkey PRIMARY KEY (tenant_id, park_id);
+
+
+--
+-- Name: vaccination_operator_capacity_overrides vaccination_operator_capacity_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_capacity_overrides
+    ADD CONSTRAINT vaccination_operator_capacity_overrides_pkey PRIMARY KEY (tenant_id, park_id, operator_id, capacity_date);
+
+
+--
+-- Name: vaccination_operator_shift_config vaccination_operator_shift_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_shift_config
+    ADD CONSTRAINT vaccination_operator_shift_config_pkey PRIMARY KEY (tenant_id, operator_id, park_id);
+
+
+--
+-- Name: vaccination_prearrival_history_entries vaccination_prearrival_history_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_prearrival_history_entries
+    ADD CONSTRAINT vaccination_prearrival_history_entries_pkey PRIMARY KEY (entry_id);
 
 
 --
@@ -7034,6 +9050,69 @@ CREATE INDEX calendar_snoozes_event_idx ON public.calendar_snoozes USING btree (
 
 
 --
+-- Name: ceo_ai_assistant_audit_conversation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_assistant_audit_conversation_idx ON public.ceo_ai_assistant_audit USING btree (conversation_id, created_at DESC) WHERE (conversation_id IS NOT NULL);
+
+
+--
+-- Name: ceo_ai_assistant_audit_request_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_assistant_audit_request_idx ON public.ceo_ai_assistant_audit USING btree (tenant_id, request_id);
+
+
+--
+-- Name: ceo_ai_assistant_audit_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_assistant_audit_tenant_created_idx ON public.ceo_ai_assistant_audit USING btree (tenant_id, created_at DESC, audit_id DESC);
+
+
+--
+-- Name: ceo_ai_conversations_idem_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ceo_ai_conversations_idem_uq ON public.ceo_ai_conversations USING btree (tenant_id, actor_id, idempotency_key) WHERE (idempotency_key IS NOT NULL);
+
+
+--
+-- Name: ceo_ai_conversations_owner_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_conversations_owner_idx ON public.ceo_ai_conversations USING btree (tenant_id, actor_id, updated_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: ceo_ai_conversations_retention_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_conversations_retention_idx ON public.ceo_ai_conversations USING btree (retention_expires_at) WHERE (retention_expires_at IS NOT NULL);
+
+
+--
+-- Name: ceo_ai_messages_conversation_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_messages_conversation_created_idx ON public.ceo_ai_messages USING btree (conversation_id, created_at, id);
+
+
+--
+-- Name: ceo_ai_rate_limit_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_rate_limit_window_idx ON public.ceo_ai_rate_limit USING btree (window_start);
+
+
+--
+-- Name: ceo_ai_response_cache_expiry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ceo_ai_response_cache_expiry_idx ON public.ceo_ai_response_cache USING btree (expires_at);
+
+
+--
 -- Name: count_base_anchors_hot_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7258,6 +9337,41 @@ CREATE INDEX count_source_import_runs_tenant_started_idx ON public.count_source_
 
 
 --
+-- Name: counts_approval_requests_approved_shifting_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_approval_requests_approved_shifting_unique ON public.counts_approval_requests USING btree (tenant_id, shifting_event_id) WHERE ((status = 'approved'::text) AND (shifting_event_id IS NOT NULL));
+
+
+--
+-- Name: counts_approval_requests_idempotency_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_approval_requests_idempotency_unique ON public.counts_approval_requests USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: counts_approval_requests_open_shifting_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_approval_requests_open_shifting_unique ON public.counts_approval_requests USING btree (tenant_id, shifting_event_id) WHERE ((status = 'pending'::text) AND (shifting_event_id IS NOT NULL));
+
+
+--
+-- Name: counts_approval_requests_pending_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_approval_requests_pending_queue_idx ON public.counts_approval_requests USING btree (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: counts_approval_requests_status_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_approval_requests_status_queue_idx ON public.counts_approval_requests USING btree (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC);
+
+
+--
 -- Name: counts_shifting_readiness_evidence_prefix_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7279,6 +9393,13 @@ CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_read
 
 
 --
+-- Name: department_module_grants_tenant_department_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX department_module_grants_tenant_department_active_idx ON public.department_module_grants USING btree (tenant_id, department_id) INCLUDE (module_key) WHERE (status = 'active'::text);
+
+
+--
 -- Name: departments_tenant_code_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7297,6 +9418,34 @@ CREATE INDEX domain_event_processed_events_retention_idx ON public.domain_event_
 --
 
 CREATE INDEX domain_event_processed_events_status_idx ON public.domain_event_processed_events USING btree (tenant_id, subscription_id, status, updated_at);
+
+
+--
+-- Name: feed_config_write_log_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_config_write_log_idempotency_uidx ON public.feed_config_write_log USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_config_write_log_kind_recent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_config_write_log_kind_recent_idx ON public.feed_config_write_log USING btree (tenant_id, write_kind, created_at DESC);
+
+
+--
+-- Name: feed_conversions_from_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_conversions_from_idx ON public.feed_conversions USING btree (tenant_id, from_item_key) WHERE (status = 'active'::text);
+
+
+--
+-- Name: feed_conversions_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_conversions_natural_key_uidx ON public.feed_conversions USING btree (tenant_id, from_item_key, to_item_key);
 
 
 --
@@ -7325,6 +9474,209 @@ CREATE INDEX feed_direction_completions_review_idx ON public.feed_direction_comp
 --
 
 CREATE INDEX feed_direction_completions_shed_history_idx ON public.feed_direction_completions USING btree (tenant_id, shed_id, fed_at DESC);
+
+
+--
+-- Name: feed_direction_issue_rows_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, session_no, shed_tag_key, breed_key, feed_item_key);
+
+
+--
+-- Name: feed_direction_issue_rows_serve_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_issue_rows_serve_idx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, row_seq, item_seq);
+
+
+--
+-- Name: feed_direction_issues_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_direction_issues_idempotency_uidx ON public.feed_direction_issues USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_direction_issues_live_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_direction_issues_live_uidx ON public.feed_direction_issues USING btree (tenant_id, park_id, feed_day, workflow) WHERE (state = ANY (ARRAY['issued'::text, 'amended'::text, 'locked'::text]));
+
+
+--
+-- Name: feed_direction_issues_serve_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_issues_serve_idx ON public.feed_direction_issues USING btree (tenant_id, park_id, feed_day);
+
+
+--
+-- Name: feed_experiment_config_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id, feed_item_key);
+
+
+--
+-- Name: feed_experiment_config_shed_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id) INCLUDE (feed_item_key, absolute_kg) WHERE (status = 'active'::text);
+
+
+--
+-- Name: feed_item_catalog_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_item_catalog_natural_key_uidx ON public.feed_item_catalog USING btree (tenant_id, feed_item_key);
+
+
+--
+-- Name: feed_ration_groups_group_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_ration_groups_group_idx ON public.feed_ration_groups USING btree (tenant_id, ration_group_key);
+
+
+--
+-- Name: feed_ration_groups_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_ration_groups_natural_key_uidx ON public.feed_ration_groups USING btree (tenant_id, breed_key);
+
+
+--
+-- Name: feed_ration_rates_asof_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_ration_rates_asof_lookup_idx ON public.feed_ration_rates USING btree (tenant_id, park_id, ration_group_key, shed_tag_key, valid_from DESC);
+
+
+--
+-- Name: feed_ration_rates_current_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_ration_rates_current_lookup_idx ON public.feed_ration_rates USING btree (tenant_id, park_id, ration_group_key, shed_tag_key) INCLUDE (feed_item_key, grams_per_head) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_ration_rates_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_ration_rates_natural_key_uidx ON public.feed_ration_rates USING btree (tenant_id, park_id, ration_group_key, shed_tag_key, feed_item_key, valid_from);
+
+
+--
+-- Name: feed_ration_rates_open_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_ration_rates_open_row_uidx ON public.feed_ration_rates USING btree (tenant_id, park_id, ration_group_key, shed_tag_key, feed_item_key) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_schedule_config_asof_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_schedule_config_asof_lookup_idx ON public.feed_schedule_config USING btree (tenant_id, park_id, workflow, valid_from DESC);
+
+
+--
+-- Name: feed_schedule_config_current_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_schedule_config_current_lookup_idx ON public.feed_schedule_config USING btree (tenant_id, park_id, workflow) INCLUDE (direction_time, correction_time, transport_time) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_schedule_config_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_schedule_config_natural_key_uidx ON public.feed_schedule_config USING btree (tenant_id, park_id, workflow, valid_from);
+
+
+--
+-- Name: feed_schedule_config_open_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_schedule_config_open_row_uidx ON public.feed_schedule_config USING btree (tenant_id, park_id, workflow) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_session_template_items_asof_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_session_template_items_asof_lookup_idx ON public.feed_session_template_items USING btree (tenant_id, park_id, session_no, valid_from DESC);
+
+
+--
+-- Name: feed_session_template_items_current_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_session_template_items_current_lookup_idx ON public.feed_session_template_items USING btree (tenant_id, park_id, session_no, slot_no) INCLUDE (feed_item_label, feed_item_key) WHERE ((valid_to IS NULL) AND (status = 'active'::text));
+
+
+--
+-- Name: feed_session_template_items_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_session_template_items_natural_key_uidx ON public.feed_session_template_items USING btree (tenant_id, park_id, session_no, slot_no, valid_from);
+
+
+--
+-- Name: feed_session_template_items_open_item_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_session_template_items_open_item_uidx ON public.feed_session_template_items USING btree (tenant_id, park_id, session_no, feed_item_key) WHERE ((valid_to IS NULL) AND (status = 'active'::text));
+
+
+--
+-- Name: feed_session_template_items_open_slot_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_session_template_items_open_slot_uidx ON public.feed_session_template_items USING btree (tenant_id, park_id, session_no, slot_no) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_session_templates_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_session_templates_natural_key_uidx ON public.feed_session_templates USING btree (tenant_id, park_id, session_no);
+
+
+--
+-- Name: feed_session_templates_park_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_session_templates_park_order_idx ON public.feed_session_templates USING btree (tenant_id, park_id, display_order, session_no);
+
+
+--
+-- Name: feed_shed_factors_current_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_shed_factors_current_lookup_idx ON public.feed_shed_factors USING btree (tenant_id, park_id, shed_id) INCLUDE (feed_item_key, multiplier) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_shed_factors_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_shed_factors_natural_key_uidx ON public.feed_shed_factors USING btree (tenant_id, park_id, shed_id, feed_item_key, valid_from);
+
+
+--
+-- Name: feed_shed_factors_open_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_shed_factors_open_row_uidx ON public.feed_shed_factors USING btree (tenant_id, park_id, shed_id, feed_item_key) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: feed_shed_tags_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_shed_tags_natural_key_uidx ON public.feed_shed_tags USING btree (tenant_id, shed_tag_key);
 
 
 --
@@ -7465,6 +9817,13 @@ CREATE INDEX goat_ownership_goat_active_idx ON public.goat_ownership USING btree
 --
 
 CREATE INDEX goat_ownership_owner_idx ON public.goat_ownership USING btree (owner_party_id, status);
+
+
+--
+-- Name: goat_shed_partitions_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_shed_partitions_shed_partition_idx ON public.goat_shed_partitions USING btree (tenant_id, shed_id, partition_label);
 
 
 --
@@ -7748,6 +10107,13 @@ CREATE INDEX idx_obligation_instances_calendar_exceptions ON public.obligation_i
 
 
 --
+-- Name: idx_obligation_instances_calendar_exceptions_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_obligation_instances_calendar_exceptions_due ON public.obligation_instances USING btree (tenant_id, status, due_at) WHERE ((batch_id IS NULL) AND (status = ANY (ARRAY['missed'::text, 'in_progress'::text, 'deferred'::text])));
+
+
+--
 -- Name: idx_obligation_instances_calendar_overdue; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7986,6 +10352,13 @@ CREATE INDEX obligation_batches_scope_idx ON public.obligation_batches USING btr
 
 
 --
+-- Name: obligation_batches_sop_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_batches_sop_task_idx ON public.obligation_batches USING btree (tenant_id, sop_task_id) WHERE (sop_task_id IS NOT NULL);
+
+
+--
 -- Name: obligation_batches_stock_reconcile_required_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8077,10 +10450,24 @@ CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation
 
 
 --
--- Name: obligation_status_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: obligation_operator_config_replan_watermarks_park_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
+CREATE INDEX obligation_operator_config_replan_watermarks_park_idx ON public.obligation_operator_config_replan_watermarks USING btree (tenant_id, park_id);
+
+
+--
+-- Name: obligation_operator_config_replan_watermarks_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_operator_config_replan_watermarks_status_idx ON public.obligation_operator_config_replan_watermarks USING btree (tenant_id, status) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: obligation_status_events_idempotency_idx_v2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX obligation_status_events_idempotency_idx_v2 ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
 
 
 --
@@ -8123,6 +10510,13 @@ CREATE INDEX outbox_dlq_actions_tenant_created_idx ON public.outbox_dlq_actions 
 --
 
 CREATE INDEX outbox_messages_aggregate_idx ON public.outbox_messages USING btree (aggregate_type, aggregate_id, created_at);
+
+
+--
+-- Name: outbox_messages_capacity_changed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_capacity_changed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'vaccination.capacity.changed'::text);
 
 
 --
@@ -8182,6 +10576,13 @@ CREATE INDEX outbox_messages_discarded_idx ON public.outbox_messages USING btree
 
 
 --
+-- Name: outbox_messages_leave_changed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_leave_changed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'vaccination.leave.changed'::text);
+
+
+--
 -- Name: outbox_messages_obligation_canceled_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8224,6 +10625,13 @@ CREATE INDEX outbox_messages_replay_guard_idx ON public.outbox_messages USING bt
 
 
 --
+-- Name: outbox_messages_roster_changed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_roster_changed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'vaccination.roster.changed'::text);
+
+
+--
 -- Name: outbox_messages_status_next_attempt_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8245,10 +10653,10 @@ CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON pub
 
 
 --
--- Name: outbox_messages_verification_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: outbox_messages_verification_idempotency_idx_v2; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text, 'verification.item.closed'::text]));
+CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx_v2 ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text, 'verification.item.closed'::text]));
 
 
 --
@@ -8403,6 +10811,20 @@ CREATE INDEX procurement_pc_handoffs_pending_idx ON public.procurement_pc_handof
 --
 
 CREATE INDEX procurement_source_health_checks_goat_idx ON public.procurement_source_health_checks USING btree (tenant_id, goat_id, checked_at DESC);
+
+
+--
+-- Name: proof_artifacts_abandoned_upload_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_abandoned_upload_idx ON public.proof_artifacts USING btree (upload_expires_at, tenant_id, proof_id) WHERE ((upload_state = ANY (ARRAY['pending'::text, 'uploading'::text])) AND (upload_expires_at IS NOT NULL));
+
+
+--
+-- Name: proof_artifacts_retention_expiry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_retention_expiry_idx ON public.proof_artifacts USING btree (retention_expires_at, tenant_id, proof_id) WHERE (retention_expires_at IS NOT NULL);
 
 
 --
@@ -8861,6 +11283,55 @@ CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_c
 
 
 --
+-- Name: vaccination_drive_assignment_members_tenant_assignment_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignment_members_tenant_assignment_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, assignment_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members_tenant_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignment_members_tenant_goat_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, goat_id);
+
+
+--
+-- Name: vaccination_drive_assignments_batch_shed_part_operator_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_drive_assignments_batch_shed_part_operator_uq ON public.vaccination_drive_assignments USING btree (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
+-- Name: vaccination_drive_assignments_operator_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignments_operator_day_idx ON public.vaccination_drive_assignments USING btree (tenant_id, operator_id, planned_date) WHERE (operator_id IS NOT NULL);
+
+
+--
+-- Name: vaccination_drive_assignments_park_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignments_park_day_idx ON public.vaccination_drive_assignments USING btree (tenant_id, park_id, planned_date);
+
+
+--
+-- Name: vaccination_drive_date_overrides_active_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_drive_date_overrides_active_uq ON public.vaccination_drive_date_overrides USING btree (tenant_id, park_id, lower(btrim(vaccine_code)), original_drive_date) WHERE (canceled_at IS NULL);
+
+
+--
+-- Name: vaccination_drive_date_overrides_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_date_overrides_lookup_idx ON public.vaccination_drive_date_overrides USING btree (tenant_id, park_id, original_drive_date, lower(btrim(vaccine_code))) WHERE (canceled_at IS NULL);
+
+
+--
 -- Name: vaccination_eligibility_rollups_grain_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8886,6 +11357,48 @@ CREATE INDEX vaccination_generation_runs_status_idx ON public.vaccination_genera
 --
 
 CREATE INDEX vaccination_generation_runs_version_idx ON public.vaccination_generation_runs USING btree (tenant_id, protocol_version_id, started_at DESC);
+
+
+--
+-- Name: vaccination_operator_assignment_config_tenant_park_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_operator_assignment_config_tenant_park_idx ON public.vaccination_operator_assignment_config USING btree (tenant_id, park_id);
+
+
+--
+-- Name: vaccination_operator_capacity_overrides_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_operator_capacity_overrides_lookup_idx ON public.vaccination_operator_capacity_overrides USING btree (tenant_id, park_id, capacity_date, operator_id);
+
+
+--
+-- Name: vaccination_operator_shift_config_tenant_park_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_operator_shift_config_tenant_park_idx ON public.vaccination_operator_shift_config USING btree (tenant_id, park_id);
+
+
+--
+-- Name: vaccination_prearrival_history_accepted_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_prearrival_history_accepted_goat_idx ON public.vaccination_prearrival_history_entries USING btree (tenant_id, goat_id, administered_at DESC) WHERE (review_status = 'accepted'::text);
+
+
+--
+-- Name: vaccination_prearrival_history_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_prearrival_history_idempotency_idx ON public.vaccination_prearrival_history_entries USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: vaccination_prearrival_history_rejected_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_prearrival_history_rejected_idx ON public.vaccination_prearrival_history_entries USING btree (tenant_id, reviewed_at DESC) WHERE (review_status = 'rejected'::text);
 
 
 --
@@ -9653,6 +12166,62 @@ ALTER TABLE ONLY public.calendar_snoozes
 
 
 --
+-- Name: ceo_ai_assistant_audit ceo_ai_assistant_audit_conversation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_assistant_audit
+    ADD CONSTRAINT ceo_ai_assistant_audit_conversation_fk FOREIGN KEY (conversation_id) REFERENCES public.ceo_ai_conversations(id) ON DELETE SET NULL;
+
+
+--
+-- Name: ceo_ai_assistant_audit ceo_ai_assistant_audit_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_assistant_audit
+    ADD CONSTRAINT ceo_ai_assistant_audit_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: ceo_ai_conversations ceo_ai_conversations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_conversations
+    ADD CONSTRAINT ceo_ai_conversations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: ceo_ai_messages ceo_ai_messages_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_messages
+    ADD CONSTRAINT ceo_ai_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.ceo_ai_conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ceo_ai_messages ceo_ai_messages_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_messages
+    ADD CONSTRAINT ceo_ai_messages_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: ceo_ai_rate_limit ceo_ai_rate_limit_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_rate_limit
+    ADD CONSTRAINT ceo_ai_rate_limit_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: ceo_ai_response_cache ceo_ai_response_cache_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ceo_ai_response_cache
+    ADD CONSTRAINT ceo_ai_response_cache_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: count_base_anchors count_base_anchors_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9957,6 +12526,14 @@ ALTER TABLE ONLY public.count_source_import_runs
 
 
 --
+-- Name: counts_approval_requests counts_approval_requests_shifting_event_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_approval_requests
+    ADD CONSTRAINT counts_approval_requests_shifting_event_fkey FOREIGN KEY (tenant_id, shifting_event_id) REFERENCES public.shifting_events(tenant_id, shifting_event_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9970,6 +12547,14 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: department_module_grants department_module_grants_department_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.department_module_grants
+    ADD CONSTRAINT department_module_grants_department_id_fkey FOREIGN KEY (tenant_id, department_id) REFERENCES public.departments(tenant_id, department_id) ON DELETE CASCADE;
 
 
 --
@@ -10010,6 +12595,22 @@ ALTER TABLE ONLY public.farm_profiles
 
 ALTER TABLE ONLY public.farm_profiles
     ADD CONSTRAINT farm_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_config_write_log feed_config_write_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_config_write_log
+    ADD CONSTRAINT feed_config_write_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_conversions feed_conversions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_conversions
+    ADD CONSTRAINT feed_conversions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -10058,6 +12659,182 @@ ALTER TABLE ONLY public.feed_direction_completions
 
 ALTER TABLE ONLY public.feed_direction_completions
     ADD CONSTRAINT feed_direction_completions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_direction_issue_rows feed_direction_issue_rows_feed_direction_issue_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issue_rows
+    ADD CONSTRAINT feed_direction_issue_rows_feed_direction_issue_id_fkey FOREIGN KEY (feed_direction_issue_id) REFERENCES public.feed_direction_issues(feed_direction_issue_id) ON DELETE CASCADE;
+
+
+--
+-- Name: feed_direction_issue_rows feed_direction_issue_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issue_rows
+    ADD CONSTRAINT feed_direction_issue_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_direction_issues feed_direction_issues_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issues
+    ADD CONSTRAINT feed_direction_issues_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_direction_issues feed_direction_issues_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_issues
+    ADD CONSTRAINT feed_direction_issues_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_experiment_config feed_experiment_config_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_experiment_config
+    ADD CONSTRAINT feed_experiment_config_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_experiment_config feed_experiment_config_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_experiment_config
+    ADD CONSTRAINT feed_experiment_config_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_experiment_config feed_experiment_config_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_experiment_config
+    ADD CONSTRAINT feed_experiment_config_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_item_catalog feed_item_catalog_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_item_catalog
+    ADD CONSTRAINT feed_item_catalog_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_ration_groups feed_ration_groups_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_ration_groups
+    ADD CONSTRAINT feed_ration_groups_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_ration_rates feed_ration_rates_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_ration_rates
+    ADD CONSTRAINT feed_ration_rates_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_ration_rates feed_ration_rates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_ration_rates
+    ADD CONSTRAINT feed_ration_rates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_schedule_config feed_schedule_config_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_schedule_config
+    ADD CONSTRAINT feed_schedule_config_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_schedule_config feed_schedule_config_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_schedule_config
+    ADD CONSTRAINT feed_schedule_config_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_session_template_items feed_session_template_items_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_template_items
+    ADD CONSTRAINT feed_session_template_items_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_session_template_items feed_session_template_items_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_template_items
+    ADD CONSTRAINT feed_session_template_items_session_fk FOREIGN KEY (tenant_id, park_id, session_no) REFERENCES public.feed_session_templates(tenant_id, park_id, session_no);
+
+
+--
+-- Name: feed_session_template_items feed_session_template_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_template_items
+    ADD CONSTRAINT feed_session_template_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_session_templates feed_session_templates_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_templates
+    ADD CONSTRAINT feed_session_templates_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_session_templates feed_session_templates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_session_templates
+    ADD CONSTRAINT feed_session_templates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_shed_factors feed_shed_factors_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_factors
+    ADD CONSTRAINT feed_shed_factors_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_shed_factors feed_shed_factors_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_factors
+    ADD CONSTRAINT feed_shed_factors_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_shed_factors feed_shed_factors_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_factors
+    ADD CONSTRAINT feed_shed_factors_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_shed_tags feed_shed_tags_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_shed_tags
+    ADD CONSTRAINT feed_shed_tags_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -10362,6 +13139,22 @@ ALTER TABLE ONLY public.goat_ownership
 
 ALTER TABLE ONLY public.goat_ownership
     ADD CONSTRAINT goat_ownership_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: goat_shed_partitions goat_shed_partitions_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id) ON DELETE CASCADE;
+
+
+--
+-- Name: goat_shed_partitions goat_shed_partitions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id) ON DELETE RESTRICT;
 
 
 --
@@ -12125,6 +14918,70 @@ ALTER TABLE ONLY public.vaccination_completions
 
 
 --
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_assignment_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_assignment_fk FOREIGN KEY (assignment_id) REFERENCES public.vaccination_drive_assignments(assignment_id) ON DELETE CASCADE;
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id) ON DELETE CASCADE;
+
+
+--
+-- Name: vaccination_drive_assignments vaccination_drive_assignments_operator_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignments
+    ADD CONSTRAINT vaccination_drive_assignments_operator_fk FOREIGN KEY (operator_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: vaccination_drive_assignments vaccination_drive_assignments_tenant_batch_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignments
+    ADD CONSTRAINT vaccination_drive_assignments_tenant_batch_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id) ON DELETE CASCADE;
+
+
+--
+-- Name: vaccination_drive_assignments vaccination_drive_assignments_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignments
+    ADD CONSTRAINT vaccination_drive_assignments_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: vaccination_drive_assignments vaccination_drive_assignments_tenant_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignments
+    ADD CONSTRAINT vaccination_drive_assignments_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: vaccination_drive_date_overrides vaccination_drive_date_overrides_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_date_overrides
+    ADD CONSTRAINT vaccination_drive_date_overrides_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
 -- Name: vaccination_eligibility_rollups vaccination_eligibility_rollups_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12154,6 +15011,54 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 ALTER TABLE ONLY public.vaccination_generation_runs
     ADD CONSTRAINT vaccination_generation_runs_version_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: vaccination_operator_assignment_config vaccination_operator_assignment_config_default_operator_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_assignment_config
+    ADD CONSTRAINT vaccination_operator_assignment_config_default_operator_fk FOREIGN KEY (default_operator_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: vaccination_operator_assignment_config vaccination_operator_assignment_config_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_assignment_config
+    ADD CONSTRAINT vaccination_operator_assignment_config_park_fk FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: vaccination_operator_capacity_overrides vaccination_operator_capacity_overrides_operator_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_capacity_overrides
+    ADD CONSTRAINT vaccination_operator_capacity_overrides_operator_fk FOREIGN KEY (operator_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: vaccination_operator_capacity_overrides vaccination_operator_capacity_overrides_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_capacity_overrides
+    ADD CONSTRAINT vaccination_operator_capacity_overrides_park_fk FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: vaccination_operator_shift_config vaccination_operator_shift_config_operator_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_shift_config
+    ADD CONSTRAINT vaccination_operator_shift_config_operator_fk FOREIGN KEY (operator_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: vaccination_operator_shift_config vaccination_operator_shift_config_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operator_shift_config
+    ADD CONSTRAINT vaccination_operator_shift_config_park_fk FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
 
 
 --

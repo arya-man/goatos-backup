@@ -629,6 +629,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/schedule/drive-date-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Postpone one vaccine within a scheduled vaccination drive.
+         * @description CEO/CXO vaccination campaign command that records a bounded sidecar override for one vaccine code in one park drive date. The sweeper treats the override as a proposed planned date only; max two vaccines per animal session, live/killed spacing, adult booster rules, the +1 week medical window, operator cap, and shed/partition assignment constraints are still enforced by the backend planner.
+         */
+        post: operations["upsertVaccinationDriveDateOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/drive-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Persisted operator-cap vaccination drive assignments for one business-calendar month. */
+        get: operations["listVaccinationDriveAssignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/execution": {
         parameters: {
             query?: never;
@@ -721,9 +758,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the tenant's daily vaccination capacity config for the admin Config screen. */
+        /** Read the tenant's daily operator animal capacity config for the admin Config screen. */
         get: operations["getVaccinationCapacityConfig"];
-        put?: never;
+        /** Write the tenant's daily operator animal cap + per-animal shot-cap override (validate-or-reject; optimistic concurrency via rowVersion). A successful write cascades vaccination.capacity.changed (one per active park) which re-plans future vaccination drives. */
+        put: operations["putVaccinationCapacityConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/operator-assignment/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus every operator's authored shift, for the admin Config screen. Not yet consumed by the drive scheduler (Phase 5).
+         * @description park_id is OPTIONAL: omit it and the backend resolves the caller's single authorized park scope and echoes it back as parkId, which is the park the client must scope its roster reads to. An actor whose grants do not resolve to exactly one park (for example a tenant-wide CEO grant in a multi-park tenant) receives 409 park_scope_ambiguous and must pass park_id explicitly -- the client must never blend several parks' rosters into one view.
+         */
+        get: operations["getVaccinationOperatorAssignmentConfig"];
+        /** Phase 1 CONFIG-ONLY: write a park's active-operators-per-day + default-operator config (validate-or-reject; optimistic concurrency via rowVersion). Not yet consumed by the drive scheduler (Phase 5). */
+        put: operations["putVaccinationOperatorAssignmentConfig"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1711,10 +1770,195 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ceo-ai/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the read-only leadership operations assistant
+         * @description CEO/CxO leadership assistant. Read-only over business data. Tenant and role scope come ONLY from the authenticated session, never from the request body. The response carries ONLY the user-facing envelope (answer, source, mode, request_id, conversation_id, citations) — step traces / chain-of-thought are internal and never returned.
+         */
+        post: operations["askCeoAssistant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Leadership capability probe + starter questions
+         * @description Returns the backend-owned, tenant/role-aware starter questions the assistant can truthfully answer. Doubles as the leadership capability probe the admin-web client uses to decide whether to render the assistant launcher: 200 means the session is authorized leadership (ceo_internal); 403 means it is not, so the launcher stays hidden.
+         */
+        get: operations["listCeoStarters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the actor's conversation threads (keyset paginated) */
+        get: operations["listCeoConversations"];
+        put?: never;
+        /**
+         * Open a leadership assistant conversation thread
+         * @description Creates a durable thread. Idempotent when an Idempotency-Key header is supplied: a replay with the same key returns the original thread (200) instead of forking a new one (201).
+         */
+        post: operations["createCeoConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        /** Resume one thread */
+        get: operations["getCeoConversation"];
+        put?: never;
+        post?: never;
+        /** Soft-delete a thread (hidden immediately, purged per retention policy) */
+        delete: operations["deleteCeoConversation"];
+        options?: never;
+        head?: never;
+        /** Rename or archive/unarchive a thread */
+        patch: operations["updateCeoConversation"];
+        trace?: never;
+    };
+    "/ceo-ai/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        /** Read a thread's message history (keyset paginated, oldest-first) */
+        get: operations["listCeoConversationMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CeoConversationCreateRequest: {
+            /** @description Optional initial title; when omitted the backend derives one. */
+            title?: string;
+        };
+        /** @description Exactly one intent per request. `title` renames; `archived=true` archives; `archived=false` unarchives. */
+        CeoConversationPatchRequest: {
+            title?: string;
+            archived?: boolean;
+        };
+        CeoConversation: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            archived: boolean;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        CeoConversationList: {
+            items: components["schemas"]["CeoConversation"][];
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
+        CeoMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** @enum {string} */
+            role: "user" | "assistant" | "system";
+            content: string;
+            /** @description Assistant turns only — resolved read surface / routing tier. */
+            source?: string;
+            /** @description Assistant turns only — governed | operational | exploratory. */
+            mode?: string;
+            request_id?: string;
+            /** @description User-visible provenance chips (structured JSON array). */
+            citations?: {
+                [key: string]: unknown;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        CeoMessageList: {
+            items: components["schemas"]["CeoMessage"][];
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
+        CeoAssistantAskRequest: {
+            /** @description Natural-language leadership question. Treated as data, never as instructions. */
+            question: string;
+            /** @description Optional existing thread id to continue. */
+            conversation_id?: string;
+        };
+        CeoAssistantCitation: {
+            /** @description Human source label, e.g. "Cube · vaccination_overdue" or "Mesha read API". */
+            surface: string;
+            /** @enum {string} */
+            route: "cube" | "api" | "toolbox" | "sql" | "none";
+            /**
+             * Format: date-time
+             * @description Freshness of the underlying read model (IST business day).
+             */
+            as_of: string;
+            /**
+             * @description Cube governance status; present only for governed metrics.
+             * @enum {string}
+             */
+            metric_status?: "approved" | "draft";
+            planned_by_model: boolean;
+        };
+        CeoAssistantAnswer: {
+            answer: string;
+            /** @description Route-attributed source label(s). */
+            source: string;
+            /** @enum {string} */
+            mode: "planned" | "fallback" | "refused" | "partial";
+            request_id: string;
+            conversation_id?: string;
+            citations?: components["schemas"]["CeoAssistantCitation"][];
+        };
         FeedConfigRationRate: {
             /** Format: uuid */
             ration_rate_id: string;
@@ -2358,12 +2602,16 @@ export interface components {
             proof: components["schemas"]["ProofArtifact"];
             upload_url: string;
             /** @enum {string} */
-            upload_method: "PUT";
+            upload_method: "PUT" | "POST";
             headers: {
                 [key: string]: string;
             };
             /** Format: date-time */
             expires_at: string;
+            /** @enum {string} */
+            upload_protocol: "simple_put" | "gcs_resumable_v1";
+            /** Format: int64 */
+            chunk_size_bytes?: number;
         };
         ProofResponse: {
             proof: components["schemas"]["ProofArtifact"];
@@ -2418,7 +2666,7 @@ export interface components {
             vaccine: string;
             count: number;
         };
-        /** @description FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed completion is an acknowledgement, not a manual medical form: the operator already scanned every animal and attached camera proof per goat row; Submit only confirms the shed is done. shed_name / drive_name / vaccine names are always human, never raw UUIDs. */
+        /** @description FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed completion is an acknowledgement, not a manual medical form: the operator already scanned every animal. Proof grain is SOP-controlled: either per-goat video or shed-level video. shed_name / drive_name / vaccine names are always human, never raw UUIDs. */
         ShedCompletionSummary: {
             /** Format: uuid */
             task_id: string;
@@ -2427,6 +2675,8 @@ export interface components {
             expected_count: number;
             handled_count: number;
             proof_ready_count: number;
+            /** @enum {string} */
+            proof_mode: "per_goat_video" | "shed_level_video";
             vaccine_breakdown: components["schemas"]["ShedCompletionVaccineBreakdownItem"][];
             submit_enabled: boolean;
             blocking_reason: string | null;
@@ -2708,7 +2958,7 @@ export interface components {
             audit_short: string;
             scope: string;
             description: string;
-            superadmin: boolean;
+            full_access: boolean;
         };
         AdminWebPageContract: {
             route_id: string;
@@ -3393,8 +3643,21 @@ export interface components {
             latest_rejection_reason?: string;
             audit_ref?: string;
         };
+        /**
+         * @description Operator-drive capacity state from the canonical vaccination drive planner. Capacity is unique animals per available operator per day, never vaccine doses or obligation cells.
+         * @enum {string}
+         */
+        DriveCapacityState: "not_planned" | "within_cap" | "over_cap_required" | "medical_defer" | "terminal_animal_closed";
         CountByWorkState: {
             work_state: components["schemas"]["WorkState"];
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             count: number;
         };
         ActionCenterObligation: {
@@ -3440,6 +3703,14 @@ export interface components {
             /** Format: date-time */
             window_end?: string;
             expected_count: number;
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             obligation_status: string;
             batch_status?: string;
             sop_task_state: components["schemas"]["ProcessIntegritySOPState"];
@@ -3508,6 +3779,14 @@ export interface components {
             next_action: string;
             evidence: components["schemas"]["ProcessIntegrityEvidence"];
             work_state: components["schemas"]["WorkState"];
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
         };
         ProtocolAdherenceResponse: {
             /** @enum {string} */
@@ -3542,6 +3821,14 @@ export interface components {
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
             evidence_link: string;
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             /**
              * Format: uuid
              * @description The obligation this alert is about. Lets the mobile app target POST /app/vaccination/obligations/{obligation_id}/reschedule with a real id.
@@ -3596,6 +3883,10 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            /** @description Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition. */
+            physicalShed?: string;
+            /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
+            partition?: string;
             animalStage: string;
             /** @description Number of targeted animal obligations represented by this aggregated execution row. */
             targetCount: number;
@@ -3616,6 +3907,11 @@ export interface components {
             proofStatus: components["schemas"]["VaccinationExecutionProofStatus"];
             verificationStatus: components["schemas"]["VaccinationExecutionVerificationStatus"];
             nextAction: string;
+            /**
+             * @description Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
+             * @enum {string}
+             */
+            primaryActionKey: "scan" | "none";
             /** Format: uuid */
             obligationId?: string;
             /** Format: uuid */
@@ -3768,30 +4064,30 @@ export interface components {
             location_id?: string;
             /** @description Number of selected dose/schedule rows (vaccination cells per eligible animal). */
             dose_rows?: number;
-            /** @description Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute estimated_days BEFORE publish. Omit to fall back to the published/operational cap. */
+            /** @description Draft operator animal cap (unique animals per available operator per day) authored in the rule editor, used to compute estimated operator-days BEFORE publish. Omit to fall back to the published/operational cap. */
             daily_cap?: number;
             /** @description Draft safe-window buffer (days) authored in the rule editor. Omit to fall back to the business default. Drives the within_cap / over_cap (split) / capacity_breach classification. */
             max_buffer_days?: number;
             horizon_days?: number;
         };
-        /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). */
+        /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). vaccination_cells remains a dose-row volume metric for stock planning; drive capacity is based on unique eligible animals per available operator per day. */
         ImpactPreviewResult: {
             /** @description SUM(animal_count) over usable animals matching the filter. */
             eligible_animals: number;
-            /** @description eligible_animals × selected dose rows. */
+            /** @description eligible_animals × selected dose rows; stock/dose volume only, not operator capacity. */
             vaccination_cells: number;
             /** @description Distinct sheds holding usable animals in scope. */
             affected_sheds: number;
-            /** @description ceil(vaccination_cells / daily_cap). */
+            /** @description Estimated operator-days from unique eligible animals and daily_cap. */
             estimated_days: number;
-            /** @description Configured vaccinations/day used for estimated_days. */
+            /** @description Configured unique animals per available operator per day used for estimated_days. */
             daily_cap: number;
             /**
-             * @description Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it). Omitted when there are no cells to plan.
+             * @description Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one operator-day), over_cap (Split — fits the safe window), capacity_breach (Capacity action — add operators or finish over cap inside the safe window). Omitted when there is no animal work to plan.
              * @enum {string}
              */
             capacity_status?: "within_cap" | "over_cap" | "capacity_breach";
-            /** @description Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days remains the full duration when the preview is truncated. */
+            /** @description Pre-publish operator-day estimate under the draft daily cap. Bounded for very large herds; estimated_days remains the full duration when the preview is truncated. */
             planned_sessions: components["schemas"]["VaccinationPlannedSession"][];
             /** @description Optional cheap stock check; present only when a vaccine item is set. */
             doses_available?: string;
@@ -4102,35 +4398,36 @@ export interface components {
          * @description Machine vocabulary for capacity/session-splitting state:
          *     - within_cap: fits in a single day (sessions <= 1)
          *     - over_cap: safely split across multiple days within the safe window
-         *     - capacity_breach: cannot fit within the safe window; needs manager review
+         *     - capacity_breach: cannot fit within the safe window at authored cap; add operators or finish over cap
          *
          *     NEVER show raw tokens in CEO UI. Frontend renders provided labels:
-         *     within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+         *     within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Capacity action"
          * @enum {string}
          */
         VaccinationCapacityStatus: "within_cap" | "over_cap" | "capacity_breach";
         VaccinationPlannedSession: {
             /** @description Asia/Kolkata business date (YYYY-MM-DD) */
             date: string;
-            /** @description Vaccination cells (obligations) planned for this day */
+            /** @description Animal slots planned for this day */
             vaccinations: number;
-            /** @description The configured daily vaccination capacity cap */
+            /** @description The configured daily animals/operator cap */
             dailyLimit: number;
             capacity: components["schemas"]["VaccinationCapacityStatus"];
         };
         /**
-         * @description Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
-         *     counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
+         * @description Tenant vaccination drive capacity config published from the versioned vaccination rule DSL. The cap
+         *     counts unique animals per available operator per business date, not vaccine doses or obligation
+         *     cells. One animal receiving a same-day vaccine bundle still consumes one operator slot.
          */
         VaccinationCapacityConfig: {
-            /** @description Max vaccination administrations allowed per day. */
+            /** @description Max unique animals one available operator can handle per business date. */
             maxPerDay: number;
             /**
              * @description Where the cap applies. Only 'tenant' is honored by the planner today.
              * @enum {string}
              */
             capacityScope: "tenant" | "center" | "shed";
-            /** @description Extra safe-window days past the first due day before work is flagged Needs review. */
+            /** @description Extra safe-window days past the first due day before added operators or over-cap completion is required. */
             maxBufferDays: number;
             /**
              * @description What the planner does when due work exceeds the cap.
@@ -4138,6 +4435,91 @@ export interface components {
              */
             overflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap";
             /** @description Published capacity config row version. */
+            rowVersion: number;
+            /** @description Admin-editable override of the same-day per-animal shot cap enforced by the obligation sweeper. null means "no override" -- the planner falls back to the published rule_dsl drive_policy value / code default. */
+            maxShotsPerAnimalPerDrive?: number | null;
+        };
+        /**
+         * @description Phase 1 CONFIG-ONLY: one operator's authored shift window + week-off for a park. Start/end are
+         *     minutes-of-day (0-1439) so a non-hour-aligned start (e.g. 08:30) is exact.
+         */
+        VaccinationOperatorShift: {
+            /** Format: uuid */
+            operatorId: string;
+            /** @description Backend-owned operator display name (workforce_members.display_name). */
+            displayName: string;
+            /** @enum {string} */
+            shiftLabel: "am" | "pm" | "rover";
+            shiftStartMinute: number;
+            shiftEndMinute: number;
+            /**
+             * @description Lowercase weekday name; absent when the operator has no week-off.
+             * @enum {string}
+             */
+            weekOffWeekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+        };
+        /** @description One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical Postgres `locations` rows compiled by the backend; clients render them and send parkId back. */
+        VaccinationParkScopeOption: {
+            /** Format: uuid */
+            parkId: string;
+            /** @description Short park code (may be empty when the park has none). */
+            code: string;
+            /** @description Display name for the park option. */
+            name: string;
+        };
+        /** @description 409 body for a read whose park scope the caller must choose. availableParks is the exact set the caller is authorized for; an empty array means the caller has no active park scope at all (a grant problem), which is a different situation from having several. */
+        VaccinationParkScopeAmbiguous: {
+            /** @enum {string} */
+            code: "park_scope_ambiguous";
+            /** @description Backend-owned user-facing reason. Clients render this text; they do not compose their own. */
+            message: string;
+            trace_id: string;
+            availableParks: components["schemas"]["VaccinationParkScopeOption"][];
+        };
+        /**
+         * @description Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
+         *     operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
+         */
+        VaccinationOperatorAssignmentConfig: {
+            /**
+             * Format: uuid
+             * @description The park this config belongs to, as RESOLVED by the backend (echoing an explicit park_id, or the caller's single authorized park scope). Clients scope their roster/capacity reads to this value instead of inferring a park from returned rows.
+             */
+            parkId: string;
+            /** @description N operators active per business day for this park. CPT runs N=1 today. */
+            activeOperatorsPerDay: number;
+            /**
+             * Format: uuid
+             * @description The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
+             */
+            defaultOperatorId: string;
+            /** @description Explicit operators selected for parallel mode. When empty, the backend falls back to roster order. */
+            selectedOperatorIds?: string[];
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
+             */
+            rowVersion: number;
+            shifts: components["schemas"]["VaccinationOperatorShift"][];
+        };
+        UpdateVaccinationOperatorAssignmentConfigRequest: {
+            /** Format: uuid */
+            parkId: string;
+            activeOperatorsPerDay: number;
+            /** Format: uuid */
+            defaultOperatorId: string;
+            selectedOperatorIds?: string[];
+            /**
+             * Format: int64
+             * @description The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
+             */
+            rowVersion: number;
+        };
+        UpdateVaccinationCapacityConfigRequest: {
+            maxPerDay: number;
+            /** @description Omit or set null to clear the override and fall back to the published rule_dsl value / code default. */
+            maxShotsPerAnimalPerDrive?: number | null;
+            /** @description The rowVersion last read by the admin. */
             rowVersion: number;
         };
         /**
@@ -4176,8 +4558,55 @@ export interface components {
             nextDue?: string | null;
             manager?: components["schemas"]["VaccinationShedOwner"] & unknown;
             backup?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            /** @description Actual vaccination drive operators assigned by the operator-cap planner for this physical shed. */
+            driveOperatorNames?: string[];
             capacity: components["schemas"]["VaccinationCapacityStatus"];
             status: components["schemas"]["VaccinationShedStatus"];
+        };
+        VaccinationDriveAssignmentRow: {
+            /** Format: date */
+            plannedDate: string;
+            /**
+             * Format: date
+             * @description Persisted source drive date before any vaccine-level date override is applied.
+             */
+            originalPlannedDate: string;
+            /** @description Original drive date keyed by vaccine code, used when a mixed-vaccine operator row is moved one vaccine at a time. */
+            vaccineOriginalDates: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            operatorId: string;
+            operatorName: string;
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId?: string | null;
+            physicalShed: string;
+            partitionLabel: string;
+            /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
+            animals: number;
+            /** @description Assigned animals still planned or in progress and not yet overdue. */
+            dueAnimals: number;
+            /** @description Assigned animals whose drive batch is completed. */
+            doneAnimals: number;
+            /** @description Assigned animals held/deferred from the drive. */
+            deferredAnimals: number;
+            /** @description Assigned animals still open after the planned drive date. */
+            overdueAnimals: number;
+            /** @description Backend-owned vaccine display labels attached to this operator assignment row. */
+            vaccineNames: string[];
+            /** @description Backend-owned vaccine identity codes used for drive-date overrides. */
+            vaccineCodes: string[];
+            /** @description Number of vaccine tasks/doses represented by this assignment row. */
+            totalDoses: number;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+        };
+        VaccinationDriveAssignmentResponse: {
+            /** @enum {string} */
+            source: "api";
+            rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
         VaccinationShedVaccineRow: {
             protocolId: string;
@@ -4244,6 +4673,13 @@ export interface components {
             status: string;
             /** Format: date-time */
             due_at: string;
+            /** Format: date-time */
+            clinical_due_at: string;
+            /** Format: date-time */
+            scheduled_for?: string;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             sequence: number;
         };
         VaccinationPassportHistoryItem: {
@@ -4255,6 +4691,9 @@ export interface components {
             /** Format: date-time */
             administered_at: string;
             doses: number;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             adverse_reaction: boolean;
             /** Format: date-time */
             withdrawal_until?: string | null;
@@ -4469,6 +4908,8 @@ export interface components {
             park_id: string;
         };
         CountsBreakdownFacets: {
+            /** @description Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/ culled/transferred), independent of the currently-selected lifecycle filter — this is what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather than only ever showing the live herd. */
+            lifecycle: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
@@ -5030,6 +5471,10 @@ export interface components {
         };
     };
     parameters: {
+        CeoConversationId: string;
+        CeoMessageId: string;
+        /** @description Replay-safety key; a repeat create with the same key returns the original thread. */
+        CeoIdempotencyKey: string;
         GoatId: string;
         DeviceId: string;
         TaskId: string;
@@ -6165,6 +6610,90 @@ export interface operations {
             503: components["responses"]["ServerError"];
         };
     };
+    upsertVaccinationDriveDateOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    park_id: string;
+                    vaccine_code: string;
+                    /** Format: date */
+                    original_drive_date: string;
+                    /**
+                     * Format: date
+                     * @description Must be after original_drive_date.
+                     */
+                    override_date: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Active drive date override. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        park_id: string;
+                        vaccine_code: string;
+                        /** Format: date */
+                        original_drive_date: string;
+                        /** Format: date */
+                        override_date: string;
+                        reason: string;
+                        /** Format: uuid */
+                        created_by: string;
+                        /** Format: date-time */
+                        created_at: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationDriveAssignments: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Calendar year in the business timezone. Defaults to the current year. */
+                year?: number;
+                /** @description Calendar month in the business timezone. Defaults to the current month. */
+                month?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator/date/shed/partition assignment rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationDriveAssignmentResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServerError"];
+        };
+    };
     listVaccinationExecution: {
         parameters: {
             query?: {
@@ -6338,7 +6867,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The tenant's daily vaccination capacity config. */
+            /** @description The tenant's daily operator animal capacity config. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6349,6 +6878,112 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationCapacityConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated capacity config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCapacityConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The supplied rowVersion no longer matches the stored config (concurrent edit). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationOperatorAssignmentConfig: {
+        parameters: {
+            query?: {
+                park_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park's operator assignment config + shifts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorAssignmentConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The caller's scope does not resolve to exactly one park. The body carries the parks the caller may choose from so the client renders a backend-owned selector and re-requests with park_id; it must never assemble or label a park list of its own. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationParkScopeAmbiguous"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationOperatorAssignmentConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated operator assignment config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorAssignmentConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The supplied rowVersion no longer matches the stored config (concurrent edit). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             500: components["responses"]["ServerError"];
         };
     };
@@ -7480,6 +8115,11 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
+                            /**
+                             * Format: date-time
+                             * @description Exact RFID scan timestamp persisted by the backend for this task row.
+                             */
+                            scannedAt?: string | null;
                             obligationId?: string;
                             taskId?: string;
                             batchId?: string;
@@ -8132,6 +8772,237 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    askCeoAssistant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CeoAssistantAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Assistant answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoAssistantAnswer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCeoStarters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backend-owned starter questions for this leadership session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        starters: string[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCeoConversations: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                /** @description Opaque keyset cursor from a prior page's next_cursor. */
+                cursor?: string;
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of threads, newest activity first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversationList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replay-safety key; a repeat create with the same key returns the original thread. */
+                "Idempotency-Key"?: components["parameters"]["CeoIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CeoConversationCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay — existing thread returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            /** @description Thread created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread soft-deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CeoConversationPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCeoConversationMessages: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of message history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoMessageList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

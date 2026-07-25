@@ -43,9 +43,9 @@ func TestVaccinationMatrixAuthorsAllSafetyAndDrivePolicies(t *testing.T) {
 }
 
 func TestValidateVaccinationSOPContractRejectsBatchProofAndManualFields(t *testing.T) {
-	goodForm := `{"fields":[{"key":"goat_ids","type":"goat_scan","required":true,"repeat":true}],"repeat_for_each_goat":{"item_key":"goat_id","source_field":"goat_ids"}}`
+	goodForm := `{"fields":[{"key":"goat_ids","type":"goat_scan","required":true,"repeat":true},{"key":"shed_video","type":"video_proof","required":true,"repeat":true,"proof_subject":"shed"}],"repeat_for_each_goat":{"item_key":"goat_id","source_field":"goat_ids"},"shed_video":{"subject_scope":"shed","capture_source":"in_app_camera"}}`
 	if err := validateVaccinationSOPContract(goodForm, vaccinationMatrixProofPolicy); err != nil {
-		t.Fatalf("valid per-goat SOP rejected: %v", err)
+		t.Fatalf("valid shed-level SOP rejected: %v", err)
 	}
 	bannedManualField := "cold_chain" + "_verified"
 	badForm := `{"fields":[{"key":"` + bannedManualField + `","type":"boolean","required":true}]}`
@@ -54,7 +54,7 @@ func TestValidateVaccinationSOPContractRejectsBatchProofAndManualFields(t *testi
 	}
 	badProof := `{"types":["video"],"required":true,"subject_scope":"batch","expected_subjects":["shed"],"minimum_count":1}`
 	if err := validateVaccinationSOPContract(goodForm, badProof); err == nil {
-		t.Fatal("batch/shed proof policy was accepted")
+		t.Fatal("ambiguous batch proof policy was accepted")
 	}
 }
 
@@ -83,7 +83,7 @@ func TestSourceSeederRejectsVaccinationBeforeDOB(t *testing.T) {
 	}
 }
 
-func TestSeededMatrixUsesPerGoatInAppCameraProofPolicy(t *testing.T) {
+func TestSeededMatrixUsesShedLevelCameraOrGalleryProofPolicy(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatalf("read source seeder: %v", err)
@@ -93,9 +93,12 @@ func TestSeededMatrixUsesPerGoatInAppCameraProofPolicy(t *testing.T) {
 		t.Fatal("vaccination seed must not write the retired shed/vial/administration proof policy")
 	}
 	for _, want := range []string{
-		`"subject_scope":"goat"`,
+		`"proof_mode":"shed_level_video"`,
+		`"subject_scope":"shed"`,
+		`"expected_subjects":["shed"]`,
 		`"capture_source":"in_app_camera"`,
-		`"minimum_count_per_subject":1`,
+		`"allowed_capture_sources":["in_app_camera","gallery_picker"]`,
+		`"maximum_count":5`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("seeded vaccination matrix proof policy missing %s", want)

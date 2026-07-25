@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window.ts";
+import { calendarDateKeyParts, calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedDateKey, shiftedMonthStartKey, weekWindow } from "./calendar-window.ts";
 
 test("weekWindow returns the Monday-Sunday week across month boundaries", () => {
   assert.deepEqual(weekWindow("2026-07-03"), {
@@ -42,6 +42,40 @@ test("shiftedMonthStartKey keeps picker navigation on calendar months", () => {
   assert.equal(shiftedMonthStartKey(2026, 9, 1), "2026-11-01");
   assert.equal(shiftedMonthStartKey(2026, 0, -1), "2025-12-01");
   assert.equal(shiftedMonthStartKey(2026, 11, 1), "2027-01-01");
+});
+
+test("calendarDateKeyParts keeps date-only labels stable on UTC hosts", () => {
+  const oldTZ = process.env.TZ;
+  try {
+    process.env.TZ = "UTC";
+    assert.deepEqual(calendarDateKeyParts("2026-07-25"), {
+      year: 2026,
+      month: 6,
+      day: 25,
+      weekday: 6,
+    });
+    assert.deepEqual(calendarDateKeyParts("2026-07-26"), {
+      year: 2026,
+      month: 6,
+      day: 26,
+      weekday: 0,
+    });
+  } finally {
+    if (oldTZ !== undefined) process.env.TZ = oldTZ;
+    else delete process.env.TZ;
+  }
+});
+
+test("shiftedDateKey keeps week navigation on date keys instead of host-local instants", () => {
+  const oldTZ = process.env.TZ;
+  try {
+    process.env.TZ = "UTC";
+    assert.equal(shiftedDateKey("2026-07-25", -7), "2026-07-18");
+    assert.equal(shiftedDateKey("2026-07-25", 7), "2026-08-01");
+  } finally {
+    if (oldTZ !== undefined) process.env.TZ = oldTZ;
+    else delete process.env.TZ;
+  }
 });
 
 test("historyWindow keeps a bounded forty five day trail ending on the anchor", () => {

@@ -30,6 +30,8 @@ data class AdherenceRowDto(
     @SerialName("next_action") val nextAction: String = "",
     @SerialName("evidence") val evidence: ProcessIntegrityEvidenceDto = ProcessIntegrityEvidenceDto(),
     @SerialName("work_state") val workState: String = "",
+    @SerialName("drive_animals_required") val driveAnimalsRequired: Int = 0,
+    @SerialName("drive_animals_assigned") val driveAnimalsAssigned: Int = 0,
 )
 
 @Serializable

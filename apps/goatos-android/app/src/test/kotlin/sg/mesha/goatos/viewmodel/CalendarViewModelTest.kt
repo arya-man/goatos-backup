@@ -41,12 +41,11 @@ class CalendarViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `calendar windows stay bounded to current week month and forty five history days`() {
+    fun `calendar windows stay bounded to current week and month`() {
         val today = LocalDate.of(2026, 7, 12)
 
-        assertEquals(CalendarDateRange("2026-07-06", "2026-07-12"), calendarWeekRange(today))
+        assertEquals(CalendarDateRange("2026-07-11", "2026-07-17"), calendarWeekRange(today))
         assertEquals(CalendarDateRange("2026-07-01", "2026-07-31"), calendarMonthRange(today))
-        assertEquals(CalendarDateRange("2026-05-29", "2026-07-12"), calendarHistoryRange(today))
     }
 
     @Test
@@ -77,8 +76,12 @@ class CalendarViewModelTest {
             today = LocalDate.of(2026, 7, 7),
         )
 
+        // Rolling 8-day strip anchored on today (2026-07-07): today-1 (07-06, Mon) .. today+6 (07-13, Mon).
         assertEquals(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), weekDays.map { it.dayName })
+        assertEquals(listOf("2026-07-06", "2026-07-12"), listOf(weekDays.first().dateKey, weekDays.last().dateKey))
         assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.hasWork)
+        assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.isToday)
+        assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.isSelected)
     }
 
     @Test
@@ -171,6 +174,39 @@ class CalendarViewModelTest {
         val item = CalendarEventDto(eventId = "calendar:legacy", aggregated = true).toCalendarItem()
 
         assertNull(item.driveSummary)
+    }
+
+    @Test
+    fun `calendar hides vaccination matrix config name from category chip`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            vaccineName = "Preventive Care Vaccination Matrix", // Raw input verifies hidden config label.
+        ).toCalendarItem()
+
+        assertNull(item.categoryLabel)
+    }
+
+    @Test
+    fun `calendar maps raw vaccine tokens before rendering category chip`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            vaccineName = "et_tt_adult_w2", // Raw input verifies mapper.
+        ).toCalendarItem()
+
+        assertEquals("ET+TT", item.categoryLabel)
+    }
+
+    @Test
+    fun `calendar hides meaningless time chip for vaccination operational rows`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            dueAt = "2026-07-25T09:00:00+05:30",
+        ).toCalendarItem()
+
+        assertEquals("", item.timeLabel)
     }
 
     @Test

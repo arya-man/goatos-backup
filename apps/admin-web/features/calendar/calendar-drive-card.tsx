@@ -7,7 +7,7 @@ import { Syringe } from "lucide-react";
 import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
@@ -34,7 +34,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
   // status chips below always stay obligation-grain (dose work items).
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveCoveragePct(coverage.completed, coverage.total);
+  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
   const chips = driveStatusChips(summary);
 
   // Completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,

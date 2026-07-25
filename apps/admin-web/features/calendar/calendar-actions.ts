@@ -1,13 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { actionErrorMessage, actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
+import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 import { sendCalendarNudge, snoozeCalendarEvent } from "./calendar-server";
-
-// A nudge/snooze ripples into the Calendar projection + the work surfaces that read the same obligations.
-function revalidateCalendarViews(): void {
-  for (const p of ["/calendar", "/action-center", "/"]) revalidatePath(p);
-}
 
 // Backend rejects an Idempotency-Key outside 8–200 chars (calendar/app/service.go). The default key is a
 // 36-char UUID, but a server action accepts arbitrary FormData, so validate before it reaches the header
@@ -35,7 +30,7 @@ export async function sendNudgeAction(formData: FormData): Promise<void> {
       actionKey = actionErrorMessage(result.error);
     } else {
       actionKey = result.data.idempotent_replay ? "action.nudge_replay" : "action.nudge_sent";
-      revalidateCalendarViews();
+      revalidateVaccinationCommandLenses();
     }
   } catch (error) {
     void error;
@@ -61,7 +56,7 @@ export async function snoozeAction(formData: FormData): Promise<void> {
       actionKey = actionErrorMessage(result.error);
     } else {
       actionKey = result.data.idempotent_replay ? "action.snooze_replay" : "action.snooze_recorded";
-      revalidateCalendarViews();
+      revalidateVaccinationCommandLenses();
     }
   } catch (error) {
     void error;

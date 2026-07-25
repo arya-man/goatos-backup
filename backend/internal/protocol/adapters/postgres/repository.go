@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	protocoldb "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -680,9 +682,141 @@ WHERE tenant_id = $1
 		if err := upsertVaccinationCapacityConfigTx(ctx, tx, tenantID, *capacity); err != nil {
 			return err
 		}
+		if err := enqueueVaccinationCapacityChangedForConfiguredParks(ctx, tx, tenantID, versionID); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
+	}
+	return nil
+}
+
+// enqueueVaccinationCapacityChangedForConfiguredParks enqueues vaccination.capacity.changed (same
+// transaction as the publish) for every park that has an operator-assignment config in this
+// tenant, whenever a protocol publish changes the tenant-wide vaccination_capacity_config
+// (max_per_day/buffer/overflow -- rule_dsl.capacity). Before this, publishing with changed
+// capacity synced vaccination_capacity_config transactionally but emitted only
+// protocol.version.published (consumed only by obligation regeneration, ProtocolPublishedHandler)
+// -- OperatorConfigReplanHandler was never notified, so a park's already-planned future drives
+// were not released/replanned to reflect the new capacity policy. vaccination_capacity_config
+// itself is tenant-scoped (PK is tenant_id, not park-scoped), so there is no single park to target;
+// emitting per configured park is the same fan-out shape UpsertOperatorAssignmentConfig already
+// uses for the per-park N/default-operator cascade, just enumerated across every affected park
+// instead of one caller-supplied park_id. The park set is the UNION of parks with an
+// operator-assignment config and parks that still have future planned vaccination work (fallback /
+// no-config parks plan drives too, and their future rows would otherwise stay stale).
+func enqueueVaccinationCapacityChangedForConfiguredParks(ctx context.Context, tx pgx.Tx, tenantID, versionID string) error {
+	// One set-based park enumeration: parks with an operator-assignment config UNION parks that
+	// still have FUTURE planned vaccination work. A fallback/no-config park can carry already-planned
+	// future drive rows; skipping it would leave those rows stale against the new capacity policy.
+	// "Future" is the Asia/Kolkata business date (biztime), same semantics as the rest of the repo.
+	rows, err := tx.Query(ctx, `
+SELECT park_id::text FROM vaccination_operator_assignment_config WHERE tenant_id = $1::uuid
+UNION
+SELECT DISTINCT vda.park_id::text
+FROM vaccination_drive_assignments vda
+JOIN obligation_batches ob
+  ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
+WHERE vda.tenant_id = $1::uuid
+  AND vda.planned_date >= $2::date
+  AND ob.status IN ('planned', 'in_progress')`,
+		tenantID, biztime.BusinessDate(time.Now()))
+	if err != nil {
+		return fmt.Errorf("protocol: list parks for capacity-changed cascade: %w", err)
+	}
+	defer rows.Close()
+	var parkIDs []string
+	for rows.Next() {
+		var parkID string
+		if err := rows.Scan(&parkID); err != nil {
+			return fmt.Errorf("protocol: scan park for capacity-changed cascade: %w", err)
+		}
+		parkIDs = append(parkIDs, parkID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("protocol: iterate parks for capacity-changed cascade: %w", err)
+	}
+
+	if len(parkIDs) == 0 {
+		return nil
+	}
+
+	// Build the per-park rows in memory, then insert them in ONE set-based statement (UNNEST).
+	// A tx.Exec per park would be an N+1 write inside a loop (banned by make scale-guard).
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	eventIDs := make([]string, 0, len(parkIDs))
+	aggregateIDs := make([]string, 0, len(parkIDs))
+	envelopes := make([]string, 0, len(parkIDs))
+	headerRows := make([]string, 0, len(parkIDs))
+	idempotencyKeys := make([]string, 0, len(parkIDs))
+	for _, parkID := range parkIDs {
+		idempotencyKey := fmt.Sprintf("protocol.version-publish.capacity:%s:%s", versionID, parkID)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     "vaccination.capacity.changed",
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   parkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "protocol",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   parkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   parkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   parkID,
+			}},
+			"payload":  map[string]any{"park_id": parkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("protocol: marshal capacity-changed envelope: %w", err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "protocol.PublishVersionWithCapacity",
+			"schema_version":  "1.0.0",
+			"park_id":         parkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("protocol: marshal capacity-changed headers: %w", err)
+		}
+		eventIDs = append(eventIDs, eventID)
+		aggregateIDs = append(aggregateIDs, parkID)
+		envelopes = append(envelopes, string(envelope))
+		headerRows = append(headerRows, string(headers))
+		idempotencyKeys = append(idempotencyKeys, idempotencyKey)
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+)
+SELECT $1::uuid, e.event_id::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', e.aggregate_id::uuid,
+       'vaccination.events', e.payload::jsonb, e.headers::jsonb, e.idempotency_key, e.idempotency_key, 'pending', now()
+FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+  AS e(event_id, aggregate_id, payload, headers, idempotency_key)
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
+		tenantID, eventIDs, aggregateIDs, envelopes, headerRows, idempotencyKeys); err != nil {
+		return fmt.Errorf("protocol: enqueue capacity-changed to outbox: %w", err)
 	}
 	return nil
 }

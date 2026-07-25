@@ -574,6 +574,49 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, canceledBatch); e
 	}
 }
 
+func TestCalendarListDoesNotDuplicateBatchBackedSOPTasks(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-00000000d101"
+	versionID := "86000000-0000-4000-8000-00000000d102"
+	ruleID := "86000000-0000-4000-8000-00000000d103"
+	obligationOne := "86000000-0000-4000-8000-00000000d104"
+	obligationTwo := "86000000-0000-4000-8000-00000000d105"
+	batchOne := "86000000-0000-4000-8000-00000000d106"
+	batchTwo := "86000000-0000-4000-8000-00000000d107"
+	sopID := "86000000-0000-4000-8000-00000000d108"
+	sopVersionID := "86000000-0000-4000-8000-00000000d109"
+	taskOne := "86000000-0000-4000-8000-00000000d110"
+	taskTwo := "86000000-0000-4000-8000-00000000d111"
+	dueAt := time.Date(2026, 7, 25, 6, 0, 0, 0, time.UTC)
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationOne, dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationTwo, dueAt.Add(time.Minute))
+	seedVaccinationBatchForShed(t, ctx, pool, batchOne, versionID, testParkA, testShedA, dueAt, obligationOne)
+	seedVaccinationBatchForShed(t, ctx, pool, batchTwo, versionID, testParkA, testShedB, dueAt.Add(time.Minute), obligationTwo)
+	seedCalendarSOPTask(t, ctx, pool, sopID, sopVersionID, taskOne, testShedA, dueAt, batchOne)
+	seedCalendarSOPTask(t, ctx, pool, sopID, sopVersionID, taskTwo, testShedB, dueAt.Add(time.Minute), batchTwo)
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-24 * time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	wantID := parkDriveEventID(testParkA, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantID {
+		t.Fatalf("list items=%#v, want only park-drive %s", list.Items, wantID)
+	}
+}
+
 func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -660,7 +703,7 @@ func TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive(t *testin
 	// surface only via the single collapsed batch drive.
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -709,7 +752,7 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	// TestCalendarParkDriveIdentityAndSnoozeStateSurviveMembershipChange for the state-survival case).
 	wantID := parkDriveEventID(testParkA, dueAt)
 	soloList, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -753,7 +796,7 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	}
 
 	list, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -855,10 +898,12 @@ func TestCalendarDefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred(t *testi
 	resp, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-time.Hour),
+		DateFrom: biztime.BusinessDayStart(driveDate),
 		DateTo:   driveDate.Add(24 * time.Hour),
 		Limit:    20,
 		Scope:    domain.ScopeFilter{TenantWide: true},
+		// deferred_count is a drive_summary field, and drive_summary is opt-in per c7c9d74a.
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
@@ -901,10 +946,16 @@ SET status='deferred', updated_at=now()
 WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, obligationID); err != nil {
 		t.Fatalf("defer obligation: %v", err)
 	}
+	// The DEFAULT list intentionally hides deferred work (canonical_read.go: "$5 = '' OR status NOT
+	// IN ('completed','canceled','deferred')" -- see TestCalendarDefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred,
+	// where a same-day deferred catch-up stays summary-only). Deferred drives surface through the
+	// explicit deferred status lens, which is the production surface this invariant belongs to.
+	deferredStatus := string(domain.StatusDeferred)
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
-		Scope: domain.ScopeFilter{TenantWide: true},
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		Status: &deferredStatus,
+		Scope:  domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
@@ -951,7 +1002,7 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDri
 
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -1125,7 +1176,7 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDri
 
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -1288,16 +1339,25 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	versionID := "86000000-0000-4000-8000-000000000852"
 	ruleID := "86000000-0000-4000-8000-000000000853"
 	obligationID := "86000000-0000-4000-8000-000000000854"
-	dueAt := time.Now().UTC().Add(-2 * time.Hour)
+	// Overdue is an India-business-DAY property: canonical_read classifies overdue as
+	// "(due_at AT TIME ZONE 'Asia/Kolkata')::date < today". A now-2h fixture only lands on a previous
+	// business day between 00:00 and 02:00 IST, so anchor to the previous business day explicitly.
+	dueAt := biztime.BusinessDayStart(time.Now()).Add(-2 * time.Hour)
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	// This test pins LEVEL 1 (channel local-stub); level-3 routing has its own test. The fixture is
+	// anchored to the previous business day so "overdue" holds at any hour, so the level thresholds
+	// must be derived from the fixture age rather than fixed hour constants -- otherwise the level
+	// (and therefore the channel) silently changes with the wall clock.
+	sweepNow := time.Now().In(biztime.DefaultLocation())
+	fixtureAge := sweepNow.Sub(dueAt)
 	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:    testTenantID,
 		Limit:       10,
-		Now:         time.Now().In(biztime.DefaultLocation()),
+		Now:         sweepNow,
 		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		Level2After: fixtureAge + 24*time.Hour,
+		Level3After: fixtureAge + 48*time.Hour,
+		Level4After: fixtureAge + 72*time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("SweepEscalations: %v", err)
@@ -1328,7 +1388,7 @@ WHERE tenant_id=$1::uuid
 	// them): overall status comes off the live list item; reminder/escalation labels off the rail.
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: time.Now().UTC().Add(24 * time.Hour),
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: time.Now().UTC().Add(24 * time.Hour),
 		Limit: 20, IncludeReminderRail: true, Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -1350,14 +1410,16 @@ WHERE tenant_id=$1::uuid
 		t.Fatalf("reminder rail item=%#v, want Reminder escalated / Escalated L1", railItem)
 	}
 
+	// Replay must use the SAME level thresholds as the first sweep; a different threshold set would
+	// promote the fixture to level 2 and legitimately queue a new (level-2) escalation.
 	again, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:    testTenantID,
 		Limit:       10,
-		Now:         time.Now().In(biztime.DefaultLocation()),
+		Now:         sweepNow,
 		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		Level2After: fixtureAge + 24*time.Hour,
+		Level3After: fixtureAge + 48*time.Hour,
+		Level4After: fixtureAge + 72*time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("SweepEscalations replay: %v", err)
@@ -1467,11 +1529,22 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	catchupVersionID := "86000000-0000-4000-8000-000000009202"
 	catchupRuleID := "86000000-0000-4000-8000-000000009203"
 	catchupObligationID := "86000000-0000-4000-8000-000000009204"
-	catchupDueAt := time.Now().UTC().Add(-2 * time.Hour)
+	// The catch-up fixture must sit on a PREVIOUS business day, and the sweep thresholds must be
+	// derived from that. A batched park-drive is an ALL-DAY event anchored at 00:00 IST, so every
+	// drive seeded "later today" above is already due-at-or-before now; a Level1After of 0 would
+	// escalate the reminder/nudge/snooze scenarios too and overwrite their rail labels with
+	// "Reminder escalated". Threshold = age-of-today's-midnight + 1h: older than every today drive,
+	// younger than the previous-business-day catch-up.
+	todayStart := biztime.BusinessDayStart(time.Now())
+	catchupDueAt := todayStart.Add(-2 * time.Hour)
+	sinceTodayStart := time.Since(todayStart)
 	seedVaccinationObligation(t, ctx, pool, catchupProtocolID, catchupVersionID, catchupRuleID, catchupObligationID, catchupDueAt)
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID: testTenantID, Limit: 10, Now: time.Now().In(biztime.DefaultLocation()),
-		Level1After: 0, Level2After: 4 * time.Hour, Level3After: 24 * time.Hour, Level4After: 48 * time.Hour,
+		Level1After: sinceTodayStart + time.Hour,
+		Level2After: sinceTodayStart + 25*time.Hour,
+		Level3After: sinceTodayStart + 49*time.Hour,
+		Level4After: sinceTodayStart + 73*time.Hour,
 	}); err != nil {
 		t.Fatalf("SweepEscalations (catch-up): %v", err)
 	}
@@ -2063,7 +2136,7 @@ func TestCalendarParkDriveIdentityAndSnoozeStateSurviveMembershipChange(t *testi
 	wantID := parkDriveEventID(testParkA, dueAt)
 	solo, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -2108,7 +2181,7 @@ WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND status='active' AND snooze
 	// Identity must be UNCHANGED: same park+day, same wantID, now aggregating two batches.
 	aggregated, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -2129,7 +2202,7 @@ WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND status='active' AND snooze
 	// joined purely by event_id equality against the still-active snooze row).
 	railResp, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: biztime.BusinessDayStart(dueAt), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		IncludeReminderRail: true, Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
@@ -2651,6 +2724,41 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	}
 }
 
+func seedCalendarSOPTask(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sopID, sopVersionID, taskID, shedID string, dueAt time.Time, batchID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+VALUES ($1::uuid, $2::uuid, 'calendar.batch.task', 'Calendar batch task', 'active')
+ON CONFLICT (sop_id) DO NOTHING`, sopID, testTenantID); err != nil {
+		t.Fatalf("seed calendar sop definition: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (sop_version_id) DO NOTHING`, sopVersionID, testTenantID, sopID); err != nil {
+		t.Fatalf("seed calendar sop version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_tasks (
+  task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, due_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Godel shed vaccination', 'needs_review', 'shed', $5::uuid, $6::timestamptz
+)
+ON CONFLICT (task_id) DO UPDATE
+SET state = 'needs_review',
+    due_at = EXCLUDED.due_at,
+    updated_at = now()`, taskID, testTenantID, sopID, sopVersionID, shedID, dueAt); err != nil {
+		t.Fatalf("seed calendar sop task: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET sop_task_id = $3::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, batchID, taskID); err != nil {
+		t.Fatalf("attach calendar sop task to batch: %v", err)
+	}
+}
+
 func seedProtocolRuleVaccineName(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, vaccineName string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
@@ -2807,12 +2915,13 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	// Refresh the projection — must NOT error (the old fan-out caused an ON CONFLICT 500 here).
 
 	q := domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	}
 	resp, err := repo.ListEvents(ctx, q)
 	if err != nil {
@@ -2948,12 +3057,13 @@ func TestDriveSummaryDistinctAnimalCoverageOneToMany(t *testing.T) {
 	setDriveObligationStatus(t, ctx, pool, obl2, "scheduled")
 
 	q := domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	}
 	resp, err := repo.ListEvents(ctx, q)
 	if err != nil {
@@ -3227,12 +3337,13 @@ func TestDriveSummaryDateShiftAttachesToBatchWindow(t *testing.T) {
 	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, batchWindowDay, obligationID)
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: batchWindowDay.Add(-1 * time.Hour),
-		DateTo:   batchWindowDay.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            biztime.BusinessDayStart(batchWindowDay),
+		DateTo:              batchWindowDay.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3304,12 +3415,13 @@ func TestDriveSummaryMultipleDimensionsCountsObligationsOnce(t *testing.T) {
 	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-b", "PPR")
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3366,12 +3478,13 @@ func TestDriveSummaryParkScopeAttachesToCorrectPark(t *testing.T) {
 	seedCalendarFarmParent(t, ctx, pool, farmID, parkID)
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3435,12 +3548,13 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	}
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3501,12 +3615,13 @@ func TestDriveSummaryUnrelatedSameParkDoesNotBleed(t *testing.T) {
 	seedVaccinationBatchForShed(t, ctx, pool, batchY, versionID, testParkA, shedY, dayTwo, oyObligation)
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: dayOne.Add(-1 * time.Hour),
-		DateTo:   dayOne.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            biztime.BusinessDayStart(dayOne),
+		DateTo:              dayOne.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3576,12 +3691,13 @@ func TestDriveSummaryStatusBucketsCoverLiveStatusSet(t *testing.T) {
 	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-b", "PPR")
 
 	resp, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-24 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events: %v", err)
@@ -3686,12 +3802,13 @@ func TestDriveSummaryMultiPageListingKeepsWholeResultTotals(t *testing.T) {
 
 	// Wide single page: fetch everything at once.
 	wide, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: driveDate.Add(-72 * time.Hour),
-		DateTo:   driveDate.Add(24 * time.Hour),
-		Limit:    50,
-		Scope:    domain.ScopeFilter{TenantWide: true},
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-72 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
 	})
 	if err != nil {
 		t.Fatalf("list events (wide page): %v", err)
@@ -3710,13 +3827,14 @@ func TestDriveSummaryMultiPageListingKeepsWholeResultTotals(t *testing.T) {
 	var cursor *domain.CalendarCursor
 	for page := 0; page < 20 && narrowDrive == nil; page++ {
 		resp, err := repo.ListEvents(ctx, domain.Query{
-			TenantID: testTenantID,
-			OwnerKey: domain.OwnerAll,
-			DateFrom: driveDate.Add(-72 * time.Hour),
-			DateTo:   driveDate.Add(24 * time.Hour),
-			Limit:    1,
-			Cursor:   cursor,
-			Scope:    domain.ScopeFilter{TenantWide: true},
+			TenantID:            testTenantID,
+			OwnerKey:            domain.OwnerAll,
+			DateFrom:            driveDate.Add(-72 * time.Hour),
+			DateTo:              driveDate.Add(24 * time.Hour),
+			Limit:               1,
+			Cursor:              cursor,
+			Scope:               domain.ScopeFilter{TenantWide: true},
+			IncludeDriveSummary: true,
 		})
 		if err != nil {
 			t.Fatalf("list events (narrow page %d): %v", page, err)
@@ -4080,6 +4198,142 @@ func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
 	}
 	if !seen[obligationA] || !seen[obligationB] {
 		t.Fatalf("held drive roster=%#v, want animals %s and %s", targets.Items, obligationA, obligationB)
+	}
+}
+
+func TestCalendarDriveAssignmentScheduledDateShiftOneToManyParkScopeStatusBucketsPagination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		protocolID   = "86000000-0000-4000-8000-00000000db01"
+		versionID    = "86000000-0000-4000-8000-00000000db02"
+		ruleID       = "86000000-0000-4000-8000-00000000db03"
+		batchID      = "86000000-0000-4000-8000-00000000db04"
+		obligationID = "86000000-0000-4000-8000-00000000db05"
+	)
+	loc := biztime.DefaultLocation()
+	batchDay := stableSameLocalDayDueAt(time.Now().In(loc))
+	assignmentDay := batchDay.Add(24 * time.Hour)
+	laterAssignmentDay := batchDay.Add(7 * 24 * time.Hour)
+	batchKey := batchDay.In(loc).Format("2006-01-02")
+	assignmentKey := assignmentDay.In(loc).Format("2006-01-02")
+	laterAssignmentKey := laterAssignmentDay.In(loc).Format("2006-01-02")
+	if batchKey == assignmentKey {
+		t.Fatalf("test setup: batch day %s must differ from assignment day %s", batchKey, assignmentKey)
+	}
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, batchDay)
+	attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "shed", testShedA)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, batchDay, obligationID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, partition_label,
+  animal_count, total_doses, vaccine_rule_ids
+) VALUES (
+  $1::uuid, $2::uuid, ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+  $4::uuid, $5::uuid, 'Gandhi', 'Part 1', 1, 1, ARRAY[$6::uuid]
+)`, testTenantID, batchID, assignmentDay, testParkA, testShedA, ruleID); err != nil {
+		t.Fatalf("seed drive assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, partition_label,
+  animal_count, total_doses, vaccine_rule_ids
+) VALUES (
+  $1::uuid, $2::uuid, ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+  $4::uuid, $5::uuid, 'Gandhi', 'Part 2', 1, 1, ARRAY[$6::uuid]
+)`, testTenantID, batchID, laterAssignmentDay, testParkA, testShedA, ruleID); err != nil {
+		t.Fatalf("seed later drive assignment: %v", err)
+	}
+
+	assignedID := parkDriveEventID(testParkA, assignmentDay)
+	laterAssignedID := parkDriveEventID(testParkA, laterAssignmentDay)
+	assignedList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: assignmentDay.Add(-25 * time.Hour), DateTo: assignmentDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents assignment window: %v", err)
+	}
+	var foundAssigned bool
+	for _, item := range assignedList.Items {
+		if item.EventID == assignedID {
+			foundAssigned = true
+			if got := item.DueAt.In(loc).Format("2006-01-02"); got != assignmentKey {
+				t.Fatalf("assignment-backed drive due day=%s, want %s", got, assignmentKey)
+			}
+			if item.VaccineCount != 1 {
+				t.Fatalf("assignment-backed drive vaccine_count=%d, want only assigned rule", item.VaccineCount)
+			}
+		}
+	}
+	if !foundAssigned {
+		t.Fatalf("assignment-backed drive %s missing from assignment-day window list=%#v", assignedID, assignedList.Items)
+	}
+	wideList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: assignmentDay.Add(-25 * time.Hour), DateTo: laterAssignmentDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents wide assignment window: %v", err)
+	}
+	seenAssignments := map[string]string{}
+	for _, item := range wideList.Items {
+		if item.EventID == assignedID || item.EventID == laterAssignedID {
+			seenAssignments[item.EventID] = item.DueAt.In(loc).Format("2006-01-02")
+		}
+	}
+	if seenAssignments[assignedID] != assignmentKey {
+		t.Fatalf("wide list first assignment day=%q, want %s; list=%#v", seenAssignments[assignedID], assignmentKey, wideList.Items)
+	}
+	if seenAssignments[laterAssignedID] != laterAssignmentKey {
+		t.Fatalf("wide list later assignment day=%q, want %s; list=%#v", seenAssignments[laterAssignedID], laterAssignmentKey, wideList.Items)
+	}
+	markerList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		DateFrom:           batchDay.Add(-25 * time.Hour),
+		DateTo:             laterAssignmentDay.Add(24 * time.Hour),
+		Limit:              20,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+		MarkersOnly:        true,
+		IncludeDateMarkers: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents assignment markers: %v", err)
+	}
+	markersByDate := map[string]domain.CalendarDateMarker{}
+	for _, marker := range markerList.DateMarkers {
+		markersByDate[marker.Date] = marker
+	}
+	if marker := markersByDate[assignmentKey]; marker.DriveCount != 1 || marker.OpenCount != 1 {
+		t.Fatalf("assignment-day marker=%#v, want one open drive on moved assignment date %s", marker, assignmentKey)
+	}
+	if marker := markersByDate[laterAssignmentKey]; marker.DriveCount != 1 || marker.OpenCount != 1 {
+		t.Fatalf("later assignment-day marker=%#v, want one open drive on moved assignment date %s", marker, laterAssignmentKey)
+	}
+	if marker, ok := markersByDate[batchKey]; ok && marker.DriveCount != 0 {
+		t.Fatalf("stale batch-day marker leaked=%#v despite operator assignment on %s", marker, assignmentKey)
+	}
+
+	staleID := parkDriveEventID(testParkA, batchDay)
+	staleList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: batchDay.Add(-25 * time.Hour), DateTo: batchDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents stale batch window: %v", err)
+	}
+	for _, item := range staleList.Items {
+		if item.EventID == staleID {
+			t.Fatalf("stale batch-day drive %s leaked despite operator assignment on %s", staleID, assignmentKey)
+		}
 	}
 }
 

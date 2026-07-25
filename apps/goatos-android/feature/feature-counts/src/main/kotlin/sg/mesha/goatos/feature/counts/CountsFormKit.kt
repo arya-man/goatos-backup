@@ -4,7 +4,6 @@ package sg.mesha.goatos.feature.counts
 // owning screens' ViewModels (BirthDeathViewModel / ShiftingViewModel) wire analytics + Crashlytics.
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,12 +16,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -33,11 +37,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -97,13 +105,22 @@ internal fun CountsTextField(
     numeric: Boolean = false,
     supporting: String? = null,
     isError: Boolean = false,
+    /** True for a picker-backed field (e.g. [CountsDateField]): blocks the keyboard so the only
+     * way to change the value is the picker, while still rendering/tapping like every other field. */
+    readOnly: Boolean = false,
 ) {
+    // Modernized to a tonal filled field (no hairline border) matching the mock's coherent
+    // form chrome; behavior/params are unchanged so every screen benefits without call-site edits.
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 54.dp),
         singleLine = true,
+        readOnly = readOnly,
         isError = isError,
+        shape = RoundedCornerShape(14.dp),
         label = { Text(if (required) "$label *" else label) },
         supportingText = supporting?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(
@@ -112,14 +129,86 @@ internal fun CountsTextField(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = MeshaColors.Ink,
             unfocusedTextColor = MeshaColors.Ink,
-            focusedBorderColor = MeshaColors.Brand,
-            unfocusedBorderColor = MeshaColors.Hair,
+            focusedContainerColor = MeshaColors.Surf2,
+            unfocusedContainerColor = MeshaColors.Surf2,
+            disabledContainerColor = MeshaColors.Surf3,
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
             focusedLabelColor = MeshaColors.Brand,
             unfocusedLabelColor = MeshaColors.Muted,
             cursorColor = MeshaColors.Brand,
         ),
     )
 }
+
+/**
+ * A date field backed by a real Compose M3 [DatePicker], writing the SAME `YYYY-MM-DD` ISO string
+ * the backend's date fields already expect (identity's `CreateAdminGoatRequest.dob`/`entry_date`
+ * wire contract) — this changes only how the operator ENTERS the string, never its format.
+ *
+ * The field itself stays read-only text (tapping opens the picker) so a date can never be
+ * hand-typed into an invalid shape; [onValueChange] receives the same plain ISO string a manual
+ * `CountsTextField` would have produced, so callers do not need to know a picker is involved.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CountsDateField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    required: Boolean = false,
+    supporting: String? = null,
+    isError: Boolean = false,
+) {
+    var pickerOpen by remember { mutableStateOf(false) }
+    CountsTextField(
+        value = value,
+        onValueChange = {}, // read-only: the picker is the only way to change this field
+        label = label,
+        modifier = modifier.clickable { pickerOpen = true },
+        required = required,
+        supporting = supporting,
+        isError = isError,
+        readOnly = true,
+    )
+    if (pickerOpen) {
+        val initialMillis = value.toEpochMillisOrNull()
+            ?: Instant.now().toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { pickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        onValueChange(millis.toIsoDateString())
+                    }
+                    pickerOpen = false
+                }) {
+                    Text(stringResource(id = android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerOpen = false }) {
+                    Text(stringResource(id = android.R.string.cancel))
+                }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+private val isoDateFormatter: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+
+/** Parses a `YYYY-MM-DD` string back to epoch millis (UTC midnight) for the picker's initial position. */
+private fun String.toEpochMillisOrNull(): Long? = runCatching {
+    java.time.LocalDate.parse(this, isoDateFormatter).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+}.getOrNull()
+
+/** Formats the picker's selected epoch millis as the `YYYY-MM-DD` string the backend expects. */
+private fun Long.toIsoDateString(): String =
+    Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate().format(isoDateFormatter)
 
 /** A segmented choice. The option vocabulary is passed in by the caller from the backend contract. */
 @Composable
@@ -129,23 +218,25 @@ internal fun CountsSegmented(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Filled track with a selected pill — same coherent segmented look across all Counts screens.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .heightIn(min = 54.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf2)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         options.forEach { (key, label) ->
             val selected = key == selectedKey
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(9.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (selected) MeshaColors.Brand else Color.Transparent)
                     .clickable { onSelect(key) }
-                    .padding(vertical = 9.dp),
+                    .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -169,7 +260,8 @@ internal fun CountsSubmitButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .heightIn(min = 54.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(if (enabled) MeshaColors.Brand else MeshaColors.Surf3)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 15.dp),
@@ -272,11 +364,11 @@ internal fun CountsDropdownField(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (enabled) MeshaColors.Surf else MeshaColors.Surf3)
-                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+                    .heightIn(min = 54.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (enabled) MeshaColors.Surf2 else MeshaColors.Surf3)
                     .clickable(enabled = enabled) { expanded = true }
-                    .padding(horizontal = 12.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {

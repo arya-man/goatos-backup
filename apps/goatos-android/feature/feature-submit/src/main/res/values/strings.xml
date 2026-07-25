@@ -7,6 +7,7 @@
 <resources>
     <string name="submit_eyebrow">Vaccination</string>
     <string name="submit_record_title">Shed record</string>
+    <string name="submit_record_submitted_title">Shed record submitted</string>
     <!-- Record summary labels -->
     <string name="submit_summary_shed">Shed</string>
     <string name="submit_summary_drive">Drive</string>
@@ -15,6 +16,7 @@
     <string name="submit_summary_expected">Expected animals</string>
     <string name="submit_summary_handled">Scanned</string>
     <string name="submit_summary_proof_ready">Proof ready</string>
+    <string name="submit_summary_shed_videos_ready">Shed videos ready</string>
     <string name="submit_vaccine_breakdown_label">Vaccine breakdown</string>
     <string name="submit_dose_label">Dose</string>
     <string name="submit_goat_proof_title">Goat camera proof</string>
@@ -24,6 +26,8 @@
     <string name="submit_goat_proof_finalize_hint">Finalize checks the synced records. It does not upload files.</string>
 
     <!-- Button labels -->
+    <string name="submit_submitting_label">Submitting…</string>
+    <string name="submit_submitted_label">Submitted</string>
     <string name="submit_retry_label">Retry</string>
     <string name="submit_form_yes">Yes</string>
     <string name="submit_form_no">No</string>

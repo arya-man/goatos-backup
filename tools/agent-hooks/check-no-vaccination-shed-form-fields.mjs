@@ -28,13 +28,18 @@ const BANNED_FIELDS = [
   'administered_at',
   'adverse_reaction',
   'adverse_reaction_notes',
-  'shed_video',
   'vial_lot_video',
   'administration_video',
   'extra_video',
 ];
 
 const VACCINATION_SOP_CODES = ['vaccination.drive', 'vaccination.session'];
+
+function hasAllowedShedVideoPolicy(content) {
+  return /shed_video/.test(content) &&
+    /proof_mode[\s\S]{0,120}shed_level_video/i.test(content) &&
+    /(?:proof_subject|subject_scope)[\s\S]{0,120}shed/i.test(content);
+}
 
 // Helper: check if a line is a migration/seed context line (not just a table definition)
 function isFormFieldContext(line, bannedField) {
@@ -93,6 +98,21 @@ function checkMigrations() {
           }
         }
       }
+
+      if (upSection.includes('shed_video') && !hasAllowedShedVideoPolicy(upSection)) {
+        const lines = upSection.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.includes('shed_video') && isFormFieldContext(line, 'shed_video')) {
+            failures.push({
+              file,
+              line: i + 1,
+              text: line.trim(),
+              issue: "Field 'shed_video' is allowed only with proof_mode=shed_level_video and shed proof subject/scope",
+            });
+          }
+        }
+      }
     }
   } catch (e) {
     console.error('Error checking migrations:', e.message);
@@ -138,6 +158,25 @@ function checkSeeds() {
             }
           }
         }
+
+        if (content.includes('shed_video') && !hasAllowedShedVideoPolicy(content)) {
+          const lines = content.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.includes('shed_video') &&
+                (line.includes('form_dsl') ||
+                 line.includes('Answers') ||
+                 line.includes('fields') ||
+                 line.includes('vaccination.*sop'))) {
+              failures.push({
+                file,
+                line: i + 1,
+                text: line.trim(),
+                issue: "Field 'shed_video' is allowed only with proof_mode=shed_level_video and shed proof subject/scope",
+              });
+            }
+          }
+        }
       } catch (e) {
         // Skip files that can't be read
       }
@@ -167,6 +206,7 @@ function main() {
   console.error('\n✗ GUARD FAILED: Banned vaccination shed form fields detected\n');
   console.error('Banned fields (do not reintroduce):');
   console.error(BANNED_FIELDS.map(f => `  - ${f}`).join('\n'));
+  console.error('  - shed_video unless proof_mode=shed_level_video with shed proof subject/scope');
   console.error('\nViolations:\n');
 
   for (const failure of allFailures) {
@@ -187,15 +227,19 @@ function main() {
 function selfTest() {
   console.log('vaccination-shed-ack guard self-test');
   const bannedLine = `"fields": [{"key": "cold_chain_verified", "type": "boolean"}], "form_dsl": {}`;
+  const badShedVideo = `"fields": [{"key": "shed_video", "type": "video_proof"}], "form_dsl": {}`;
+  const goodShedVideo = `"proof_mode": "shed_level_video", "subject_scope": "shed", "fields": [{"key": "shed_video", "type": "video_proof", "proof_subject": "shed"}]`;
   const cleanLine = `"fields": [{"key": "goat_ids", "type": "goat_scan"}]`;
   const detectsBanned = isFormFieldContext(bannedLine, 'cold_chain_verified');
+  const rejectsLooseShedVideo = !hasAllowedShedVideoPolicy(badShedVideo);
+  const acceptsPolicyShedVideo = hasAllowedShedVideoPolicy(goodShedVideo);
   const ignoresClean = !isFormFieldContext(cleanLine, 'cold_chain_verified');
-  if (detectsBanned && ignoresClean) {
+  if (detectsBanned && rejectsLooseShedVideo && acceptsPolicyShedVideo && ignoresClean) {
     console.log('✓ self-test passed: detector flags a reintroduced banned form field.');
     process.exit(0);
   }
   console.error('✗ self-test FAILED: detector is blind to banned form fields.');
-  console.error(`  detectsBanned=${detectsBanned} ignoresClean=${ignoresClean}`);
+  console.error(`  detectsBanned=${detectsBanned} rejectsLooseShedVideo=${rejectsLooseShedVideo} acceptsPolicyShedVideo=${acceptsPolicyShedVideo} ignoresClean=${ignoresClean}`);
   process.exit(1);
 }
 

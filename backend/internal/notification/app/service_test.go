@@ -69,6 +69,37 @@ func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
 	}
 }
 
+func TestServiceSuppressesInvalidFCMRecipientWithoutRetry(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	repo := &fakeRepo{requests: []domain.Request{
+		{
+			TenantID:              testTenant,
+			NotificationRequestID: "86000000-0000-4000-8000-000000000006",
+			LeaseToken:            "86000000-0000-4000-8000-000000000106",
+			Channel:               "push_fcm",
+			RecipientRef:          "dead-fcm-token",
+			DeliveryAttempts:      1,
+		},
+	}}
+	service := NewService(repo, &fakeGateway{err: ports.ErrInvalidRecipient}, Config{MaxAttempts: 5, Now: func() time.Time { return now }}, nil)
+	result, err := service.RunOnce(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.FailedCount != 0 || result.ExhaustedCount != 1 || len(repo.failed) != 1 {
+		t.Fatalf("result=%#v failed=%#v", result, repo.failed)
+	}
+	if repo.failed[0].nextAttemptAt != nil {
+		t.Fatalf("invalid recipient next attempt=%v, want nil", repo.failed[0].nextAttemptAt)
+	}
+	if len(repo.invalidRecipients) != 1 {
+		t.Fatalf("invalid recipient cleanup calls=%#v, want 1", repo.invalidRecipients)
+	}
+	if got := repo.invalidRecipients[0]; got.recipientRef != "dead-fcm-token" {
+		t.Fatalf("invalid recipient cleanup=%#v, want dead token", got)
+	}
+}
+
 func TestServicePersistsProviderAcknowledgementWhenGatewayAndRepositorySupportIt(t *testing.T) {
 	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
 	baseRepo := &fakeRepo{requests: []domain.Request{{
@@ -123,9 +154,10 @@ func TestServiceRunOnceExportsGlobalBacklogAge(t *testing.T) {
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
-	requests []domain.Request
-	sent     []string
-	failed   []failedMark
+	requests          []domain.Request
+	sent              []string
+	failed            []failedMark
+	invalidRecipients []invalidRecipientSuppression
 
 	oldestDue      time.Time
 	oldestDueFound bool
@@ -141,6 +173,11 @@ func (f *fakeRepo) OldestDueRequestedAt(context.Context, string, time.Time) (tim
 type failedMark struct {
 	id            string
 	nextAttemptAt *time.Time
+}
+
+type invalidRecipientSuppression struct {
+	recipientRef string
+	reason       string
 }
 
 func (f *fakeRepo) ReclaimStaleSending(context.Context, string, time.Time, time.Duration) (int, error) {
@@ -159,6 +196,11 @@ func (f *fakeRepo) MarkSent(_ context.Context, _, notificationRequestID, _, _ st
 func (f *fakeRepo) MarkFailed(_ context.Context, _, notificationRequestID, _, _, _ string, nextAttemptAt *time.Time, _ time.Time) error {
 	f.failed = append(f.failed, failedMark{id: notificationRequestID, nextAttemptAt: nextAttemptAt})
 	return nil
+}
+
+func (f *fakeRepo) SuppressInvalidRecipient(_ context.Context, _, recipientRef, reason string, _ time.Time) (int, error) {
+	f.invalidRecipients = append(f.invalidRecipients, invalidRecipientSuppression{recipientRef: recipientRef, reason: reason})
+	return 1, nil
 }
 
 type fakeGateway struct {
