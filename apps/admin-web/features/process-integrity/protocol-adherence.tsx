@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Syringe } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
-import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionalOption, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
@@ -66,6 +66,10 @@ function AdherenceInfo({ pageContract }: { pageContract: AdminUiPageContract }) 
 
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
   return optionalCopy(pageContract, key) ?? fallback;
+}
+
+function workStateTone(pageContract: AdminUiPageContract, workState: string): Tone {
+  return (optionalOption(pageContract, "work_state_filter_chips", workState)?.tone ?? "mut") as Tone;
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
@@ -385,7 +389,7 @@ export async function ProtocolAdherencePage({
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
+                          <Tag tone={workStateTone(pageContract, row.work_state)}>{gapLabel(pageContract, row)}</Tag>
                           {driveDetail ? <span className="mt">{driveDetail}</span> : null}
                         </LocalOverlayLink>
                       </td>
