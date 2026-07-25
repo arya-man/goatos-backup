@@ -166,6 +166,23 @@ func TestSendFCMClassifiesNotRegisteredAsInvalidRecipient(t *testing.T) {
 	}
 }
 
+func TestWebhookNotRegisteredBodyKeepsGenericRetryableFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"status":"unregistered customer webhook"}`))
+	}))
+	defer server.Close()
+
+	gateway := New(Config{WebhookURL: server.URL}, nil)
+	err := gateway.Send(context.Background(), request("webhook", "customer-webhook"))
+	if err == nil {
+		t.Fatal("expected webhook delivery failure")
+	}
+	if errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatalf("webhook error must not be classified as invalid FCM recipient: %v", err)
+	}
+}
+
 func TestSendIncidentPostsDedupePayload(t *testing.T) {
 	var gotAuth string
 	var got map[string]any
