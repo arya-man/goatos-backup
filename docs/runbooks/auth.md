@@ -706,3 +706,29 @@ Chandrakant (director) and Jyothi (verifier) do not.
 > operators with capacity, Chandrakant appears as director, Jyothi has verifier
 > login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
 > with both Google SSO and Firebase email/password available.
+
+### Email allowlist must contain ALL 10 people (incident 2026-07-25)
+
+`GOATOS_AUTH_ALLOWED_EMAILS` (stg: Secret Manager `goatos-stg-auth-allowed-emails`)
+is checked at `/auth/session-events` **after** the Firebase token is verified. An
+email that is not in it fails with `403 email_not_allowed`, which blocks mobile
+`/app/bootstrap` (401). A person is NOT login-ready on STG until **all three** hold:
+
+1. their email is in the allowlist secret,
+2. their grant is materialized (active `user_scope_grants`, not pending), and
+3. (module users) their `workforce_members.department_id` is bound.
+
+The allowlist must list all 10 canonical people — the 5 leadership + Amit +
+Darshan + Sagar + Chandrakant + **Jyothi (`jyothipvg12345@gmail.com`)**. On
+2026-07-25 Jyothi's `verifier` email was missing from the secret (never updated
+9 → 10 for her), so she got `403 email_not_allowed` on the Android app. A
+`403 email_not_allowed` is a **stg config** issue (allowlist secret + one revision
+roll), NOT a backend deploy and NOT a Firebase/token problem — the 403 only fires
+once the token already verified. After a new secret version, roll a fresh
+`goatos-api-stg` revision so the env-var secret ref is re-read. Full RCA:
+`docs/runbooks/incidents/2026-07-25-jyothi-verifier-stg-login-403.md`.
+
+Verifier note: `verifier` module access currently comes from the
+`preventive_care` department binding (same as operators, but with NO vaccination
+capacity). This is a single-department binding; a truly cross-module verifier is
+a design follow-up recorded in the incident doc (§Prevention → B).
