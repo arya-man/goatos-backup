@@ -273,6 +273,54 @@ func TestListVaccinationExecutionOperatorScopeOnlyReturnsAssignedWork(t *testing
 	}
 }
 
+func TestListVaccinationExecutionAssignmentOperatorFallbackOneToManyPaginationExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "clear batch conducted_by owner",
+		`UPDATE obligation_batches SET conducted_by = NULL WHERE tenant_id=$1 AND batch_id=$2`,
+		testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "open proofless work",
+		`DELETE FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "assignment operator fallback first page winner",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24'::date, $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "assignment operator fallback duplicate newer winner",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25'::date, $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		AsOf:      time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows want 1 across assignment page boundary: %#v", len(rows), rows)
+	}
+	got := rows[0]
+	if got.OperatorName == nil || *got.OperatorName != "Operator A" {
+		t.Fatalf("assignment fallback operator = %v, want Operator A", got.OperatorName)
+	}
+	if got.WorkState == domain.WorkStateBlocked {
+		t.Fatalf("assignment fallback row became blocked despite durable drive operator: %#v", got)
+	}
+	if got.ParkID != testPark || got.ShedID != testShed || got.ObligationCount != 1 {
+		t.Fatalf("scope/cardinality row = park %s shed %s obligations %d", got.ParkID, got.ShedID, got.ObligationCount)
+	}
+}
+
 func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPageBoundaryExecutionDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
