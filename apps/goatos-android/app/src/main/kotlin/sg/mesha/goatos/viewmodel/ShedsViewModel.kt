@@ -290,7 +290,7 @@ class ShedsViewModel @Inject constructor(
                 .thenBy { it.name.lowercase() }
         )
         val totals = executionCounts(rowsForSelectedDay)
-        val visibleWindowTotals = executionCounts(weekRows.filter { it.hasOperatorVisibleWork() })
+        val visibleWindowTotals = executionCounts(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay))
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
@@ -416,6 +416,25 @@ internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionC
         open = rows.sumOf { it.openCount.coerceAtLeast(0) },
         done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
     )
+
+internal fun adherenceWindowRows(
+    rows: List<VaccinationExecutionRowDto>,
+    selectedDayRows: List<VaccinationExecutionRowDto>,
+    selectedDay: LocalDate,
+): List<VaccinationExecutionRowDto> {
+    val selectedDriveKeys = selectedDayRows.mapNotNull { it.adherenceDriveKey() }.toSet()
+    return rows.filter { row ->
+        val scheduleDate = row.currentScheduleDate
+        row.hasOperatorVisibleWork() &&
+            (scheduleDate?.takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: selectedDay) <= selectedDay &&
+            (selectedDriveKeys.isEmpty() || row.adherenceDriveKey() in selectedDriveKeys)
+    }
+}
+
+private fun VaccinationExecutionRowDto.adherenceDriveKey(): String? =
+    batchId?.takeIf { it.isNotBlank() }
+        ?: driveId?.takeIf { it.isNotBlank() }
+        ?: sopTaskId?.takeIf { it.isNotBlank() }
 
 private data class ExecutionIdentity(
     val shedId: String,

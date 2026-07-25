@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -49,6 +50,50 @@ class ShedsExecutionIdentityTest {
         assertEquals(114, summary?.submittedCount)
         assertEquals(114, summary?.acceptedCount)
         assertEquals(35, summary?.acceptedPercent)
+    }
+
+    @Test
+    fun `overview adherence keeps selected drive rows and excludes unrelated completed history`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                batchId = "drive-current",
+                currentAssignmentDate = "2026-07-24",
+                targetCount = 114,
+                openCount = 0,
+                doneCount = 114,
+                sopStatus = "accepted",
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-current",
+                currentAssignmentDate = "2026-07-25",
+                targetCount = 210,
+                openCount = 210,
+                doneCount = 0,
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-future",
+                currentAssignmentDate = "2026-07-26",
+                targetCount = 324,
+                openCount = 324,
+                doneCount = 0,
+            ),
+            VaccinationExecutionRowDto(
+                batchId = "drive-old",
+                currentAssignmentDate = "2026-07-24",
+                targetCount = 438,
+                openCount = 0,
+                doneCount = 438,
+                sopStatus = "accepted",
+            ),
+        )
+
+        val selectedDayRows = rows.filter { it.currentScheduleDate == "2026-07-25" }
+        val counts = executionCounts(adherenceWindowRows(rows, selectedDayRows, LocalDate.parse("2026-07-25")))
+        val summary = protocolAdherenceSummary(counts)
+
+        assertEquals(ExecutionCounts(target = 324, open = 210, done = 114), counts)
+        assertEquals(324, summary?.expectedCount)
+        assertEquals(114, summary?.submittedCount)
     }
 
     @Test
