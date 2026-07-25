@@ -309,7 +309,7 @@ func TestBackfillSubmissionRetentionDedupesReusedProofRefsConservatively(t *test
 INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
 VALUES ($1::uuid, $2::uuid, 'vaccination.drive', 'Vaccination Drive', 'active');
 INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
-VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Operational proof policy', 'published', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb),
+VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Operational proof policy', 'retired', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb),
        ($4::uuid, $2::uuid, $1::uuid, 2, 'Standard proof policy', 'published', '{}'::jsonb, '{"retention_policy":"standard_1y"}'::jsonb);
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
 VALUES ($5::uuid, $2::uuid, $1::uuid, $3::uuid, 'vaccination', 'Vaccination task', 'accepted', 'shed', $6::uuid);
