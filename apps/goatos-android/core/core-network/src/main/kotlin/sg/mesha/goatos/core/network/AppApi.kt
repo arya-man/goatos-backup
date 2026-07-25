@@ -226,6 +226,7 @@ interface AppApi {
         openOnly: Boolean? = null,
         limit: Int? = null,
         cursor: String? = null,
+        includeFilterOptions: Boolean = false,
     ): VaccinationExecutionResponseDto
 
     /** GET /app/vaccination/execution/sheds/{shed_id} — one mobile shed execution context. */
@@ -426,6 +427,8 @@ interface AppApi {
      *  `breeding`/…, `null` = every category this verifier is assigned). Per contracts/openapi/app-api.yaml. */
     suspend fun listVerificationQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
     ): VerificationQueueResponseDto
@@ -433,6 +436,8 @@ interface AppApi {
     /** GET /verification/action-queue — verifier-approved items within the leadership grant scope. */
     suspend fun listVerificationActionQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
     ): VerificationQueueResponseDto
@@ -457,6 +462,11 @@ interface AppApi {
      *  the complete verifier-approved vaccination drive submission. */
     suspend fun closeVerificationSubmission(
         submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto
+
+    suspend fun closeVaccinationBatch(
+        batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
     /** GET /herd-register/summary — exact scoped census counts from canonical goats. The
@@ -620,6 +630,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto = VaccinationExecutionResponseDto()
 
     override suspend fun getVaccinationExecutionShed(
@@ -787,12 +798,16 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun listVerificationQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
     ): VerificationQueueResponseDto = VerificationQueueResponseDto()
 
     override suspend fun listVerificationActionQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
     ): VerificationQueueResponseDto = VerificationQueueResponseDto()
@@ -811,6 +826,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun closeVerificationSubmission(
         submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
+
+    override suspend fun closeVaccinationBatch(
+        batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
     override suspend fun getHerdRegisterSummary(

@@ -30,6 +30,8 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 interface VerificationRepository {
     suspend fun queue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
         cursor: String? = null,
     ): VerificationQueueResponseDto
@@ -38,6 +40,8 @@ interface VerificationRepository {
      *  (null data on a cold cache) and re-emits after every successful [refreshQueue]/[appendQueue]. */
     fun observeQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
     ): Flow<Resource<VerificationQueueResponseDto>>
 
@@ -45,6 +49,8 @@ interface VerificationRepository {
      *  leaves the cache untouched — the caller surfaces stale/offline, never a blank screen. */
     suspend fun refreshQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
     ): Result<Unit>
 
@@ -52,18 +58,40 @@ interface VerificationRepository {
     suspend fun appendQueue(
         cursor: String,
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
     ): Result<Unit>
 
     fun observeActionQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
     ): Flow<Resource<VerificationQueueResponseDto>>
 
     suspend fun refreshActionQueue(
         category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
         limit: Int? = null,
     ): Result<Unit>
+
+    /** Optimistically removes a just-closed vaccination batch from the cached leadership action
+     *  queue. The backend remains the source of truth; this only prevents stale offline cache from
+     *  keeping a successful Close button visible until a later refresh. */
+    suspend fun markVaccinationBatchClosedLocally(
+        batchId: String,
+        category: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
+        limit: Int? = null,
+    )
+
+    /** Optimistically removes a verifier-decided item from cached pending queues after the
+     *  verdict outbox row has SUCCEEDED. This keeps the verifier queue honest when the backend
+     *  write landed but the follow-up refresh is temporarily offline/stale. */
+    suspend fun markVerificationItemDecidedLocally(itemId: String)
 }
 
 class DefaultVerificationRepository(
@@ -77,30 +105,40 @@ class DefaultVerificationRepository(
 
     override suspend fun queue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         limit: Int?,
         cursor: String?,
-    ): VerificationQueueResponseDto = api.listVerificationQueue(category, cursor, limit)
+    ): VerificationQueueResponseDto = api.listVerificationQueue(
+        category = category,
+        parkId = parkId,
+        shedId = shedId,
+        cursor = cursor,
+        limit = limit,
+    )
 
     override fun observeQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         limit: Int?,
     ): Flow<Resource<VerificationQueueResponseDto>> {
-        val key = scopeKey(category, limit)
+        val key = scopeKey(category, parkId, shedId, limit)
         return queueDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refreshQueue(category: String?, limit: Int?): Result<Unit> = runCatching {
-        val dto = queue(category, limit, cursor = null)
-        val key = scopeKey(category, limit)
+    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+        val dto = queue(category, parkId, shedId, limit, cursor = null)
+        val key = scopeKey(category, parkId, shedId, limit)
         queueDao.upsert(VerificationQueueCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         queueDao.enforceCacheBounds()
     }
 
-    override suspend fun appendQueue(cursor: String, category: String?, limit: Int?): Result<Unit> = runCatching {
+    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
         appendMutex.withLock {
-            val key = scopeKey(category, limit)
+            val key = scopeKey(category, parkId, shedId, limit)
             val currentEntity = queueDao.get(key)
             val current = readCachedJson<VerificationQueueResponseDto>(
                 json = json,
@@ -113,7 +151,7 @@ class DefaultVerificationRepository(
             if (current.nextCursor != cursor) {
                 throw VerificationQueueCursorException("verification queue cursor is stale or belongs to another category")
             }
-            val page = queue(category, limit, cursor)
+            val page = queue(category, parkId, shedId, limit, cursor)
             if (page.nextCursor == cursor) {
                 throw VerificationQueueCursorException("verification queue backend returned a non-advancing cursor")
             }
@@ -129,19 +167,69 @@ class DefaultVerificationRepository(
 
     override fun observeActionQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         limit: Int?,
     ): Flow<Resource<VerificationQueueResponseDto>> {
-        val key = actionScopeKey(category, limit)
+        val key = actionScopeKey(category, parkId, shedId, limit)
         return queueDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refreshActionQueue(category: String?, limit: Int?): Result<Unit> = runCatching {
-        val dto = api.listVerificationActionQueue(category = category, cursor = null, limit = limit)
-        val key = actionScopeKey(category, limit)
+    override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+        val dto = api.listVerificationActionQueue(category = category, parkId = parkId, shedId = shedId, cursor = null, limit = limit)
+        val key = actionScopeKey(category, parkId, shedId, limit)
         queueDao.upsert(VerificationQueueCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         queueDao.enforceCacheBounds()
+    }
+
+    override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) {
+        val trimmedBatchId = batchId.trim()
+        if (trimmedBatchId.isEmpty()) return
+        val key = actionScopeKey(category, parkId, shedId, limit)
+        val currentEntity = queueDao.get(key) ?: return
+        val current = readCachedJson<VerificationQueueResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = currentEntity.dtoJson,
+            updatedAt = currentEntity.updatedAt,
+            now = clock(),
+            quarantine = { queueDao.delete(it) },
+        ).data ?: return
+        val updated = current.copy(
+            driveClosures = current.driveClosures.filterNot { it.batchId == trimmedBatchId },
+        )
+        queueDao.upsert(
+            VerificationQueueCacheEntity(
+                cacheKey = key,
+                dtoJson = json.encodeToString(updated),
+                updatedAt = clock(),
+            ),
+        )
+    }
+
+    override suspend fun markVerificationItemDecidedLocally(itemId: String) {
+        val trimmedItemId = itemId.trim()
+        if (trimmedItemId.isEmpty()) return
+        queueDao.getByPrefix(VERIFY_QUEUE_CACHE_PREFIX).forEach { entity ->
+            val current = readCachedJson<VerificationQueueResponseDto>(
+                json = json,
+                cacheKey = entity.cacheKey,
+                dtoJson = entity.dtoJson,
+                updatedAt = entity.updatedAt,
+                now = clock(),
+                quarantine = { queueDao.delete(it) },
+            ).data ?: return@forEach
+            val updated = current.removeItem(trimmedItemId) ?: return@forEach
+            queueDao.upsert(
+                VerificationQueueCacheEntity(
+                    cacheKey = entity.cacheKey,
+                    dtoJson = json.encodeToString(updated),
+                    updatedAt = clock(),
+                ),
+            )
+        }
     }
 
     private suspend fun VerificationQueueCacheEntity?.toResource(key: String): Resource<VerificationQueueResponseDto> {
@@ -156,10 +244,14 @@ class DefaultVerificationRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    private fun scopeKey(category: String?, limit: Int?): String = cacheKey("verify-queue", category, limit?.toString())
+    private fun scopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
+        cacheKey(VERIFY_QUEUE_CACHE_PREFIX, category, parkId, shedId, limit?.toString())
 
     private fun actionScopeKey(category: String?, limit: Int?): String =
-        cacheKey("verification-action-queue", category, limit?.toString())
+        actionScopeKey(category, null, null, limit)
+
+    private fun actionScopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
+        cacheKey("verification-action-queue", category, parkId, shedId, limit?.toString())
 }
 
 class VerificationQueueCursorException(message: String) : IllegalStateException(message)
@@ -177,4 +269,20 @@ internal fun mergeVerificationQueuePage(
         .distinctBy { it.itemId }
         .takeLast(MAX_CACHED_VERIFICATION_QUEUE_ITEMS)
     return page.copy(items = boundedItems)
+}
+
+private const val VERIFY_QUEUE_CACHE_PREFIX = "verify-queue"
+
+private fun VerificationQueueResponseDto.removeItem(itemId: String): VerificationQueueResponseDto? {
+    if (items.none { it.itemId == itemId }) return null
+    val remaining = items.filterNot { it.itemId == itemId }
+    val remainingParkIds = remaining.mapNotNull { it.parkId }.toSet()
+    val remainingShedIds = remaining.mapNotNull { it.shedId }.toSet()
+    return copy(
+        items = remaining,
+        filterOptions = filterOptions.copy(
+            parks = filterOptions.parks.orEmpty().filter { it.id in remainingParkIds },
+            sheds = filterOptions.sheds.orEmpty().filter { it.id in remainingShedIds },
+        ),
+    )
 }

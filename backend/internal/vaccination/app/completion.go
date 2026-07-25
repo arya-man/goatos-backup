@@ -304,6 +304,53 @@ func (s *CompletionService) ApplyGoatVerification(
 	return nil
 }
 
+// ApplySubmissionVerification applies one shed-submission verification outcome to every vaccine
+// completion materialized by that SOP submission. This matches the vaccination SOP proof grain
+// when proof is configured as video-per-shed: one reviewed shed video covers the full scanned
+// roster, while vaccination_completions remain per-goat clinical facts.
+func (s *CompletionService) ApplySubmissionVerification(
+	ctx context.Context,
+	tenantID, submissionID, outcome, reason string,
+	actorID *string,
+) ([]string, error) {
+	completions, err := s.vacc.SubmissionCompletions(ctx, tenantID, submissionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(completions) == 0 {
+		return nil, domain.ErrCompletionNotOpen
+	}
+	goatIDs := make([]string, 0, len(completions))
+	seenGoats := map[string]struct{}{}
+	for _, completion := range completions {
+		if completion.GoatID != "" {
+			if _, ok := seenGoats[completion.GoatID]; !ok {
+				seenGoats[completion.GoatID] = struct{}{}
+				goatIDs = append(goatIDs, completion.GoatID)
+			}
+		}
+		switch outcome {
+		case "closed":
+			result, err := s.AcceptExisting(ctx, AcceptExistingInput{
+				TenantID:     tenantID,
+				CompletionID: completion.CompletionID,
+				VerifiedBy:   actorID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if result.CompletionID == "" {
+				return nil, domain.ErrCompletionNotOpen
+			}
+		case "rejected":
+			if _, err := s.RejectExisting(ctx, tenantID, completion.CompletionID, reason, actorID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return goatIDs, nil
+}
+
 // consume consumes the goat's reserved dose for a drive batch. No-op when stock is not wired, the
 // completion was not part of a drive (no batch/lot), or doses is zero.
 func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotID, obligationID, goatID string, doses *int32) error {

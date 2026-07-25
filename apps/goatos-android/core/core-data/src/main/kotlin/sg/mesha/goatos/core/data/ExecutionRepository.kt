@@ -52,6 +52,7 @@ interface ExecutionRepository {
         openOnly: Boolean? = null,
         limit: Int? = null,
         cursor: String? = null,
+        includeFilterOptions: Boolean = false,
     ): VaccinationExecutionResponseDto
 
     /** Cache-first stream for this filter scope: emits immediately with whatever Room has
@@ -63,6 +64,7 @@ interface ExecutionRepository {
         dueBefore: String? = null,
         openOnly: Boolean? = null,
         limit: Int? = null,
+        includeFilterOptions: Boolean = false,
     ): Flow<Resource<VaccinationExecutionResponseDto>>
 
     /** Fetches and upserts Room on success; on failure returns the failure and leaves the
@@ -74,6 +76,7 @@ interface ExecutionRepository {
         dueBefore: String? = null,
         openOnly: Boolean? = null,
         limit: Int? = null,
+        includeFilterOptions: Boolean = false,
     ): Result<Unit>
 
     /** Appends the next execution page into the same Room-backed first-page scope. */
@@ -85,6 +88,7 @@ interface ExecutionRepository {
         dueBefore: String? = null,
         openOnly: Boolean? = null,
         limit: Int? = null,
+        includeFilterOptions: Boolean = false,
     ): Result<Unit>
 
     suspend fun shed(
@@ -177,8 +181,9 @@ class DefaultExecutionRepository(
         openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto =
-        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
+        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions)
 
     override fun observeRows(
         parkId: String?,
@@ -187,8 +192,9 @@ class DefaultExecutionRepository(
         dueBefore: String?,
         openOnly: Boolean?,
         limit: Int?,
+        includeFilterOptions: Boolean,
     ): Flow<Resource<VaccinationExecutionResponseDto>> {
-        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
         return rowsDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
@@ -201,9 +207,10 @@ class DefaultExecutionRepository(
         dueBefore: String?,
         openOnly: Boolean?,
         limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = runCatching {
-        val dto = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor = null)
-        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
+        val dto = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor = null, includeFilterOptions = includeFilterOptions)
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
         rowsDao.upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         rowsDao.enforceCacheBounds()
     }
@@ -216,9 +223,10 @@ class DefaultExecutionRepository(
         dueBefore: String?,
         openOnly: Boolean?,
         limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = runCatching {
         rowsAppendMutex.withLock {
-            val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
+            val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), includeFilterOptions.toString(), limit?.toString())
             val currentEntity = rowsDao.get(key)
             val current = readCachedJson<VaccinationExecutionResponseDto>(
                 json = json,
@@ -231,7 +239,7 @@ class DefaultExecutionRepository(
             if (current.nextCursor != cursor) {
                 throw ExecutionRowsCursorException("execution cursor is stale or belongs to another filter")
             }
-            val page = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
+            val page = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions = false)
             if (page.nextCursor == cursor) {
                 throw ExecutionRowsCursorException("execution backend returned a non-advancing cursor")
             }
@@ -460,6 +468,7 @@ internal fun mergeExecutionRowsPage(
     page: VaccinationExecutionResponseDto,
 ): VaccinationExecutionResponseDto = page.copy(
     totalCount = maxOf(current.totalCount, page.totalCount),
+    filterOptions = current.filterOptions ?: page.filterOptions,
     rows = (current.rows + page.rows).distinctBy { row -> // mobile-guard:ignore: cursor-gated single-page append into a TTL+row/byte-capped blob (enforceCacheBounds)
         listOf(
             row.parkId,

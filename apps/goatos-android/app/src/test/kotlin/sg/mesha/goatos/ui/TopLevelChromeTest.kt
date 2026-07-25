@@ -47,6 +47,14 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `optional query route pattern keeps root chrome`() {
+        val closerRoots = roots + Routes.VERIFY_ACTION
+
+        assertTrue(isTopLevelRoute("${Routes.VERIFY_ACTION}?actionMode={actionMode}", closerRoots))
+        assertFalse(isTopLevelRoute("${Routes.VERIFY_ACTION_DETAIL}?itemId={itemId}", closerRoots))
+    }
+
+    @Test
     fun `calendar drill fallback always opens a hosted child`() {
         assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(null))
         assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(""))

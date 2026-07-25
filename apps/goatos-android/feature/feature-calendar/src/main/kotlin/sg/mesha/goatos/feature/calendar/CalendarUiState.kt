@@ -89,6 +89,7 @@ data class CalendarItem(
     val dateKey: String? = null,
     val parkLabel: String = "",
     val parkId: String? = null,
+    val assigneeLabel: String? = null,
     /** Park-level drive progress card content (v4); see [CalendarDriveSummary]. */
     val driveSummary: CalendarDriveSummary? = null,
     val statusLabel: String,
@@ -196,6 +197,7 @@ data class CalendarUiState(
     val monthWeekdayLabels: List<String> = emptyList(),
     val monthDays: List<CalendarMonthDay> = emptyList(),
     val monthHint: String = "",
+    val monthFallbackItems: List<CalendarItem> = emptyList(),
     val monthFilters: CalendarMonthFilters = CalendarMonthFilters(year = 2026, month = 1),
     val monthFilterOptions: CalendarMonthFilterOptions = CalendarMonthFilterOptions(),
     val monthEmptyLabel: String = "",

@@ -63,6 +63,10 @@ object MeshaIcons {
         "refresh",
         "M4 11a8 8 0 0 1 13.5-5L20 8M20 13a8 8 0 0 1 -13.5 5L4 16M20 4v4h-4M4 20v-4h4",
     )
+    val Filter: ImageVector = strokeIcon(
+        "filter",
+        "M4 6h16M7 12h10M10 18h4",
+    )
     val Download: ImageVector = strokeIcon(
         "download",
         "M12 4v10M8 11l4 4 4-4M5 19h14",
@@ -78,6 +82,12 @@ object MeshaIcons {
         "checkcircle",
         "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
         "M8 12.2l2.8 2.8L16 9.8",
+    )
+    val ClipboardCheck: ImageVector = strokeIcon(
+        "clipboardcheck",
+        "M9 4h6l1 2h2a2 2 0 0 1 2 2v10.5a2 2 0 0 1 -2 2H6a2 2 0 0 1 -2 -2V8a2 2 0 0 1 2 -2h2z",
+        "M9 4.5h6",
+        "M8 13l2.5 2.5L16 10",
     )
     val Bluetooth: ImageVector = strokeIcon("bt", "M7 7.5 17 17l-5 4V3l5 4L7 16.5")
     val Logout: ImageVector = strokeIcon("logout", "M15 4h4v16h-4M11 8l-4 4 4 4M7 12h9")
@@ -120,6 +130,10 @@ object MeshaIcons {
         "M2.5 12S6 5.5 12 5.5c2 0 3.7.6 5.1 1.4M21.5 12S18 18.5 12 18.5c-2 0-3.7-.6-5.1-1.4",
         "M9.5 9.5a2.5 2.5 0 0 0 3.5 3.5",
         "M4 4l16 16",
+    )
+    val Expand: ImageVector = strokeIcon(
+        "expand",
+        "M8.5 4H4v4.5M4 4l6 6M15.5 4H20v4.5M20 4l-6 6M8.5 20H4v-4.5M4 20l6-6M15.5 20H20v-4.5M20 20l-6-6",
     )
     val Feed: ImageVector = strokeIcon(
         "feed",
@@ -180,6 +194,8 @@ object MeshaIcons {
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
         "approval", "approvals" -> CheckCircle
+        "videos" -> Video
+        "close" -> Video
         // Declared-but-unbuilt modules the backend advertises as "soon".
         "feed_direction" -> Feed
         "breeding" -> Goat

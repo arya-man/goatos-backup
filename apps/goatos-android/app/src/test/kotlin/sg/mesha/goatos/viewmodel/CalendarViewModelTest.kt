@@ -177,6 +177,28 @@ class CalendarViewModelTest {
     }
 
     @Test
+    fun `calendar hides vaccination matrix config name from category chip`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            vaccineName = "Preventive Care Vaccination Matrix",
+        ).toCalendarItem()
+
+        assertNull(item.categoryLabel)
+    }
+
+    @Test
+    fun `calendar hides meaningless time chip for vaccination operational rows`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            dueAt = "2026-07-25T09:00:00+05:30",
+        ).toCalendarItem()
+
+        assertEquals("", item.timeLabel)
+    }
+
+    @Test
     fun `cold cache with failed refresh surfaces an explicit error instead of a blank screen`() = runTest(dispatcher) {
         val repo = FailingColdCalendarRepository()
         val vm = CalendarViewModel(repo = repo, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter())

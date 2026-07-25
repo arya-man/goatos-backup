@@ -90,6 +90,19 @@ data class VaccinationExecutionResponseDto(
     // Backend-owned "vaccines to carry" totals, per business day, over the WHOLE day (not the
     // paginated page). The client renders these verbatim — it never sums shed rows.
     @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,
+    @SerialName("filterOptions") val filterOptions: ExecutionFilterOptionsDto? = null,
+)
+
+@Serializable
+data class ExecutionFilterOptionsDto(
+    @SerialName("parks") val parks: List<ExecutionParkOptionDto> = emptyList(),
+)
+
+@Serializable
+data class ExecutionParkOptionDto(
+    @SerialName("parkId") val parkId: String = "",
+    @SerialName("code") val code: String = "",
+    @SerialName("name") val name: String = "",
 )
 
 @Serializable

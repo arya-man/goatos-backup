@@ -147,7 +147,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -267,6 +268,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 	ceoVaccinationWant := []domain.BootstrapNavigationItem{
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -298,6 +300,20 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify"},
+				{Key: "you", Label: "You", Href: "/you"},
+			},
+		},
+		{
+			name: "pc director with verifier permission keeps director vaccination bar",
+			grants: []domain.GrantSummary{
+				grantWithRole(permissions.RolePCDirector),
+				grantWithRole(permissions.RoleVerifier),
+			},
+			modules: []string{"vaccination"},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+				{Key: "videos", Label: "Videos", Href: "/verify/action"},
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -469,14 +485,11 @@ func TestBootstrapNavComposition(t *testing.T) {
 
 	t.Run("preventive care leader keeps field vaccination bar", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
-		if len(nav) != 3 {
-			t.Fatalf("pc leader nav length=%d want 3 (drives + alerts + you)", len(nav))
+		if len(nav) != 4 {
+			t.Fatalf("pc leader nav length=%d want 4 (calendar + videos + alerts + you)", len(nav))
 		}
-		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
-			t.Fatalf("first nav item=%#v want operator-style Drives at /vaccination", nav[0])
-		}
-		if nav[1].Key != "alerts" || nav[2].Key != "you" {
-			t.Fatalf("pc leader nav should have alerts and you after drives; got %v", []string{nav[1].Key, nav[2].Key})
+		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "alerts" || nav[3].Key != "you" {
+			t.Fatalf("pc leader nav should have calendar, videos, alerts, you; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key})
 		}
 	})
 

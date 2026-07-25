@@ -51,6 +51,7 @@ type verificationCompletionService interface {
 	AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error)
 	RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (RejectResult, error)
 	ApplyGoatVerification(ctx context.Context, tenantID, submissionID, goatID, outcome, reason string, actorID *string) error
+	ApplySubmissionVerification(ctx context.Context, tenantID, submissionID, outcome, reason string, actorID *string) ([]string, error)
 }
 
 // VerificationClosureProjector is the SOP-owned terminal-state projection invoked only after the
@@ -121,8 +122,7 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 			return err
 		}
 	}
-	if p.Source.Module != "vaccination" || p.Source.RefType != "vaccination_goat" ||
-		p.Source.SubmissionID == "" || p.Source.RefID == "" {
+	if p.Source.Module != "vaccination" || p.Source.SubmissionID == "" {
 		return nil
 	}
 	outcome := "rejected"
@@ -135,19 +135,44 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 	if actor != "" {
 		actorID = &actor
 	}
-	if err := h.completion.ApplyGoatVerification(
-		ctx,
-		e.TenantID,
-		p.Source.SubmissionID,
-		p.Source.RefID,
-		outcome,
-		p.Reason,
-		actorID,
-	); err != nil {
-		return err
-	}
-	if e.Type == EventGenericVerificationClosed && h.closure != nil {
-		return h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, p.Source.RefID, actor)
+	switch p.Source.RefType {
+	case "vaccination_goat":
+		if p.Source.RefID == "" {
+			return nil
+		}
+		if err := h.completion.ApplyGoatVerification(
+			ctx,
+			e.TenantID,
+			p.Source.SubmissionID,
+			p.Source.RefID,
+			outcome,
+			p.Reason,
+			actorID,
+		); err != nil {
+			return err
+		}
+		if e.Type == EventGenericVerificationClosed && h.closure != nil {
+			return h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, p.Source.RefID, actor)
+		}
+	case "sop_submission":
+		goatIDs, err := h.completion.ApplySubmissionVerification(
+			ctx,
+			e.TenantID,
+			p.Source.SubmissionID,
+			outcome,
+			p.Reason,
+			actorID,
+		)
+		if err != nil {
+			return err
+		}
+		if e.Type == EventGenericVerificationClosed && h.closure != nil {
+			for _, goatID := range goatIDs {
+				if err := h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, goatID, actor); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
