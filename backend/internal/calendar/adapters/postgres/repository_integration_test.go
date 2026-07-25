@@ -574,6 +574,49 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, canceledBatch); e
 	}
 }
 
+func TestCalendarListDoesNotDuplicateBatchBackedSOPTasks(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-00000000d101"
+	versionID := "86000000-0000-4000-8000-00000000d102"
+	ruleID := "86000000-0000-4000-8000-00000000d103"
+	obligationOne := "86000000-0000-4000-8000-00000000d104"
+	obligationTwo := "86000000-0000-4000-8000-00000000d105"
+	batchOne := "86000000-0000-4000-8000-00000000d106"
+	batchTwo := "86000000-0000-4000-8000-00000000d107"
+	sopID := "86000000-0000-4000-8000-00000000d108"
+	sopVersionID := "86000000-0000-4000-8000-00000000d109"
+	taskOne := "86000000-0000-4000-8000-00000000d110"
+	taskTwo := "86000000-0000-4000-8000-00000000d111"
+	dueAt := time.Date(2026, 7, 25, 6, 0, 0, 0, time.UTC)
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationOne, dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationTwo, dueAt.Add(time.Minute))
+	seedVaccinationBatchForShed(t, ctx, pool, batchOne, versionID, testParkA, testShedA, dueAt, obligationOne)
+	seedVaccinationBatchForShed(t, ctx, pool, batchTwo, versionID, testParkA, testShedB, dueAt.Add(time.Minute), obligationTwo)
+	seedCalendarSOPTask(t, ctx, pool, sopID, sopVersionID, taskOne, testShedA, dueAt, batchOne)
+	seedCalendarSOPTask(t, ctx, pool, sopID, sopVersionID, taskTwo, testShedB, dueAt.Add(time.Minute), batchTwo)
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-24 * time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	wantID := parkDriveEventID(testParkA, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantID {
+		t.Fatalf("list items=%#v, want only park-drive %s", list.Items, wantID)
+	}
+}
+
 func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -2678,6 +2721,41 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 			testTenantID, obligationID, batchID); err != nil {
 			t.Fatalf("attach obligation %s to park batch: %v", obligationID, err)
 		}
+	}
+}
+
+func seedCalendarSOPTask(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sopID, sopVersionID, taskID, shedID string, dueAt time.Time, batchID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+VALUES ($1::uuid, $2::uuid, 'calendar.batch.task', 'Calendar batch task', 'active')
+ON CONFLICT (sop_id) DO NOTHING`, sopID, testTenantID); err != nil {
+		t.Fatalf("seed calendar sop definition: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (sop_version_id) DO NOTHING`, sopVersionID, testTenantID, sopID); err != nil {
+		t.Fatalf("seed calendar sop version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sop_tasks (
+  task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, due_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Godel shed vaccination', 'needs_review', 'shed', $5::uuid, $6::timestamptz
+)
+ON CONFLICT (task_id) DO UPDATE
+SET state = 'needs_review',
+    due_at = EXCLUDED.due_at,
+    updated_at = now()`, taskID, testTenantID, sopID, sopVersionID, shedID, dueAt); err != nil {
+		t.Fatalf("seed calendar sop task: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET sop_task_id = $3::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, batchID, taskID); err != nil {
+		t.Fatalf("attach calendar sop task to batch: %v", err)
 	}
 }
 

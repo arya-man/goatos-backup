@@ -77,7 +77,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},  //nav-composition:ignore: registry entry
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},      //nav-composition:ignore: registry entry
-			{key: "close", labelKey: "nav.close", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},              //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},            //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -456,7 +456,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "Birth/Death",
 		"nav.shifting":    "Shifting",
 		"nav.approval":    "Approval",
-		"nav.close":       "Close",
+		"nav.videos":      "Videos",
 		"nav.you":         "You",
 
 		"module.verification":   "Verification",
@@ -478,7 +478,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "जन्म/मृत्यु",
 		"nav.shifting":    "शिफ्टिंग",
 		"nav.approval":    "अनुमोदन",
-		"nav.close":       "बंद करें",
+		"nav.videos":      "वीडियो",
 		"nav.you":         "आप",
 
 		"module.verification":   "सत्यापन",
@@ -500,7 +500,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "ಜನನ/ಮರಣ",
 		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
 		"nav.approval":    "ಅನುಮೋದನೆ",
-		"nav.close":       "ಮುಚ್ಚಿ",
+		"nav.videos":      "ವೀಡಿಯೊಗಳು",
 		"nav.you":         "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
@@ -522,7 +522,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "జననం/మరణం",
 		"nav.shifting":    "షిఫ్టింగ్",
 		"nav.approval":    "ఆమోదం",
-		"nav.close":       "ముగించు",
+		"nav.videos":      "వీడియోలు",
 		"nav.you":         "మీరు",
 
 		"module.verification":   "ధృవీకరణ",

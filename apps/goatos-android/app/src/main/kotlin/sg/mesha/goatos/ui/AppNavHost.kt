@@ -765,7 +765,7 @@ fun AppNavHost(
         composable(
             route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
             arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false }),
-        ) {
+        ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             VerifyQueueScreen(
@@ -783,7 +783,7 @@ fun AppNavHost(
         composable(
             route = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
             arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true }),
-        ) {
+        ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             VerifyQueueScreen(
@@ -810,6 +810,11 @@ fun AppNavHost(
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.autoCloseAfterDecision) {
+                if (state.autoCloseAfterDecision) {
+                    navController.popBackStack()
+                }
+            }
             VerifyDetailScreen(
                 state = state,
                 onEvent = { event ->
@@ -833,6 +838,11 @@ fun AppNavHost(
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.autoCloseAfterDecision) {
+                if (state.autoCloseAfterDecision) {
+                    navController.popBackStack()
+                }
+            }
             VerifyDetailScreen(
                 state = state,
                 onEvent = { event ->

@@ -270,7 +270,7 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
-func TestCloseSubmissionAcceptsVaccinationCompletions_RealPostgres(t *testing.T) {
+func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -340,25 +340,48 @@ func TestCloseSubmissionAcceptsVaccinationCompletions_RealPostgres(t *testing.T)
 	}); err != nil {
 		t.Fatalf("RecordVerdict: %v", err)
 	}
-	if _, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
-		TenantID: tenantID, SubmissionID: submissionID, ActorID: actorID,
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 || closures[0].BatchID != batchID || !closures[0].Ready {
+		t.Fatalf("closures=%+v, want ready batch %s", closures, batchID)
+	}
+	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
+		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
 	}); err != nil {
-		t.Fatalf("CloseSubmission: %v", err)
+		t.Fatalf("CloseVaccinationBatch: %v", err)
 	}
 
-	var completionStatus, obligationStatus, batchStatus string
+	var completionStatus, obligationStatus, batchStatus, submissionItemState, submissionState, taskState string
 	if err := pool.QueryRow(ctx, `
-SELECT vc.status, oi.status, ob.status
+SELECT vc.status, oi.status, ob.status, si.state, ss.state, st.state
 FROM vaccination_completions vc
 JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
 JOIN obligation_batches ob ON ob.tenant_id = vc.tenant_id AND ob.batch_id = vc.batch_id
+JOIN sop_submission_items si ON si.tenant_id = vc.tenant_id AND si.item_id = vc.sop_submission_item_id
+JOIN sop_submissions ss ON ss.tenant_id = si.tenant_id AND ss.submission_id = si.submission_id
+JOIN sop_tasks st ON st.tenant_id = si.tenant_id AND st.task_id = si.task_id
 WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
-		tenantID, completionID).Scan(&completionStatus, &obligationStatus, &batchStatus); err != nil {
+		tenantID, completionID).Scan(
+		&completionStatus,
+		&obligationStatus,
+		&batchStatus,
+		&submissionItemState,
+		&submissionState,
+		&taskState,
+	); err != nil {
 		t.Fatalf("read accepted completion state: %v", err)
 	}
 	if completionStatus != "accepted" || obligationStatus != "completed" || batchStatus != "completed" {
 		t.Fatalf("states completion/obligation/batch = %s/%s/%s, want accepted/completed/completed",
 			completionStatus, obligationStatus, batchStatus)
+	}
+	if submissionItemState != "accepted" || submissionState != "accepted" || taskState != "accepted" {
+		t.Fatalf("states submission_item/submission/task = %s/%s/%s, want accepted/accepted/accepted",
+			submissionItemState, submissionState, taskState)
 	}
 	var outboxCount int
 	if err := pool.QueryRow(ctx, `

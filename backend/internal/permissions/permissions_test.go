@@ -235,6 +235,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/admin/roster/vaccination-owner"},
 		{"GET", "/verification/queue"},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict"},
+		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close"},
 	}
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {
@@ -432,9 +433,14 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		method      string
 		path        string
 		operationID string
+		permission  string
 	}{
-		{"GET", "/verification/queue", "listVerificationQueue"},
-		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict"},
+		{"GET", "/verification/queue", "listVerificationQueue", VerificationReview},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationReview},
+		{"GET", "/verification/action-queue", "listVerificationActionQueue", VerificationAct},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
+		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
+		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close", "closeVaccinationBatch", VerificationAct},
 	} {
 		route, ok := Match(item.method, item.path)
 		if !ok {
@@ -443,8 +449,8 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		if route.OperationID != item.operationID {
 			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != VerificationReview {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, VerificationReview)
+		if len(route.Permissions) != 1 || route.Permissions[0] != item.permission {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, item.permission)
 		}
 	}
 }

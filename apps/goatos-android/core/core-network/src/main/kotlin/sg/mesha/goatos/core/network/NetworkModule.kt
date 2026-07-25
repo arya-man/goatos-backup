@@ -268,6 +268,8 @@ interface AppApiService {
     @GET("verification/queue")
     suspend fun listVerificationQueue(
         @Query("category") category: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): VerificationQueueResponseDto
@@ -275,6 +277,8 @@ interface AppApiService {
     @GET("verification/action-queue")
     suspend fun listVerificationActionQueue(
         @Query("category") category: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): VerificationQueueResponseDto
@@ -296,6 +300,12 @@ interface AppApiService {
     @POST("verification/submissions/{submission_id}/close")
     suspend fun closeVerificationSubmission(
         @Path("submission_id") submissionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto
+
+    @POST("verification/vaccination-batches/{batch_id}/close")
+    suspend fun closeVaccinationBatch(
+        @Path("batch_id") batchId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
     @GET("herd-register/summary")
@@ -593,15 +603,19 @@ class RetrofitAppApi(
 
     override suspend fun listVerificationQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationQueue(category, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationQueue(category, parkId, shedId, cursor, limit)
 
     override suspend fun listVerificationActionQueue(
         category: String?,
+        parkId: String?,
+        shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationActionQueue(category, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationActionQueue(category, parkId, shedId, cursor, limit)
 
     override suspend fun submitVerificationVerdict(
         itemId: String,
@@ -620,6 +634,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto =
         service.closeVerificationSubmission(submissionId, idempotencyKey)
+
+    override suspend fun closeVaccinationBatch(
+        batchId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto =
+        service.closeVaccinationBatch(batchId, idempotencyKey)
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,

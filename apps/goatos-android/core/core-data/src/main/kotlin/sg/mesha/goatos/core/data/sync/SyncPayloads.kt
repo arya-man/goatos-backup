@@ -101,6 +101,11 @@ data class VerificationCloseSubmissionPayload(
     @SerialName("submission_id") val submissionId: String,
 )
 
+@Serializable
+data class VerificationCloseBatchPayload(
+    @SerialName("batch_id") val batchId: String,
+)
+
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_SHIFTING].
  *  An operator-reported movement between sheds. The destination shed is the outbox GROUP KEY, so
  *  two movements into the same shed drain strictly in the order they were recorded. */

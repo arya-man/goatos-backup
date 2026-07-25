@@ -81,8 +81,37 @@ data class VerificationQueueItem(
 @Serializable
 data class VerificationQueueResponseDto(
     @SerialName("items") val items: List<VerificationQueueItem> = emptyList(),
+    @SerialName("filter_options") val filterOptions: VerificationFilterOptionsDto = VerificationFilterOptionsDto(),
+    @SerialName("drive_closures") val driveClosures: List<VerificationDriveClosureDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String = "",
+)
+
+@Serializable
+data class VerificationFilterOptionsDto(
+    @SerialName("parks") val parks: List<VerificationLocationOptionDto> = emptyList(),
+    @SerialName("sheds") val sheds: List<VerificationLocationOptionDto> = emptyList(),
+)
+
+@Serializable
+data class VerificationLocationOptionDto(
+    @SerialName("id") val id: String = "",
+    @SerialName("label") val label: String = "",
+)
+
+@Serializable
+data class VerificationDriveClosureDto(
+    @SerialName("batch_id") val batchId: String = "",
+    @SerialName("total_count") val totalCount: Int = 0,
+    @SerialName("approved_count") val approvedCount: Int = 0,
+    @SerialName("rejected_count") val rejectedCount: Int = 0,
+    @SerialName("pending_count") val pendingCount: Int = 0,
+    @SerialName("video_count") val videoCount: Int = 0,
+    @SerialName("approved_videos") val approvedVideos: Int = 0,
+    @SerialName("rejected_videos") val rejectedVideos: Int = 0,
+    @SerialName("pending_videos") val pendingVideos: Int = 0,
+    @SerialName("shed_count") val shedCount: Int = 0,
+    @SerialName("ready") val ready: Boolean = false,
 )
 
 /** Request body for POST /verification/items/{item_id}/verdict. [reason] is mandatory for a

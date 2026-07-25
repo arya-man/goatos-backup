@@ -510,13 +510,14 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
     val target = routeTarget()
     val scheduleDate = currentScheduleDate
     val localDate = parseLocalDate(scheduleDate)
+    val operationalVaccinationEvent = eventType.startsWith("vaccination_")
     return CalendarItem(
         id = eventId,
         title = title,
         subtitle = subtitle,
         aggregated = aggregated,
         allDay = allDay,
-        timeLabel = if (allDay) "" else calendarTimeLabel(scheduleDate),
+        timeLabel = if (allDay || operationalVaccinationEvent) "" else calendarTimeLabel(scheduleDate),
         summaryPrimary = summaryPrimary,
         summarySecondary = summarySecondary,
         shedCount = shedCount,
@@ -534,10 +535,22 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         driveSummary = driveSummary?.toCalendarDriveSummary(),
         statusLabel = status,
         statusTone = calendarTone(),
-        categoryLabel = vaccineName,
+        categoryLabel = calendarCategoryLabel(vaccineName),
         ctaLabel = if (target != null) "Open" else null,
         target = target,
     )
+}
+
+internal fun calendarCategoryLabel(raw: String?): String? {
+    val label = raw?.trim().orEmpty()
+    if (label.isBlank()) return null
+    val normalized = label.lowercase(Locale.ENGLISH)
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+    if (normalized == "preventive care vaccination matrix" || normalized == "vaccination matrix") {
+        return null
+    }
+    return label
 }
 
 private fun CalendarFilterOptionsDto.toUi(): CalendarMonthFilterOptions = CalendarMonthFilterOptions(

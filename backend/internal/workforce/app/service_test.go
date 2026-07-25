@@ -149,7 +149,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-		{Key: "close", Label: "Close", Href: "/verify/action"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -269,7 +269,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 	ceoVaccinationWant := []domain.BootstrapNavigationItem{
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-		{Key: "close", Label: "Close", Href: "/verify/action"},
+		{Key: "videos", Label: "Videos", Href: "/verify/action"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -314,7 +314,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-				{Key: "close", Label: "Close", Href: "/verify/action"},
+				{Key: "videos", Label: "Videos", Href: "/verify/action"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -493,8 +493,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want operator-style Drives at /vaccination", nav[0])
 		}
-		if nav[1].Key != "calendar" || nav[2].Key != "close" || nav[3].Key != "alerts" || nav[4].Key != "you" {
-			t.Fatalf("pc leader nav should have calendar, close, alerts, you after drives; got %v", []string{nav[1].Key, nav[2].Key, nav[3].Key, nav[4].Key})
+		if nav[1].Key != "calendar" || nav[2].Key != "videos" || nav[3].Key != "alerts" || nav[4].Key != "you" {
+			t.Fatalf("pc leader nav should have calendar, videos, alerts, you after drives; got %v", []string{nav[1].Key, nav[2].Key, nav[3].Key, nav[4].Key})
 		}
 	})
 

@@ -79,6 +79,12 @@ object MeshaIcons {
         "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
         "M8 12.2l2.8 2.8L16 9.8",
     )
+    val ClipboardCheck: ImageVector = strokeIcon(
+        "clipboardcheck",
+        "M9 4h6l1 2h2a2 2 0 0 1 2 2v10.5a2 2 0 0 1 -2 2H6a2 2 0 0 1 -2 -2V8a2 2 0 0 1 2 -2h2z",
+        "M9 4.5h6",
+        "M8 13l2.5 2.5L16 10",
+    )
     val Bluetooth: ImageVector = strokeIcon("bt", "M7 7.5 17 17l-5 4V3l5 4L7 16.5")
     val Logout: ImageVector = strokeIcon("logout", "M15 4h4v16h-4M11 8l-4 4 4 4M7 12h9")
     val Globe: ImageVector = strokeIcon(
@@ -183,7 +189,9 @@ object MeshaIcons {
         "birth_death", "birth", "death" -> ArrowUpDown
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
-        "approval", "approvals", "close" -> CheckCircle
+        "approval", "approvals" -> CheckCircle
+        "videos" -> Video
+        "close" -> Video
         // Declared-but-unbuilt modules the backend advertises as "soon".
         "feed_direction" -> Feed
         "breeding" -> Goat
