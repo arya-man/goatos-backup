@@ -218,14 +218,18 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         setCapRowVersion(result.capRowVersion);
         setCapConfigError(result.capConfigError);
         if (!config) {
+          const nonBackupOps = pos.filter((p) => !p.is_backup_slot);
+          const firstNonBackupOp = nonBackupOps[0];
+          const firstNonBackupId = firstNonBackupOp?.workforce_member_id ?? '';
+
+          setAssignmentConfig(null);
+          setRowVersion(0);
+          setOperatorCount(Math.max(1, Math.min(3, nonBackupOps.length)));
           // No config authored yet: fall back to the first NON-BACKUP operator of
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
           // backup-slot default would highlight the wrong operator.
-          const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
-          if (firstNonBackupOp?.workforce_member_id) {
-            setDefaultOperator(firstNonBackupOp.workforce_member_id);
-            setSelectedOperatorIds([firstNonBackupOp.workforce_member_id]);
-          }
+          setDefaultOperator(firstNonBackupId);
+          setSelectedOperatorIds(firstNonBackupId ? [firstNonBackupId] : []);
         }
 
         // Map leaves from backend by workforce_member_id
