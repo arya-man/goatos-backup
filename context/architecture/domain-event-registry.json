@@ -331,7 +331,7 @@
     },
     {
       "eventType": "verification.vaccination_drive.ready",
-      "producer": "verification drive ready fanout",
+      "producer": "vaccination batch verifier approvals complete",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -343,6 +343,7 @@
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
+        "backend/internal/verification/adapters/postgres/repository_integration_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [
@@ -353,7 +354,7 @@
     },
     {
       "eventType": "verification.vaccination_drive.closed",
-      "producer": "verification drive closed fanout",
+      "producer": "scoped leadership vaccination batch closure",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -365,6 +366,7 @@
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
+        "backend/internal/verification/adapters/postgres/repository_integration_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [

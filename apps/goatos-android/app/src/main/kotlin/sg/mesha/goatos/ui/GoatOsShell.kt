@@ -350,8 +350,9 @@ fun GoatOsShellChrome(
 }
 
 /**
- * Only bootstrap roots own global navigation chrome. A child route must never inherit the bar from a
- * root with a similar path prefix, so membership is exact.
+ * Only bootstrap roots own global navigation chrome. A destination must match one of the exact
+ * backend-composed root hrefs to receive the bottom bar/drawer; child routes and route patterns do
+ * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
     currentRoute != null && currentRoute in topLevelRoutes

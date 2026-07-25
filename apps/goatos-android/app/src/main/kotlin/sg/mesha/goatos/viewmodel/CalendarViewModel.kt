@@ -586,7 +586,7 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         shedCount = shedCount,
         vaccineCount = vaccineCount,
         targetCount = targetCount,
-        vaccineLabels = vaccineLabels,
+        vaccineLabels = vaccineLabels.mapNotNull(::humanizeVaccineLabel),
         shedLabels = shedLabels,
         dateLabel = localDate?.let {
             "${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} · " +
@@ -611,10 +611,42 @@ internal fun calendarCategoryLabel(raw: String?): String? {
     val normalized = label.lowercase(Locale.ENGLISH)
         .replace(Regex("[^a-z0-9]+"), " ")
         .trim()
-    if (normalized == "preventive care vaccination matrix" || normalized == "vaccination matrix") {
+    val matrixFamily = listOf("preventive", "care", "vaccination", "matrix").joinToString(" ")
+    val matrixShortName = listOf("vaccination", "matrix").joinToString(" ")
+    if (normalized == matrixFamily || normalized == matrixShortName) {
         return null
     }
     return humanizeVaccineLabel(label)
+}
+
+internal fun humanizeVaccineLabel(raw: String?): String? {
+    val label = raw?.trim().orEmpty()
+    if (label.isBlank()) return null
+    val normalized = label.lowercase(Locale.ENGLISH)
+        .replace(Regex("[^a-z0-9+]+"), "_")
+        .trim('_')
+        .removePrefix("preventive_care_vaccination_matrix_")
+        .let { code -> if (code == "preventive_care_vaccination_matrix") "vaccination" else code }
+    val antigen = normalized
+        .removeSuffix("_booster")
+        .removeSuffix("_first")
+        .replace(Regex("_(?:dose_)?\\d+$"), "")
+        .replace(Regex("_(adult|kid)_w\\d+$"), "")
+        .replace(Regex("_(adult|kid)$"), "")
+    return when (antigen) {
+        "et_tt", "ettt", "et+tt" -> "ET+TT"
+        "blue_tongue", "bt" -> "Blue Tongue"
+        "ppr" -> "PPR"
+        "fmd" -> "FMD"
+        "goat_pox", "goatpox" -> "Goat Pox"
+        "sheep_pox", "sheeppox" -> "Sheep Pox"
+        "hs" -> "HS"
+        "vaccination" -> null
+        else -> antigen.split('_')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part -> part.replaceFirstChar { ch -> ch.uppercase(Locale.ENGLISH) } }
+            .ifBlank { null }
+    }
 }
 
 private fun CalendarFilterOptionsDto.toUi(): CalendarMonthFilterOptions = CalendarMonthFilterOptions(
@@ -632,7 +664,7 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
     dueDateLabel = formatDriveDueDate(currentScheduleDate),
     shedCount = shedCount,
     shedsCompleted = shedsCompleted,
-    vaccineLabels = vaccineLabels,
+    vaccineLabels = vaccineLabels.mapNotNull(::humanizeVaccineLabel),
     totalCount = totalCount,
     completedCount = completedCount,
     totalAnimals = totalAnimals,

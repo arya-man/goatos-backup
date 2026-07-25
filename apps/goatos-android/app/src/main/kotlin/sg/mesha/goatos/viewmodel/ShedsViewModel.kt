@@ -15,14 +15,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.AdherenceRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
+import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.CarryVaccine
 import sg.mesha.goatos.feature.sheds.DayCarry
+import sg.mesha.goatos.feature.sheds.ProtocolAdherenceSummary
 import sg.mesha.goatos.feature.sheds.ShedParkFilter
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
@@ -39,6 +42,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
@@ -62,6 +66,7 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 @HiltViewModel
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
+    private val adherenceRepo: AdherenceRepository,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -95,23 +100,44 @@ class ShedsViewModel @Inject constructor(
             Resource(data = null)
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val adherenceResource: StateFlow<Resource<ProtocolAdherenceResponseDto>> =
+        _selectedParkId.flatMapLatest { parkId ->
+            adherenceRepo.observeAdherence(
+                parkId = parkId,
+                asOf = workWindow.asOf,
+                dueBefore = workWindow.dueBefore,
+                limit = PAGE_LIMIT,
+            )
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource(data = null),
+        )
+
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    private val transientState = combine(
+        _selectedDay,
+        _isRefreshing,
+        _isOffline,
+        _isLoadingMore,
+    ) { selectedDay, isRefreshing, isOffline, isLoadingMore ->
+        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore)
+    }
 
     // Combines observed resource with transient flags; lifecycle-aware
     val state: StateFlow<ShedsUiState> = combine(
         observedResource,
-        _selectedDay,
-        _isRefreshing,
-        _isOffline,
-        _isLoadingMore
-    ) { resource, selectedDay, isRefreshing, isOffline, isLoadingMore ->
+        adherenceResource,
+        transientState,
+    ) { resource, adherence, transient ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !isOffline
-        val effectiveSelectedDay = dto?.effectiveSelectedDay(selectedDay) ?: selectedDay
+        val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !transient.isOffline
+        val effectiveSelectedDay = dto?.effectiveSelectedDay(transient.selectedDay) ?: transient.selectedDay
         val base = dto?.toShedsUiState(effectiveSelectedDay)
             ?: run {
                 val message = when {
@@ -120,18 +146,26 @@ class ShedsViewModel @Inject constructor(
                     } else {
                         "No sheds scheduled for ${shortDateLabel(effectiveSelectedDay)}"
                     }
-                    isOffline -> "Couldn't load vaccination drives. Pull to refresh or try again."
+                    transient.isOffline -> "Couldn't load vaccination drives. Pull to refresh or try again."
                     else -> "Loading…"
                 }
-                emptyShedsState(message, workWindow, effectiveSelectedDay)
+                emptyShedsState(
+                    message = message,
+                    window = workWindow,
+                    selectedDay = effectiveSelectedDay,
+                    readOnly = calendarHosted,
+                    hostedFromCalendar = calendarHosted,
+                )
             }
         base.copy(
-            isRefreshing = isRefreshing,
+            adherence = adherence.data?.toProtocolAdherenceSummary(),
+            hostedFromCalendar = calendarHosted,
+            isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
-            isLoadingMore = isLoadingMore,
+            isLoadingMore = transient.isLoadingMore,
             hasMore = !dto?.nextCursor.isNullOrBlank(),
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
-            isOffline = isOffline,
+            isOffline = transient.isOffline,
         )
     }.stateIn(
         viewModelScope,
@@ -156,10 +190,19 @@ class ShedsViewModel @Inject constructor(
             limit = PAGE_LIMIT,
             includeFilterOptions = true,
         )
+        val adherenceResult = adherenceRepo.refreshAdherence(
+            parkId = _selectedParkId.value,
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            limit = PAGE_LIMIT,
+        )
         _isRefreshing.value = false
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.isFailure || adherenceResult.isFailure
         result.exceptionOrNull()?.let {
             crashReporter.recordException(it, "vaccination sheds refresh failed")
+        }
+        adherenceResult.exceptionOrNull()?.let {
+            crashReporter.recordException(it, "vaccination adherence refresh failed")
         }
     }
 
@@ -320,6 +363,7 @@ class ShedsViewModel @Inject constructor(
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
+            hostedFromCalendar = calendarHosted,
             // Leadership oversight read: shed list is read-only, opening into the scan/execute
             // loop is blocked (backend-owned; operators get viewerReadOnly=false).
             canOpenShed = !viewerReadOnly,
@@ -372,6 +416,33 @@ class ShedsViewModel @Inject constructor(
 }
 
 internal data class ExecutionCounts(val target: Int, val open: Int, val done: Int)
+
+private data class ShedsTransientState(
+    val selectedDay: LocalDate,
+    val isRefreshing: Boolean,
+    val isOffline: Boolean,
+    val isLoadingMore: Boolean,
+)
+
+private fun ProtocolAdherenceResponseDto.toProtocolAdherenceSummary(): ProtocolAdherenceSummary? {
+    if (summary.expectedCount <= 0 && summary.completedCount <= 0 && summary.openGapCount <= 0) return null
+    val reviewRows = rows.filter { row ->
+        row.workState.equals("verification_pending", ignoreCase = true) ||
+            row.gap.equals("verification_pending", ignoreCase = true)
+    }
+    val reviewAnimals = reviewRows.sumOf { row ->
+        row.driveAnimalsRequired.takeIf { it > 0 } ?: row.driveAnimalsAssigned.coerceAtLeast(0)
+    }
+    val submittedCount = (summary.completedCount + reviewAnimals).coerceAtMost(summary.expectedCount)
+    return ProtocolAdherenceSummary(
+        expectedCount = summary.expectedCount,
+        submittedCount = submittedCount,
+        acceptedCount = summary.completedCount,
+        reviewItemCount = reviewRows.size,
+        deferredCount = summary.deferredCount,
+        acceptedPercent = summary.adherencePercent.roundToInt().coerceIn(0, 100),
+    )
+}
 
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
@@ -555,11 +626,15 @@ internal fun emptyShedsState(
     message: String,
     window: OperatorWorkWindow,
     selectedDay: LocalDate,
+    readOnly: Boolean = false,
+    hostedFromCalendar: Boolean = false,
 ): ShedsUiState = shedsPlaceholder(message).copy(
     title = "Next 7 days",
     date = if (selectedDay == window.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
     window = window.windowLabel,
-    dayTabs = buildOperatorDayTabs(emptyList(), window, selectedDay),
+    dayTabs = if (readOnly) emptyList() else buildOperatorDayTabs(emptyList(), window, selectedDay),
+    hostedFromCalendar = hostedFromCalendar,
+    canOpenShed = !readOnly,
 )
 
 internal fun parseExecutionDate(raw: String): LocalDate? =
