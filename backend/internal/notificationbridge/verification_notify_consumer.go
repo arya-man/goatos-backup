@@ -69,22 +69,23 @@ type verificationSource struct {
 // by that producer contract: tenant/item identity + classification + who-to-route-to
 // (operator/shed/park) + the decision/reason + the source back-reference used for legacy dedup.
 type VerificationEventPayload struct {
-	TenantID   string             `json:"tenant_id"`
-	ItemID     string             `json:"item_id"`
-	Vertical   string             `json:"vertical"`
-	Module     string             `json:"module"`
-	Category   string             `json:"category"`
-	OperatorID string             `json:"operator_id"`
-	ShedID     string             `json:"shed_id"`
-	ParkID     string             `json:"park_id"`
-	Decision   string             `json:"decision"` // "approved" | "rejected" (verdict events)
-	Status     string             `json:"status"`   // status alias kept alongside decision
-	Reason     string             `json:"reason"`   // optional rework reason
-	VerifiedBy string             `json:"verified_by"`
-	ClosedBy   string             `json:"closed_by"`
-	BatchID    string             `json:"batch_id"`
-	CapturedAt string             `json:"captured_at"`
-	Source     verificationSource `json:"source"`
+	TenantID     string             `json:"tenant_id"`
+	ItemID       string             `json:"item_id"`
+	Vertical     string             `json:"vertical"`
+	Module       string             `json:"module"`
+	Category     string             `json:"category"`
+	SubjectLabel string             `json:"subject_label"`
+	OperatorID   string             `json:"operator_id"`
+	ShedID       string             `json:"shed_id"`
+	ParkID       string             `json:"park_id"`
+	Decision     string             `json:"decision"` // "approved" | "rejected" (verdict events)
+	Status       string             `json:"status"`   // status alias kept alongside decision
+	Reason       string             `json:"reason"`   // optional rework reason
+	VerifiedBy   string             `json:"verified_by"`
+	ClosedBy     string             `json:"closed_by"`
+	BatchID      string             `json:"batch_id"`
+	CapturedAt   string             `json:"captured_at"`
+	Source       verificationSource `json:"source"`
 }
 
 // legacyHandledVaccination reports whether this item is ALSO covered by the legacy
@@ -412,14 +413,14 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve ceo recipients: %w", err)
 	}
-	recipients := dedupeQueueRecipients(
-		append(append(append(
-			toQueueRecipients(verifierDevices, "verifier"),
-			toQueueRecipients(parkHeadDevices, "park_head")...),
+	verifierRecipients := dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier"))
+	leadershipRecipients := dedupeQueueRecipients(
+		append(append(
+			toQueueRecipients(parkHeadDevices, "park_head"),
 			toQueueRecipients(directorDevices, "pc_director")...),
 			toQueueRecipients(ceoDevices, "ceo")...),
 	)
-	if len(recipients) == 0 && c.logger != nil {
+	if len(verifierRecipients)+len(leadershipRecipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_pending_notification_no_recipients",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID)
 	}
@@ -429,10 +430,52 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		eventKeySubject = "submission:" + sourceSubmissionID
 	}
 	eventKey := EventVerificationItemPending + ":" + eventKeySubject
-	body := "A proof has been submitted for your review."
-	if p.Category != "" {
-		body = "A " + p.Category + " proof has been submitted for your review."
+	animalSummary := strings.TrimSpace(p.SubjectLabel)
+	if animalSummary == "" {
+		animalSummary = "A shed"
 	}
+	verifierBody := animalSummary + " vaccinated; video is waiting for verification."
+	leadershipBody := animalSummary + " vaccinated; video verification is pending."
+	baseContext := map[string]string{
+		"type":         NotificationTypeVerificationPending,
+		"item_id":      itemID,
+		"park_id":      parkID,
+		"shed_id":      p.ShedID,
+		"category":     p.Category,
+		"subject":      animalSummary,
+		"group_key":    "verification:" + parkID + ":" + p.Category,
+		"collapse_key": "verification:" + parkID + ":" + p.Category,
+		"priority":     priorityNormal,
+	}
+	if len(verifierRecipients) > 0 {
+		verifierContext := cloneContext(baseContext)
+		verifierContext["screen"] = "verification"
+		verifierContext["target"] = "/verification/items/" + itemID
+		_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+			TenantID:         tenantID,
+			CalendarEventID:  verificationCalendarEventID(itemID),
+			TargetType:       "verification_item",
+			TargetID:         itemID,
+			NotificationType: NotificationTypeVerificationPending,
+			Channel:          channelPushFCM,
+			Priority:         priorityNormal,
+			Title:            "Video verification waiting",
+			Body:             verifierBody,
+			TraceID:          eventKey,
+			EventKey:         eventKey,
+			Context:          verifierContext,
+			Recipients:       verifierRecipients,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if len(leadershipRecipients) == 0 {
+		return nil
+	}
+	leadershipContext := cloneContext(baseContext)
+	leadershipContext["screen"] = "vaccination_overview"
+	leadershipContext["target"] = "/vaccination"
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  verificationCalendarEventID(itemID),
@@ -441,24 +484,22 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		NotificationType: NotificationTypeVerificationPending,
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "New verification request",
-		Body:             body,
+		Title:            "Vaccination video pending",
+		Body:             leadershipBody,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
-		Context: map[string]string{
-			"type":         NotificationTypeVerificationPending,
-			"screen":       "verification",
-			"item_id":      itemID,
-			"park_id":      parkID,
-			"shed_id":      p.ShedID,
-			"category":     p.Category,
-			"group_key":    "verification:" + parkID + ":" + p.Category,
-			"collapse_key": "verification:" + parkID + ":" + p.Category,
-			"priority":     priorityNormal,
-		},
-		Recipients: recipients,
+		Context:          leadershipContext,
+		Recipients:       leadershipRecipients,
 	})
 	return err
+}
+
+func cloneContext(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // handleVerdictRework notifies the operator who submitted plus leadership. LEGACY DEDUP: if this
