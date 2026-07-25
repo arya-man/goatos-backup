@@ -138,8 +138,8 @@ login-materialization defect, not a "wait for next sign-in" note.
 - Do not invent random passwords or use a shared password — use the
   `<FirstName>@2026` convention. Leadership now DO get email/password logins in
   addition to SSO (maintainer decision 2026-07-24); see
-  `docs/runbooks/stg-operator-login-credentials.md`. The maintainer sets the
-  Firebase passwords; agents do not.
+  `docs/runbooks/stg-operator-login-credentials.md`. STG reseed sets the
+  documented Firebase passwords through `make seed-stg-firebase-password-users`.
 - ALL 9 accounts (not just field users) must have an active
   `workforce_members` profile — Section 2b. Leadership profiles are the
   `auth:<uid>` rows created by `ensureLeadershipMember`; do not fabricate a

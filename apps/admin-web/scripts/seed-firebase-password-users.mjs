@@ -28,6 +28,7 @@ if (!accessToken) {
 console.log(`Target project: ${options.project}`);
 console.log(`Active gcloud account: ${activeAccount || "<unset>"}`);
 console.log(`Mode: ${options.dryRun ? "dry-run" : "write"}`);
+console.log(`Require existing users: ${options.requireExisting ? "yes" : "no"}`);
 console.log(`Reset emails: ${options.sendResetEmail ? "send" : "skip"}`);
 console.log("");
 
@@ -48,6 +49,10 @@ console.table(
 
 async function seedUser(user) {
   const existing = await lookupUser(user.email);
+  const requiredProviders = options.requiredProviders.get(user.email) || [];
+  if (existing) {
+    requireProviders(user.email, existing, requiredProviders);
+  }
   if (options.dryRun) {
     return {
       email: user.email,
@@ -60,9 +65,13 @@ async function seedUser(user) {
 
   let action = "existing";
   let account = existing;
+  if (!account && options.requireExisting) {
+    throw new Error(`${user.email} does not exist in Firebase Auth; create/link it first so its UID matches the committed backend grant seed`);
+  }
   if (!account) {
     account = await createUser(user);
     action = "created";
+    requireProviders(user.email, account, requiredProviders);
   }
 
   if (!account.emailVerified) {
@@ -87,6 +96,16 @@ async function seedUser(user) {
     emailVerified: account.emailVerified === true,
     resetEmail,
   };
+}
+
+function requireProviders(email, account, requiredProviders) {
+  if (requiredProviders.length === 0) return;
+  const actual = new Set((account.providerUserInfo || []).map((provider) => provider.providerId).filter(Boolean));
+  for (const providerID of requiredProviders) {
+    if (!actual.has(providerID)) {
+      throw new Error(`${email} is missing required Firebase provider ${providerID}; link/fix the account before seeding`);
+    }
+  }
 }
 
 async function lookupUser(email) {
@@ -193,6 +212,8 @@ function parseArgs(args) {
     dryRun: false,
     help: false,
     project: "",
+    requiredProviders: new Map(),
+    requireExisting: false,
     sendResetEmail: false,
     users: [],
   };
@@ -202,8 +223,10 @@ function parseArgs(args) {
     if (arg === "--help" || arg === "-h") parsed.help = true;
     else if (arg === "--allow-project-mismatch") parsed.allowProjectMismatch = true;
     else if (arg === "--dry-run") parsed.dryRun = true;
+    else if (arg === "--require-existing") parsed.requireExisting = true;
     else if (arg === "--send-reset-email") parsed.sendResetEmail = true;
     else if (arg === "--project") parsed.project = nextValue(args, ++index, arg);
+    else if (arg === "--require-provider") addRequiredProvider(parsed.requiredProviders, nextValue(args, ++index, arg));
     else if (arg === "--continue-url") parsed.continueUrl = nextValue(args, ++index, arg);
     else if (arg === "--email") addEmailUsers(parsed.users, nextValue(args, ++index, arg));
     else if (arg === "--user") parsed.users.push(parseUser(nextValue(args, ++index, arg)));
@@ -224,6 +247,16 @@ function parseArgs(args) {
 
   parsed.users = uniqueUsers(parsed.users);
   return parsed;
+}
+
+function addRequiredProvider(requiredProviders, value) {
+  const [rawEmail, ...providerParts] = value.split("=");
+  const email = normalizeEmail(rawEmail);
+  const providerID = providerParts.join("=").trim();
+  if (!email || !providerID) fail(`Invalid --require-provider value: ${value}`);
+  const current = requiredProviders.get(email) || [];
+  current.push(providerID);
+  requiredProviders.set(email, current);
 }
 
 function nextValue(args, index, flag) {
@@ -296,6 +329,9 @@ Options:
   --email <a,b,c>             Seed emails with display names derived from local parts.
   --send-reset-email          Send Firebase password-reset emails after seeding.
   --continue-url <url>        Optional post-reset dashboard URL.
+  --require-existing          Fail instead of creating users; use when backend grants depend on committed Firebase UIDs.
+  --require-provider <email=providerId>
+                              Fail unless an existing Firebase user has the provider, e.g. ravi@mesha.sg=google.com.
   --dry-run                   Show planned creates/updates/emails without writes.
   --allow-project-mismatch    Override active gcloud project guard.
 `);
