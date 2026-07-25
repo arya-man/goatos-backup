@@ -47,10 +47,10 @@ class TopLevelChromeTest {
     }
 
     @Test
-    fun `optional query route pattern keeps root chrome`() {
+    fun `optional query route pattern does not inherit root chrome`() {
         val closerRoots = roots + Routes.VERIFY_ACTION
 
-        assertTrue(isTopLevelRoute("${Routes.VERIFY_ACTION}?actionMode={actionMode}", closerRoots))
+        assertFalse(isTopLevelRoute("${Routes.VERIFY_ACTION}?actionMode={actionMode}", closerRoots))
         assertFalse(isTopLevelRoute("${Routes.VERIFY_ACTION_DETAIL}?itemId={itemId}", closerRoots))
     }
 

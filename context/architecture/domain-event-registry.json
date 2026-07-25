@@ -19,6 +19,8 @@
     "verification.verdict.approved",
     "verification.verdict.rework",
     "verification.item.closed",
+    "verification.vaccination_drive.ready",
+    "verification.vaccination_drive.closed",
     "obligation.missed",
     "goat.obligations_canceled",
     "obligation.rescoped",
@@ -320,6 +322,50 @@
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
         "backend/internal/vaccination/app/completion_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "verification.vaccination_drive.ready",
+      "producer": "verification drive ready fanout",
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": [
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "verification.vaccination_drive.closed",
+      "producer": "verification drive closed fanout",
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": [
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [
         "backend",

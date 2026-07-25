@@ -113,6 +113,7 @@ function isExcluded(rel) {
   if (rel.endsWith("_test.go")) return true;
   if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(rel)) return true;
   if (/Test\.kt$/.test(rel)) return true;
+  if (/^backend\/internal\/[^/]+\/adapters\/postgres\/sqlc\/schema\.sql$/.test(rel)) return true;
   if (/(^|\/)(__tests__|node_modules|build|dist|\.next|generated)\//.test(rel)) return true;
   // the guard itself carries ceo_ai fixtures in its self-test
   if (rel.endsWith("tools/agent-hooks/check-ceo-ai-core-boundary.mjs")) return true;

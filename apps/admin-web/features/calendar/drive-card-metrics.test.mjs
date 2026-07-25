@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { driveCoveragePct, driveCoverage, driveStatusChips } from "./drive-card-metrics.ts";
+import { driveClosedCoveragePct, driveCoveragePct, driveCoverage, driveStatusChips } from "./drive-card-metrics.ts";
 
 test("driveCoveragePct: rounds half-up", () => {
   // 46/77 = 59.74%, rounds to 60%
@@ -18,6 +18,12 @@ test("driveCoveragePct: rounds half-up", () => {
 test("driveCoveragePct: handles zero total", () => {
   assert.strictEqual(driveCoveragePct(0, 0), 0);
   assert.strictEqual(driveCoveragePct(5, 0), 0);
+});
+
+test("driveClosedCoveragePct: caps submitted review drives below closed completion", () => {
+  assert.strictEqual(driveClosedCoveragePct(5, 5, "verification_pending"), 99);
+  assert.strictEqual(driveClosedCoveragePct(5, 5, "completed"), 100);
+  assert.strictEqual(driveClosedCoveragePct(0, 5, "verification_pending"), 0);
 });
 
 test("driveCoverage: prefers animal counts", () => {

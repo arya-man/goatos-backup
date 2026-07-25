@@ -614,7 +614,7 @@ internal fun calendarCategoryLabel(raw: String?): String? {
     if (normalized == "preventive care vaccination matrix" || normalized == "vaccination matrix") {
         return null
     }
-    return label
+    return humanizeVaccineLabel(label)
 }
 
 private fun CalendarFilterOptionsDto.toUi(): CalendarMonthFilterOptions = CalendarMonthFilterOptions(

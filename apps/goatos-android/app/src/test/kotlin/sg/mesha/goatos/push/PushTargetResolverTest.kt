@@ -65,7 +65,7 @@ class PushTargetResolverTest {
             ),
         )
 
-        assertEquals("/verify/item?itemId=item-123&category=vaccination%20proof", route)
+        assertEquals("/verify/item?itemId=item-123&category=vaccination%20proof&actionMode=false", route)
     }
 
     @Test

@@ -714,18 +714,22 @@ private class FakeScanExecutionRepository(
 
     override suspend fun rows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?, cursor: String?,
+        includeFilterOptions: Boolean,
     ): VaccinationExecutionResponseDto = error("unused")
 
     override fun observeRows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
+        includeFilterOptions: Boolean,
     ): Flow<Resource<VaccinationExecutionResponseDto>> = error("unused")
 
     override suspend fun refreshRows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun appendRows(
         cursor: String, parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
+        includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
     override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
