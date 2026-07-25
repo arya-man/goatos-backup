@@ -307,12 +307,25 @@ WITH raw_candidates AS (
     AND ref.value ? 'proof_id'
     AND ref.value->>'proof_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 ),
-candidates AS (
+resolved AS (
   SELECT
     raw.tenant_id,
     raw.proof_id_text::uuid AS proof_id,
     raw.retention_policy,
-    raw.anchor_at
+    raw.anchor_at,
+    CASE raw.retention_policy
+      WHEN 'operational_90d' THEN raw.anchor_at + interval '90 days'
+      WHEN 'standard_1y' THEN raw.anchor_at + interval '1 year'
+      WHEN 'critical_7y' THEN raw.anchor_at + interval '7 years'
+      ELSE NULL::timestamptz
+    END AS retention_expires_at,
+    CASE raw.retention_policy
+      WHEN 'legal_hold' THEN 4
+      WHEN 'critical_7y' THEN 3
+      WHEN 'standard_1y' THEN 2
+      WHEN 'operational_90d' THEN 1
+      ELSE 0
+    END AS policy_rank
   FROM raw_candidates raw
   JOIN proof_artifacts p ON p.tenant_id = raw.tenant_id AND p.proof_id = raw.proof_id_text::uuid
   WHERE true
@@ -327,28 +340,20 @@ candidates AS (
         ELSE NULL::timestamptz
       END
     )
-  ORDER BY raw.anchor_at, raw.proof_id_text
-  LIMIT $2
 ),
-resolved AS (
-  SELECT
-    tenant_id,
-    proof_id,
-    retention_policy,
-    CASE retention_policy
-      WHEN 'operational_90d' THEN anchor_at + interval '90 days'
-      WHEN 'standard_1y' THEN anchor_at + interval '1 year'
-      WHEN 'critical_7y' THEN anchor_at + interval '7 years'
-      ELSE NULL::timestamptz
-    END AS retention_expires_at
-  FROM candidates
+deduped AS (
+  SELECT DISTINCT ON (tenant_id, proof_id)
+    tenant_id, proof_id, retention_policy, retention_expires_at
+  FROM resolved
+  ORDER BY tenant_id, proof_id, policy_rank DESC, retention_expires_at DESC NULLS FIRST, anchor_at DESC
+  LIMIT $2
 )
 UPDATE proof_artifacts p
 SET retention_policy = r.retention_policy,
     retention_expires_at = r.retention_expires_at,
     updated_at = now(),
     row_version = row_version + 1
-FROM resolved r
+FROM deduped r
 WHERE p.tenant_id = r.tenant_id
   AND p.proof_id = r.proof_id
   AND p.upload_state = 'completed'
