@@ -162,7 +162,7 @@ targets come from active `workforce_member_devices`; tenant leadership
 recipients (`ceo_internal`, `pc_director`, future CXO/director aliases) resolve
 from active role grants/profile truth, never from the single-seat
 `workforce_positions` table alone. Routine day-start/afternoon operator nudges
-stay field-scoped; the 19:30 IST due-today checkpoint includes PC director/CEO
+stay field-scoped; the 20:30 IST due-today checkpoint includes PC director/CEO
 leadership when scheduled sheds are still not submitted. Shed proof submission
 immediately notifies the park verifier(s) and leadership with role-specific
 routes: verifier to video review, leadership to Vaccination overview. Run

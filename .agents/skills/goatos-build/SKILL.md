@@ -215,7 +215,7 @@ integrity: was the expected process followed, where broken, who owns next action
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
 For vaccination FCM, do not stop at "an alert exists": each rule must name its
 trigger, audience source, cadence/SLA, message summary, and tap route. Routine
-day-start/afternoon nudges are field-scoped; the 19:30 IST due-today checkpoint
+day-start/afternoon nudges are field-scoped; the 20:30 IST due-today checkpoint
 adds PC director/CEO leadership only when scheduled sheds are still not
 submitted. Proof submission sends role-specific rows: verifier devices deep-link
 to video review, leadership devices deep-link to Vaccination overview. Run
