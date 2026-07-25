@@ -265,7 +265,7 @@ The CPT seed must satisfy the STG login seed contract:
 The roster owns field operator/director identity. STG seed must also verify
 Firebase email/password and backend role binding for them. The roster also owns
 the CPT verifier login grant for Jyothi: `jyothipvg12345@gmail.com`,
-role `verifier`, Firebase email/password `Jyothi@2025`, no vaccination
+role `verifier`, Firebase email/password `Jyothi@2026`, no vaccination
 operator capacity.
 
 ## Canonical STG Personnel Rule (10 people total)
@@ -275,16 +275,16 @@ Canonical source: `docs/runbooks/stg-login-seed-contract.md`.
 10 STG people total: **5 Mesha leadership (Google SSO and Firebase
 email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
 (Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
-(Firebase email/password, password `Jyothi@2025`)**.
+(Firebase email/password, password `Jyothi@2026`)**.
 
 | Person | Auth | Role | Adds vaccination capacity? |
 |---|---|---|---|
 | Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
 | Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
 | Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
-| Chandrakant | Firebase `Chandra@2026` | **director** | **no** |
+| Chandrakant | Firebase `Chandrakant@2026` | **director** | **no** |
 | 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
-| Jyothi | Firebase `Jyothi@2025` | **verifier** | **no** |
+| Jyothi | Firebase `Jyothi@2026` | **verifier** | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
   Chandrakant is director, Jyothi is verifier, and the 5 leadership users are
