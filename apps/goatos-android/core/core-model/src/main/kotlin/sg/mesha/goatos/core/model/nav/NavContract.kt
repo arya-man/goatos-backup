@@ -73,6 +73,7 @@ data class NavState(
     val chrome: NavChrome,
     val items: List<NavItem>,
     val modules: List<NavModule> = emptyList(),
+    val featureFlags: Map<String, Boolean> = emptyMap(),
 ) {
     companion object {
         /** Safe empty state before the first bootstrap resolves. */

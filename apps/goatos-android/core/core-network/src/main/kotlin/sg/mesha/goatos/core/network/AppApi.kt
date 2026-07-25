@@ -917,6 +917,7 @@ fun BootstrapDto.toNavState(): NavState = NavState(
             navItems = module.navItems.map { it.toNavItem() },
         )
     },
+    featureFlags = featureFlags,
 )
 
 private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)
