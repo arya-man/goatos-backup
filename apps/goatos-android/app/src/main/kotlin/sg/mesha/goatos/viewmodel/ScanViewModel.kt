@@ -849,4 +849,5 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
         connected = false,
         actionLabel = "Reconnect",
     ),
+    isInitialLoading = true,
 )
