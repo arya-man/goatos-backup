@@ -961,6 +961,123 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `park-level terminal task does not mark an unsubmitted shed as acknowledged`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-parent-needs-review",
+            sopVersionId = "sop-shed-parent-needs-review",
+            taskType = "vaccination",
+            scopeType = "park",
+            scopeId = "park-1",
+            state = "needs_review",
+            rowVersion = 2,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val unsubmittedShedSummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-parent-needs-review",
+            shedName = "Godel 1",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 120,
+            handledCount = 120,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 120)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = unsubmittedShedSummary),
+            sync,
+            task.taskId,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.DRAFT, viewModel.state.value.syncState)
+        assertTrue("uploaded shed proof should make the unsubmitted shed ready to submit", viewModel.state.value.canSubmit)
+        assertEquals("1 of 5 shed videos synced · 1 required", viewModel.state.value.proofSummarySyncedLabel)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNotNull("unsubmitted shed must still enqueue the final submission", sync.lastRequest)
+    }
+
+    @Test
+    fun `terminal shed task keeps proof form visible while an optional shed video is uploading`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-terminal-uploading-proof",
+            sopVersionId = "sop-shed-terminal-uploading-proof",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-uploading",
+            state = "needs_review",
+            rowVersion = 2,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val submittedSummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-terminal-uploading-proof",
+            shedName = "Shed Uploading",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 2,
+            handledCount = 2,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 2)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "needs_review",
+        )
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = submittedSummary),
+            CapturingSyncRepository(),
+            task.taskId,
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.ACKED, viewModel.state.value.syncState)
+        assertEquals("Shed proof videos", viewModel.state.value.proofSummaryTitle)
+        assertEquals("1 of 5 shed videos synced · 1 required", viewModel.state.value.proofSummarySyncedLabel)
+        assertEquals(1, viewModel.state.value.shedCompletionSummary?.proofReadyCount)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://shed-uploading-extra.mp4", startedAtMs = 2_000L, endedAtMs = 5_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("shed_video"))
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.DRAFT, viewModel.state.value.syncState)
+        assertNotNull("active shed video upload must keep the proof upload form visible", viewModel.state.value.formRunner)
+        assertEquals(1, viewModel.state.value.proofUploading)
+    }
+
+    @Test
     fun `local synced shed proof updates completion summary before backend refresh catches up`() = runTest(dispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-shed-local-proof",
