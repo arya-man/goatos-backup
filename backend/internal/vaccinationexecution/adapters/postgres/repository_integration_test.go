@@ -399,7 +399,8 @@ func TestShedSummaryDriveOperatorsOneToManyPageBoundaryScheduledDateParkScopeSta
 	}
 }
 
-func TestShedSummaryDriveOperatorsIncludesAcceptedCompletedDefaultOperator(t *testing.T) {
+func TestShedSummaryDriveOperatorsIncludesAcceptedCompletedDefaultOperatorOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ScheduledDate ParkScope StatusMatrix: completed shed history keeps a resolved default drive operator without open-session rows")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
