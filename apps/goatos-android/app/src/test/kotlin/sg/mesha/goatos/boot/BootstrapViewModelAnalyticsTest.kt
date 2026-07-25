@@ -56,12 +56,13 @@ class BootstrapViewModelAnalyticsTest {
     fun `resolved bootstrap logs bootstrap_loaded with chrome and stamps role and park identity`() = runTest {
         val analytics = RecordingAnalytics()
         val context = AnalyticsContext(flavor = "dev")
+        var pushSyncCalls = 0
         val repo = FakeBootstrapRepository(
             navState = NavState(NavChrome.EXPANDED, emptyList()),
             profile = BootstrapOperatorProfileDto(operatorId = "member-123", primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
 
-        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync {})
+        BootstrapViewModel(repo, analytics, context, FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), PushTokenSync { pushSyncCalls++ })
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -79,6 +80,7 @@ class BootstrapViewModelAnalyticsTest {
         // Device id resolved from DeviceStore.appInstallId(); set as user property + on the context.
         assertNotNull("device id resolved", context.deviceId)
         assertEquals(context.deviceId, analytics.userProps[AnalyticsEvents.UserProps.DEVICE_ID])
+        assertEquals("successful bootstrap must refresh-register the current FCM token", 1, pushSyncCalls)
     }
 
     @Test

@@ -110,6 +110,61 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	return oldest.Time, true, nil
 }
 
+// SuppressInvalidRecipient removes a provider-rejected raw recipient reference from future push
+// fanout and suppresses still-pending rows already addressed to that reference. For FCM, Firebase
+// returns NotRegistered/UNREGISTERED when a token was rotated, deleted, or belongs to a dead install.
+// Keep the device row active: the Android heartbeat/register path can write the next live token for
+// the same device id/app install on the next launch or login.
+func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, recipientRef, reason string, now time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	recipientRef = strings.TrimSpace(recipientRef)
+	if recipientRef == "" {
+		return 0, nil
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "invalid_notification_recipient"
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+UPDATE workforce_member_devices
+SET fcm_token = NULL,
+    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+      'fcm_invalidated_at', $3::timestamptz,
+      'fcm_invalidated_reason', $4
+    ),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND fcm_token = $2`, tenantID, recipientRef, now, reason); err != nil {
+		return 0, fmt.Errorf("notification: clear invalid fcm token: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE notification_requests
+SET status = 'suppressed',
+    failure_reason = COALESCE(NULLIF(failure_reason, ''), $3),
+    next_attempt_at = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid
+  AND recipient_ref = $2
+  AND channel = 'push_fcm'
+  AND status IN ('queued', 'failed')`, tenantID, recipientRef, reason, now)
+	if err != nil {
+		return 0, fmt.Errorf("notification: suppress invalid recipient requests: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ReclaimStaleSending requeues 'sending' rows whose lease expired before real delivery
 // completed (worker crash/restart between ClaimDue and MarkSent/MarkFailed). ClaimDue
 // increments delivery_attempts at CLAIM time (not at actual delivery time), so a claim that
