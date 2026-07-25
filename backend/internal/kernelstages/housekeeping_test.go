@@ -40,6 +40,14 @@ func TestHousekeepingStagesRunAgainstRealPostgres(t *testing.T) {
 	if err := idempotency.Run(ctx); err != nil {
 		t.Fatalf("idempotency-key sweeper stage failed against real Postgres: %v", err)
 	}
+
+	proof := NewProofRetentionSweeperStage(deps)
+	if got := proof.Name(); got != "proof-retention-sweeper" {
+		t.Fatalf("unexpected proof sweeper name: %q", got)
+	}
+	if err := proof.Run(ctx); err != nil {
+		t.Fatalf("proof-retention sweeper stage failed against real Postgres: %v", err)
+	}
 }
 
 // TestIdempotencyKeySweeperDeletesExpiredKeys inserts an expired and a live

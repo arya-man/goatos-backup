@@ -4,26 +4,29 @@ package domain
 import "time"
 
 type Artifact struct {
-	ProofID         string
-	TenantID        string
-	StorageProvider string
-	ObjectKey       string
-	ContentHash     string
-	MimeType        string
-	SizeBytes       int64
-	DurationMS      *int64
-	UploadState     string
-	ScopeType       string
-	ScopeID         string
-	SubjectType     string
-	SubjectID       *string
-	ProofType       string
-	UploadedBy      *string
-	Metadata        map[string]any
-	CreatedAt       time.Time
-	UploadedAt      *time.Time
-	UpdatedAt       time.Time
-	RowVersion      int
+	ProofID            string
+	TenantID           string
+	StorageProvider    string
+	ObjectKey          string
+	ContentHash        string
+	MimeType           string
+	SizeBytes          int64
+	DurationMS         *int64
+	UploadState        string
+	ScopeType          string
+	ScopeID            string
+	SubjectType        string
+	SubjectID          *string
+	ProofType          string
+	UploadedBy         *string
+	Metadata           map[string]any
+	RetentionPolicy    string
+	RetentionExpiresAt *time.Time
+	UploadExpiresAt    *time.Time
+	CreatedAt          time.Time
+	UploadedAt         *time.Time
+	UpdatedAt          time.Time
+	RowVersion         int
 }
 
 type CreateUpload struct {
