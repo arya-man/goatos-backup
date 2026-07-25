@@ -347,6 +347,17 @@ operator assignment, but no new leadership-relevant table, official KPI, or
 reporting view is introduced. Explicit documented exclusion — no coverage-matrix
 mapping required.
 
+2026-07-25 follow-up: the same `table:vaccination_operator_assignment_config`
+admin config gained `selected_operator_ids` plus
+`func:ReassignPlannedDrives` so saving the People / HRMS operator setting can
+immediately reassign current/future open planned drive assignment rows to the
+selected operators. This is still admin-only authoring plumbing on the existing
+vaccination execution/schedule APIs. It adds NO leadership KPI, read API route,
+Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; completed scans/proofs remain
+untouched. Explicit documented exclusion — no coverage-matrix mapping required.
+
+| vaccination_operator_assignment_config | func:ReassignPlannedDrives | Explicit exclusion: admin-only operator assignment config write/reassignment; existing vaccination execution/schedule reads remain the covered user-visible source. |
+
 ## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
 
 `func:RecomputeFutureVaccinationDrives`

@@ -4493,10 +4493,7 @@ export interface components {
              * @description The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
              */
             defaultOperatorId: string;
-            /**
-             * @description Explicit operators selected for parallel mode. When empty, the backend falls back to roster order.
-             * @maxItems 3
-             */
+            /** @description Explicit operators selected for parallel mode. When empty, the backend falls back to roster order. */
             selectedOperatorIds?: string[];
             /**
              * Format: int64
@@ -4511,7 +4508,6 @@ export interface components {
             activeOperatorsPerDay: number;
             /** Format: uuid */
             defaultOperatorId: string;
-            /** @maxItems 3 */
             selectedOperatorIds?: string[];
             /**
              * Format: int64

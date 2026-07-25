@@ -135,6 +135,13 @@ The operator drive ledger is `/vaccination/drive-assignments`; the shed board
 summary is `/vaccination/sheds` with `driveOperatorNames`. Assistant tools must
 treat those read APIs as the source of truth for who owns a vaccination drive on
 a date, including physical shed and partition labels.
+The People / HRMS operator assignment config (`vaccination_operator_assignment_config`,
+including `selected_operator_ids`) is admin authoring input. When it is saved,
+the backend reassigns current/future open planned drive rows, and leadership
+answers must read the resulting canonical vaccination schedule/status surfaces
+instead of re-running assignment logic in Vertex, Cube, mobile, or admin-web.
+CEO AI may summarize those surfaces through Cube/MCP/read API tooling, but it
+must never sit between mobile/admin UI and the core backend APIs.
 Canceled vaccination date overrides are not active scheduling facts. Leadership
 assistant coverage, MCP Toolbox SQL fallbacks, and any direct read-model
 summaries must apply the same active-override rule as the backend: a

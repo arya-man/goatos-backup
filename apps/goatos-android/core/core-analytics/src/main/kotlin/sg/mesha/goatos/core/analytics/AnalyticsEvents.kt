@@ -71,6 +71,18 @@ object AnalyticsEvents {
     /** A Counts read (summary, breakdown page, or approval queue) failed to refresh. */
     const val COUNTS_READ_FAILURE = "counts_read_failure"
 
+    /** Verifier opened a proof item detail screen that can stream evidence media. */
+    const val VERIFY_ITEM_OPENED = "verify_item_opened"
+
+    /** Verifier started playing one proof video. */
+    const val VERIFY_VIDEO_PLAY_STARTED = "verify_video_play_started"
+
+    /** Verifier ended a bounded playback session for one proof video. */
+    const val VERIFY_VIDEO_WATCH_SUMMARY = "verify_video_watch_summary"
+
+    /** Verifier video playback failed before a usable review could continue. */
+    const val VERIFY_VIDEO_PLAYBACK_ERROR = "verify_video_playback_error"
+
     /**
      * The operator changed a census filter on the Counts screen. [Params.DIMENSION] is which
      * filter (`park`/`shed`/`breed`/`all`) and [Params.ACTION] is `set` or `cleared`.
@@ -128,6 +140,17 @@ object AnalyticsEvents {
 
         /** How an approval request was decided (`approved`/`rejected`). */
         const val DECISION = "decision"
+
+        const val ITEM_ID = "item_id"
+        const val PROOF_ID = "proof_id"
+        const val MIME_TYPE = "mime_type"
+        const val WATCH_TIME_MS = "watch_time_ms"
+        const val DURATION_MS = "duration_ms"
+        const val POSITION_MS = "position_ms"
+        const val PERCENT_WATCHED = "percent_watched"
+        const val SEEK_COUNT = "seek_count"
+        const val REPLAY_COUNT = "replay_count"
+        const val BUFFERING_TIME_MS = "buffering_time_ms"
 
         /**
          * Which dimension a filter/grouping event refers to (`park`/`shed`/`breed`/`all`).
