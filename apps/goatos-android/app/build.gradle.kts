@@ -44,8 +44,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.1.11"
+        versionCode = 13
+        versionName = "0.1.12"
         multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
