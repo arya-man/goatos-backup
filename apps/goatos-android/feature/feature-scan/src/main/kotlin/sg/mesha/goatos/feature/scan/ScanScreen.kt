@@ -46,7 +46,6 @@ import androidx.compose.ui.res.pluralStringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
 
@@ -214,7 +213,6 @@ data class ScanUiState(
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
-    val isInitialLoading: Boolean = false,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -270,33 +268,25 @@ fun ScanScreen(
                 onSwitchShed = { onEvent(ScanEvent.Back) },
             )
 
-            if (state.isInitialLoading) {
-                LoadingSkeletonList(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    rows = 5,
-                )
-            } else {
-                // Body scrolls; the submit footer is pinned.
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    item {
-                        ReaderConnectionBanner(
-                            reader = state.readerConnection ?: ScanReaderConnection(
-                                readerName = "RFID reader",
-                                statusLabel = "Checking reader connection",
-                                connected = false,
-                                actionLabel = "Reconnect",
-                            ),
-                            progressLabel = "${state.ringDone}/${state.ringTotal}",
-                            onReconnect = { onEvent(ScanEvent.ReconnectReader) },
-                        )
-                    }
+            // Body scrolls; the submit footer is pinned.
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                item {
+                    ReaderConnectionBanner(
+                        reader = state.readerConnection ?: ScanReaderConnection(
+                            readerName = "RFID reader",
+                            statusLabel = "Checking reader connection",
+                            connected = false,
+                            actionLabel = "Reconnect",
+                        ),
+                        progressLabel = "${state.ringDone}/${state.ringTotal}",
+                        onReconnect = { onEvent(ScanEvent.ReconnectReader) },
+                    )
+                }
                 item {
                     ScanRing(
                         done = state.ringDone,
@@ -367,16 +357,15 @@ fun ScanScreen(
                         contentType = { _, _ -> "feed_row" },
                     ) { _, entry -> FeedRow(entry) }
                 }
-                    item { Spacer(Modifier.height(8.dp)) }
-                }
+                item { Spacer(Modifier.height(8.dp)) }
+            }
 
-                if (state.proofActionNeeded.isNotEmpty()) {
-                    ProofActionNeededSection(
-                        rows = state.proofActionNeeded,
-                        captureEnabled = state.scanEnabled,
-                        onEvent = onEvent,
-                    )
-                }
+            if (state.proofActionNeeded.isNotEmpty()) {
+                ProofActionNeededSection(
+                    rows = state.proofActionNeeded,
+                    captureEnabled = state.scanEnabled,
+                    onEvent = onEvent,
+                )
             }
 
             ScanFooter(
