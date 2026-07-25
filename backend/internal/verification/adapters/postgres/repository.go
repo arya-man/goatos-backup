@@ -619,11 +619,29 @@ func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, para
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 WITH expected AS (
-  SELECT oi.batch_id, COUNT(*)::int AS total_count
+  SELECT
+    oi.batch_id,
+    COUNT(*)::int AS total_count,
+    ob.protocol_version_id::text AS protocol_version_id,
+	    COALESCE(MIN(vda.park_id::text), '') AS park_id,
+	    COALESCE(MIN(park.name), '') AS park_label,
+	    string_agg(DISTINCT NULLIF(vda.physical_shed, ''), ', ' ORDER BY NULLIF(vda.physical_shed, '')) AS shed_labels,
+	    COUNT(DISTINCT NULLIF(vda.physical_shed, ''))::int AS planned_shed_count,
+	    MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
+	    MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
   FROM obligation_instances oi
+  JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = oi.tenant_id
+   AND vda.batch_id = oi.batch_id
+  LEFT JOIN locations park
+    ON park.tenant_id = vda.tenant_id
+   AND park.location_id = vda.park_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.batch_id IS NOT NULL
-  GROUP BY oi.batch_id
+  GROUP BY oi.batch_id, ob.protocol_version_id
 ),
 proofs AS (
   SELECT
@@ -656,6 +674,36 @@ proofs AS (
 rollup AS (
   SELECT
     e.batch_id::text,
+    CASE
+      WHEN e.park_id = '' THEN 'vaccination:' || e.protocol_version_id
+      ELSE 'vaccination:' || e.protocol_version_id || ':park:' || e.park_id
+    END AS drive_key,
+    trim(both ' · ' FROM concat_ws(
+      ' · ',
+      NULLIF(e.park_label, ''),
+      CASE
+        WHEN e.start_date IS NULL THEN ''
+        WHEN e.end_date IS NULL OR e.start_date = e.end_date THEN to_char(e.start_date, 'DD Mon YYYY')
+        ELSE to_char(e.start_date, 'DD Mon') || ' - ' || to_char(e.end_date, 'DD Mon YYYY')
+      END
+    )) AS drive_label,
+    trim(both ' · ' FROM concat_ws(
+      ' · ',
+      CASE
+        WHEN e.start_date IS NULL THEN ''
+	        WHEN e.end_date IS NULL OR e.start_date = e.end_date THEN to_char(e.start_date, 'DD Mon YYYY')
+	        ELSE to_char(e.start_date, 'DD Mon') || ' - ' || to_char(e.end_date, 'DD Mon YYYY')
+	      END,
+	      CASE
+	        WHEN e.planned_shed_count = 1 THEN NULLIF(e.shed_labels, '')
+	        WHEN e.planned_shed_count > 1 THEN e.planned_shed_count::text || ' sheds'
+	        ELSE ''
+	      END
+	    )) AS batch_label,
+    e.park_id,
+    e.park_label,
+    COALESCE(e.start_date::text, '') AS start_date,
+    COALESCE(e.end_date::text, '') AS end_date,
     e.total_count,
     COUNT(p.*)::int AS proof_count,
     COUNT(*) FILTER (WHERE p.status = 'approved')::int AS approved_count,
@@ -668,9 +716,10 @@ rollup AS (
     COUNT(DISTINCT p.shed_id)::int AS shed_count
   FROM expected e
   JOIN proofs p ON p.batch_id = e.batch_id
-  GROUP BY e.batch_id, e.total_count
+	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.total_count
 )
-SELECT batch_id, total_count, approved_count, rejected_count, pending_count,
+SELECT batch_id, drive_key, drive_label, batch_label, park_id, park_label, start_date, end_date,
+       total_count, approved_count, rejected_count, pending_count,
        video_count, approved_videos, rejected_videos, pending_videos, shed_count
 FROM rollup
 WHERE proof_count = total_count
@@ -690,6 +739,13 @@ LIMIT 20`,
 		var c domain.VaccinationBatchClosure
 		if err := rows.Scan(
 			&c.BatchID,
+			&c.DriveKey,
+			&c.DriveLabel,
+			&c.BatchLabel,
+			&c.ParkID,
+			&c.ParkLabel,
+			&c.StartDate,
+			&c.EndDate,
 			&c.TotalCount,
 			&c.ApprovedCount,
 			&c.RejectedCount,
@@ -939,12 +995,22 @@ WHERE vc.tenant_id = $2::uuid
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-UPDATE obligation_instances oi
-SET status = 'completed',
-    completed_at = COALESCE(oi.completed_at, now()),
-    updated_at = now()
-WHERE oi.tenant_id = $1::uuid
-  AND oi.batch_id = $2::uuid
+	UPDATE obligation_instances oi
+	SET status = 'completed',
+	    completed_at = COALESCE(
+	      oi.completed_at,
+	      (
+	        SELECT min(vc.administered_at)
+	        FROM vaccination_completions vc
+	        WHERE vc.tenant_id = oi.tenant_id
+	          AND vc.obligation_id = oi.obligation_id
+	          AND vc.status = 'accepted'
+	      ),
+	      now()
+	    ),
+	    updated_at = now()
+	WHERE oi.tenant_id = $1::uuid
+	  AND oi.batch_id = $2::uuid
   AND oi.status <> 'completed'
   AND EXISTS (
     SELECT 1

@@ -532,6 +532,7 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         dateKey = localDate?.toString(),
         parkLabel = parkCode.orEmpty(),
         parkId = parkId,
+        assigneeLabel = assigneeLabel?.takeIf { it.isNotBlank() },
         driveSummary = driveSummary?.toCalendarDriveSummary(),
         statusLabel = status,
         statusTone = calendarTone(),

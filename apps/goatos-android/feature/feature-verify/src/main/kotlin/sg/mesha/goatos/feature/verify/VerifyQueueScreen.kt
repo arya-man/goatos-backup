@@ -69,6 +69,8 @@ data class VerificationQueueRow(
 
 data class VerifyDriveClosure(
     val batchId: String,
+    val driveLabel: String,
+    val batchLabel: String,
     val totalCount: Int,
     val approvedCount: Int,
     val rejectedCount: Int,
@@ -260,11 +262,20 @@ private fun DriveCloseCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.verify_drive_ready_title),
+                    text = closure.batchLabel.ifBlank { stringResource(R.string.verify_drive_ready_title) },
                     color = MeshaColors.Ink,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.W800,
                 )
+                if (closure.driveLabel.isNotBlank()) {
+                    Text(
+                        text = closure.driveLabel,
+                        color = MeshaColors.Muted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.W700,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
                 Text(
                     text = stringResource(
                         R.string.verify_drive_ready_subtitle,

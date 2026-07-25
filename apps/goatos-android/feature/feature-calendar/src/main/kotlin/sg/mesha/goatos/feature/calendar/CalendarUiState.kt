@@ -89,6 +89,7 @@ data class CalendarItem(
     val dateKey: String? = null,
     val parkLabel: String = "",
     val parkId: String? = null,
+    val assigneeLabel: String? = null,
     /** Park-level drive progress card content (v4); see [CalendarDriveSummary]. */
     val driveSummary: CalendarDriveSummary? = null,
     val statusLabel: String,

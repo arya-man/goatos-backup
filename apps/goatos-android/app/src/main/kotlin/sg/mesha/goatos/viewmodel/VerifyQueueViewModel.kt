@@ -150,6 +150,8 @@ class VerifyQueueViewModel @Inject constructor(
                 .map {
                     VerifyDriveClosure(
                         batchId = it.batchId,
+                        driveLabel = it.driveLabel,
+                        batchLabel = it.batchLabel,
                         totalCount = it.totalCount,
                         approvedCount = it.approvedCount,
                         rejectedCount = it.rejectedCount,
