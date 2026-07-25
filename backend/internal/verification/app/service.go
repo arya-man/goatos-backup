@@ -83,8 +83,9 @@ func (s *Service) CreateItem(ctx context.Context, in domain.CreateItem) (domain.
 
 // QueueResult is one page of the verifier queue.
 type QueueResult struct {
-	Items      []domain.QueueRow
-	NextCursor *string
+	Items         []domain.QueueRow
+	FilterOptions domain.QueueFilterOptions
+	NextCursor    *string
 }
 
 // ListQueue returns a keyset page (~20 default, ~100 max) of items, category/vertical/module/status
@@ -98,10 +99,18 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.Vertical = strings.TrimSpace(params.Vertical)
 	params.Module = strings.TrimSpace(params.Module)
 	params.Status = strings.TrimSpace(params.Status)
-	if params.Status == "" {
+	params.ParkID = strings.TrimSpace(params.ParkID)
+	params.ShedID = strings.TrimSpace(params.ShedID)
+	if params.ParkID != "" && !uuidutil.IsUUIDString(params.ParkID) {
+		return QueueResult{}, BadRequest("invalid_park", "park_id must be a UUID")
+	}
+	if params.ShedID != "" && !uuidutil.IsUUIDString(params.ShedID) {
+		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID")
+	}
+	if params.Status == "" && !params.IncludeAllStatuses {
 		params.Status = domain.StatusPending
 	}
-	if !oneOf(params.Status, domain.StatusPending, domain.StatusApproved, domain.StatusRejected) {
+	if params.Status != "" && !oneOf(params.Status, domain.StatusPending, domain.StatusApproved, domain.StatusRejected) {
 		return QueueResult{}, BadRequest("invalid_status", "status must be pending, approved, or rejected")
 	}
 	params.Limit = boundedLimit(params.Limit, maxQueueLimit)
@@ -121,7 +130,26 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		}
 		next = &encoded
 	}
-	return QueueResult{Items: s.resolveMedia(ctx, params.TenantID, items), NextCursor: next}, nil
+	options, err := s.repo.ListQueueFilterOptions(ctx, params)
+	if err != nil {
+		return QueueResult{}, mapRepoErr(err)
+	}
+	return QueueResult{Items: s.resolveMedia(ctx, params.TenantID, items), FilterOptions: options, NextCursor: next}, nil
+}
+
+func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
+	params.TenantID = strings.TrimSpace(params.TenantID)
+	if !uuidutil.IsUUIDString(params.TenantID) {
+		return nil, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	params.Category = strings.TrimSpace(params.Category)
+	params.Vertical = strings.TrimSpace(params.Vertical)
+	params.Module = strings.TrimSpace(params.Module)
+	closures, err := s.repo.ListReadyVaccinationBatchClosures(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return closures, nil
 }
 
 // resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
@@ -253,6 +281,29 @@ func (s *Service) CloseSubmission(ctx context.Context, in domain.CloseSubmission
 		return nil, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
 	}
 	items, err := s.repo.CloseSubmission(ctx, in)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return items, nil
+}
+
+// CloseVaccinationBatch is the drive-level leadership close. It is intentionally separate from
+// CloseSubmission because a vaccination drive can span multiple planned dates/submissions.
+func (s *Service) CloseVaccinationBatch(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.BatchID = strings.TrimSpace(in.BatchID)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.BatchID) {
+		return nil, BadRequest("invalid_batch", "tenant_id and batch_id must be UUIDs")
+	}
+	if !uuidutil.IsUUIDString(in.ActorID) {
+		return nil, BadRequest("invalid_actor", "actor id must be a UUID")
+	}
+	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
+		return nil, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
+	}
+	items, err := s.repo.CloseVaccinationBatch(ctx, in)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}

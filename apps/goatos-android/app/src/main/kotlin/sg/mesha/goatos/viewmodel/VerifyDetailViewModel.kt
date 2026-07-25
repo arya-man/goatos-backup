@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.VerificationRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
@@ -24,6 +26,7 @@ import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
+import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
@@ -35,6 +38,8 @@ private data class VerifyDetailFlags(
     val isOffline: Boolean = false,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
+    val awaitingBackendDecision: Boolean = false,
+    val autoCloseAfterDecision: Boolean = false,
 )
 
 /**
@@ -48,9 +53,9 @@ private data class VerifyDetailFlags(
  *
  * Approve/Reject go through the offline-sync outbox ([SyncRepository.enqueueVerificationVerdict])
  * exactly like every other write in this app — durable, idempotent, retried with backoff. The
- * verdict is optimistic: once queued, the buttons disable immediately (verdict already recorded
- * from the verifier's point of view, [_localDecision]); a queue failure re-enables them with an
- * honest error and clears the optimistic flip.
+ * verdict is not visually completed until the outbox has drained and a queue refresh confirms
+ * the item is no longer pending. That keeps the verifier on this screen while the network call
+ * is real, then auto-returns them to the reduced queue.
  */
 @HiltViewModel
 class VerifyDetailViewModel @Inject constructor(
@@ -66,10 +71,6 @@ class VerifyDetailViewModel @Inject constructor(
     private val isActionMode: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
-    /** Optimistic local override once a verdict is queued — cleared by the next successful
-     *  refresh (the cached item then reflects the server's own status). */
-    private val _localDecision = MutableStateFlow<String?>(null)
-
     // Cache-first: the tapped row's category scope Room cache already holds this item's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
@@ -80,10 +81,9 @@ class VerifyDetailViewModel @Inject constructor(
 
     val state: StateFlow<VerifyDetailUiState> = combine(
         observedItem,
-        _localDecision,
         _flags,
-    ) { item, localDecision, flags ->
-        item.toUiState(localDecision = localDecision, flags = flags)
+    ) { item, flags ->
+        item.toUiState(flags = flags)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
@@ -95,7 +95,6 @@ class VerifyDetailViewModel @Inject constructor(
             VerifyDetailEvent.Close -> Unit // navigation — handled by the nav host.
             VerifyDetailEvent.Refresh -> refresh()
             VerifyDetailEvent.Approve -> submitVerdict(VerificationDecision.APPROVED, reason = null)
-            VerifyDetailEvent.CloseSubmission -> closeSubmission()
             is VerifyDetailEvent.Reject -> submitVerdict(VerificationDecision.REJECTED, reason = event.reason)
         }
     }
@@ -112,7 +111,7 @@ class VerifyDetailViewModel @Inject constructor(
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
 
         val rowVersion = observedItem.value?.rowVersion ?: 1
-        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
+        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
         AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision)
         val result = syncRepo.enqueueVerificationVerdict(
             itemId = itemId,
@@ -122,35 +121,59 @@ class VerifyDetailViewModel @Inject constructor(
         )
         when (result) {
             is AppResult.Ok -> {
-                _localDecision.value = decision
-                _flags.update { it.copy(isSubmitting = false) }
-                AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision)
+                _flags.update { it.copy(awaitingBackendDecision = true) }
+                val waitError = waitForBackendDecision(result.value)
+                if (waitError == null) {
+                    _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = true) }
+                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision)
+                } else {
+                    _flags.update {
+                        it.copy(
+                            isSubmitting = false,
+                            awaitingBackendDecision = false,
+                            errorMessage = waitError,
+                        )
+                    }
+                }
             }
             is AppResult.Err -> {
-                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message) }
                 result.cause?.let { crashReporter.recordException(it, "verification verdict enqueue failed") }
                 AnalyticsFunnels.trackVerifyVerdictFailed(analytics, itemId, decision, result.message)
             }
         }
     }
 
-    private fun closeSubmission() = viewModelScope.launch {
-        val submissionId = observedItem.value?.source?.submissionId?.takeIf { it.isNotBlank() } ?: return@launch
-        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
-        val result = syncRepo.enqueueVerificationSubmissionClose(submissionId)
-        when (result) {
-            is AppResult.Ok -> {
-                _flags.update { it.copy(isSubmitting = false) }
-                refresh()
+    private suspend fun waitForBackendDecision(outboxItemId: String): String? {
+        repeat(30) {
+            syncRepo.triggerDrain()
+            delay(250)
+            when (val outbox = syncRepo.findOutboxItem(outboxItemId)) {
+                is AppResult.Ok -> {
+                    val item = outbox.value
+                    when {
+                        item?.status == SyncItemStatus.SUCCEEDED -> {
+                            refresh()
+                            return null
+                        }
+                        item?.status == SyncItemStatus.FAILED && (item.conflict || item.isDeadLetter) ->
+                            return item.lastError ?: "Backend rejected the verification decision."
+                    }
+                }
+                is AppResult.Err -> Unit
             }
-            is AppResult.Err -> {
-                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
-                result.cause?.let { crashReporter.recordException(it, "verification submission close enqueue failed") }
+            val result = if (isActionMode) repo.refreshActionQueue(category = category) else repo.refreshQueue(category = category)
+            _flags.update { flags -> flags.copy(isOffline = result.isFailure) }
+            val current = observedItem.value
+            if (current == null || current.status != VerificationStatus.PENDING) {
+                return null
             }
+            delay(320)
         }
+        return "Decision saved locally; waiting for backend sync."
     }
 
-    private fun VerificationQueueItem?.toUiState(localDecision: String?, flags: VerifyDetailFlags): VerifyDetailUiState {
+    private fun VerificationQueueItem?.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
         if (this == null) {
             return VerifyDetailUiState(
                 itemId = itemId,
@@ -160,13 +183,12 @@ class VerifyDetailViewModel @Inject constructor(
                 isSubmitting = flags.isSubmitting,
                 errorMessage = flags.errorMessage,
                 isDecisionEnabled = false,
+                autoCloseAfterDecision = flags.autoCloseAfterDecision,
             )
         }
-        val effectiveStatus = localDecision ?: status
-        val closeEnabled = isActionMode &&
-            effectiveStatus == VerificationStatus.APPROVED &&
-            closedAt.isNullOrBlank() &&
-            source.submissionId?.isNotBlank() == true
+        val effectiveStatus = status
+        val playableEvidenceAvailable = evidenceAvailable && media.any { it.downloadUrl.isNotBlank() }
+        val canDecide = !isActionMode && effectiveStatus == VerificationStatus.PENDING && playableEvidenceAvailable
         return VerifyDetailUiState(
             itemId = itemId,
             categoryLabel = humanizeCategory(category),
@@ -181,16 +203,23 @@ class VerifyDetailViewModel @Inject constructor(
             statusTone = statusTone(effectiveStatus),
             rowVersion = rowVersion,
             isCloseMode = isActionMode,
-            isCloseEnabled = closeEnabled,
+            isCloseEnabled = false,
+            verdictReason = verdictReason,
             // R50-017: the backend now fails evidence resolution closed instead of silently
             // omitting media, so a verdict with no resolvable evidence must stay disabled even
             // though the item itself is still PENDING.
-            isDecisionEnabled = !isActionMode && effectiveStatus == VerificationStatus.PENDING && evidenceAvailable,
+            isDecisionEnabled = canDecide,
+            decisionUnavailableReason = when {
+                isActionMode || canDecide -> VerifyDecisionUnavailableReason.NONE
+                effectiveStatus == VerificationStatus.PENDING -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
+                else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
+            },
             isSubmitting = flags.isSubmitting,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = null,
             isOffline = flags.isOffline,
             errorMessage = flags.errorMessage,
+            autoCloseAfterDecision = flags.autoCloseAfterDecision,
         )
     }
 

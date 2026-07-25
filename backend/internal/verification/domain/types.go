@@ -133,6 +133,40 @@ type CloseSubmissionAction struct {
 	IdempotencyKey string
 }
 
+// CloseVaccinationBatchAction closes one vaccination drive/batch after every obligation in that
+// batch has an approved proof. The batch can contain one or more planned dates.
+type CloseVaccinationBatchAction struct {
+	TenantID       string
+	BatchID        string
+	ActorID        string
+	IdempotencyKey string
+}
+
+// VaccinationBatchClosure is a leadership-ready drive close candidate.
+type VaccinationBatchClosure struct {
+	BatchID        string `json:"batch_id"`
+	TotalCount     int    `json:"total_count"`
+	ApprovedCount  int    `json:"approved_count"`
+	RejectedCount  int    `json:"rejected_count"`
+	PendingCount   int    `json:"pending_count"`
+	VideoCount     int    `json:"video_count"`
+	ApprovedVideos int    `json:"approved_videos"`
+	RejectedVideos int    `json:"rejected_videos"`
+	PendingVideos  int    `json:"pending_videos"`
+	ShedCount      int    `json:"shed_count"`
+	Ready          bool   `json:"ready"`
+}
+
+type LocationFilterOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type QueueFilterOptions struct {
+	Parks []LocationFilterOption `json:"parks"`
+	Sheds []LocationFilterOption `json:"sheds"`
+}
+
 // MediaItem is one resolved, streamable media reference for display.
 type MediaItem struct {
 	ProofID     string `json:"proof_id"`

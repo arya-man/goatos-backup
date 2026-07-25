@@ -76,6 +76,8 @@
         "verification.verdict.rework",
         "verification.verdict.approved",
         "verification.item.closed",
+        "verification.vaccination_drive.ready",
+        "verification.vaccination_drive.closed",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
         "vaccination.leave.changed"
@@ -108,6 +110,7 @@
         "shifting_event",
         "count_projection_exception",
         "verification_item",
+        "vaccination_batch",
         "park",
         "absence"
       ]
@@ -134,6 +137,7 @@
         "shifting_event",
         "count_projection_exception",
         "verification_item",
+        "vaccination_batch",
         "notification_request"
       ]
     },

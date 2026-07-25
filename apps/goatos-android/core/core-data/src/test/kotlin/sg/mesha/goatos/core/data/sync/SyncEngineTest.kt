@@ -565,6 +565,41 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `dispatches an atomic vaccination batch closure with the stable batch idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "batch-1-drive-close"
+        store.insert(
+            OutboxEntity(
+                id = "row-close-batch-1",
+                opType = OutboxOpType.VERIFICATION_CLOSE_BATCH.name,
+                groupKey = "batch-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    VerificationCloseBatchPayload(batchId = "batch-1"),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi().apply {
+            closeVaccinationBatchFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf("batch-1" to idempotencyKey), api.closeBatchCalls)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-close-batch-1")!!.status)
+    }
+
+    @Test
     fun `dispatches a PROOF_UPLOAD item via the registerProof endpoint`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(

@@ -7,12 +7,12 @@
     <string name="verify_module_under_construction">నిర్మాణంలో ఉంది</string>
     <string name="verify_module_under_construction_subtitle">దీని వర్క్‌ఫ్లో సిద్ధమైనప్పుడు ఈ ధృవీకరణ క్యూ ఇక్కడ కనిపిస్తుంది.</string>
     <string name="verify_queue_title">వీడియో ధృవీకరణ</string>
-    <string name="verify_action_queue_title">టీకాలు ముగించు</string>
+    <string name="verify_action_queue_title">టీకా వీడియోలు</string>
     <string name="verify_queue_refresh">రిఫ్రెష్ చేయండి</string>
     <string name="verify_queue_empty">క్యూ ఖాళీగా ఉంది</string>
     <string name="verify_queue_empty_subtitle">ప్రస్తుతం ధృవీకరించడానికి పెండింగ్‌లో వీడియోలు లేవు</string>
-    <string name="verify_action_queue_empty">ముగించడానికి ఏమీ లేదు</string>
-    <string name="verify_action_queue_empty_subtitle">ముగింపుకు వేచి ఉన్న ఆమోదిత వీడియోలు ప్రస్తుతం లేవు</string>
+    <string name="verify_action_queue_empty">సమర్పించిన వీడియోలు లేవు</string>
+    <string name="verify_action_queue_empty_subtitle">సమర్పించిన టీకా వీడియోలు డైరెక్టర్ సమీక్ష కోసం ఇక్కడ కనిపిస్తాయి</string>
     <string name="verify_queue_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="verify_queue_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
 
@@ -28,9 +28,15 @@
     <string name="verify_detail_approve">ఆమోదించండి</string>
     <string name="verify_detail_reject">తిరస్కరించండి</string>
     <string name="verify_detail_already_decided">ఇప్పటికే నిర్ణయించబడింది — తదుపరి చర్య అవసరం లేదు</string>
+    <string name="verify_detail_media_unavailable">వీడియో ఇంకా లోడ్ అవుతోంది లేదా అందుబాటులో లేదు. నిర్ణయం తీసుకునే ముందు క్యూను రిఫ్రెష్ చేయండి.</string>
     <string name="verify_detail_already_closed">ఇప్పటికే ముగించబడింది — తదుపరి చర్య అవసరం లేదు</string>
     <string name="verify_detail_close_submission">డ్రైవ్ ముగించు</string>
+    <string name="verify_detail_rejection_reason_title">ధృవీకర్త తిరస్కరణ కారణం</string>
     <string name="verify_detail_submitting">సమర్పిస్తోంది…</string>
+    <string name="verify_drive_ready_title">వ్యాక్సినేషన్ డ్రైవ్ సిద్ధంగా ఉంది</string>
+    <string name="verify_drive_ready_subtitle">%1$d జంతువులు · %2$d షెడ్లు · %3$d/%4$d వీడియోలు ఆమోదించబడ్డాయి</string>
+    <string name="verify_drive_ready_detail">వీడియో పెండింగ్ %1$d · తిరస్కరించినవి %2$d</string>
+    <string name="verify_drive_close">మూయి</string>
 
     <string name="verify_reject_dialog_title">కారణంతో తిరస్కరించండి</string>
     <string name="verify_reject_dialog_subtitle">అధికారం ఈ ఉల్లంఘనపై చర్య తీసుకోవడానికి కారణం అవసరం</string>

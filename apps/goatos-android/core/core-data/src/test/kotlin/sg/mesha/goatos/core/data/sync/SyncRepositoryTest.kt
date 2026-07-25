@@ -128,6 +128,22 @@ class SyncRepositoryTest {
     }
 
     @Test
+    fun `drive close is durable and grouped by vaccination batch`() = runBlocking {
+        val api = ScriptedAppApi().apply {
+            closeVaccinationBatchFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val repo = repository(api = api)
+
+        val result = repo.enqueueVerificationBatchClose("batch-1")
+
+        assertTrue(result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals(1, status.items.size)
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+        assertEquals(listOf("batch-1" to "batch-1-drive-close"), api.closeBatchCalls)
+    }
+
+    @Test
     fun `re-enqueuing the SAME idempotency key with a different payload is rejected`() = runBlocking {
         val store = FakeOutboxStore()
         val api = ScriptedAppApi()

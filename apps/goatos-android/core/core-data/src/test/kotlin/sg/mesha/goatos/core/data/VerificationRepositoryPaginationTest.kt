@@ -26,7 +26,13 @@ import sg.mesha.goatos.core.network.dto.VerificationStatus
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class VerificationRepositoryPaginationTest {
-    private data class Request(val category: String?, val cursor: String?, val limit: Int?)
+    private data class Request(
+        val category: String?,
+        val parkId: String?,
+        val shedId: String?,
+        val cursor: String?,
+        val limit: Int?,
+    )
 
     @Test
     fun `queue merge dedupes by item id and keeps the newer page's cursor`() {
@@ -141,8 +147,10 @@ class VerificationRepositoryPaginationTest {
                     "listVerificationQueue" -> {
                         val request = Request(
                             category = args?.get(0) as String?,
-                            cursor = args?.get(1) as String?,
-                            limit = args?.get(2) as Int?,
+                            parkId = args?.get(1) as String?,
+                            shedId = args?.get(2) as String?,
+                            cursor = args?.get(3) as String?,
+                            limit = args?.get(4) as Int?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {

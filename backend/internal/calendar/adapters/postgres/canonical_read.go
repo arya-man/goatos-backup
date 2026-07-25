@@ -1385,6 +1385,13 @@ sop_events AS (
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
     AND st.state IN ('assigned', 'in_progress', 'submitted', 'needs_review', 'rework_requested', 'rejected')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM obligation_batches ob
+      WHERE ob.tenant_id = st.tenant_id
+        AND ob.sop_task_id = st.task_id
+        AND ob.status NOT IN ('superseded', 'canceled')
+    )
   ORDER BY st.task_id, st.due_at
 ),
 config_due AS (

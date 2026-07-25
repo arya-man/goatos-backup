@@ -198,9 +198,11 @@ class ShedsViewModel @Inject constructor(
                 !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
                 // Today folds in the deep backlog (due strictly before the visible yesterday
-                // tab) plus today's own work; yesterday is its own tab, so it is excluded here.
+                // tab) plus today's own open/review work; completed rows stay on their actual
+                // scheduled day so finished shed cards do not disappear or flood today's list.
                 selectedDay == workWindow.today ->
-                    dueDate.isEqual(workWindow.today) || dueDate.isBefore(workWindow.firstDay)
+                    dueDate.isEqual(workWindow.today) ||
+                        (dueDate.isBefore(workWindow.firstDay) && row.hasOpenOrReviewWork())
                 else -> dueDate == selectedDay
             }
         }
@@ -406,6 +408,9 @@ private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: Shed
 }
 
 private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
+    hasOpenOrReviewWork() || doneCount > 0
+
+private fun VaccinationExecutionRowDto.hasOpenOrReviewWork(): Boolean =
     openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
 
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =

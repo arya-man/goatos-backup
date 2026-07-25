@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -83,35 +84,43 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	submission sopdomain.SubmissionSummary,
 	completions []vaccinationdomain.SubmissionCompletion,
 ) error {
-	proofsByGoat := make(map[string][]string)
-	shedProofRefs := make([]string, 0)
+	mediaRefs := make([]string, 0)
 	for _, ref := range submission.ProofRefs {
 		if ref.ProofID == "" {
 			continue
 		}
-		switch ref.SubjectType {
-		case "goat":
-			if ref.SubjectID != nil && *ref.SubjectID != "" {
-				proofsByGoat[*ref.SubjectID] = append(proofsByGoat[*ref.SubjectID], ref.ProofID)
-			}
-		case "shed":
-			shedProofRefs = append(shedProofRefs, ref.ProofID)
-		}
+		mediaRefs = append(mediaRefs, ref.ProofID)
 	}
 	byGoat := make(map[string]vaccinationdomain.SubmissionCompletion)
+	var earliest time.Time
+	var shedID *string
+	var parkID *string
 	for _, completion := range completions {
 		if completion.GoatID == "" {
 			continue
 		}
 		if len(completion.ProofRefIDs) > 0 {
-			proofsByGoat[completion.GoatID] = append(proofsByGoat[completion.GoatID], completion.ProofRefIDs...)
+			mediaRefs = append(mediaRefs, completion.ProofRefIDs...)
 		}
 		if existing, ok := byGoat[completion.GoatID]; !ok || completion.AdministeredAt.Before(existing.AdministeredAt) {
 			byGoat[completion.GoatID] = completion
 		}
+		if earliest.IsZero() || completion.AdministeredAt.Before(earliest) {
+			earliest = completion.AdministeredAt
+		}
+		if shedID == nil && completion.ShedID != "" {
+			shedID = stringPtr(completion.ShedID)
+		}
+		if parkID == nil && completion.ParkID != "" {
+			parkID = stringPtr(completion.ParkID)
+		}
 	}
 	if len(byGoat) == 0 {
 		return ErrNoVaccinationCompletions
+	}
+	mediaRefs = uniqueStrings(mediaRefs)
+	if len(mediaRefs) == 0 {
+		return fmt.Errorf("%w: submission_id=%s", ErrMissingGoatProof, submission.SubmissionID)
 	}
 	taskID := task.TaskID
 	submissionID := submission.SubmissionID
@@ -120,40 +129,29 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		by := submission.SubmittedBy
 		operatorID = &by
 	}
-	for goatID, completion := range byGoat {
-		mediaRefs := proofsByGoat[goatID]
-		if len(mediaRefs) == 0 {
-			mediaRefs = append(mediaRefs, shedProofRefs...)
-		}
-		mediaRefs = uniqueStrings(mediaRefs)
-		if len(mediaRefs) == 0 {
-			return fmt.Errorf("%w: goat_id=%s", ErrMissingGoatProof, goatID)
-		}
-		shedID := stringPtr(completion.ShedID)
-		parkID := stringPtr(completion.ParkID)
-		_, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
-			TenantID:     tenantID,
-			Vertical:     "preventive_care",
+	subjectLabel := fmt.Sprintf("%d goats", len(byGoat))
+	_, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
+		TenantID:     tenantID,
+		Vertical:     "preventive_care",
+		Module:       "vaccination",
+		Category:     VaccinationVerificationCategory,
+		SubjectLabel: &subjectLabel,
+		Source: verificationdomain.SourceRef{
 			Module:       "vaccination",
-			Category:     VaccinationVerificationCategory,
-			SubjectLabel: stringPtr(completion.GoatLabel),
-			Source: verificationdomain.SourceRef{
-				Module:       "vaccination",
-				TaskID:       &taskID,
-				SubmissionID: &submissionID,
-				RefType:      "vaccination_goat",
-				RefID:        goatID,
-			},
-			MediaRefs:      mediaRefs,
-			OperatorID:     operatorID,
-			ShedID:         shedID,
-			ParkID:         parkID,
-			CapturedAt:     completion.AdministeredAt,
-			IdempotencyKey: "vaccination:submission:" + submissionID + ":goat:" + goatID,
-		})
-		if err != nil {
-			return fmt.Errorf("create goat verification item %s: %w", goatID, err)
-		}
+			TaskID:       &taskID,
+			SubmissionID: &submissionID,
+			RefType:      "sop_submission",
+			RefID:        submissionID,
+		},
+		MediaRefs:      mediaRefs,
+		OperatorID:     operatorID,
+		ShedID:         shedID,
+		ParkID:         parkID,
+		CapturedAt:     earliest,
+		IdempotencyKey: "vaccination:submission:" + submissionID,
+	})
+	if err != nil {
+		return fmt.Errorf("create submission verification item %s: %w", submissionID, err)
 	}
 	return nil
 }
