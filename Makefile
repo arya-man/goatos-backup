@@ -745,15 +745,15 @@ seed-stg-firebase-password-users:
 	  --require-provider "abhishek@mesha.sg=google.com" \
 	  --require-provider "aryaman@mesha.sg=google.com" \
 	  --user-password "ravi@mesha.sg=Ravi@2026" \
-	  --user-password "manohark@mesha.sg=Manohark@2026" \
+	  --user-password "manohark@mesha.sg=Manohar@2026" \
 	  --user-password "manju@mesha.sg=Manju@2026" \
 	  --user-password "abhishek@mesha.sg=Abhishek@2026" \
 	  --user-password "aryaman@mesha.sg=Aryaman@2026" \
 	  --user-password "amit797069@gmail.com=Amit@2026" \
 	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \
 	  --user-password "sagarmahoor143@gmail.com=Sagar@2026" \
-	  --user-password "chandrakanth119527@gmail.com=Chandra@2026" \
-	  --user-password "jyothipvg12345@gmail.com=Jyothi@2025"
+	  --user-password "chandrakanth119527@gmail.com=Chandrakant@2026" \
+	  --user-password "jyothipvg12345@gmail.com=Jyothi@2026"
 
 seed-stg-postflight:
 	@if [ "$${GOATOS_ENV:-}" != "stg" ]; then \

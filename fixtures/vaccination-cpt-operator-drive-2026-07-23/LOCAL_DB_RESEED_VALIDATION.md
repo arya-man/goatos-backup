@@ -88,7 +88,7 @@ leadership profile, admin-web bootstrap, mobile bootstrap, and CEO AI access.
 They never add vaccination operator capacity.
 
 Verifier login/grant readiness must also exist for `jyothipvg12345@gmail.com`.
-For STG, Jyothi uses Firebase email/password `Jyothi@2025` and receives the
+For STG, Jyothi uses Firebase email/password `Jyothi@2026` and receives the
 tenant-scoped `verifier` grant through the CPT roster seed's
 `auth_pending_email_grants` row. Jyothi reviews proof and never adds vaccination
 operator capacity.
