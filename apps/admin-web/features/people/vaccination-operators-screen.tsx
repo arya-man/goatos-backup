@@ -11,6 +11,7 @@ type Position = AdminApiComponents['schemas']['Position'];
 type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items'][number];
 
 interface VaccinationOperatorsScreenProps {
+  initialParkId?: string;
   pageContract?: AdminUiPageContract;
 }
 
@@ -116,7 +117,7 @@ function ownDates(opId: string, allLeaves: Record<string, { from: string; to: st
   return s;
 }
 
-export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) {
+export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperatorsScreenProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [commonCap, setCommonCap] = useState(200);
   const [operatorCount, setOperatorCount] = useState(1);
@@ -189,7 +190,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         // multi-park tenant into one screen. When the caller's scope covers several parks the backend
         // returns the parks they may choose from, and this screen renders that selector rather than
         // dying — a tenant-wide (ceo_internal) actor must still be able to use the screen.
-        const result = await loadVaccinationOperatorsScreen(api, chosenParkId ?? undefined);
+        const result = await loadVaccinationOperatorsScreen(api, chosenParkId ?? initialParkId);
         if (!alive) return;
         if (result.state === 'needs_park_selection') {
           setParkChoices(result.parks);
@@ -265,7 +266,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     return () => {
       alive = false;
     };
-  }, [chosenParkId]);
+  }, [chosenParkId, initialParkId]);
 
   // Drawer
   const openDrawer = (opId: string) => {
