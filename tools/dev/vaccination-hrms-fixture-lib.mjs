@@ -604,3 +604,7 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-25: CPT operator-roster verifiers are auth/workflow
 // reviewers only. They seed pending Firebase email-password verifier grants and
 // must never become vaccination operators, shift seats, or animal-capacity rows.
+// Coupling review 2026-07-25: selected_operator_ids is admin-authored runtime
+// assignment config over seeded operators. The committed full fixture has no
+// cpt-operator-roster.json, so fixture bytes/hashes and loader semantics remain
+// unchanged.

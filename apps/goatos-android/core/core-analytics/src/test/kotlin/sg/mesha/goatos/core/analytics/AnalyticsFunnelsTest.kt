@@ -1,8 +1,8 @@
 package sg.mesha.goatos.core.analytics
 
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /**
  * Unit tests for [AnalyticsFunnels] helpers — tests that each funnel helper builds the
@@ -18,6 +18,8 @@ class AnalyticsFunnelsTest {
         }
 
         override fun setUserProperty(name: String, value: String?) {}
+
+        override fun setUserId(id: String?) {}
     }
 
     @Test
@@ -38,7 +40,7 @@ class AnalyticsFunnelsTest {
         val (eventName, params) = capturedEvents[0]
         assertEquals(AnalyticsFunnels.Events.DRIVE_OPEN, eventName)
         assertEquals("drive-789", params[AnalyticsFunnels.Params.DRIVE_ID])
-        assertTrue(AnalyticsFunnels.Params.PARK_ID !in params, "parkId should not be in params when null")
+        assertTrue("parkId should not be in params when null", AnalyticsFunnels.Params.PARK_ID !in params)
     }
 
     @Test
