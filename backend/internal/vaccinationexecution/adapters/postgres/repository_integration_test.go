@@ -117,8 +117,8 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 		if !strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") {
 			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
 		}
-		if !strings.Contains(sql, "assignment.partition_label = COALESCE(gsp.partition_label, 'whole')") {
-			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition", name)
+		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") {
+			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
 		}
 	}
 	if strings.Contains(scanRosterSQL, "OR EXISTS (\n      SELECT 1\n      FROM vaccination_drive_assignments assignment") {

@@ -1180,7 +1180,8 @@ raw AS (
       END
    AND (
         assignment.partition_label = 'whole'
-        OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
       )
   -- Guess path: find assignment via LATERAL when no membership
   LEFT JOIN LATERAL (
@@ -1200,7 +1201,8 @@ raw AS (
           END
       AND (
             vda_guess.partition_label = 'whole'
-            OR vda_guess.partition_label = COALESCE(gsp.partition_label, 'whole')
+            OR regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
           )
     ORDER BY vda_guess.created_at DESC
     LIMIT 1
@@ -2096,7 +2098,8 @@ LEFT JOIN LATERAL (
     AND assignment.shed_id = g.shed_id
     AND (
       assignment.partition_label = 'whole'
-      OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+      OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
     )
     AND (
       $9::text = ''
