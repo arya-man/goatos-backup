@@ -661,7 +661,7 @@ class ScanViewModel @Inject constructor(
             pendingCount = pending,
             skippedCount = skipped,
             canSubmit = false, // computeProofGate decides
-            scanEnabled = operatorAllowed && total > 0 && !isRefreshing,
+            scanEnabled = operatorAllowed && total > 0 && !hasMore,
             hasMore = hasMore,
         )
     }
