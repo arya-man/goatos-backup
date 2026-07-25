@@ -108,6 +108,31 @@ git -C "$tmp/reuse-candidate" merge-base --is-ancestor origin/main HEAD
 test -f "$tmp/reuse-candidate/reuse-candidate.txt"
 test -f "$tmp/reuse-candidate/reuse-race.txt"
 
+git clone "$tmp/origin.git" "$tmp/bypass-candidate" >/dev/null 2>&1
+git -C "$tmp/bypass-candidate" config user.name "GoatOS Test"
+git -C "$tmp/bypass-candidate" config user.email "goatos-test@example.invalid"
+git -C "$tmp/bypass-candidate" switch -c bypass-feature >/dev/null
+printf 'bypass candidate\n' >"$tmp/bypass-candidate/bypass-candidate.txt"
+git -C "$tmp/bypass-candidate" add bypass-candidate.txt
+git -C "$tmp/bypass-candidate" commit -m bypass-candidate >/dev/null
+
+cat >"$tmp/fake-ci-should-not-run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "bypass self-test: CI command unexpectedly ran" >&2
+exit 99
+EOF
+chmod +x "$tmp/fake-ci-should-not-run.sh"
+
+(
+  cd "$tmp/bypass-candidate"
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_BYPASS_LOCAL_CI=1 \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/fake-ci-should-not-run.sh" \
+    bash "$script"
+) >"$tmp/bypass.out" 2>&1
+grep -q "GOATOS_BYPASS_LOCAL_CI=1; test-mode CI command skipped" "$tmp/bypass.out"
+grep -q "test mode verified rebase-before-CI" "$tmp/bypass.out"
+
 printf 'dirty\n' >>"$tmp/candidate/candidate.txt"
 if (
   cd "$tmp/candidate"
