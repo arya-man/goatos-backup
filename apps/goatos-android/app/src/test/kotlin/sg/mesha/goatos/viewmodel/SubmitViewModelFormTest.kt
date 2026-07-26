@@ -86,6 +86,8 @@ class SubmitViewModelFormTest {
         scanSource: FakeScanSource = FakeScanSource(),
         proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
         bootstrapRepository: FakeCaptureBootstrapRepository = FakeCaptureBootstrapRepository(),
+        shedId: String? = null,
+        sopVersionId: String? = null,
     ): SubmitViewModel = SubmitViewModel(
         repo = repository,
         syncRepository = sync,
@@ -94,7 +96,13 @@ class SubmitViewModelFormTest {
         scanSource = scanSource,
         proofCaptureSource = proofCaptureSource,
         bootstrapRepository = bootstrapRepository,
-        savedStateHandle = SavedStateHandle(if (taskId != null) mapOf("taskId" to taskId) else emptyMap()),
+        savedStateHandle = SavedStateHandle(
+            buildMap {
+                if (taskId != null) put("taskId", taskId)
+                if (shedId != null) put("shedId", shedId)
+                if (sopVersionId != null) put("sopVersionId", sopVersionId)
+            },
+        ),
     )
 
     @Test
@@ -1016,6 +1024,110 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `park-scoped shed route submits with active shed idempotency scope`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shared-parent",
+            sopVersionId = "sop-shared-parent",
+            taskType = "vaccination",
+            scopeType = "park",
+            scopeId = "park-parent",
+            rowVersion = 4,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = "task-shared-parent",
+            shedName = "Godel 2",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 10,
+            handledCount = 10,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 10)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            sync,
+            task.taskId,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            shedId = "godel-2",
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals("godel-2", sync.lastGroupKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastIdempotencyKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastRequest?.idempotencyKey)
+    }
+
+    @Test
+    fun `submit uses route sop version when cached task detail omits it`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-route-version",
+            sopVersionId = "",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-route-version",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Godel 2",
+            driveName = "Vaccination",
+            expectedCount = 1,
+            handledCount = 1,
+            proofReadyCount = 1,
+            submitEnabled = true,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            sync,
+            task.taskId,
+            shedId = "shed-route-version",
+            sopVersionId = "b0000000-0000-4000-8000-000000000002",
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals("b0000000-0000-4000-8000-000000000002", sync.lastRequest?.sopVersionId)
+    }
+
+    @Test
     fun `terminal shed task keeps proof form visible while an optional shed video is uploading`() = runTest(dispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-shed-terminal-uploading-proof",
@@ -1127,6 +1239,63 @@ class SubmitViewModelFormTest {
         assertNull("verified shed record must not reopen the final submit form", viewModel.state.value.formRunner)
         assertFalse(viewModel.state.value.canSubmit)
         assertNull(sync.lastRequest)
+    }
+
+    @Test
+    fun `successful outbox submit immediately renders acknowledged state before task refresh catches up`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-outbox-acked",
+            sopVersionId = "sop-shed-outbox-acked",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-outbox",
+            state = "draft",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-outbox-acked",
+            shedName = "Shed Outbox",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 2,
+            handledCount = 2,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 2)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            sync,
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        sync.markSucceeded()
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.ACKED, viewModel.state.value.syncState)
+        assertFalse(viewModel.state.value.canSubmit)
+        assertNull("accepted outbox submit must not repaint the editable proof form", viewModel.state.value.formRunner)
     }
 
     @Test
@@ -1250,11 +1419,14 @@ private class FakeFormTasksRepository(
 
 private class CapturingSyncRepository : SyncRepository {
     var lastRequest: SubmitTaskRequestDto? = null
+    var lastGroupKey: String? = null
+    var lastIdempotencyKey: String? = null
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val item = MutableStateFlow<SyncQueueItem?>(null)
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
 
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = emptyFlow()
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = item
 
     override suspend fun enqueueShedSubmit(
         taskId: String,
@@ -1263,23 +1435,30 @@ private class CapturingSyncRepository : SyncRepository {
         request: SubmitTaskRequestDto,
     ): AppResult<String> {
         lastRequest = request
+        lastGroupKey = groupKey
+        lastIdempotencyKey = idempotencyKey
+        val queued = SyncQueueItem(
+            id = "item-1",
+            opType = "shed_submit",
+            groupKey = groupKey,
+            status = SyncItemStatus.QUEUED,
+            attemptCount = 0,
+            maxAttempts = 5,
+            conflict = false,
+            createdAt = 1L,
+            updatedAt = 1L,
+            lastError = null,
+        )
+        item.value = queued
         status.value = status.value.copy(
-            items = listOf(
-                SyncQueueItem(
-                    id = "item-1",
-                    opType = "shed_submit",
-                    groupKey = groupKey,
-                    status = SyncItemStatus.QUEUED,
-                    attemptCount = 0,
-                    maxAttempts = 5,
-                    conflict = false,
-                    createdAt = 1L,
-                    updatedAt = 1L,
-                    lastError = null,
-                ),
-            ),
+            items = listOf(queued),
         )
         return AppResult.Ok("item-1")
+    }
+
+    fun markSucceeded() {
+        val current = item.value ?: return
+        item.value = current.copy(status = SyncItemStatus.SUCCEEDED, updatedAt = current.updatedAt + 1)
     }
 
     override suspend fun enqueueReschedule(

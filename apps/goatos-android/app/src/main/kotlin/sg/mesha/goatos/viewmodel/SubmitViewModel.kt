@@ -135,6 +135,7 @@ class SubmitViewModel @Inject constructor(
     private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val routeShedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
+    private val routeSopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val selectedShedId = MutableStateFlow(routeShedId)
     private var statusJob: Job? = null
     private var outboxRecoveryKey: String? = null
@@ -311,11 +312,11 @@ class SubmitViewModel @Inject constructor(
             _state.value = blockedState()
             return
         }
-        currentTask = detail.task
+        currentTask = detail.task.withRouteSopVersionFallback()
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
-        resolveShedScopeFromTask(detail.task)
-        if (shouldRenderTerminalAck(detail.task)) {
+        resolveShedScopeFromTask(currentTask ?: detail.task)
+        if (shouldRenderTerminalAck(currentTask ?: detail.task)) {
             // The refreshed backend task is authoritative after a successful submit. Its row
             // version advances when the task enters review/accepted state, so trying to recover
             // the old pre-submit outbox key from the new row version would render a fresh,
@@ -324,10 +325,10 @@ class SubmitViewModel @Inject constructor(
             statusJob?.cancel()
             clearSavedSubmission()
             outboxRecoveryKey = null
-            _state.value = terminalAckState(detail.task, detail.form)
+            _state.value = terminalAckState(currentTask ?: detail.task, detail.form)
             return
         }
-        bindSubmissionKey(detail.task)
+        bindSubmissionKey(currentTask ?: detail.task)
         val queuedItemId = outboxItemId
         val key = idempotencyKey
         if (key != null && outboxRecoveryKey != key) {
@@ -335,7 +336,7 @@ class SubmitViewModel @Inject constructor(
             // SavedState reliably. Always reconcile the saved row id against the stable key:
             // the saved id itself may name a failed row that a retry already replaced.
             outboxRecoveryKey = key
-            _state.value = draftState(detail.task, detail.form).copy(canSubmit = false)
+            _state.value = draftState(currentTask ?: detail.task, detail.form).copy(canSubmit = false)
             viewModelScope.launch {
                 when (val recovered = syncRepository.findOutboxItemByIdempotencyKey(key)) {
                     is AppResult.Ok -> {
@@ -401,6 +402,9 @@ class SubmitViewModel @Inject constructor(
         formAnswers = formAnswers + (key to value)
         renderDraft()
     }
+
+    private fun TaskSummaryDto.withRouteSopVersionFallback(): TaskSummaryDto =
+        if (sopVersionId.isNotBlank()) this else copy(sopVersionId = routeSopVersionId.orEmpty())
 
     /** Starts/stops the BT-HID [scanSource] for [key]'s `goat_scan` field. Only one field
      *  scans at a time — Android owns a single BT-HID connection either way. Each completed tag
@@ -550,7 +554,22 @@ class SubmitViewModel @Inject constructor(
             return
         }
         stopScanning()
-        val key = idempotencyKey ?: stableSubmissionKey(current).also { idempotencyKey = it }
+        val sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() }
+        if (sopVersionId.isBlank()) {
+            _state.update {
+                it.copy(
+                    syncState = SyncState.CONFLICT,
+                    syncLabel = "Task version missing. Please reopen this shed.",
+                    canSubmit = false,
+                    lastError = "Task version missing. Please reopen this shed.",
+                    isQueueFailed = true,
+                    isRetryFailed = false,
+                )
+            }
+            return
+        }
+        val activeShedId = activeShedScopeId(current)
+        val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId).also { idempotencyKey = it }
         statusJob?.cancel()
         viewModelScope.launch {
             _state.update {
@@ -568,9 +587,9 @@ class SubmitViewModel @Inject constructor(
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
             // of a shed's writes in order (TRD: outbox is "ordered per shed").
-            val groupKey = current.scopeId.ifBlank { current.taskId }
+            val groupKey = activeShedId ?: current.scopeId.ifBlank { current.taskId }
             val request = SubmitTaskRequestDto(
-                sopVersionId = current.sopVersionId,
+                sopVersionId = sopVersionId,
                 idempotencyKey = key,
                 answers = answersForSubmission(currentForm, formAnswers, currentScans),
                 proofRefs = proofRefsForSubmission(currentProofs),
@@ -637,20 +656,25 @@ class SubmitViewModel @Inject constructor(
     }
 
     private fun bindSubmissionKey(task: TaskSummaryDto) {
-        val submissionScope = submissionScope(task)
+        val submissionScope = submissionScope(task, activeShedScopeId(task))
         val previousScope = savedStateHandle.get<String>(KEY_SUBMISSION_SCOPE)
         if (previousScope != submissionScope) {
             savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
-            idempotencyKey = stableSubmissionKey(task)
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task))
             outboxItemId = null
             outboxRecoveryKey = null
             formAnswers = emptyMap()
             return
         }
         if (idempotencyKey == null) {
-            idempotencyKey = stableSubmissionKey(task)
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task))
         }
     }
+
+    private fun activeShedScopeId(task: TaskSummaryDto): String? =
+        selectedShedId.value
+            ?.takeIf { it.isNotBlank() }
+            ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
 
     private fun clearSavedSubmission() {
         savedStateHandle.remove<String>(KEY_SUBMISSION_SCOPE)
@@ -683,7 +707,7 @@ class SubmitViewModel @Inject constructor(
             }
             item.status == SyncItemStatus.SUCCEEDED -> {
                 val task = currentTask
-                if (task != null && shouldRenderTerminalAck(task)) {
+                if (task != null) {
                     _state.value = terminalAckState(task, currentForm)
                 } else {
                     outboxItemId = null
@@ -1260,8 +1284,16 @@ class SubmitViewModel @Inject constructor(
 
         fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
 
+        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?): String =
+            "shed-submit:${submissionScope(task, activeShedId)}"
+
         fun submissionScope(task: TaskSummaryDto): String =
-            "${task.taskId}:scope:${task.scopeId.ifBlank { task.taskId }}:rv:${task.rowVersion}"
+            submissionScope(task, activeShedId = null)
+
+        fun submissionScope(task: TaskSummaryDto, activeShedId: String?): String {
+            val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
+            return "${task.taskId}:scope:$scopeId:rv:${task.rowVersion}"
+        }
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
             "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
