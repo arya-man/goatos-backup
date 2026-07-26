@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -252,7 +253,8 @@ fun SubmitScreen(
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .imePadding(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp,
             ),
@@ -375,9 +377,10 @@ fun SubmitScreen(
             items(state.groups, key = { group -> "${group.name}|${group.dose}" }, contentType = { "vaccine_group" }) { group ->
                 VaccineGroupCard(group)
             }
+            item(contentType = "submit_footer") {
+                SubmitFooter(state, onEvent)
+            }
         }
-
-        SubmitFooter(state, onEvent)
     }
 }
 
