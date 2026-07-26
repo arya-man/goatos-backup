@@ -1744,8 +1744,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Confirm an authorized shifting physically happened. THIS moves the animals.
-         * @description Records that an operator has physically moved the animals to the destination shed. THIS is the call that relocates them in `goats` - approving the shifting only authorized it. ATOMIC: the relocation, the flip to event_status='applied', and the applied_at/applied_by stamp all commit in ONE transaction. If any named animal cannot be moved (it was exited or merged) the WHOLE completion is rolled back with 409 shifting_execution_incomplete and the movement stays 'authorized' - it never half-applies. Valid ONLY from event_status='authorized'. A movement that is still pending approval, or was rejected or canceled, is refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. No request body. The animals, destination, and authorization are already recorded - accepting an animal set here would let a phone relocate a herd the approver never signed off on. Requires the Idempotency-Key header. Completing an already-applied movement returns the ORIGINAL result with idempotent_replay=true and relocates nobody a second time.
+         * Confirm a shifting happened and submit its MANDATORY video for verification.
+         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-26). This does NOT relocate the animals and does NOT move the count: it flips the movement to event_status='pending_verification' and queues the video in the verifier's queue. The relocation happens only when a verifier APPROVES that video (the movement then flips to 'applied' and the count moves); a REJECTED video bounces the movement back to 'authorized' for the operator to re-shoot. proof_ref (a proof_artifact id for the video) is REQUIRED - a completion with no video is refused with 422 proof_required, because there is nothing for a verifier to approve. Valid ONLY from event_status='authorized'. A movement still pending approval, or already rejected or canceled, is refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
          */
         post: operations["completeAppCountsShiftingEvent"];
         delete?: never;
@@ -8897,9 +8897,18 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description MANDATORY. The proof_artifact id of the video the operator recorded to prove the animals physically moved. The move is applied only after a verifier approves it. */
+                    proof_ref: string;
+                    /** @description OPTIONAL destination management_stage the moved animals adopt. Needed only when the destination shed is empty; for an occupied shed the server derives it and a supplied value must agree with the shed's configured profile. */
+                    destination_tag?: string;
+                };
+            };
+        };
         responses: {
-            /** @description Movement executed - the animals relocated (or the original result replayed). */
+            /** @description Movement submitted for verification (event_status='pending_verification'); nothing relocated yet, or the original result replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

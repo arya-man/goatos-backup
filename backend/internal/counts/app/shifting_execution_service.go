@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 var (
 	// ErrShiftingCancelReasonRequired is returned when a cancellation arrives without a reason.
 	ErrShiftingCancelReasonRequired = errors.New("counts: a reason is required to cancel a shifting")
+	// ErrVerificationEnqueuerNotWired is returned when a completion cannot enqueue its verification
+	// item because the enqueue seam was never wired -- a composition bug, surfaced loudly rather than
+	// silently stranding a pending_verification movement.
+	ErrVerificationEnqueuerNotWired = errors.New("counts: shifting verification enqueuer is not wired")
 	// ErrInvalidShiftingExecutionFilter is returned for a malformed cursor or park filter on the
 	// pending-execution queue.
 	ErrInvalidShiftingExecutionFilter = errors.New("counts: invalid pending-execution filter")
@@ -27,8 +32,9 @@ var (
 // (CountsApproveShifting vs CountsWrite). Folding them together is what produced the behaviour the
 // 2026-07-19 decision retired, where pressing "approve" silently relocated a herd.
 type ShiftingExecutionService struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo     ports.Repository
+	now      func() time.Time
+	enqueuer ShiftingVerificationEnqueuer
 }
 
 // NewShiftingExecutionService constructs the service. now may be nil (defaults to time.Now).
@@ -37,6 +43,33 @@ func NewShiftingExecutionService(repo ports.Repository, now func() time.Time) *S
 		now = time.Now
 	}
 	return &ShiftingExecutionService{repo: repo, now: now}
+}
+
+// ShiftingVerificationEnqueuer enqueues the mandatory-video verification item for a submitted
+// movement (maintainer decision, 2026-07-26). The composition layer adapts the verification module's
+// CreateItem to this narrow port so counts never touches verification's tables directly.
+type ShiftingVerificationEnqueuer interface {
+	EnqueueShiftingMoveVerification(ctx context.Context, in ShiftingVerificationEnqueueRequest) error
+}
+
+// ShiftingVerificationEnqueueRequest is one shifting-move video handed to the verification queue.
+type ShiftingVerificationEnqueueRequest struct {
+	TenantID        string
+	ShiftingEventID string
+	OperatorID      string
+	ParkID          string
+	ShedID          string
+	ProofRef        string
+	SubjectLabel    string
+	CapturedAt      time.Time
+	IdempotencyKey  string
+}
+
+// WithVerificationEnqueuer wires the verification enqueue seam. Without it, Complete fails closed
+// rather than flipping a movement to pending_verification with no verifier queue item.
+func (s *ShiftingExecutionService) WithVerificationEnqueuer(enqueuer ShiftingVerificationEnqueuer) *ShiftingExecutionService {
+	s.enqueuer = enqueuer
+	return s
 }
 
 // CompleteInput is one "the animals actually moved" confirmation.
@@ -52,6 +85,11 @@ type CompleteShiftingInput struct {
 	CompletedByUserID string
 	TraceID           string
 
+	// ProofRef is the MANDATORY video the operator records to prove the move (maintainer decision,
+	// 2026-07-26). A blank value is rejected with ports.ErrShiftingProofRequired; the move is applied
+	// only after a verifier approves this video.
+	ProofRef string
+
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
 	// animals adopt. Required only when the destination shed is empty; derived server-side otherwise.
 	DestinationTag string
@@ -60,7 +98,9 @@ type CompleteShiftingInput struct {
 	RequestFingerprint string
 }
 
-// Complete executes an authorized movement, relocating its animals atomically with the status flip.
+// Complete submits an authorized movement for verification: it records the operator's mandatory
+// video and flips the movement to pending_verification. It relocates NOBODY -- the relocation runs
+// on verifier approval (ApplyVerified).
 func (s *ShiftingExecutionService) Complete(
 	ctx context.Context, in CompleteShiftingInput,
 ) (domain.ShiftingExecutionResult, bool, error) {
@@ -69,16 +109,52 @@ func (s *ShiftingExecutionService) Complete(
 		strings.TrimSpace(in.RequestFingerprint) == "" {
 		return domain.ShiftingExecutionResult{}, false, ErrMissingRequiredField
 	}
-	return s.repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+	if strings.TrimSpace(in.ProofRef) == "" {
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
+	}
+	if s.enqueuer == nil {
+		// Fail closed: without the verification queue seam a completion would flip a movement to
+		// pending_verification with nothing for a verifier to act on, stranding the animals.
+		return domain.ShiftingExecutionResult{}, false, ErrVerificationEnqueuerNotWired
+	}
+	result, replay, err := s.repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
 		TenantID:           in.TenantID,
 		ShiftingEventID:    in.ShiftingEventID,
 		CompletedByUserID:  in.CompletedByUserID,
 		CompletedAt:        s.now().UTC(),
 		TraceID:            in.TraceID,
+		ProofRef:           strings.TrimSpace(in.ProofRef),
 		DestinationTag:     strings.TrimSpace(in.DestinationTag),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+
+	// Enqueue the mandatory-video verification item. Only for a movement that is actually awaiting
+	// verification (an already-applied replay has been verified and moved -- re-enqueuing would queue
+	// a decided move). The enqueue is idempotent on the shifting event id, so a retry after a prior
+	// enqueue failure heals rather than duplicates: the completion is not "done" for the operator
+	// until the item is queued.
+	if result.EventStatus == domain.ShiftingEventStatusPendingVerification {
+		subject := "Shed move · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		if enqErr := s.enqueuer.EnqueueShiftingMoveVerification(ctx, ShiftingVerificationEnqueueRequest{
+			TenantID:        in.TenantID,
+			ShiftingEventID: in.ShiftingEventID,
+			OperatorID:      in.CompletedByUserID,
+			ParkID:          result.DestinationParkID,
+			ShedID:          result.DestinationShedID,
+			ProofRef:        strings.TrimSpace(in.ProofRef),
+			SubjectLabel:    subject,
+			CapturedAt:      s.now().UTC(),
+			// Keyed to the EVENT + its video so a retry collapses onto one queue item.
+			IdempotencyKey: "counts-shifting-verification:" + in.ShiftingEventID + ":" + strings.TrimSpace(in.ProofRef),
+		}); enqErr != nil {
+			return domain.ShiftingExecutionResult{}, false, enqErr
+		}
+	}
+	return result, replay, nil
 }
 
 // CancelShiftingInput retires an authorized movement that will never be executed.

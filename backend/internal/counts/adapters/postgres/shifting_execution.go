@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -41,41 +42,37 @@ import (
 // Complete
 // ---------------------------------------------------------------------------
 
-// CompleteShiftingEvent executes an authorized movement.
+// CompleteShiftingEvent SUBMITS an authorized movement for verification (maintainer decision,
+// 2026-07-26, superseding the 2026-07-19 completion-applies-the-move rule for shifting).
 //
-// ATOMICITY -- the point of this method. One transaction contains, in order:
+// The operator confirms the animals walked AND records a MANDATORY video (in.ProofRef). This method
+// does NOT relocate anybody and does NOT move the count: it flips the movement to
+// 'pending_verification', stores the video reference, and stamps the completion idempotency pair.
+// The animals are physically in the destination shed while the census still reads the source shed;
+// the relocation runs later, in ApplyVerifiedShiftingEvent, only when a verifier approves the video.
 //
-//  1. SELECT ... FOR UPDATE of the shifting_events row (serializes two operators pressing
-//     "Completed" on the same movement),
-//  2. the animal set read back from the approval request that authorized the movement,
-//  3. the RELOCATION, through identity's transaction-scoped seam,
-//  4. the flip to event_status='applied' plus the applied_at/applied_by stamp and the completion
-//     idempotency pair.
+// A blank ProofRef is rejected with ErrShiftingProofRequired before any state changes -- a move with
+// no video has nothing for a verifier to approve.
 //
-// Any failure in 3 rolls back 1, 2 and 4 together. There is no window in which the movement reads
-// 'applied' while the animals did not move, and none in which the animals moved while the movement
-// still reads 'authorized' -- which is what the atomic transition rule in AGENTS.md requires. The
-// schema backs it up: shifting_events_applied_shape_check forbids an 'applied' row with no
-// completion stamp.
+// IDEMPOTENCY. A phone in a park WILL retry this:
 //
-// IDEMPOTENCY. Two distinct replays are handled, because a phone in a park WILL retry this:
-//
-//   - Same completion key on an already-applied movement: the stored key/fingerprint pair is
-//     compared. An exact replay returns the original result with replay=true and relocates nobody
-//     again; a same-key/different-payload replay is ErrIdempotencyConflict.
-//   - DIFFERENT key on an already-applied movement: also returns the original result with
-//     replay=true. Completion is a confirmation of a physical fact, not a command that may run
-//     twice -- a second operator confirming the same movement must not move the herd onward, and
-//     the animals are already at the destination, so the correct answer is the original one.
+//   - Already 'pending_verification' (this movement's video was already submitted): the stored
+//     completion key/fingerprint is compared. An exact replay returns the original result with
+//     replay=true and enqueues nothing new; a same-key/different-payload replay is
+//     ErrIdempotencyConflict.
+//   - Already 'applied' (a verifier already approved it and the animals moved): return the original
+//     result with replay=true. Completion is a confirmation of a physical fact, not a command that
+//     may run twice.
 func (r *Repository) CompleteShiftingEvent(
 	ctx context.Context, in domain.ShiftingCompletionCommand,
 ) (domain.ShiftingExecutionResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	if r.identityTx == nil {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"counts: complete shifting event %s: identity write seam is not wired", in.ShiftingEventID)
+	// The video is mandatory. Reject before opening a transaction so a proofless completion changes
+	// nothing.
+	if strings.TrimSpace(in.ProofRef) == "" {
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -104,8 +101,10 @@ func (r *Repository) CompleteShiftingEvent(
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 
-	// Already executed. Answer with the original result rather than relocating a second time.
-	if current.EventStatus == domain.ShiftingEventStatusApplied {
+	// Already submitted for verification, or already applied. Answer with the original result rather
+	// than enqueuing / relocating a second time.
+	if current.EventStatus == domain.ShiftingEventStatusPendingVerification ||
+		current.EventStatus == domain.ShiftingEventStatusApplied {
 		if in.IdempotencyKey != "" && current.CompletionIdempotencyKey != nil &&
 			*current.CompletionIdempotencyKey == in.IdempotencyKey {
 			if current.CompletionRequestFingerprint == nil ||
@@ -132,64 +131,153 @@ func (r *Repository) CompleteShiftingEvent(
 	}
 
 	if len(goatIDs) == 0 {
-		// Fail closed. A movement naming nobody cannot be "completed": flipping it to applied would
-		// record that animals moved while relocating none, which is the count-moves-nothing shape
-		// the 2026-07-19 decision retired.
+		// Fail closed. A movement naming nobody cannot be "completed": submitting it for verification
+		// would queue a video that proves the relocation of no animals.
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
 			"%w: shifting event %s names no animals to move",
 			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
 	}
 
-	// THE RELOCATION. This is the only place in the shifting flow that writes an animal's canonical
-	// location, and it runs here -- at completion -- rather than at approval, because only now has
-	// somebody asserted that the animals are physically standing in the destination shed.
-	//
-	// P1 follow-up #1: Defend against stale location overwrites by passing expected source park/shed.
+	// The status flip: authorized -> pending_verification. NOTHING relocates here. The mandatory
+	// video (proof_ref) is stored so the verification enqueue can carry it, and the completion
+	// idempotency pair is stamped. `AND event_status = 'authorized'` makes the transition its own
+	// concurrency guard: if anything canceled/re-decided this movement since the lock, zero rows
+	// update and the transaction rolls back.
+	tag, err := tx.Exec(ctx, `
+UPDATE shifting_events
+SET event_status = 'pending_verification',
+    verification_state = 'unverified',
+    proof_ref = $3,
+    completion_idempotency_key = nullif($4, ''),
+    completion_request_fingerprint = nullif($5, ''),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'authorized'`,
+		in.TenantID, in.ShiftingEventID, strings.TrimSpace(in.ProofRef),
+		in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: submit shifting for verification: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingNotAuthorized
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+	committed = true
+
+	return domain.ShiftingExecutionResult{
+		ShiftingEventID:   in.ShiftingEventID,
+		EventStatus:       domain.ShiftingEventStatusPendingVerification,
+		DestinationParkID: destParkID,
+		DestinationShedID: destShedID,
+		MovedGoatIDs:      goatIDs,
+	}, false, nil
+}
+
+// ApplyVerifiedShiftingEvent relocates the animals of a movement whose video a verifier has APPROVED,
+// and flips it 'pending_verification' -> 'applied'. This is the consumer half of the 2026-07-26
+// rule: it runs from the verification.verdict.approved consumer, NOT from the operator's phone, and
+// it is the ONLY place a shifting movement writes an animal's canonical location.
+//
+// ATOMICITY mirrors the old completion path: one transaction locks the row, relocates through
+// identity's transaction-scoped seam, and flips the status; any failure rolls the whole thing back,
+// so there is never an 'applied' row whose animals did not move.
+//
+// IDEMPOTENCY: a re-delivered verdict on an already-'applied' movement returns applied=false and
+// relocates nobody. A verdict that arrives when the movement is no longer 'pending_verification'
+// (canceled, bounced back to authorized, superseded) is ignored as a stale delivery.
+func (r *Repository) ApplyVerifiedShiftingEvent(
+	ctx context.Context, in domain.ShiftingVerifiedApplyCommand,
+) (domain.ShiftingExecutionResult, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if r.identityTx == nil {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
+			"counts: apply verified shifting event %s: identity write seam is not wired", in.ShiftingEventID)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	current, err := lockShiftingEvent(ctx, tx, in.TenantID, in.ShiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+
+	goatIDs, destParkID, destShedID, err := r.shiftingMovementSet(ctx, tx, in.TenantID, in.ShiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+
+	// Already applied: a re-delivered verdict must not move the herd onward.
+	if current.EventStatus == domain.ShiftingEventStatusApplied {
+		return domain.ShiftingExecutionResult{
+			ShiftingEventID:   in.ShiftingEventID,
+			EventStatus:       current.EventStatus,
+			DestinationParkID: destParkID,
+			DestinationShedID: destShedID,
+			MovedGoatIDs:      goatIDs,
+			AppliedAt:         current.AppliedAt,
+			AppliedBy:         current.AppliedBy,
+		}, false, nil
+	}
+
+	// A verdict for a movement that is no longer awaiting verification is a stale delivery (the move
+	// was canceled or bounced back before the verifier's approval landed). Ignore it rather than
+	// resurrecting a retired movement.
+	if current.EventStatus != domain.ShiftingEventStatusPendingVerification {
+		return domain.ShiftingExecutionResult{
+			ShiftingEventID: in.ShiftingEventID,
+			EventStatus:     current.EventStatus,
+		}, false, nil
+	}
+
+	if len(goatIDs) == 0 {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
+			"%w: shifting event %s names no animals to move",
+			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
+	}
+
 	sourceParkID, sourceShedID, err := r.readShiftingEventSourceLocation(ctx, tx, in.TenantID, in.ShiftingEventID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read shifting source location: %w", err)
 	}
 
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
-		TenantID:   in.TenantID,
-		ActorID:    in.CompletedByUserID,
-		GoatIDs:    goatIDs,
-		FromParkID: sourceParkID,
-		FromShedID: sourceShedID,
-		ToParkID:   destParkID,
-		ToShedID:   destShedID,
-		// The destination cohort the animals adopt is read from the destination shed's CONFIGURED
-		// profile (shed_profiles -> animal_stage_lookup) inside the relocation. A supplied tag is only
-		// a request that must AGREE with that profile.
+		TenantID:       in.TenantID,
+		ActorID:        in.VerifiedByUserID,
+		GoatIDs:        goatIDs,
+		FromParkID:     sourceParkID,
+		FromShedID:     sourceShedID,
+		ToParkID:       destParkID,
+		ToShedID:       destShedID,
 		DestinationTag: in.DestinationTag,
-		// Thread the completion's trace id into the relocation so the goat.location.changed /
-		// goat.stage_changed outbox envelopes carry a non-empty trace_id (the envelope schema requires
-		// minLength 1); without it the relay would reject and never deliver these events.
-		TraceID: in.TraceID,
-		Reason:  "counts shifting completion " + in.ShiftingEventID,
-		// The relocation is stamped with the moment of COMPLETION, not of approval: the animals'
-		// location history must read when they moved, not when someone permitted it.
-		OccurredAt: in.CompletedAt,
-		// Keyed to the EVENT, not to the caller's client key, so two operators completing the same
-		// movement with different client keys still collapse onto one outbox message per animal.
-		OutboxIdempotencyPrefix: "counts-shifting-completion:" + in.ShiftingEventID,
+		TraceID:        in.TraceID,
+		Reason:         "counts shifting verified " + in.ShiftingEventID,
+		// The relocation is stamped with the moment of VERIFICATION -- when the move became real.
+		OccurredAt:              in.VerifiedAt,
+		OutboxIdempotencyPrefix: "counts-shifting-verified:" + in.ShiftingEventID,
 	})
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
-	// Fail closed on a shortfall, exactly as the approve path used to: if any named animal was not
-	// movable (exited, merged, wrong tenant) the completion must not half-apply. Rolling back
-	// leaves the movement authorized so a human can resolve the animal and retry -- far better than
-	// an 'applied' movement whose herd register disagrees with the shed.
 	if len(moved.MovedGoatIDs) != len(goatIDs) {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
 			"%w: shifting event %s named %d animals but %d were movable",
 			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID, len(goatIDs), len(moved.MovedGoatIDs))
 	}
 
-	// The status flip. `AND event_status = 'authorized'` makes the transition itself the
-	// concurrency guard: if anything completed or canceled this movement since the lock, zero rows
-	// update and the whole transaction -- including the relocation above -- rolls back.
 	var (
 		appliedAt time.Time
 		appliedBy string
@@ -197,20 +285,18 @@ func (r *Repository) CompleteShiftingEvent(
 	if err := tx.QueryRow(ctx, `
 UPDATE shifting_events
 SET event_status = 'applied',
+    verification_state = 'verified',
     applied_at = $3::timestamptz,
     applied_by = $4::uuid,
-    completion_idempotency_key = nullif($5, ''),
-    completion_request_fingerprint = nullif($6, ''),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'authorized'
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'pending_verification'
 RETURNING applied_at, applied_by::text`,
-		in.TenantID, in.ShiftingEventID, in.CompletedAt.UTC(), in.CompletedByUserID,
-		in.IdempotencyKey, in.RequestFingerprint).Scan(&appliedAt, &appliedBy); err != nil {
+		in.TenantID, in.ShiftingEventID, in.VerifiedAt.UTC(), in.VerifiedByUserID).Scan(&appliedAt, &appliedBy); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingNotAuthorized
 		}
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: complete shifting event: %w", err)
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: apply verified shifting event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -235,7 +321,36 @@ RETURNING applied_at, applied_by::text`,
 		MovedGoatIDs:      moved.MovedGoatIDs,
 		AppliedAt:         &appliedAt,
 		AppliedBy:         &appliedBy,
-	}, false, nil
+	}, true, nil
+}
+
+// BounceShiftingEventForRework returns a movement whose video a verifier REJECTED to 'authorized',
+// so the operator sees it again in the pending-execution queue and re-records the video. NOTHING
+// relocates. It runs from the verification.verdict.rework consumer.
+//
+// Idempotent: only a 'pending_verification' row is bounced; a verdict re-delivered after the
+// movement already moved on (re-completed, applied, canceled) is a no-op.
+func (r *Repository) BounceShiftingEventForRework(
+	ctx context.Context, in domain.ShiftingReworkCommand,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tag, err := r.pool.Exec(ctx, `
+UPDATE shifting_events
+SET event_status = 'authorized',
+    verification_state = 'rejected',
+    completion_idempotency_key = NULL,
+    completion_request_fingerprint = NULL,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'pending_verification'`,
+		in.TenantID, in.ShiftingEventID)
+	if err != nil {
+		return fmt.Errorf("counts: bounce shifting event for rework: %w", err)
+	}
+	_ = tag // zero rows affected is an accepted stale/duplicate verdict; no error.
+	return nil
 }
 
 // ---------------------------------------------------------------------------
