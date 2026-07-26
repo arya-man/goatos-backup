@@ -163,6 +163,35 @@ on `verification.verdict.approved`/`.rework`. Canonical source:
 `docs/decisions/shifting-verification.md`; migration
 `000031_shifting_verification_gate.sql`.
 
+Confirmed feed-distribution verification gate (maintainer decision 2026-07-26,
+SUPERSEDING the "operator marks a shed-session fed (optional video), completed at
+submit" contract FOR the feed-DIRECTION operator flow ONLY): a feed-direction
+shed-session is completed only after a verifier approves the operator's proof.
+The operator submits TWO MANDATORY proofs per session — a feed-distribution VIDEO
+(`distribution_proof_ref`) and a water-distribution proof that may be PHOTO OR
+VIDEO (`water_proof_ref`); a completion missing either is rejected 422
+`proof_required`. That flips a NEW `feed_distribution_completions` row to
+`pending_verification` and enqueues ONE `feed_distribution` verification item
+carrying BOTH proofs — NOTHING is completed yet. ONE verifier APPROVE
+(`ApplyVerifiedDistribution`) covers both proofs and flips the session to
+`completed` (this is when `feed.distribution.completed` is emitted); a REJECT
+(`BounceDistributionForRework`) flips it to `rework` for a re-shoot. Applies to
+BOTH `normal` and `experiment` workflows. Feed direction is app-only: the
+`/feed/direction` admin-web left-bar leaf is removed (keep `/feed/config`).
+FEED PACKING IS DELIBERATELY NOT GATED AND NOT DISTURBED: its shared completion
+path — `feed_direction_session_completions` (migration `000030`),
+`POST /feed-direction/complete`, `feed.direction.completed`, `CompleteSession`,
+`overlayPackingCompleted`, and the mobile packing screen — is left EXACTLY as
+today (instant, optional-video, no verifier). The gated flow is a SEPARATE
+record, never an ALTER of the packing table. Wiring is the generic Verification
+module: producer `feeddirection` `CompleteDistribution` +
+`feeddirection/adapters/verificationbridge` enqueue; consumer
+`feeddirection/app.FeedDistributionVerificationHandler` on
+`verification.verdict.approved`/`.rework`, filtered to `source.module=feed,
+ref_type=feed_distribution_completion`. Canonical source:
+`docs/decisions/feed-distribution-verification.md`; migration
+`000032_feed_distribution_verification_gate.sql`.
+
 ## Domain Event Integration Is Mandatory
 
 Backend, admin-web, and mobile business mutations all use the same domain-event
