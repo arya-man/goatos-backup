@@ -497,9 +497,6 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
 		return nil, err
 	}
-	if !uuidutil.IsUUIDString(cmd.Body.SOPVersionID) {
-		return nil, BadRequest("invalid_sop_version_id", "sop_version_id must be a UUID")
-	}
 	cmd.Body.IdempotencyKey = strings.TrimSpace(cmd.Body.IdempotencyKey)
 	if cmd.Body.IdempotencyKey == "" {
 		return nil, BadRequest("invalid_idempotency_key", "idempotency_key is required")
@@ -507,6 +504,13 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	task, version, _, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	cmd.Body.SOPVersionID = strings.TrimSpace(cmd.Body.SOPVersionID)
+	if cmd.Body.SOPVersionID == "" {
+		cmd.Body.SOPVersionID = task.SOPVersionID
+	}
+	if !uuidutil.IsUUIDString(cmd.Body.SOPVersionID) {
+		return nil, BadRequest("invalid_sop_version_id", "sop_version_id must be a UUID")
 	}
 	if task.SOPVersionID != cmd.Body.SOPVersionID {
 		return nil, Conflict("stale_sop_version", "task requires a different pinned SOP version")
@@ -536,16 +540,21 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	proofPolicy := version.ProofPolicy
 	if submissionFanoutNeeded(task) {
 		gate := vaccinationCompletionProofGate(version.ProofPolicy)
+		shedProofSubjectID := submittedShedProofSubjectID(cmd.Body.ProofRefs)
+		if gate.SubjectType == "shed" && shedProofSubjectID == "" {
+			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
+		}
 		if gate.SubjectType == "shed" && len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, "")
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}
 			if len(proofRefs) == 1 {
 				cmd.Body.ProofRefs = proofRefs
+				shedProofSubjectID = submittedShedProofSubjectID(cmd.Body.ProofRefs)
 			}
 		}
-		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, submittedShedProofSubjectID(cmd.Body.ProofRefs), gate.MinimumCount, gate.MaximumCount)
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, gate.MinimumCount, gate.MaximumCount)
 		if err != nil {
 			return nil, mapRepoErr(err)
 		}
@@ -562,7 +571,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		// attachment here.
 		proofPolicy = map[string]any{"required": false, "subject_scope": "task", "types": []any{"video"}, "minimum_count": 0}
 		if len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, submittedShedProofSubjectID(cmd.Body.ProofRefs))
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}
@@ -613,6 +622,16 @@ func submittedShedProofSubjectID(refs []domain.ProofReference) string {
 		}
 		if shedID := strings.TrimSpace(*ref.SubjectID); shedID != "" {
 			return shedID
+		}
+	}
+	return ""
+}
+
+func shedScopeFromSubmissionKey(key string) string {
+	parts := strings.Split(strings.TrimSpace(key), ":")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "scope" && uuidutil.IsUUIDString(parts[i+1]) {
+			return parts[i+1]
 		}
 	}
 	return ""
