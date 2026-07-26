@@ -282,6 +282,7 @@ fun ShedsScreen(
     state: ShedsUiState,
     onEvent: (ShedsEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    showProtocolAdherenceCard: Boolean = false,
 ) {
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
@@ -315,7 +316,7 @@ fun ShedsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (!state.hostedFromCalendar) {
+            if (showProtocolAdherenceCard && !state.hostedFromCalendar) {
                 state.adherence?.let { adherence ->
                     item {
                         ProtocolAdherenceCard(

@@ -705,6 +705,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.all_severity":             "All severity",
 			"label.all_states":               "All states",
 			"label.unassigned":               "unassigned",
+			"label.vaccination_drive":        "Vaccination drive",
 			"label.rejected":                 "rejected",
 			"label.proof_singular":           "proof",
 			"label.proof_plural":             "proofs",

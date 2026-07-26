@@ -63,6 +63,15 @@ class SubmitViewModelIdentityTest {
         assertEquals("task-selected", repository.detailTaskId)
         assertFalse(viewModel.state.value.isTaskLoadFailed)
     }
+
+    @Test
+    fun `shed submit idempotency key is scoped by shed`() {
+        val oldYashoda = TaskSummaryDto(taskId = "task-1", sopVersionId = "sop-1", scopeId = "old-yashoda", rowVersion = 1)
+        val godelOne = TaskSummaryDto(taskId = "task-1", sopVersionId = "sop-1", scopeId = "godel-1", rowVersion = 1)
+
+        assertEquals("shed-submit:task-1:scope:old-yashoda:rv:1", SubmitViewModel.stableSubmissionKey(oldYashoda))
+        assertEquals("shed-submit:task-1:scope:godel-1:rv:1", SubmitViewModel.stableSubmissionKey(godelOne))
+    }
 }
 
 private class CapturingTasksRepository : TasksRepository {

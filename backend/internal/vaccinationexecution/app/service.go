@@ -21,6 +21,10 @@ type Service struct {
 	bus       eventbus.Bus
 }
 
+type plannedDriveReassigner interface {
+	ReassignPlannedDrives(ctx context.Context, tenantID, parkID, defaultOperatorID string, selectedOperatorIDs []string, activeOperatorsPerDay int, effectiveFrom time.Time) (int64, error)
+}
+
 // WithBus attaches the domain-event bus this service publishes vaccination.capacity.changed /
 // vaccination.roster.changed to when an operator-assignment config write actually changes N or the
 // default operator (auto-cascade producer -- see backend/internal/obligation/app/operator_config_replan.go).
@@ -1071,10 +1075,16 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 		return domain.OperatorAssignmentConfig{}, "", "", err
 	}
 	knownDefault := false
+	knownOperators := make(map[string]bool, len(shifts))
 	for _, sh := range shifts {
+		knownOperators[sh.OperatorID] = true
 		if sh.OperatorID == cfg.DefaultOperatorID {
 			knownDefault = true
-			break
+		}
+	}
+	for _, operatorID := range cfg.SelectedOperatorIDs {
+		if !knownOperators[operatorID] {
+			return domain.OperatorAssignmentConfig{}, "unknown_selected_operator", "selected operators must have shift config rows for this park", nil
 		}
 	}
 	if code, message, ok := cfg.Validate(knownDefault); !ok {
@@ -1086,6 +1096,11 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
 	if err != nil {
 		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	if reassigner, ok := s.repo.(plannedDriveReassigner); ok {
+		if _, err := reassigner.ReassignPlannedDrives(ctx, tenantID, updated.ParkID, updated.DefaultOperatorID, updated.SelectedOperatorIDs, updated.ActiveOperatorsPerDay, biztime.BusinessDayStart(time.Now())); err != nil {
+			return domain.OperatorAssignmentConfig{}, "", "", err
+		}
 	}
 	return updated, "", "", nil
 }

@@ -560,6 +560,62 @@ func TestSubmitVaccinationShedCompletionAckBlocksWhenSummaryNotReady(t *testing.
 	}
 }
 
+func TestSubmitVaccinationShedCompletionAckRecoversServerShedProofWhenMobileCacheIsEmpty(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = map[string]any{
+		"schema_version": "goatos.sop-form.v1",
+		"fields":         []any{},
+	}
+	repo.version.ProofPolicy = map[string]any{
+		"required":            true,
+		"types":               []any{"video"},
+		"subject_scope":       "shed",
+		"proof_mode":          "shed_level_video",
+		"minimum_count":       1,
+		"maximum_count":       5,
+		"verify_before_apply": true,
+	}
+	shedID := testScopeID
+	repo.completedTaskGoatProofRefs = []domain.ProofReference{{
+		ProofID:     "67000000-0000-4000-8000-000000000010",
+		ProofType:   "video",
+		SubjectType: "shed",
+		SubjectID:   &shedID,
+		UploadState: "completed",
+	}}
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "vaccination-shed-empty-mobile-cache",
+			Answers:        map[string]any{},
+			ProofRefs:      nil,
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if repo.lastCompletedProofRefsShedID != "" {
+		t.Fatalf("initial server-proof recovery shed id = %q, want empty", repo.lastCompletedProofRefsShedID)
+	}
+	if got := repo.lastShedReadinessShedID; got != shedID {
+		t.Fatalf("readiness shed id = %q, want %q", got, shedID)
+	}
+	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000010" {
+		t.Fatalf("proof refs = %#v, want recovered server shed proof", got)
+	}
+	if repo.lastSubmit.TaskState != "needs_review" {
+		t.Fatalf("task state = %q, want needs_review", repo.lastSubmit.TaskState)
+	}
+}
+
 func TestRecordScanCaptureValidatesAndPersistsDraft(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.SOPCode = "vaccination.drive"
@@ -1446,36 +1502,38 @@ func TestListSOPsNormalizesFiltersAndReturnsOpaqueNextCursor(t *testing.T) {
 }
 
 type fakeRepo struct {
-	sop                         domain.SOPDefinition
-	task                        domain.TaskSummary
-	version                     domain.SOPVersion
-	submissions                 []domain.SubmissionSummary
-	lastSubmit                  ports.SubmitTaskCommand
-	reviewFanouts               []ports.ReviewFanoutAttempt
-	recordedFanouts             []ports.ReviewFanoutStatusCommand
-	submissionFanouts           []ports.SubmissionFanoutAttempt
-	recordedSubmissionFanouts   []ports.SubmissionFanoutStatusCommand
-	failedSubmissionFanouts     []domain.FailedSubmissionFanout
-	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
-	scanCaptures                []domain.ScanCaptureSummary
-	shedReadiness               ports.ShedCompletionReadiness
-	shedReadinessErr            error
-	completedTaskGoatProofRefs  []domain.ProofReference
-	completedTaskGoatProofErr   error
-	lastScanCapture             ports.RecordScanCaptureCommand
-	scanAttempts                []domain.ScanAttemptSummary
-	lastScanAttempt             ports.RecordScanAttemptCommand
-	submitReplay                bool
-	submitErr                   error
-	reviewCalls                 int
-	listSOPsResult              []domain.SOPDefinition
-	lastListSOPs                ports.ListSOPsParams
-	latestVersionsForResult     map[string]domain.SOPVersion
-	latestVersionsForCalls      int
-	lastLatestVersionsForIDs    []string
-	listTasksResult             []domain.TaskSummary
-	listTasksTotal              int64
-	lastListTasks               ports.ListTasksParams
+	sop                          domain.SOPDefinition
+	task                         domain.TaskSummary
+	version                      domain.SOPVersion
+	submissions                  []domain.SubmissionSummary
+	lastSubmit                   ports.SubmitTaskCommand
+	reviewFanouts                []ports.ReviewFanoutAttempt
+	recordedFanouts              []ports.ReviewFanoutStatusCommand
+	submissionFanouts            []ports.SubmissionFanoutAttempt
+	recordedSubmissionFanouts    []ports.SubmissionFanoutStatusCommand
+	failedSubmissionFanouts      []domain.FailedSubmissionFanout
+	lastFailedSubmissionFanouts  ports.ListAgedFailedSubmissionFanoutsParams
+	scanCaptures                 []domain.ScanCaptureSummary
+	shedReadiness                ports.ShedCompletionReadiness
+	shedReadinessErr             error
+	lastShedReadinessShedID      string
+	completedTaskGoatProofRefs   []domain.ProofReference
+	completedTaskGoatProofErr    error
+	lastCompletedProofRefsShedID string
+	lastScanCapture              ports.RecordScanCaptureCommand
+	scanAttempts                 []domain.ScanAttemptSummary
+	lastScanAttempt              ports.RecordScanAttemptCommand
+	submitReplay                 bool
+	submitErr                    error
+	reviewCalls                  int
+	listSOPsResult               []domain.SOPDefinition
+	lastListSOPs                 ports.ListSOPsParams
+	latestVersionsForResult      map[string]domain.SOPVersion
+	latestVersionsForCalls       int
+	lastLatestVersionsForIDs     []string
+	listTasksResult              []domain.TaskSummary
+	listTasksTotal               int64
+	lastListTasks                ports.ListTasksParams
 }
 
 func newFakeRepo() *fakeRepo {
@@ -1636,10 +1694,12 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
 }
-func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string, string, string, int, int) (ports.ShedCompletionReadiness, error) {
+func (f *fakeRepo) ShedCompletionReadiness(_ context.Context, _, _, _, shedID string, _ int, _ int) (ports.ShedCompletionReadiness, error) {
+	f.lastShedReadinessShedID = shedID
 	return f.shedReadiness, f.shedReadinessErr
 }
-func (f *fakeRepo) CompletedTaskProofRefs(context.Context, string, string, string) ([]domain.ProofReference, error) {
+func (f *fakeRepo) CompletedTaskProofRefs(_ context.Context, _, _, _, shedID string) ([]domain.ProofReference, error) {
+	f.lastCompletedProofRefsShedID = shedID
 	return f.completedTaskGoatProofRefs, f.completedTaskGoatProofErr
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {

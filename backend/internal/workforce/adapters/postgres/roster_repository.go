@@ -758,6 +758,7 @@ func (r *Repository) ResolvePositionRecipients(ctx context.Context, tenantID, sc
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH position_recipients AS (
 SELECT DISTINCT p.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_positions p
 JOIN workforce_member_devices d
@@ -772,6 +773,34 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $5::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_recipients AS (
+SELECT DISTINCT m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = $3::uuid
+  AND g.role = $4
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+)
+SELECT DISTINCT workforce_member_id, device_id, fcm_token
+FROM (
+  SELECT * FROM position_recipients
+  UNION ALL
+  SELECT * FROM grant_recipients
+) recipients
 ORDER BY 1, 2
 LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
 	if err != nil {
@@ -794,6 +823,7 @@ func (r *Repository) ResolvePositionRecipientsBatch(ctx context.Context, tenantI
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH position_recipients AS (
 SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_positions p
 JOIN workforce_member_devices d
@@ -808,6 +838,34 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $5::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_recipients AS (
+SELECT DISTINCT g.scope_id::text, g.role AS position_code, m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = ANY($3::uuid[])
+  AND g.role = ANY($4::text[])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+)
+SELECT DISTINCT scope_id, position_code, workforce_member_id, device_id, fcm_token
+FROM (
+  SELECT * FROM position_recipients
+  UNION ALL
+  SELECT * FROM grant_recipients
+) recipients
 ORDER BY 1, 2, 3, 4
 LIMIT 5000`, tenantID, scopeType, scopeIDs, positionCodes, at)
 	if err != nil {

@@ -733,7 +733,12 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 				"occurred_at":   now.Format(time.RFC3339Nano),
 			},
 			Metadata: map[string]any{
-				"source": "vaccination_accept_completion_atomic",
+				"domain":   "vaccination",
+				"module":   "vaccination",
+				"category": "completion",
+				"result":   "recorded",
+				"status":   "completed",
+				"source":   "vaccination_accept_completion_atomic",
 			},
 			TraceID: "vaccination.completed:" + row.obligationID,
 		}); err != nil {
@@ -855,6 +860,11 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 				"occurred_at": siblingNow.Format(time.RFC3339Nano),
 			},
 			Metadata: map[string]any{
+				"domain":               "vaccination",
+				"module":               "vaccination",
+				"category":             "obligation_lifecycle",
+				"result":               "recorded",
+				"status":               "in_progress",
 				"source":               "vaccination_accept_completion_atomic_sibling_in_progress",
 				"completed_obligation": completedObligationID,
 			},
@@ -1682,6 +1692,7 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		minProofs     int64
 		maxProofs     int64
 		proofMode     string
+		submitState   string
 	)
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=per-goat mode counts COUNT(DISTINCT subject_id), shed-level mode counts completed shed proof_artifacts) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
 	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only when handled animals match expected and the SOP proof-mode gate is satisfied.
@@ -1775,6 +1786,30 @@ verification_pending AS (
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
 ),
+shed_submission_state AS (
+  SELECT CASE ss.state
+    WHEN 'accepted' THEN 'verified'
+    WHEN 'rejected' THEN 'closed'
+    WHEN 'voided' THEN 'closed'
+    ELSE 'submitted'
+  END AS state
+  FROM sop_submissions ss
+  CROSS JOIN LATERAL jsonb_array_elements(ss.proof_refs) AS proof(ref)
+  WHERE ss.tenant_id = $1
+    AND ss.task_id = $2
+    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
+    AND proof.ref ->> 'upload_state' = 'completed'
+    AND proof.ref ->> 'proof_type' = 'video'
+    AND proof.ref ->> 'subject_type' = 'shed'
+    AND EXISTS (
+      SELECT 1
+      FROM eligible e
+      WHERE e.shed_id::text = proof.ref ->> 'subject_id'
+        AND (NOT $3::boolean OR e.shed_id = $4)
+    )
+  ORDER BY ss.submitted_at DESC NULLS LAST, ss.submission_id DESC
+  LIMIT 1
+),
 shed AS (
   SELECT l.name
   FROM t
@@ -1803,11 +1838,15 @@ SELECT
     THEN COALESCE((SELECT n FROM proofed_shed), 0)
     ELSE COALESCE((SELECT n FROM proofed_goat), 0)
   END,
-  COALESCE((SELECT n FROM verification_pending), 0)
+  COALESCE((SELECT n FROM verification_pending), 0),
+  CASE WHEN t.proof_mode = 'shed_level_video'
+    THEN COALESCE((SELECT state FROM shed_submission_state), 'draft')
+    ELSE ''
+  END
 FROM t
 LEFT JOIN shed ON true`,
 		tenant, task, shed.Valid, shed,
-	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify)
+	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
@@ -1829,7 +1868,10 @@ LEFT JOIN shed ON true`,
 		ProofReadyCount:  proofReady,
 		ProofMode:        proofMode,
 		VaccineBreakdown: breakdown,
-		SubmitState:      shedCompletionSubmitState(state, pendingVerify),
+		SubmitState:      submitState,
+	}
+	if proofMode != "shed_level_video" {
+		summary.SubmitState = shedCompletionSubmitState(state, pendingVerify)
 	}
 	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadinessForMode(expectedCount, handledCount, proofReady, proofMode, minProofs, maxProofs)
 	return summary, nil

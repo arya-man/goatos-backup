@@ -13,6 +13,10 @@ const scopeSource = readFileSync(
   fileURLToPath(new URL("./vaccination-operators-scope.ts", import.meta.url)),
   "utf8",
 );
+const hrmsSource = readFileSync(
+  fileURLToPath(new URL("./hrms-page.tsx", import.meta.url)),
+  "utf8",
+);
 
 // BUG-019: the roster read must carry an explicit BACKEND-RESOLVED park scope.
 // An unscoped listStaffPositions blends every park of a multi-park tenant into
@@ -33,9 +37,15 @@ test("BUG-019: park id is not inferred from the first roster row", () => {
   assert.match(
     scopeSource,
     /getVaccinationOperatorAssignmentConfig\(chosenParkId\)/,
-    "the screen must ask the backend to resolve the park scope (undefined on the first call)",
+    "the loader must ask the backend to resolve the park scope when no URL park has already selected it",
   );
   assert.match(scopeSource, /config\?\.parkId/, "the screen must use the backend-echoed parkId");
+});
+
+test("park-scoped HRMS URLs pass the URL park into the first config read", () => {
+  assert.match(hrmsSource, /one\(searchParams,\s*["']park["']\)/);
+  assert.match(hrmsSource, /initialParkId=\{initialParkId\}/);
+  assert.match(source, /chosenParkId\s*\?\?\s*initialParkId/);
 });
 
 // BUG-020 (updated): cap editing is now a REAL wired write, not a fabricated
@@ -67,4 +77,24 @@ test("BUG-020: remaining Saved toasts follow a backend write", () => {
       `a "Saved" toast must be preceded by an awaited API call: ${toast.slice(0, 60)}`,
     );
   }
+});
+
+test("missing authored assignment config can still save the first rowVersion-0 config", () => {
+  const persistMatch = source.match(/const persistOperatorConfig = async \(\) => \{(?<body>[\s\S]*?)\n  \};/);
+  assert.ok(persistMatch?.groups?.body, "expected persistOperatorConfig body in the screen");
+  const body = persistMatch.groups.body;
+  assert.ok(
+    !/if\s*\([^)]*assignmentConfig/.test(body),
+    "saving must not be gated on assignmentConfig; null config is the first-write state",
+  );
+  assert.match(
+    body,
+    /rowVersion,/,
+    "the save request must pass the current rowVersion through so rowVersion 0 can create the config",
+  );
+  assert.match(
+    body,
+    /setAssignmentConfig\(result\.data\)/,
+    "after creating the first config, the returned config must become the editable assignmentConfig",
+  );
 });

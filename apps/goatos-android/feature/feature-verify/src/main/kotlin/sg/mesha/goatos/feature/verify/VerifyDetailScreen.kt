@@ -51,6 +51,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -117,12 +119,27 @@ data class VerifyDetailUiState(
 
 enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
 
+enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR }
+
 sealed interface VerifyDetailEvent {
     data object Close : VerifyDetailEvent
     data object Approve : VerifyDetailEvent
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise. */
     data class Reject(val reason: String) : VerifyDetailEvent
     data object Refresh : VerifyDetailEvent
+    data class VideoPlayback(
+        val proofSubject: String,
+        val mimeType: String,
+        val action: VideoPlaybackAction,
+        val reason: String? = null,
+        val watchTimeMs: Long = 0,
+        val durationMs: Long = 0,
+        val positionMs: Long = 0,
+        val percentWatched: Int = 0,
+        val seekCount: Int = 0,
+        val replayCount: Int = 0,
+        val bufferingTimeMs: Long = 0,
+    ) : VerifyDetailEvent
 }
 
 @Composable
@@ -396,6 +413,116 @@ private fun FullscreenVideoDialog(
         }
     }
 }
+
+private class VideoPlaybackTracker(
+    private val media: VerifyMediaItem,
+    private val onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+    private var playStarted = false
+    private var playingSinceMs: Long? = null
+    private var watchTimeMs: Long = 0
+    private var bufferingSinceMs: Long? = null
+    private var bufferingTimeMs: Long = 0
+    private var seekCount: Int = 0
+    private var replayCount: Int = 0
+    private var ended = false
+    private var flushed = false
+
+    fun onPlayingChanged(isPlaying: Boolean, durationMs: Long, positionMs: Long) {
+        if (isPlaying) {
+            if (!playStarted) {
+                playStarted = true
+                onPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_STARTED,
+                        durationMs = durationMs.safeMediaMs(),
+                        positionMs = positionMs.safeMediaMs(),
+                    ),
+                )
+            } else if (ended) {
+                replayCount += 1
+                ended = false
+            }
+            if (playingSinceMs == null) playingSinceMs = nowMs()
+        } else {
+            accrueWatchTime()
+        }
+    }
+
+    fun onPlaybackStateChanged(playbackState: Int, durationMs: Long, positionMs: Long) {
+        when (playbackState) {
+            Player.STATE_BUFFERING -> {
+                if (bufferingSinceMs == null) bufferingSinceMs = nowMs()
+            }
+            Player.STATE_READY -> accrueBufferingTime()
+            Player.STATE_ENDED -> {
+                ended = true
+                accrueWatchTime()
+                flush(durationMs, positionMs)
+            }
+        }
+    }
+
+    fun onPositionDiscontinuity(reason: Int) {
+        if (reason == Player.DISCONTINUITY_REASON_SEEK) seekCount += 1
+    }
+
+    fun onError(reason: String) {
+        onPlayback(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = media.proofSubject,
+                mimeType = media.mimeType,
+                action = VideoPlaybackAction.PLAYBACK_ERROR,
+                reason = reason,
+            ),
+        )
+    }
+
+    fun flush(durationMs: Long, positionMs: Long) {
+        if (flushed || !playStarted) return
+        flushed = true
+        accrueWatchTime()
+        accrueBufferingTime()
+        val safeDuration = durationMs.safeMediaMs()
+        val safePosition = positionMs.safeMediaMs()
+        val percentWatched = if (safeDuration > 0) {
+            ((safePosition.coerceAtMost(safeDuration) * 100) / safeDuration).toInt()
+        } else {
+            0
+        }
+        onPlayback(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = media.proofSubject,
+                mimeType = media.mimeType,
+                action = VideoPlaybackAction.WATCH_SUMMARY,
+                watchTimeMs = watchTimeMs,
+                durationMs = safeDuration,
+                positionMs = safePosition,
+                percentWatched = percentWatched,
+                seekCount = seekCount,
+                replayCount = replayCount,
+                bufferingTimeMs = bufferingTimeMs,
+            ),
+        )
+    }
+
+    private fun accrueWatchTime() {
+        val started = playingSinceMs ?: return
+        watchTimeMs += (nowMs() - started).coerceAtLeast(0)
+        playingSinceMs = null
+    }
+
+    private fun accrueBufferingTime() {
+        val started = bufferingSinceMs ?: return
+        bufferingTimeMs += (nowMs() - started).coerceAtLeast(0)
+        bufferingSinceMs = null
+    }
+}
+
+private fun Long.safeMediaMs(): Long = takeIf { it > 0 } ?: 0L
 
 @Composable
 private fun ContextCard(rows: List<VerifyContextRow>) {

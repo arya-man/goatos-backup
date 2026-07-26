@@ -190,6 +190,7 @@ fun GoatOsShell(navState: NavState) {
         AppNavHost(
             navController = navController,
             startDestination = startDestinationFor(navState),
+            showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
         )
     }
 

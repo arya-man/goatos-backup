@@ -315,7 +315,7 @@ class SubmitViewModel @Inject constructor(
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
         resolveShedScopeFromTask(detail.task)
-        if (detail.task.state.isSubmissionTerminal()) {
+        if (shouldRenderTerminalAck(detail.task)) {
             // The refreshed backend task is authoritative after a successful submit. Its row
             // version advances when the task enters review/accepted state, so trying to recover
             // the old pre-submit outbox key from the new row version would render a fresh,
@@ -324,13 +324,7 @@ class SubmitViewModel @Inject constructor(
             statusJob?.cancel()
             clearSavedSubmission()
             outboxRecoveryKey = null
-            _state.value = draftState(detail.task, detail.form).copy(
-                formRunner = null,
-                syncState = SyncState.ACKED,
-                syncLabel = "",
-                syncProgress = 1f,
-                canSubmit = false,
-            )
+            _state.value = terminalAckState(detail.task, detail.form)
             return
         }
         bindSubmissionKey(detail.task)
@@ -514,7 +508,10 @@ class SubmitViewModel @Inject constructor(
         // screen as a fresh draft and erase the durable ACKED/submission lifecycle banner —
         // applyTaskResource is the authoritative terminal/outbox renderer.
         if (outboxItemId != null) return
-        if (task.state.isSubmissionTerminal()) return
+        if (shouldRenderTerminalAck(task)) {
+            _state.value = terminalAckState(task, currentForm)
+            return
+        }
         if (captureAllowed == false) {
             _state.value = submitPlaceholder().copy(isCaptureRoleBlocked = true)
             return
@@ -612,15 +609,8 @@ class SubmitViewModel @Inject constructor(
         val itemId = outboxItemId
         when {
             itemId != null -> viewModelScope.launch {
-                // Do not byte-replay a known-invalid shed payload forever. The replacement is
-                // built from Room + SavedState and retains the stable task/row idempotency key.
-                when (syncRepository.deleteOutboxItem(itemId)) {
-                    is AppResult.Ok -> {
-                        statusJob?.cancel()
-                        statusJob = null
-                        outboxItemId = null
-                        submit()
-                    }
+                when (syncRepository.retry(itemId)) {
+                    is AppResult.Ok -> Unit
                     is AppResult.Err -> _state.update {
                         it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
                     }
@@ -691,8 +681,14 @@ class SubmitViewModel @Inject constructor(
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
                 it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
             }
-            item.status == SyncItemStatus.SUCCEEDED -> _state.update {
-                it.copy(syncState = SyncState.ACKED, syncLabel = "", syncProgress = 1f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+            item.status == SyncItemStatus.SUCCEEDED -> {
+                val task = currentTask
+                if (task != null && shouldRenderTerminalAck(task)) {
+                    _state.value = terminalAckState(task, currentForm)
+                } else {
+                    outboxItemId = null
+                    renderDraft()
+                }
             }
             item.conflict -> _state.update {
                 it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false)
@@ -884,6 +880,25 @@ class SubmitViewModel @Inject constructor(
             blockingReason = blockingReason,
         )
     }
+
+    private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
+        if (!task.state.isSubmissionTerminal()) return false
+        if (!currentProofPolicy.isShedLevelVideo) return true
+        if (currentShedCompletionSummary?.submitState?.isSubmissionTerminal() != true) return false
+        val readiness = currentShedProofReadiness()
+        if (readiness.uploading > 0 || readiness.failed > 0) return false
+        return readiness.blockingReason == null
+    }
+
+    private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
+        draftState(task, form).copy(
+            formRunner = null,
+            syncState = SyncState.ACKED,
+            syncLabel = "",
+            syncProgress = 1f,
+            canSubmit = false,
+            blockingReason = null,
+        )
 
     private fun blockedState(): SubmitUiState = submitPlaceholder().copy(isNoTaskAssigned = true)
 
@@ -1232,7 +1247,7 @@ class SubmitViewModel @Inject constructor(
         syncStatus = syncStatus.name,
     )
 
-    private companion object {
+    internal companion object {
         // SavedStateHandle keys — survive process death so the idempotency key + enqueued row id
         // + draft answers are never lost to a ViewModel recreation (which would otherwise double-
         // submit or silently drop the operator's in-progress form).
@@ -1245,10 +1260,11 @@ class SubmitViewModel @Inject constructor(
 
         fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
 
-        fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
+        fun submissionScope(task: TaskSummaryDto): String =
+            "${task.taskId}:scope:${task.scopeId.ifBlank { task.taskId }}:rv:${task.rowVersion}"
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
-            "submitted", "needs_review", "accepted", "closed", "completed" -> true
+            "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
             else -> false
         }
 

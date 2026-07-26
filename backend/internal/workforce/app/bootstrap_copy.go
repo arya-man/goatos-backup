@@ -272,6 +272,10 @@ func hasRole(grants []domain.GrantSummary, role string) bool {
 	return false
 }
 
+func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
+	return hasRole(grants, permissions.RoleCEOInternal) || hasRole(grants, permissions.RolePCDirector)
+}
+
 // countAvailableModules counts modules the principal can actually render: known,
 // available, and with at least one permitted nav item. Unknown, "soon", or
 // fully-gated-away modules do not count toward the drawer threshold.

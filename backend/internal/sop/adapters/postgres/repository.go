@@ -1149,7 +1149,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 	return ports.ShedCompletionReadiness{Enabled: true}, nil
 }
 
-func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject string) ([]domain.ProofReference, error) {
+func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID string) ([]domain.ProofReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
@@ -1161,6 +1161,14 @@ WITH task_scope AS (
   FROM sop_tasks
   WHERE tenant_id = $1::uuid
     AND task_id = $2::uuid
+),
+submitted_proofs AS (
+  SELECT DISTINCT proof.ref ->> 'proof_id' AS proof_id
+  FROM sop_submissions ss
+  CROSS JOIN LATERAL jsonb_array_elements(ss.proof_refs) AS proof(ref)
+  WHERE ss.tenant_id = $1::uuid
+    AND ss.task_id = $2::uuid
+    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
 )
 SELECT proof_id::text,
        proof_type,
@@ -1175,8 +1183,12 @@ WHERE p.tenant_id = $1::uuid
   AND (
     ($3 = 'shed'
       AND p.scope_type = 'shed'
-      AND ts.scope_type = 'shed'
-      AND p.scope_id = ts.scope_id
+      AND (
+        (nullif($4, '')::uuid IS NOT NULL AND p.scope_id = nullif($4, '')::uuid)
+        OR (nullif($4, '')::uuid IS NULL AND ts.scope_type = 'shed' AND p.scope_id = ts.scope_id)
+        OR (nullif($4, '')::uuid IS NULL AND ts.scope_type <> 'shed'
+          AND NOT EXISTS (SELECT 1 FROM submitted_proofs sp WHERE sp.proof_id = p.proof_id::text))
+      )
       AND (p.subject_id IS NULL OR p.subject_id = p.scope_id))
     OR
     ($3 <> 'shed'
@@ -1189,6 +1201,7 @@ ORDER BY created_at, proof_id`,
 		tenantID,
 		taskID,
 		proofSubject,
+		shedID,
 	)
 	if err != nil {
 		return nil, err

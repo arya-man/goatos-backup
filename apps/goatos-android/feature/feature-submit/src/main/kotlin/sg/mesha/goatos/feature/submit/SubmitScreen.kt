@@ -385,7 +385,8 @@ fun SubmitScreen(
 private fun SubmitHeader(state: SubmitUiState) {
     val title = when (state.syncState) {
         SyncState.ACKED -> stringResource(R.string.submit_record_submitted_title)
-        else -> state.title.ifBlank { stringResource(R.string.submit_record_title) }
+        else -> state.shedCompletionSummary?.shedName?.takeIf { it.isNotBlank() }
+            ?: state.title.ifBlank { stringResource(R.string.submit_record_title) }
     }
     Column(
         modifier = Modifier

@@ -271,6 +271,16 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	if pendingRefs[vnOperatorToken] {
 		t.Fatalf("pending must NOT notify operator: %v", pendingRefs)
 	}
+	if got := vecContextValueForToken(t, ctx, pool, vecItemPending, vnVerifierToken, "screen"); got != "verification" {
+		t.Fatalf("verifier pending screen = %q, want verification", got)
+	}
+	if got := vecContextValueForToken(t, ctx, pool, vecItemPending, vnCEOToken, "screen"); got != "vaccination_overview" {
+		t.Fatalf("CEO pending screen = %q, want vaccination_overview", got)
+	}
+	if title, body := vecTitleBodyForToken(t, ctx, pool, vecItemPending, vnVerifierToken); title != "Video verification waiting" ||
+		body != "A shed vaccinated; video is waiting for verification." {
+		t.Fatalf("verifier pending title/body = %q/%q, want role-specific verification copy", title, body)
+	}
 
 	// rework -> operator + park head + PC director + CEO, never the verifier.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
@@ -404,6 +414,32 @@ func vecRecipientRefs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ite
 		t.Fatalf("iterate recipients: %v", err)
 	}
 	return out
+}
+
+func vecContextValueForToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID, token, key string) string {
+	t.Helper()
+	var value string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(context->>$4, '')
+FROM notification_requests
+WHERE tenant_id = $1 AND target_id = $2 AND recipient_ref = $3`,
+		vnTenant, itemID, token, key).Scan(&value); err != nil {
+		t.Fatalf("query context %s for %s/%s: %v", key, itemID, token, err)
+	}
+	return value
+}
+
+func vecTitleBodyForToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID, token string) (string, string) {
+	t.Helper()
+	var title, body string
+	if err := pool.QueryRow(ctx, `
+SELECT title, body
+FROM notification_requests
+WHERE tenant_id = $1 AND target_id = $2 AND recipient_ref = $3`,
+		vnTenant, itemID, token).Scan(&title, &body); err != nil {
+		t.Fatalf("query title/body for %s/%s: %v", itemID, token, err)
+	}
+	return title, body
 }
 
 // failOnceQueue delegates the FIRST QueueRoleNotifications to the real queue (committing the row) and

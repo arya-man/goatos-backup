@@ -155,6 +155,19 @@ event, consumer, replay/DLQ behavior, and E2E proof in
 `run_common` path in `make ci-local`; an optional compatibility job or a textual
 mention elsewhere is not accepted as CI wiring.
 
+Vaccination FCM is part of that event spine, not a client feature flag. Every
+push-facing vaccination state must have an explicit contract for trigger,
+audience source, cadence/SLA, message summary, and tap route. Token delivery
+targets come from active `workforce_member_devices`; tenant leadership
+recipients (`ceo_internal`, `pc_director`, future CXO/director aliases) resolve
+from active role grants/profile truth, never from the single-seat
+`workforce_positions` table alone. Routine day-start/afternoon operator nudges
+stay field-scoped; the 20:30 IST due-today checkpoint includes PC director/CEO
+leadership when scheduled sheds are still not submitted. Shed proof submission
+immediately notifies the park verifier(s) and leadership with role-specific
+routes: verifier to video review, leadership to Vaccination overview. Run
+`make fcm-recipient-routing-guard` with local CI for any notification change.
+
 Frontend/mobile render backend-owned contracts and send idempotent commands; they
 do not create private business follow-up pipelines. Direct live-animal table
 writes are allowed only through registered canonical producers or approved seed
@@ -588,6 +601,12 @@ Do:
   `gcloud run jobs update`, or manual migration execution is break-glass only
   and must be followed by a Cloud Deploy release from the same commit; see
   `docs/runbooks/cloud-deploy-staging.md`.
+- Never amend an already-applied Postgres migration or baseline to repair a
+  shared environment. Ship the next numbered forward migration, because STG
+  records migration checksums and will fail before pending repairs if an earlier
+  applied file changed. Before declaring any migration-backed STG fix complete,
+  verify `public.goatos_schema_migrations`, the live table/column/data contract,
+  and `/readyz`; see `docs/runbooks/stg-deploy.md`.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.

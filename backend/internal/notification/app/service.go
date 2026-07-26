@@ -131,7 +131,11 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	}
 
 	var nextAttempt *time.Time
-	if !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
+	invalidRecipient := errors.Is(err, ports.ErrInvalidRecipient)
+	if invalidRecipient {
+		s.suppressInvalidRecipient(ctx, request, err, now)
+	}
+	if !invalidRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
 	}
@@ -146,6 +150,31 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 		kmetrics.RecordNotifyFailure(ctx, request.Channel)
 	}
 	return nil
+}
+
+func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.Request, sendErr error, now time.Time) {
+	recipientRef := strings.TrimSpace(request.RecipientRef)
+	if recipientRef == "" {
+		return
+	}
+	repo, ok := s.repo.(ports.InvalidRecipientRepository)
+	if !ok {
+		return
+	}
+	suppressed, err := repo.SuppressInvalidRecipient(ctx, request.TenantID, recipientRef, sanitizeError(sendErr), now)
+	if err != nil {
+		s.log.WarnContext(ctx, "notification_invalid_recipient_suppress_failed",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("channel", request.Channel),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	s.log.InfoContext(ctx, "notification_invalid_recipient_suppressed",
+		slog.String("notification_request_id", request.NotificationRequestID),
+		slog.String("channel", request.Channel),
+		slog.Int("suppressed_rows", suppressed),
+	)
 }
 
 func (s *Service) sendSafely(ctx context.Context, request domain.Request) (result ports.DeliveryResult, err error) {

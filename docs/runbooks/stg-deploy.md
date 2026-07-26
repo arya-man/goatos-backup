@@ -49,6 +49,31 @@ Expected:
 - source SHA: latest approved `origin/main`
 - working tree: clean
 
+## Migration Drift Guardrail
+
+Never edit a migration file that STG may already have applied, including the
+clean-slate baseline. If STG is missing a schema field or data repair, ship a
+new numbered forward migration and deploy from `origin/main`.
+
+Before declaring a migration-backed STG fix complete:
+
+```bash
+SELECT version, checksum
+FROM public.goatos_schema_migrations
+ORDER BY version DESC
+LIMIT 5;
+```
+
+Then verify the exact table/column/data contract that broke the screen or API.
+A successful frontend deploy is not proof that the DB migrated. If Cloud Deploy
+reports a failed migrate job, read the migrate execution logs first; do not
+refresh the UI repeatedly and do not call it a cache issue.
+
+Break-glass manual SQL is allowed only to recover STG availability after the
+same migration has landed on `main`. Record the applied migration row with the
+file checksum, verify `/readyz`, and follow up with a normal Cloud Deploy
+release from the same or newer commit so Cloud Run job definitions converge.
+
 ## Chatbot / CEO AI Verification
 
 After backend/admin-web deploy, verify the leadership assistant using:

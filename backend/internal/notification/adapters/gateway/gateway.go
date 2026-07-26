@@ -296,6 +296,9 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		"Authorization": "Bearer " + token,
 	})
 	if err != nil {
+		if isInvalidFCMRecipientResponse(err) {
+			return ports.DeliveryResult{}, fmt.Errorf("%w: %v", ports.ErrInvalidRecipient, err)
+		}
 		return ports.DeliveryResult{}, err
 	}
 	var acknowledgement struct {
@@ -307,6 +310,18 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		}
 	}
 	return ports.DeliveryResult{ProviderMessageID: strings.TrimSpace(acknowledgement.Name)}, nil
+}
+
+func isInvalidFCMRecipientResponse(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return (strings.Contains(text, "notification webhook status 404") ||
+		strings.Contains(text, "notification webhook status 400")) &&
+		(strings.Contains(text, "notregistered") ||
+			strings.Contains(text, "unregistered") ||
+			strings.Contains(text, "registration-token-not-registered"))
 }
 
 func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {

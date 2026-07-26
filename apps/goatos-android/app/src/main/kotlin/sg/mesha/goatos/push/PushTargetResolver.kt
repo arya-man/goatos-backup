@@ -32,7 +32,7 @@ fun resolvePushRoute(payload: Map<String, String>): String {
     val screen = payload[PushExtras.SCREEN]?.lowercase()?.takeIf { it.isNotBlank() }
     val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
 
-    if (screen == "scan" || screen == "shed" || screen == "vaccination" || type == "reminder" || type == "vaccination_reminder") {
+    if (screen == "scan" || screen == "shed" || screen == "vaccination" || screen == "vaccination_overview" || type == "reminder" || type == "vaccination_reminder") {
         return Routes.VACCINATION
     }
 
