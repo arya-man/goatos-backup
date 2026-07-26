@@ -118,6 +118,7 @@ class BirthDeathViewModel @Inject constructor(
             BirthDeathEvent.LookupAnimals -> lookupAnimals()
             is BirthDeathEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             BirthDeathEvent.Submit -> submit()
+            BirthDeathEvent.RecordAnother -> onRecordAnother()
             BirthDeathEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -130,7 +131,9 @@ class BirthDeathViewModel @Inject constructor(
         // Switching mode makes this a different write; drop the draft key so the new event can
         // never inherit the other mode's identity.
         idempotencyKey.invalidate()
-        _state.update { it.copy(mode = mode, result = CountsWriteResultUi(), validationMessage = null) }
+        _state.update {
+            it.copy(mode = mode, result = CountsWriteResultUi(), validationMessage = null, lastRecordedMessage = null)
+        }
         recomputeSubmitGate()
     }
 
@@ -148,6 +151,10 @@ class BirthDeathViewModel @Inject constructor(
             outboxItemId.value = null
             statusJob?.cancel()
             _state.update { it.copy(result = CountsWriteResultUi()) }
+        }
+        // Starting the next entry dismisses the "Recorded" confirmation left by the previous write.
+        if (_state.value.lastRecordedMessage != null) {
+            _state.update { it.copy(lastRecordedMessage = null) }
         }
         return true
     }
@@ -499,6 +506,44 @@ class BirthDeathViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Clears the form for the NEXT entry after a committed write. The committed row is durable in
+     * the outbox and syncs on its own, so we drop only THIS ViewModel's references to it: stop
+     * following its status, drop the persisted outbox id, and mint a fresh idempotency key so the
+     * next animal is a genuinely new write (never a duplicate under the previous draft's key). The
+     * draft resets to blank defaults while KEEPING the cached park/shed and breed vocabularies so the
+     * form is immediately usable, and re-stamps today's entry date (the screen only auto-stamps on a
+     * mode change, which does not happen here).
+     */
+    private fun onRecordAnother() = resetForNextEntry(confirmation = null)
+
+    /**
+     * Clears the form for the next entry. [confirmation], when non-null, is shown as a transient
+     * success banner above the fresh form — used by the auto-reset once the write is server-confirmed
+     * (synced) so the operator sees the record landed without the previous animal's values lingering
+     * on a locked form. The committed row is durable in the outbox and syncs on its own, so we drop
+     * only THIS ViewModel's references to it and mint a fresh idempotency key for the next animal.
+     * The draft resets to blank defaults while KEEPING the cached park/shed and breed vocabularies so
+     * the form is immediately usable, and re-stamps today's entry date.
+     */
+    private fun resetForNextEntry(confirmation: String?) {
+        stopScanning()
+        statusJob?.cancel()
+        statusJob = null
+        idempotencyKey.invalidate()
+        outboxItemId.value = null
+        _state.update { current ->
+            BirthDeathUiState(
+                mode = current.mode,
+                destinationParks = current.destinationParks,
+                breedOptions = current.breedOptions,
+                entryDate = todayBusinessDate(),
+                lastRecordedMessage = confirmation,
+            )
+        }
+        recomputeSubmitGate()
+    }
+
     private fun onEnqueueFailed(mode: BirthDeathMode, error: AppResult.Err) {
         val kind = if (mode == BirthDeathMode.BIRTH) "birth" else "death"
         error.cause?.let { crashReporter.recordException(it, "counts $kind enqueue failed") }
@@ -530,9 +575,17 @@ class BirthDeathViewModel @Inject constructor(
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
                     item ?: return@collect
-                    _state.update {
-                        it.copy(result = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE))
+                    val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                    // Once the server confirms the write (synced), auto-clear the form for the next
+                    // entry and show a transient "Recorded" confirmation, instead of leaving the
+                    // previous animal's values on a locked form. A still-syncing (queued) write keeps
+                    // its saved-offline banner plus the manual "Record another" action, and a
+                    // terminally-rejected (failed) write keeps its error and values for correction.
+                    if (writeResult.status == sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED) {
+                        resetForNextEntry(confirmation = writeResult.message)
+                        return@collect
                     }
+                    _state.update { it.copy(result = writeResult) }
                     recomputeSubmitGate()
                 }
         }

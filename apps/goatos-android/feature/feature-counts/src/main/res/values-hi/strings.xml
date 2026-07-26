@@ -35,6 +35,8 @@
     <string name="counts_mode_death">मृत्यु</string>
     <string name="counts_submit_birth">जन्म दर्ज करें</string>
     <string name="counts_submit_death">मृत्यु दर्ज करें</string>
+    <string name="counts_record_another_birth">एक और जन्म दर्ज करें</string>
+    <string name="counts_record_another_death">एक और मृत्यु दर्ज करें</string>
     <string name="counts_death_guardrail_note">मृत्यु को सुरक्षित मृत्यु पथ के माध्यम से दर्ज किया जाता है और यह पशु के खुले टीकाकरण कार्य को अपने आप रद्द कर देता है।</string>
 
     <!-- Shifting screen -->

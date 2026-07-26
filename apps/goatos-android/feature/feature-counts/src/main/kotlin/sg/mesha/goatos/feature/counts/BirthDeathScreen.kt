@@ -127,6 +127,11 @@ data class BirthDeathUiState(
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
+    /**
+     * Transient success confirmation shown after a synced write auto-clears the form, so the operator
+     * sees the record landed on a fresh form. Cleared when they start the next entry.
+     */
+    val lastRecordedMessage: String? = null,
 ) {
     /** The sheds of the currently chosen park — the second placement dropdown's whole option set. */
     val shedsForSelectedPark: List<ShiftingShedUi>
@@ -154,6 +159,9 @@ sealed interface BirthDeathEvent {
     data class SelectAnimal(val goatId: String) : BirthDeathEvent
 
     data object Submit : BirthDeathEvent
+
+    /** Reset the form after a committed write so the operator can record the next animal. */
+    data object RecordAnother : BirthDeathEvent
     data object Back : BirthDeathEvent
 }
 
@@ -211,6 +219,12 @@ fun BirthDeathScreen(
                 )
             }
             item(key = "result") { CountsResultBanner(state.result) }
+            // A synced write clears the form and leaves this confirmation above the fresh entry.
+            state.lastRecordedMessage?.let { message ->
+                item(key = "recorded") {
+                    CountsResultBanner(CountsWriteResultUi(CountsWriteStatus.SYNCED, message))
+                }
+            }
 
             when (state.mode) {
                 BirthDeathMode.BIRTH -> birthFields(state, onEvent)
@@ -223,17 +237,36 @@ fun BirthDeathScreen(
                 }
             }
             item(key = "submit") {
-                CountsSubmitButton(
-                    label = stringResource(
-                        if (state.mode == BirthDeathMode.BIRTH) {
-                            R.string.counts_submit_birth
-                        } else {
-                            R.string.counts_submit_death
-                        },
-                    ),
-                    enabled = state.canSubmit,
-                    onClick = { onEvent(BirthDeathEvent.Submit) },
-                )
+                // Once the write is committed (queued offline or synced) the form is locked; swap the
+                // Submit button for a "Record another" action that clears the form for the next animal
+                // instead of leaving a disabled button and stale values on screen.
+                val committed = state.result.status == CountsWriteStatus.QUEUED ||
+                    state.result.status == CountsWriteStatus.SYNCED
+                if (committed) {
+                    CountsSubmitButton(
+                        label = stringResource(
+                            if (state.mode == BirthDeathMode.BIRTH) {
+                                R.string.counts_record_another_birth
+                            } else {
+                                R.string.counts_record_another_death
+                            },
+                        ),
+                        enabled = true,
+                        onClick = { onEvent(BirthDeathEvent.RecordAnother) },
+                    )
+                } else {
+                    CountsSubmitButton(
+                        label = stringResource(
+                            if (state.mode == BirthDeathMode.BIRTH) {
+                                R.string.counts_submit_birth
+                            } else {
+                                R.string.counts_submit_death
+                            },
+                        ),
+                        enabled = state.canSubmit,
+                        onClick = { onEvent(BirthDeathEvent.Submit) },
+                    )
+                }
             }
             item(key = "offline-note") {
                 Text(

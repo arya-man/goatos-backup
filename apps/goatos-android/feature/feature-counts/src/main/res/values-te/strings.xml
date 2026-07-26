@@ -35,6 +35,8 @@
     <string name="counts_mode_death">మరణం</string>
     <string name="counts_submit_birth">జననం నమోదు చేయండి</string>
     <string name="counts_submit_death">మరణం నమోదు చేయండి</string>
+    <string name="counts_record_another_birth">మరో జననం నమోదు చేయండి</string>
+    <string name="counts_record_another_death">మరో మరణం నమోదు చేయండి</string>
     <string name="counts_death_guardrail_note">మరణాన్ని రక్షిత మరణ మార్గం ద్వారా నమోదు చేస్తారు మరియు ఇది జంతువు యొక్క ఓపెన్ టీకా పనిని స్వయంచాలకంగా రద్దు చేస్తుంది.</string>
 
     <!-- Shifting screen -->
