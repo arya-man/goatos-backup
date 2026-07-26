@@ -252,6 +252,7 @@ interface SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         destinationTag: String? = null,
+        proofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
@@ -621,6 +622,7 @@ class DefaultSyncRepository(
         groupKey: String,
         idempotencyKey: String,
         destinationTag: String?,
+        proofOutboxItemId: String,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SHIFTING_COMPLETE,
         groupKey = groupKey,
@@ -629,6 +631,7 @@ class DefaultSyncRepository(
             ShiftingCompletePayload(
                 shiftingEventId = groupKey,
                 destinationTag = destinationTag?.trim()?.ifBlank { null },
+                proofOutboxItemId = proofOutboxItemId,
             ),
         ),
     )

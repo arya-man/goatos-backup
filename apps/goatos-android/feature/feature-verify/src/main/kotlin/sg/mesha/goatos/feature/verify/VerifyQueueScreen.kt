@@ -209,7 +209,7 @@ fun VerifyQueueScreen(
                     )
                 }
             }
-            if (state.selectedModule != VerifyModuleTab.VACCINATION) {
+            if (state.selectedModule == VerifyModuleTab.FEED_DIRECTION) {
                 item {
                     EmptyState(
                         title = stringResource(R.string.verify_module_under_construction),

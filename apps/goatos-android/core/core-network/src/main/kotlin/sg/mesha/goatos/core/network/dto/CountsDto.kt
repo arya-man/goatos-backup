@@ -342,6 +342,12 @@ data class CountsShiftingCancelRequestDto(
  */
 @Serializable
 data class CountsShiftingCompleteRequestDto(
+    /**
+     * MANDATORY (maintainer decision, 2026-07-26): the proof_artifact id of the operator's video.
+     * The backend flips the move to pending_verification and applies it only after a verifier
+     * approves this video. A blank/absent value is rejected 422 proof_required.
+     */
+    @SerialName("proof_ref") val proofRef: String,
     @SerialName("destination_tag") val destinationTag: String? = null,
 )
 

@@ -68,6 +68,12 @@ class ShiftingExecuteViewModel @Inject constructor(
     private val proofKey = DraftIdempotencyKey(savedStateHandle, KEY_PROOF_IDEMPOTENCY, "counts-shifting-proof")
     private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
 
+    // The PROOF_UPLOAD outbox item id from recordVideo, persisted so a process-death mid-flow still
+    // couples the mandatory video to the completion. The complete carries this id so the sync engine
+    // can resolve the uploaded proof_id and send it as proof_ref (maintainer decision, 2026-07-26:
+    // a shed move is applied only after a verifier approves the operator's video).
+    private val proofOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_PROOF_OUTBOX_ITEM_ID)
+
     private val _state = MutableStateFlow(ShiftingExecuteUiState(shiftingEventId = shiftingEventId))
     val state: StateFlow<ShiftingExecuteUiState> = _state.asStateFlow()
 
@@ -100,9 +106,11 @@ class ShiftingExecuteViewModel @Inject constructor(
     }
 
     /**
-     * Optional video. Captures a clip through the same [ProofCaptureSource] the vaccination flow
-     * binds, then enqueues a PROOF_UPLOAD registered against the destination shed with the movement
-     * id in metadata. Failure never blocks completion — the operator can still Mark done.
+     * MANDATORY video (maintainer decision, 2026-07-26). Captures a clip through the same
+     * [ProofCaptureSource] the vaccination flow binds, then enqueues a PROOF_UPLOAD under the
+     * MOVEMENT'S outbox group (shiftingEventId) so it drains strictly BEFORE the completion on the
+     * same group. The proof outbox item id is retained so the completion can resolve the uploaded
+     * proof_id and send it as proof_ref. Until a video is captured, "Mark done" stays disabled.
      */
     private fun recordVideo() {
         if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
@@ -128,7 +136,9 @@ class ShiftingExecuteViewModel @Inject constructor(
                 metadata = mapOf(META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId)),
             )
             val result = syncRepository.enqueueProofUpload(
-                groupKey = destinationShedId,
+                // Group by the MOVEMENT (not the shed) so this proof drains strictly before the
+                // completion enqueued on the same group; the completion resolves this proof's id.
+                groupKey = shiftingEventId,
                 idempotencyKey = proofKey.current(),
                 request = request,
                 localFilePath = captured.localUri,
@@ -136,8 +146,17 @@ class ShiftingExecuteViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
+                    proofOutboxItemId.value = result.value
                     analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED)
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
+                    _state.update {
+                        it.copy(
+                            isCapturingVideo = false,
+                            videoCaptured = true,
+                            videoMessage = VIDEO_QUEUED,
+                            // The mandatory video is now recorded, so completion is allowed.
+                            canComplete = !it.result.isCommitted,
+                        )
+                    }
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "shifting execute proof enqueue failed") }
@@ -150,12 +169,21 @@ class ShiftingExecuteViewModel @Inject constructor(
     private fun markDone() {
         val current = _state.value
         if (!current.canComplete) return
+        // Mandatory-video guard (defense in depth alongside canComplete): a completion cannot be
+        // submitted without the recorded video's proof upload to couple to.
+        val proofItemId = proofOutboxItemId.value
+        if (!current.videoCaptured || proofItemId.isNullOrBlank()) {
+            _state.update { it.copy(videoMessage = VIDEO_REQUIRED) }
+            return
+        }
         viewModelScope.launch {
             val result = syncRepository.enqueueShiftingComplete(
                 // The movement id partitions ordering: two actions on the SAME movement drain
-                // strictly oldest-first, so a complete and a cancel can never race.
+                // strictly oldest-first, so a complete and a cancel can never race, and the
+                // mandatory video's proof upload (same group) drains before this completion.
                 groupKey = shiftingEventId,
                 idempotencyKey = completeKey.current(),
+                proofOutboxItemId = proofItemId,
             )
             when (result) {
                 is AppResult.Ok -> {
@@ -213,8 +241,9 @@ class ShiftingExecuteViewModel @Inject constructor(
             animalCount = animalCount,
             animals = animals.map { ShiftingExecuteAnimalUi(it.goatId, it.displayId, it.tag) },
             animalsTruncated = animalsTruncated,
-            // A committed write already disables the button; a fresh open enables it.
-            canComplete = !current.result.isCommitted,
+            // The mandatory video gates completion: enabled only once a video is captured and the
+            // write is not already committed (maintainer decision, 2026-07-26).
+            canComplete = current.videoCaptured && !current.result.isCommitted,
         )
 
     private fun String.titleCase(): String =
@@ -225,11 +254,13 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val KEY_COMPLETE_IDEMPOTENCY = "shiftingExecute.completeKey"
         const val KEY_PROOF_IDEMPOTENCY = "shiftingExecute.proofKey"
         const val KEY_OUTBOX_ITEM_ID = "shiftingExecute.outboxItemId"
+        const val KEY_PROOF_OUTBOX_ITEM_ID = "shiftingExecute.proofOutboxItemId"
         const val META_SHIFTING_EVENT_ID = "shifting_event_id"
         const val UNKNOWN_LOCATION = "—"
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
         const val SYNCED_MESSAGE = "Movement completed. The animals are now at the destination shed."
         const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
-        const val VIDEO_FAILED = "Couldn't save the video. You can still mark the movement done."
+        const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record it again."
+        const val VIDEO_REQUIRED = "Record the video first — a verifier reviews it before the move is applied."
     }
 }
