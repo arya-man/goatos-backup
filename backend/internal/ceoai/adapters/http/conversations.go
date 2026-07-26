@@ -61,7 +61,7 @@ func (a Actor) leadership() bool { return a.Role == permissions.RoleCEOInternal 
 // Cube metrics + read tools the assistant currently routes to.
 var defaultStarters = []string{
 	"How many active goats and sheep do we have?",
-	"What vaccinations are overdue by park?",
+	"What vaccinations are overdue by shed?",
 	"How many vaccinations are due today?",
 	"Which operators are overloaded on vaccination drives?",
 	"What vaccines need pickup today?",
@@ -76,6 +76,7 @@ var defaultStarters = []string{
 	"What operation exceptions are open?",
 	"What inventory stock needs reorder?",
 	"Summarize the operations audit anomalies.",
+	"Plot vaccination overdue by shed.",
 	"Plot vaccination overdue by park.",
 }
 
