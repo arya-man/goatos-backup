@@ -110,31 +110,45 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// The completion body carries at most an OPTIONAL destination_tag: the movement's animals,
-	// destination shed, and authorization are all already recorded, so no animal set is accepted here
-	// (that would let the operator's phone relocate a herd the approver never signed off on). The
-	// destination_tag is only consulted when the destination shed is empty; for an occupied shed the
-	// server derives the cohort and a supplied value must agree with it.
-	var destinationTag string
+	// The completion body carries a MANDATORY proof_ref (the operator's video, maintainer decision
+	// 2026-07-26) and an OPTIONAL destination_tag. The movement's animals, destination shed, and
+	// authorization are all already recorded, so no animal set is accepted here (that would let the
+	// operator's phone relocate a herd the approver never signed off on). The destination_tag is only
+	// consulted when the destination shed is empty; for an occupied shed the server derives the
+	// cohort and a supplied value must agree with it. A completion with no video is rejected: the
+	// move is applied only after a verifier approves that video.
+	var (
+		destinationTag string
+		proofRef       string
+	)
 	if raw, bodyOK := h.readBody(w, r); !bodyOK {
 		return
 	} else if len(strings.TrimSpace(string(raw))) > 0 {
 		var body struct {
+			ProofRef       string `json:"proof_ref"`
 			DestinationTag string `json:"destination_tag"`
 		}
 		if err := decodeStrictJSON(raw, &body, "ShiftingCompleteRequest"); err != nil {
 			h.writeAppError(w, r, err)
 			return
 		}
+		proofRef = strings.TrimSpace(body.ProofRef)
 		destinationTag = strings.TrimSpace(body.DestinationTag)
 	}
+	if proofRef == "" {
+		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
+			"a video proof (proof_ref) is required to complete a shifting movement", nil)
+		return
+	}
 
-	// The fingerprint covers the completion's MEANING, which now includes the destination cohort tag,
-	// so a same-key replay carrying a different tag is a conflict rather than a silent override.
+	// The fingerprint covers the completion's MEANING, which now includes the video and the
+	// destination cohort tag, so a same-key replay carrying a different video/tag is a conflict rather
+	// than a silent override.
 	canonical, err := canonicalRequestBytes(tenantID, appShiftingCompleteCommand, appShiftingCompleteRoute, struct {
 		ShiftingEventID string `json:"shifting_event_id"`
+		ProofRef        string `json:"proof_ref"`
 		DestinationTag  string `json:"destination_tag,omitempty"`
-	}{ShiftingEventID: eventID, DestinationTag: destinationTag})
+	}{ShiftingEventID: eventID, ProofRef: proofRef, DestinationTag: destinationTag})
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
@@ -145,6 +159,7 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		ShiftingEventID:    eventID,
 		CompletedByUserID:  actorID,
 		TraceID:            appTraceID(r),
+		ProofRef:           proofRef,
 		DestinationTag:     destinationTag,
 		IdempotencyKey:     "counts-shifting-completion:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-shifting-completion", canonical),
@@ -419,6 +434,11 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrShiftingProofRequired):
+		// 422: the movement is executable, but a shifting completion must carry the operator's video
+		// (maintainer decision, 2026-07-26). Actionable input error.
+		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
+			"a video proof (proof_ref) is required to complete a shifting movement", err)
 	case errors.Is(err, identityports.ErrDestinationTagRequired):
 		// 422: the movement is executable, but completing it into an EMPTY destination shed needs the
 		// operator to name the cohort the animals join. Actionable input error, not a server fault.

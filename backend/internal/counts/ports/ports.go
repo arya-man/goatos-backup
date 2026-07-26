@@ -35,6 +35,11 @@ var (
 	// one already rejected/canceled. It is NOT returned for a replay of a transition that already
 	// succeeded, which is a no-op success.
 	ErrShiftingNotAuthorized = errors.New("counts: shifting event is not in an executable state")
+	// ErrShiftingProofRequired is returned when an operator completes a shifting movement without the
+	// mandatory video proof (maintainer decision, 2026-07-26). A shed move is applied only after a
+	// verifier approves that video, so a completion with no video has nothing to verify and is
+	// rejected before any state changes.
+	ErrShiftingProofRequired = errors.New("counts: shifting completion requires a video proof")
 	// ErrShiftingExecutionIncomplete is returned when a completion's relocation did not cover every
 	// animal the movement named (one was exited, merged, or moved to another tenant). The
 	// completion transaction is rolled back, so the movement stays authorized for a human rather
@@ -102,14 +107,30 @@ type Repository interface {
 	// relocation happens later, in CompleteShiftingEvent.
 	DecideApprovalRequest(ctx context.Context, in domain.ApprovalDecision) (domain.ApprovalRequest, bool, error)
 
-	// CompleteShiftingEvent executes an AUTHORIZED movement: it relocates the animals the movement
-	// named and flips event_status to 'applied', stamped with who confirmed it and when, in ONE
-	// transaction. A relocation that cannot cover every named animal rolls the whole completion
-	// back, so an 'applied' row with unmoved animals is unreachable.
+	// CompleteShiftingEvent SUBMITS an AUTHORIZED movement for verification (maintainer decision,
+	// 2026-07-26). The operator confirms the animals walked and records a MANDATORY video
+	// (ShiftingCompletionCommand.ProofRef); this flips event_status to 'pending_verification', stores
+	// the video, and relocates NOBODY -- the count does not move yet. A blank video is
+	// ErrShiftingProofRequired. The relocation happens later, in ApplyVerifiedShiftingEvent, only
+	// when a verifier approves.
 	//
-	// Idempotent: an exact replay returns the original result and relocates nobody a second time; a
-	// same-key/different-payload replay is ErrIdempotencyConflict.
+	// Idempotent: an exact replay of an already-submitted (or already-applied) movement returns the
+	// original result; a same-key/different-payload replay is ErrIdempotencyConflict.
 	CompleteShiftingEvent(ctx context.Context, in domain.ShiftingCompletionCommand) (domain.ShiftingExecutionResult, bool, error)
+
+	// ApplyVerifiedShiftingEvent relocates a movement whose video a verifier APPROVED and flips it
+	// 'pending_verification' -> 'applied' in ONE transaction. This is the ONLY place a shifting
+	// movement writes an animal's canonical location; it is driven by the verification.verdict.approved
+	// consumer, never by an operator. A relocation that cannot cover every named animal rolls the
+	// whole apply back. Idempotent: a re-delivered verdict on an already-applied movement relocates
+	// nobody; a verdict for a movement no longer awaiting verification is ignored as stale.
+	ApplyVerifiedShiftingEvent(ctx context.Context, in domain.ShiftingVerifiedApplyCommand) (domain.ShiftingExecutionResult, bool, error)
+
+	// BounceShiftingEventForRework returns a movement whose video a verifier REJECTED to 'authorized'
+	// so the operator re-records it. It moves NOTHING. Driven by the verification.verdict.rework
+	// consumer. Idempotent: only a 'pending_verification' row is bounced; a re-delivered verdict is a
+	// no-op.
+	BounceShiftingEventForRework(ctx context.Context, in domain.ShiftingReworkCommand) error
 
 	// CancelShiftingEvent retires an authorized movement that will never be executed. It moves
 	// NOTHING and records the required reason. Idempotent on the same terms as completion.

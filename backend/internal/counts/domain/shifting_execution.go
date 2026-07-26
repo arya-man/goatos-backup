@@ -11,17 +11,23 @@ import (
 
 // Shifting EXECUTION -- the half of a movement's life that happens after it is authorized.
 //
-// Maintainer decision (2026-07-19), superseding approve-relocates:
+// Maintainer decision (2026-07-26), SUPERSEDING the 2026-07-19 "operator completion applies the
+// move" rule FOR SHIFTING ONLY:
 //
 //	raise -> pending -> APPROVED (authorized; NOTHING moves)
-//	      -> operator physically walks the animals
-//	      -> COMPLETED (event_status='applied'; the animals relocate in `goats` now)
+//	      -> operator physically walks the animals + records a MANDATORY video
+//	      -> PENDING VERIFICATION (event_status='pending_verification'; STILL nothing moves)
+//	      -> verifier approves the video -> APPLIED (the animals relocate in `goats` now)
+//	      -> verifier rejects the video   -> back to AUTHORIZED (bounce; operator re-shoots)
 //
-// Approval is AUTHORIZATION, not evidence. Relocating at approval time asserted that animals had
-// moved because a manager pressed a button, which put the herd register, the census, and every
-// shed-scoped vaccination obligation in a shed the animals were not standing in for as long as the
-// real movement took -- or forever, when it never happened. Birth and death are UNCHANGED: those
-// approvals still apply immediately, because for them the approval IS the record of the fact.
+// The count now moves at VERIFIER APPROVAL, not at operator completion. The 2026-07-19 rule (move
+// applies the instant the operator confirms) still stands as the REASON approval never relocates --
+// a permission slip is not evidence -- but a shed move is now proved by a video an independent
+// verifier signs off on, exactly like a vaccination proof. Between operator completion and verifier
+// approval the animals are physically in the destination shed while the census still reads the
+// source shed; that lag is accepted deliberately in exchange for verified movement. Birth and death
+// are UNCHANGED: those approvals still apply immediately, because for them the approval IS the record
+// of the fact. See docs/decisions/shifting-verification.md.
 
 const (
 	// ShiftingEventStatusPending is a raised, not-yet-decided movement.
@@ -29,8 +35,12 @@ const (
 	// ShiftingEventStatusAuthorized is approved-but-not-executed: the movement MAY happen and the
 	// animals are still at the source shed. This is the state the execution queue lists.
 	ShiftingEventStatusAuthorized = "authorized"
-	// ShiftingEventStatusApplied is executed: an operator confirmed the animals physically moved and
-	// their canonical location was rewritten in the same transaction.
+	// ShiftingEventStatusPendingVerification is operator-completed-but-not-yet-verified: the operator
+	// confirmed the move and uploaded the mandatory video, a verification item is queued, and NOTHING
+	// has relocated yet. The census still reads the source shed until the verifier approves.
+	ShiftingEventStatusPendingVerification = "pending_verification"
+	// ShiftingEventStatusApplied is executed: a verifier approved the operator's video and the
+	// animals' canonical location was rewritten in the same transaction as the approval consumer.
 	ShiftingEventStatusApplied = "applied"
 	// ShiftingEventStatusRejected is a movement an approver refused.
 	ShiftingEventStatusRejected = "rejected"
@@ -53,13 +63,21 @@ const (
 
 	// MaxShiftingCancelReasonLength bounds the free-text cancellation reason.
 	MaxShiftingCancelReasonLength = 2000
+
+	// Verification coordinates for a shifting move. The generic verification module stores only these
+	// (module, ref_type, ref_id=shifting_event_id) as a back-pointer; the shifting consumer filters
+	// verdict events on this module+ref_type so it ignores vaccination/feed/etc. verdicts.
+	VerificationVerticalShifting = "counts"
+	VerificationModuleShifting   = "counts"
+	VerificationCategoryShifting = "shifting_move"
+	VerificationRefTypeShifting  = "shifting_event"
 )
 
 // ValidShiftingEventStatus reports whether s is a known shifting event status.
 func ValidShiftingEventStatus(s string) bool {
 	switch s {
-	case ShiftingEventStatusPending, ShiftingEventStatusAuthorized, ShiftingEventStatusApplied,
-		ShiftingEventStatusRejected, ShiftingEventStatusCanceled, "unresolved":
+	case ShiftingEventStatusPending, ShiftingEventStatusAuthorized, ShiftingEventStatusPendingVerification,
+		ShiftingEventStatusApplied, ShiftingEventStatusRejected, ShiftingEventStatusCanceled, "unresolved":
 		return true
 	}
 	return false
@@ -82,6 +100,12 @@ type ShiftingCompletionCommand struct {
 	CompletedAt       time.Time
 	TraceID           string
 
+	// ProofRef is the MANDATORY video the operator records to prove the animals physically moved
+	// (maintainer decision, 2026-07-26). It is a proof_artifact id; the completion is rejected when
+	// it is blank. The video travels into the queued verification item's MediaRefs, and the move is
+	// applied only when a verifier approves it.
+	ProofRef string
+
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
 	// animals adopt. It is only needed when the destination shed is EMPTY (no existing animals to
 	// derive the cohort from); for an occupied shed the tag is derived server-side and a supplied
@@ -91,6 +115,29 @@ type ShiftingCompletionCommand struct {
 
 	IdempotencyKey     string
 	RequestFingerprint string
+}
+
+// ShiftingVerifiedApplyCommand relocates a movement whose video a verifier APPROVED. It is issued by
+// the verification.verdict.approved consumer, never by an operator's phone: the verifier's approval
+// is what turns a pending_verification movement into a real relocation (maintainer decision,
+// 2026-07-26). DestinationTag is threaded through from the movement's own record and stays optional
+// (derived from the occupied destination shed otherwise).
+type ShiftingVerifiedApplyCommand struct {
+	TenantID         string
+	ShiftingEventID  string
+	VerifiedByUserID string
+	VerifiedAt       time.Time
+	TraceID          string
+	DestinationTag   string
+}
+
+// ShiftingReworkCommand bounces a movement whose video a verifier REJECTED back to 'authorized' so
+// the operator re-records it. It moves NOTHING. Issued by the verification.verdict.rework consumer.
+type ShiftingReworkCommand struct {
+	TenantID        string
+	ShiftingEventID string
+	VerifiedBy      string
+	Reason          string
 }
 
 // ShiftingCancellationCommand retires an authorized movement that will never be executed.

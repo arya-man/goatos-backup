@@ -30,6 +30,8 @@ import (
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	countsbridge "github.com/vgoats/goatos/backend/internal/countsbridge"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
 	feedpg "github.com/vgoats/goatos/backend/internal/feed/adapters/postgres"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
@@ -450,6 +452,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
+	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
+	// like vaccination. Register its category and wire the enqueue seam into the execution service now
+	// that the verification service exists.
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      countsdomain.VerificationVerticalShifting,
+		Module:        countsdomain.VerificationModuleShifting,
+		Category:      countsdomain.VerificationCategoryShifting,
+		ExpectedMedia: []string{"video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	countsShiftingExecutionService.WithVerificationEnqueuer(
+		countsbridge.NewShiftingVerificationEnqueuer(verificationService))
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
@@ -537,6 +554,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
+	// Shifting-move verification consumer (maintainer decision, 2026-07-26): a verifier's approval of
+	// the operator's video applies the relocation (count moves now); a rejection bounces the move back
+	// to authorized for a re-shoot. Subscribes to the generic verification verdict events and filters
+	// to counts/shifting_event.
+	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then
