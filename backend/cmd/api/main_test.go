@@ -41,6 +41,13 @@ func TestAssertLocalOriginMainStackIsolatedE2ESkipsSharedGuard(t *testing.T) {
 	}
 }
 
+func TestRunningInContainerHonorsKubernetesEnv(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+	if !runningInContainer() {
+		t.Fatal("KUBERNETES_SERVICE_HOST should identify a container runtime")
+	}
+}
+
 func TestAssertLocalOriginMainStackPreverifiedSharedCheckout(t *testing.T) {
 	repo := t.TempDir()
 	runGit(t, repo, "init", "--quiet")

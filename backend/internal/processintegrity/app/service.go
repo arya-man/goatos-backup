@@ -10,11 +10,13 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
+	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 type Service struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo  ports.Repository
+	now   func() time.Time
+	media verificationports.MediaResolver
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -28,12 +30,18 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return s
 }
 
+func (s *Service) WithMediaResolver(media verificationports.MediaResolver) *Service {
+	s.media = media
+	return s
+}
+
 func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	q = s.defaults(q)
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ActionCenterResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 	return domain.ActionCenterResponse{
 		Source:            domain.SourceAPI,
 		Items:             result.Rows,
@@ -66,6 +74,7 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
 	summary := result.AdherenceSummary
 	for _, row := range result.Rows {
@@ -113,6 +122,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	if err != nil {
 		return domain.ControlTowerResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 
 	summaryCounts := result.CountsByWorkState
 	if !controlTowerCanReuseAlertCounts(q) {
@@ -188,6 +198,7 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 	if err != nil || !found {
 		return domain.WorkflowDrilldownResponse{}, found, err
 	}
+	row = s.withEvidenceMedia(ctx, q.TenantID, []domain.Row{row})[0]
 	if row.Category == domain.CategoryFeedDirection {
 		return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: feedDirectionExceptionNodes(row)}, true, nil
 	}
@@ -202,6 +213,58 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 		{Key: "next_due", Label: "Booster / next dose basis", State: nextDueState(row), Timestamp: nil},
 	}
 	return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: nodes}, true, nil
+}
+
+func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows []domain.Row) []domain.Row {
+	if s.media == nil || tenantID == "" || len(rows) == 0 {
+		return rows
+	}
+	proofIDs := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, row := range rows {
+		for _, id := range row.Evidence.ProofIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			proofIDs = append(proofIDs, id)
+		}
+	}
+	if len(proofIDs) == 0 {
+		return rows
+	}
+	resolved, err := s.media.ResolveMedia(ctx, tenantID, proofIDs)
+	if err != nil {
+		return rows
+	}
+	byID := make(map[string]domain.MediaItem, len(resolved))
+	for _, item := range resolved {
+		byID[item.ProofID] = domain.MediaItem{
+			ProofID:     item.ProofID,
+			DownloadURL: item.DownloadURL,
+			MimeType:    item.MimeType,
+			DurationMS:  item.DurationMS,
+		}
+	}
+	for i := range rows {
+		if len(rows[i].Evidence.ProofIDs) == 0 {
+			continue
+		}
+		media := make([]domain.MediaItem, 0, len(rows[i].Evidence.ProofIDs))
+		for _, id := range rows[i].Evidence.ProofIDs {
+			if item, ok := byID[id]; ok {
+				media = append(media, item)
+			}
+		}
+		if len(media) > 0 {
+			rows[i].Evidence.Media = media
+		}
+	}
+	return rows
 }
 
 func workflowLink(row domain.Row) string {
@@ -250,7 +313,14 @@ func expectedText(row domain.Row) string {
 func actualText(row domain.Row) string {
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
-		return fmt.Sprintf("%d assigned against %d operator slots; finish over cap", row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap)
+		slots := row.DriveAvailableOperators * row.DriveOperatorCap
+		if slots > 0 && row.DriveAnimalsAssigned <= slots {
+			return fmt.Sprintf("%d assigned within %d planned operator slots", row.DriveAnimalsAssigned, slots)
+		}
+		if slots > 0 {
+			return fmt.Sprintf("%d assigned against %d planned operator slots; add capacity or split the drive", row.DriveAnimalsAssigned, slots)
+		}
+		return fmt.Sprintf("%d assigned with no planned operator capacity", row.DriveAnimalsAssigned)
 	case domain.DriveCapacityStateMedicalDefer:
 		if row.DriveMedicalDeferReason != nil && *row.DriveMedicalDeferReason != "" {
 			return "medically deferred: " + *row.DriveMedicalDeferReason
@@ -284,7 +354,11 @@ func actualText(row domain.Row) string {
 func gapText(row domain.Row) string {
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
-		return "over_cap_required"
+		slots := row.DriveAvailableOperators * row.DriveOperatorCap
+		if slots > 0 && row.DriveAnimalsAssigned <= slots {
+			return "none"
+		}
+		return "capacity_shortfall"
 	case domain.DriveCapacityStateMedicalDefer:
 		return "medical_defer"
 	case domain.DriveCapacityStateTerminalAnimalClosed:
