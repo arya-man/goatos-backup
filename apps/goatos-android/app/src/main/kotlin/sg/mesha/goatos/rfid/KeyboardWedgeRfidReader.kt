@@ -106,6 +106,10 @@ class KeyboardWedgeRfidReader(
         if (enabled) refreshStatus()
     }
 
+    override fun setCompletionKeySwallowEnabled(enabled: Boolean) {
+        capture.swallowCompletionKeys = enabled
+    }
+
     override fun refreshStatus() {
         val visibleDevices = findVisibleDevices()
         _devices.value = visibleDevices

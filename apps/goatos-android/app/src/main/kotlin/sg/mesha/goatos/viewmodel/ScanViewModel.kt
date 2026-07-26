@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
@@ -86,6 +87,7 @@ class ScanViewModel @Inject constructor(
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
+    private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
     private var readerRefreshJob: Job? = null
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
@@ -131,10 +133,14 @@ class ScanViewModel @Inject constructor(
 
     // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
     // per-goat capture's default subject instead of a hardcoded ProofSubject.GOAT.
-    private val proofPolicy: StateFlow<ProofPolicy> =
+    private val taskDetail: StateFlow<TaskDetail?> =
         (taskId?.let { id ->
-            tasksRepository.observeTaskDetail(id).map { it.data?.proofPolicy ?: ProofPolicy.Default }
-        } ?: flowOf(ProofPolicy.Default))
+            tasksRepository.observeTaskDetail(id).map { it.data }
+        } ?: flowOf(null))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val proofPolicy: StateFlow<ProofPolicy> =
+        taskDetail.map { it?.proofPolicy ?: ProofPolicy.Default }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProofPolicy.Default)
 
     /**
@@ -205,6 +211,7 @@ class ScanViewModel @Inject constructor(
         _refreshError,
         proofPolicy,
         _duplicateNotice,
+        taskDetail,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
         val total = values[1] as Int
@@ -228,6 +235,7 @@ class ScanViewModel @Inject constructor(
         val refreshError = values[18] as String?
         val policy = values[19] as ProofPolicy
         val duplicateNotice = values[20] as String?
+        val detail = values[21] as TaskDetail?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -287,6 +295,7 @@ class ScanViewModel @Inject constructor(
         val localFeedKeys = feed.map { it.primaryTag to it.vaccineLabel }.toSet()
         val mergedFeed = feed + serverFeed.filterNot { (it.primaryTag to it.vaccineLabel) in localFeedKeys }
         gate.copy(
+            cohortLabel = scanHeaderTitle(routeScanTitle, detail),
             feed = mergedFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
@@ -320,7 +329,7 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    /** Enable/disable keyboard-wedge capture with the Scan screen's composition lifecycle. */
+    /** Enable/disable keyboard-wedge capture when the roster is ready to accept tag digits. */
     fun setCaptureActive(active: Boolean) {
         reader.setCaptureEnabled(active)
         if (active) {
@@ -341,8 +350,14 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    /** Swallow RFID completion keys while Scan owns the screen so Enter cannot trigger navigation. */
+    fun setCompletionKeySwallowActive(active: Boolean) {
+        reader.setCompletionKeySwallowEnabled(active)
+    }
+
     override fun onCleared() {
         readerRefreshJob?.cancel()
+        reader.setCompletionKeySwallowEnabled(false)
         reader.setCaptureEnabled(false)
     }
 
@@ -479,8 +494,12 @@ class ScanViewModel @Inject constructor(
                         recordRosterScan(row, tag, capturedAtMs)
                     } else {
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned")
-                        // Re-scanning an already-done tag must NOT pile another row into the feed
-                        // (the tag already has a DONE row there) — surface a transient strip instead.
+                        _feed.update {
+                            prependFeed(
+                                ScanFeedEntry(row.primaryTag, row.secondaryTag, "already scanned · ${row.vaccineLabel}", ScanStatus.DONE, scanTimeLabel(capturedAtMs)),
+                                it,
+                            )
+                        }
                         _duplicateNotice.value = "Already scanned · ${row.vaccineLabel}"
                     }
                 }
@@ -501,7 +520,7 @@ class ScanViewModel @Inject constructor(
      *  complete SSOT via [findScanRosterByTag], independent of the visible window). A background
      *  refresh is stale-while-revalidate only; while Room has a roster, it must not block scanning. */
     private fun canAcceptScanInput(): Boolean =
-        _operatorAllowed.value == true && rosterTotal.value > 0 && !state.value.hasMore
+        state.value.ringTotal > 0
 
     private fun draftDoneIds(): Set<String> =
         persistedScans.value.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet() + _localDone.value
@@ -660,7 +679,8 @@ class ScanViewModel @Inject constructor(
             pendingCount = pending,
             skippedCount = skipped,
             canSubmit = false, // computeProofGate decides
-            scanEnabled = operatorAllowed && total > 0 && !hasMore,
+            scanEnabled = total > 0 && !hasMore,
+            captureAccessRequired = operatorAllowed && total > 0,
             hasMore = hasMore,
         )
     }
@@ -823,6 +843,16 @@ private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
 private const val OPERATOR_ROLE = "operator"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
+
+private fun scanHeaderTitle(routeTitle: String?, detail: TaskDetail?): String {
+    val shedName = routeTitle
+        ?: detail?.task?.presentation?.title
+        ?.takeIf { it.isNotBlank() }
+        ?: detail?.task?.title?.takeIf { it.isNotBlank() }
+    return shedName
+        ?.let { if (it.endsWith(" scan", ignoreCase = true)) it else "$it Scan" }
+        .orEmpty()
+}
 
 private fun emptyScanState(): ScanUiState = ScanUiState(
     shedLabel = "",

@@ -912,9 +912,41 @@ func (r *Repository) RecordScanCapture(ctx context.Context, cmd ports.RecordScan
 	err := r.pool.QueryRow(ctx, `
 INSERT INTO sop_task_scan_captures (
   tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at
-) VALUES (
+)
+SELECT
   $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8::uuid, $9,
   COALESCE(to_timestamp(NULLIF($10::bigint, 0)::double precision / 1000.0), now())
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM obligation_instances oi
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  LEFT JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+      AND (
+        assignment.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+      AND (
+        cardinality(assignment.vaccine_rule_ids) = 0
+        OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+      )
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.obligation_id = nullif($7, '')::uuid
+    AND oi.status = 'scheduled'
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) > now()
 )
 ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
 SET updated_at = now()
@@ -1065,12 +1097,36 @@ target_shed AS (
 eligible AS (
   SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
   FROM obligation_instances oi
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   JOIN batch b ON b.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+      AND (
+        assignment.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+      AND (
+        cardinality(assignment.vaccine_rule_ids) = 0
+        OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+      )
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   CROSS JOIN target_shed target
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (
   SELECT count(*) AS n

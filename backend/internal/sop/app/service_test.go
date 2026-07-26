@@ -593,8 +593,8 @@ func TestSubmitVaccinationShedCompletionAckRecoversServerShedProofWhenMobileCach
 		ActorID:  testActorID,
 		TaskID:   testTaskID,
 		Body: domain.SubmitTaskRequest{
-			SOPVersionID:   testVersionID,
-			IdempotencyKey: "vaccination-shed-empty-mobile-cache",
+			SOPVersionID:   "",
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":rv:1",
 			Answers:        map[string]any{},
 			ProofRefs:      nil,
 		},
@@ -602,11 +602,14 @@ func TestSubmitVaccinationShedCompletionAckRecoversServerShedProofWhenMobileCach
 	if err != nil {
 		t.Fatalf("SubmitTask() error = %v", err)
 	}
-	if repo.lastCompletedProofRefsShedID != "" {
-		t.Fatalf("initial server-proof recovery shed id = %q, want empty", repo.lastCompletedProofRefsShedID)
+	if repo.lastCompletedProofRefsShedID != shedID {
+		t.Fatalf("server-proof recovery shed id = %q, want %q", repo.lastCompletedProofRefsShedID, shedID)
 	}
 	if got := repo.lastShedReadinessShedID; got != shedID {
 		t.Fatalf("readiness shed id = %q, want %q", got, shedID)
+	}
+	if got := repo.lastSubmit.Body.SOPVersionID; got != testVersionID {
+		t.Fatalf("submitted SOP version = %q, want task pinned version %q", got, testVersionID)
 	}
 	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000010" {
 		t.Fatalf("proof refs = %#v, want recovered server shed proof", got)

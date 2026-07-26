@@ -291,6 +291,7 @@ object Routes {
     const val EXECUTION_TASK_ARG = "taskId"
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
+    const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
@@ -301,7 +302,8 @@ object Routes {
         taskId: String? = null,
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion)
+        scanTitle: String? = null,
+    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
 
     fun submitRoute(
         shedId: String?,
@@ -310,7 +312,8 @@ object Routes {
         taskId: String? = null,
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
-    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion)
+        scanTitle: String? = null,
+    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
 
     private fun executionRoute(
         base: String,
@@ -320,6 +323,7 @@ object Routes {
         taskId: String?,
         sopVersionId: String?,
         taskRowVersion: Int?,
+        scanTitle: String?,
     ): String {
         val args = buildList {
             shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
@@ -328,6 +332,7 @@ object Routes {
             taskId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_TASK_ARG to it) }
             sopVersionId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SOP_VERSION_ARG to it) }
             taskRowVersion?.takeIf { it > 0 }?.let { add(EXECUTION_TASK_ROW_VERSION_ARG to it.toString()) }
+            scanTitle?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SCAN_TITLE_ARG to it) }
         }
         if (args.isEmpty()) return base
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -425,7 +430,19 @@ private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Strin
         taskId = selected.taskId,
         sopVersionId = selected.sopVersionId,
         taskRowVersion = selected.taskRowVersion,
+        scanTitle = selected.scanDisplayTitle(),
     )
+}
+
+private fun ShedRow.scanDisplayTitle(): String {
+    val base = name.takeIf { it.isNotBlank() }
+        ?: physicalShed.takeIf { it.isNotBlank() }
+        ?: return ""
+    val partitionLabel = partition
+        .takeIf { it.isNotBlank() }
+        ?.let { if (it.startsWith("Part ", ignoreCase = true)) it else "Part $it" }
+    val shouldAppendPartition = partitionLabel != null && !base.contains(partitionLabel, ignoreCase = true)
+    return if (shouldAppendPartition) "$base - $partitionLabel" else base
 }
 
 /**
@@ -560,6 +577,10 @@ fun AppNavHost(
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
+                            if (selected?.canOpen == false) {
+                                Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             if (selected?.opensRecordOnly == true) {
                                 Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
                                 return@ShedsScreen
@@ -610,6 +631,10 @@ fun AppNavHost(
                                     // the execute loop (Scan → Submit). Mirrors the mock's shed card
                                     // ("View completed record ›" vs "Start / scan").
                                     val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                    if (selected?.canOpen == false) {
+                                        Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                        return@ShedsScreen
+                                    }
                                     if (selected?.opensRecordOnly == true) {
                                         Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
                                         return@ShedsScreen
@@ -635,11 +660,13 @@ fun AppNavHost(
         ) { entry ->
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(vm, state.scanEnabled) {
-                vm.setCaptureActive(state.scanEnabled)
-            }
             DisposableEffect(vm) {
-                onDispose { vm.setCaptureActive(false) }
+                vm.setCompletionKeySwallowActive(true)
+                vm.setCaptureActive(true)
+                onDispose {
+                    vm.setCompletionKeySwallowActive(false)
+                    vm.setCaptureActive(false)
+                }
             }
             val onScanEvent: (ScanEvent) -> Unit = { event ->
                     when (event) {
@@ -655,6 +682,7 @@ fun AppNavHost(
                                     ?: state.sopVersionId,
                                 taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
                                     ?: state.taskRowVersion,
+                                scanTitle = entry.arguments?.getString(Routes.EXECUTION_SCAN_TITLE_ARG)?.takeIf { it.isNotBlank() },
                             ),
                         ) { launchSingleTop = true }
                         ScanEvent.Back -> navController.popBackStack()
@@ -662,7 +690,7 @@ fun AppNavHost(
                         else -> vm.onEvent(event)
                     }
                 }
-            if (state.scanEnabled) {
+            if (state.captureAccessRequired) {
                 CaptureAccessGate {
                     BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                     ScanScreen(state = state, onEvent = onScanEvent)
@@ -1356,7 +1384,8 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_BATCH_ARG}={${Routes.EXECUTION_BATCH_ARG}}" +
         "&${Routes.EXECUTION_TASK_ARG}={${Routes.EXECUTION_TASK_ARG}}" +
         "&${Routes.EXECUTION_SOP_VERSION_ARG}={${Routes.EXECUTION_SOP_VERSION_ARG}}" +
-        "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}"
+        "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
+        "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}"
 
 private fun executionNavArguments() = listOf(
     navArgument(Routes.SCAN_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -1365,6 +1394,7 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_TASK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_SOP_VERSION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
+    navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
 
 /**

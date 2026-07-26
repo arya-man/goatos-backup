@@ -179,6 +179,16 @@ Preferred implementation:
 - Intercept before calling `super.dispatchKeyEvent(...)`. Do not implement the wedge only through
   `Activity.onKeyDown`/`onKeyUp`: a focused Compose control can consume the Enter terminator during
   view dispatch first, turning a completed RFID read into an unintended click or Back navigation.
+- On the Scan route, hardware capture is route-lifecycle state, not scan-progress
+  UI state. Enable capture when the Scan destination is composed and disable it
+  only when that destination is disposed. Do not gate `setCaptureActive(...)` on
+  `ScanUiState.scanEnabled`, `operatorAllowed`, `hasMore`, or finalize-button
+  visibility. Those fields can flicker during refresh or completion.
+- Keep Enter/Tab swallowing separate from tag capture. While the operator is on
+  Scan, an RFID completion key must never fall through to Compose, even if a
+  warm-cache/background-refresh state briefly says capture is disabled. Falling
+  through can re-trigger the historical bug where scanning a tag navigates back
+  or clicks the focused button.
 - The capture path ignores key events when a real editable field is focused
   (search, remarks, OTP, etc.).
 - Buffer only printable tag characters. For current tags, digits are enough;
@@ -286,11 +296,42 @@ Automated tests:
 
 - parser unit tests: digit buffering, Enter completion, timeout reset, duplicate
   Enter, non-printable key ignore.
+- disabled-capture unit test: when the Scan route enables completion-key
+  swallowing, Enter/Tab are consumed even while tag capture is temporarily
+  disabled.
 - ViewModel tests: due, already-done, not-due, unknown tag.
+- duplicate scan ViewModel test: re-scanning an already captured animal prepends
+  an explicit "already scanned" row to the feed and leaves the operator on Scan.
 - fake reader tests: emitted tags drive the same scan path as hardware reads.
 - route gating test: RFID key events are consumed on scan/test-read screens and
   ignored in OTP/search/remarks fields.
 - dispatch-order test: an RFID-consumed Enter never reaches the Compose view tree, while an ordinary
   key that the capture rejects still falls through to normal Activity dispatch.
-- device test: `adb shell input text <known-tag>` followed by `adb shell input keyevent 66` completes
-  the scan and leaves the operator on the same scan route.
+- device test: use the debug RFID injector, not generic `adb shell input text`,
+  because Android shell text injection is not the same path as a Bluetooth HID
+  reader. Example:
+
+```bash
+adb -s <serial> shell am broadcast \
+  -a sg.mesha.goatos.debug.INJECT_RFID \
+  --es tag <known-or-unknown-tag> \
+  sg.mesha.goatos.dev
+```
+
+The expected result is `result=0`; the app stays on the same Scan route and the
+tag appears as a green duplicate/done row or red unknown/not-due row.
+
+Local guardrails:
+
+- `make mobile-guard` runs `tools/agent-hooks/check-android-ui-foundations.mjs`.
+  That guard fails if Scan capture is tied back to `state.scanEnabled`, if
+  Enter/Tab swallowing is removed, or if duplicate scan feed coverage disappears.
+- Before landing Android RFID changes, run the focused tests:
+
+```bash
+cd apps/goatos-android
+./gradlew :app:testDevDebugUnitTest \
+  --tests 'sg.mesha.goatos.rfid.RfidKeyboardCaptureTest' \
+  --tests 'sg.mesha.goatos.viewmodel.ScanViewModelTest' \
+  --tests 'sg.mesha.goatos.MainActivityInputDispatchTest'
+```

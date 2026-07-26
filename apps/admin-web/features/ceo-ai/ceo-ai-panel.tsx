@@ -6,7 +6,6 @@ import {
   Pencil,
   Send,
   Sparkles,
-  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -186,6 +185,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [showStarters, setShowStarters] = useState(true);
   const [banner, setBanner] = useState<{ kind: "err" | "warn"; text: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -215,6 +215,15 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     if (open) refreshThreads();
   }, [open, refreshThreads]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   const helloMessage = useMemo<ChatMessage>(
     () => ({ id: "hello", role: "assistant", text: copy.hello, state: "complete", source: copy.helloMeta }),
     [copy.hello, copy.helloMeta],
@@ -236,6 +245,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       setInput("");
       setBanner(null);
       setPending(true);
+      setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.Ask, { streaming: "true" });
 
       const assistantId = newId();
@@ -342,6 +352,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     setMessages([]);
     setConversationId(undefined);
     setBanner(null);
+    setShowStarters(true);
     trackCeoAiEvent(CeoAiEvents.NewChat);
     const created = await createConversation().catch(() => null);
     if (created?.id) {
@@ -356,6 +367,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       stopGenerating();
       setConversationId(id);
       setBanner(null);
+      setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
       const stored = await loadConversationMessages(id).catch(() => []);
       setMessages(
@@ -383,6 +395,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
         if (id === conversationId) {
           setConversationId(undefined);
           setMessages([]);
+          setShowStarters(true);
         }
         refreshThreads();
       }
@@ -403,6 +416,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   );
 
   if (allowed !== true) return null;
+
+  const startersVisible = showStarters || messages.length === 0;
 
   const rootStyle = open
     ? {
@@ -568,7 +583,16 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
               {banner ? <div className={`mzai-banner ${banner.kind}`}>{banner.text}</div> : null}
 
-              {messages.length === 0 ? (
+              {messages.length > 0 ? (
+                <div className="mzai-suggestbar">
+                  <button type="button" onClick={() => setShowStarters((v) => !v)} aria-expanded={startersVisible}>
+                    <Sparkles className="ic" />
+                    Suggestions
+                  </button>
+                </div>
+              ) : null}
+
+              {startersVisible ? (
                 <div className="mzai-starters">
                   {starters.map((question) => (
                     <button
