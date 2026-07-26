@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
@@ -430,8 +431,36 @@ class SyncEngine(
             payload.shiftingEventId,
             item.idempotencyKey,
             payload.destinationTag,
+            // The MANDATORY video's proof_id (maintainer decision, 2026-07-26): resolved from the
+            // PROOF_UPLOAD item enqueued on the same group, which drains first.
+            resolveShiftingProofRef(payload),
         )
         return syncJson.encodeToString(response)
+    }
+
+    /**
+     * Resolves the uploaded proof_id for a shifting completion from its coupled PROOF_UPLOAD outbox
+     * row. Same-group ordering means that row has already drained to SUCCEEDED before this completion
+     * runs; if it has not (a rare concurrency edge, or a pre-upgrade row with no coupling), the
+     * completion is retried (plain exception -> non-conflict retry) until the video is uploaded. A
+     * missing coupling or a permanently-failed upload is terminal — a shed move without a verifiable
+     * video must not reach the backend.
+     */
+    private suspend fun resolveShiftingProofRef(payload: ShiftingCompletePayload): String {
+        val proofItemId = payload.proofOutboxItemId
+            ?: throw NonRetryableSyncException("Shifting completion is missing its mandatory video reference.")
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("The shifting video upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for the shifting video to finish uploading before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("The shifting video upload result is not yet available.")
+        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+        if (proofId.isBlank()) {
+            throw NonRetryableSyncException("The shifting video upload did not return a proof id.")
+        }
+        return proofId
     }
 
     private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {

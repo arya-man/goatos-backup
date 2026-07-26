@@ -60,7 +60,9 @@ class VerifyQueueViewModelTest {
         assertFalse(vm.state.value.isRefreshing)
         val refreshQueueCallsAfterInit = repo.refreshQueueCalls
 
-        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.COUNTS))
+        // FEED_DIRECTION is the tab with no backing verification queue (COUNTS now backs the
+        // shifting_move review queue), so it exercises refresh()'s early-return path.
+        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.FEED_DIRECTION))
         advanceUntilIdle()
 
         vm.onEvent(VerifyQueueEvent.Refresh)

@@ -544,6 +544,7 @@ interface AppApi {
         shiftingEventId: String,
         idempotencyKey: String,
         destinationTag: String? = null,
+        proofRef: String,
     ): CountsShiftingExecutionResponseDto
 
     /**
@@ -1012,9 +1013,10 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         shiftingEventId: String,
         idempotencyKey: String,
         destinationTag: String?,
+        proofRef: String,
     ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
         shiftingEventId = shiftingEventId,
-        eventStatus = "applied",
+        eventStatus = "pending_verification",
     )
 
     override suspend fun cancelCountsShiftingEvent(

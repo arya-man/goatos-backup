@@ -2,7 +2,10 @@ package sg.mesha.goatos.core.data.sync
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +14,7 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import java.io.IOException
 
 /**
@@ -37,6 +41,7 @@ class ShiftingExecuteOutboxWriteTest {
     private class ShiftingApi(delegate: AppApi = FakeAppApi()) : AppApi by delegate {
         val completeKeys = mutableListOf<String>()
         val completeIds = mutableListOf<String>()
+        val completeProofRefs = mutableListOf<String>()
         val cancelKeys = mutableListOf<String>()
         var failuresRemaining = 0
 
@@ -44,14 +49,17 @@ class ShiftingExecuteOutboxWriteTest {
             shiftingEventId: String,
             idempotencyKey: String,
             destinationTag: String?,
+            proofRef: String,
         ): CountsShiftingExecutionResponseDto {
             completeKeys += idempotencyKey
             completeIds += shiftingEventId
+            completeProofRefs += proofRef
             if (failuresRemaining > 0) {
                 failuresRemaining--
                 throw IOException("network down")
             }
-            return CountsShiftingExecutionResponseDto(shiftingEventId = shiftingEventId, eventStatus = "applied")
+            // The move now waits on a verifier; the backend returns pending_verification, not applied.
+            return CountsShiftingExecutionResponseDto(shiftingEventId = shiftingEventId, eventStatus = "pending_verification")
         }
 
         override suspend fun cancelCountsShiftingEvent(
@@ -63,6 +71,14 @@ class ShiftingExecuteOutboxWriteTest {
             return CountsShiftingExecutionResponseDto(shiftingEventId = shiftingEventId, eventStatus = "canceled")
         }
     }
+
+    // A cancellable app scope so a fire-and-forget drain launched by an enqueue (this test now
+    // enqueues a coupled PROOF_UPLOAD + SHIFTING_COMPLETE, more background work than the other outbox
+    // tests) never outlives the test and surface as an UncaughtExceptionsBeforeTest in a LATER test.
+    private val appScope = CoroutineScope(Dispatchers.Unconfined + Job())
+
+    @After
+    fun tearDown() = appScope.cancel()
 
     private fun repository(api: AppApi, online: Boolean = true): DefaultSyncRepository {
         val store = FakeOutboxStore()
@@ -77,32 +93,62 @@ class ShiftingExecuteOutboxWriteTest {
             store = store,
             engine = engine,
             connectivityGate = { online },
-            appScope = CoroutineScope(Dispatchers.Unconfined),
+            appScope = appScope,
             dispatchers = unconfinedDispatchers,
             clock = { 0L },
         )
     }
 
+    /**
+     * Enqueues the MANDATORY video's PROOF_UPLOAD on [group] and drains it to SUCCEEDED, returning
+     * its outbox id. The completion couples to this id and the sync engine resolves the uploaded
+     * proof_id from it (maintainer decision, 2026-07-26). Same group => the proof drains before the
+     * completion.
+     */
+    private suspend fun DefaultSyncRepository.enqueueSyncedProof(group: String): String {
+        val request = ProofUploadRequestDto(
+            proofType = "video",
+            mimeType = "video/mp4",
+            scopeType = "shed",
+            scopeId = "shed-1",
+            subjectType = "shed",
+            subjectId = "shed-1",
+        )
+        val result = enqueueProofUpload(
+            groupKey = group,
+            idempotencyKey = "counts-shifting-proof:$group",
+            request = request,
+            localFilePath = "/tmp/$group.mp4",
+            durationMs = 1000,
+        )
+        return (result as AppResult.Ok).value
+    }
+
     @Test
     fun `completion reuses the same idempotency key across retries`() = runBlocking {
         val api = ShiftingApi()
-        // First attempt fails at the transport layer; the row backs off and is retried.
-        api.failuresRemaining = 1
         val repo = repository(api)
+        // The mandatory video uploads first (same group), so the completion can resolve its proof_id.
+        val proofId = repo.enqueueSyncedProof("move-1")
+        // First completion attempt fails at the transport layer; the row backs off and is retried.
+        api.failuresRemaining = 1
 
         val enqueued = repo.enqueueShiftingComplete(
             groupKey = "move-1",
             idempotencyKey = "counts-shifting-complete:move-1",
+            proofOutboxItemId = proofId,
         )
         assertTrue(enqueued is AppResult.Ok)
         repo.retry((enqueued as AppResult.Ok).value)
 
         assertEquals(2, api.completeKeys.size)
         // The whole point: attempt 2 carries the SAME key, so the backend recognises it as a replay
-        // of the first relocation instead of moving the herd a second time.
+        // of the first submission instead of queuing a second verification.
         assertEquals("counts-shifting-complete:move-1", api.completeKeys[0])
         assertEquals(api.completeKeys[0], api.completeKeys[1])
         assertEquals(listOf("move-1", "move-1"), api.completeIds)
+        // Every attempt carries the resolved video proof_id from the coupled upload.
+        assertEquals(listOf("fake-proof-counts-shifting-proof:move-1", "fake-proof-counts-shifting-proof:move-1"), api.completeProofRefs)
     }
 
     @Test
@@ -112,8 +158,8 @@ class ShiftingExecuteOutboxWriteTest {
         // already-drained row.
         val repo = repository(api, online = false)
 
-        val first = repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1")
-        val second = repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1")
+        val first = repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1", proofOutboxItemId = "proof-item-1")
+        val second = repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1", proofOutboxItemId = "proof-item-1")
 
         assertTrue(first is AppResult.Ok)
         assertTrue(second is AppResult.Ok)
@@ -126,7 +172,8 @@ class ShiftingExecuteOutboxWriteTest {
         val api = ShiftingApi()
         val repo = repository(api)
 
-        repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1")
+        val proofId = repo.enqueueSyncedProof("move-1")
+        repo.enqueueShiftingComplete("move-1", "counts-shifting-complete:move-1", proofOutboxItemId = proofId)
         repo.enqueueShiftingCancel("move-2", "counts-shifting-cancel:move-2", reason = "shed flooded")
 
         assertEquals(listOf("counts-shifting-complete:move-1"), api.completeKeys)

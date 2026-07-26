@@ -89,11 +89,12 @@ class VerifyQueueViewModel @Inject constructor(
         combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
             Triple(module, parkId, shedId)
         }.flatMapLatest { (module, parkId, shedId) ->
-            if (module == VerifyModuleTab.VACCINATION) {
+            val category = categoryForModule(module)
+            if (category != null) {
                 if (isActionQueue) {
-                    repo.observeActionQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                    repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
                 } else {
-                    repo.observeQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                    repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
                 }
             } else {
                 flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
@@ -208,18 +209,18 @@ class VerifyQueueViewModel @Inject constructor(
         _isLoadingMore.value = false
         _isRefreshing.value = true
         try {
-            if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
-            AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
+            val category = categoryForModule(_selectedModule.value) ?: return@launch
+            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
-                    category = VACCINATION_CATEGORY,
+                    category = category,
                     parkId = _selectedParkId.value,
                     shedId = _selectedShedId.value,
                     limit = VERIFY_QUEUE_PAGE_SIZE,
                 )
             } else {
                 repo.refreshQueue(
-                    category = VACCINATION_CATEGORY,
+                    category = category,
                     parkId = _selectedParkId.value,
                     shedId = _selectedShedId.value,
                     limit = VERIFY_QUEUE_PAGE_SIZE,
@@ -232,17 +233,30 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun loadMore() = viewModelScope.launch {
+        val category = categoryForModule(_selectedModule.value) ?: return@launch
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
             cursor = cursor,
-            category = VACCINATION_CATEGORY,
+            category = category,
             parkId = _selectedParkId.value,
             shedId = _selectedShedId.value,
             limit = VERIFY_QUEUE_PAGE_SIZE,
         )
         _isOffline.value = result.isFailure
         _isLoadingMore.value = false
+    }
+
+    /**
+     * The verification category a module tab observes, or null for a tab that is not a verification
+     * producer in this queue. VACCINATION -> vaccination proofs; COUNTS -> shifting-move videos
+     * (review queue only — a shed move is applied on the verifier's approval, so it has no separate
+     * leadership close/action step); FEED_DIRECTION -> not yet a producer.
+     */
+    private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
+        VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
+        VerifyModuleTab.COUNTS -> if (isActionQueue) null else SHIFTING_CATEGORY
+        VerifyModuleTab.FEED_DIRECTION -> null
     }
 
     private fun closeDrive(batchId: String) = viewModelScope.launch {
@@ -329,8 +343,10 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
-        // Backend-owned display labels: never render raw UUIDs. Use labels when available.
-        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { "Vaccination proof" }
+        // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
+        // category-humanized name is the last-resort fallback so a non-vaccination row (e.g. a shed
+        // move) never mislabels as "Vaccination proof".
+        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
             .joinToString(" · ")
         return VerificationQueueRow(
@@ -345,6 +361,7 @@ class VerifyQueueViewModel @Inject constructor(
 }
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
+private const val SHIFTING_CATEGORY = "shifting_move"
 
 private fun locationOptions(
     allLabel: String,

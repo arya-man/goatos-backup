@@ -777,11 +777,12 @@ class RetrofitAppApi(
         shiftingEventId: String,
         idempotencyKey: String,
         destinationTag: String?,
+        proofRef: String,
     ): CountsShiftingExecutionResponseDto =
         service.completeCountsShiftingEvent(
             shiftingEventId,
             idempotencyKey,
-            CountsShiftingCompleteRequestDto(destinationTag = destinationTag),
+            CountsShiftingCompleteRequestDto(proofRef = proofRef, destinationTag = destinationTag),
         )
 
     override suspend fun cancelCountsShiftingEvent(

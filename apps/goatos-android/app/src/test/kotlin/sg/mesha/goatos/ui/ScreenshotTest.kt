@@ -326,6 +326,34 @@ class ScreenshotTest {
     }
 
     @Test
+    fun shifting_verifier_queue() = shot("shifting_verifier_queue") {
+        VerifyQueueScreen(
+            state = VerifyQueueUiState(
+                selectedModule = VerifyModuleTab.COUNTS,
+                rows = listOf(
+                    VerificationQueueRow(
+                        id = "shift-1",
+                        category = "shifting_move",
+                        categoryLabel = "Shifting move",
+                        title = "Shed move · 12 animals",
+                        subtitle = "Gandhi 1 → Gandhi 2 · Darshan",
+                        statusTone = VerifyTone.PENDING,
+                    ),
+                    VerificationQueueRow(
+                        id = "shift-2",
+                        category = "shifting_move",
+                        categoryLabel = "Shifting move",
+                        title = "Shed move · 3 animals",
+                        subtitle = "Godel 1 → Godel 2 · Sagar",
+                        statusTone = VerifyTone.PENDING,
+                    ),
+                ),
+                lastSyncedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Test
     fun shifting_pending() = shot("shifting_pending") {
         val rows = flowOf(
             PagingData.from(
