@@ -185,6 +185,7 @@ data class ScanUiState(
     val submitLabel: String,               // backend-provided CTA text
     val canSubmit: Boolean,                // completion hint (backend revalidates on submit)
     val scanEnabled: Boolean,              // show tap-to-scan affordances at all
+    val captureAccessRequired: Boolean = false, // operator execution route needs camera/RFID/upload access even after scans finish
     val error: ScanError? = null,          // not-due red state
     val footNote: String = "",             // haptic/tone legend copy
     // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
