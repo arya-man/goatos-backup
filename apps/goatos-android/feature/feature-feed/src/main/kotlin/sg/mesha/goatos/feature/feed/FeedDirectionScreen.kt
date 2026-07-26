@@ -36,6 +36,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import java.time.LocalDate
 
 // ---------------------------------------------------------------------------
 // UI models (feature-local; the @HiltViewModel in :app maps the DTOs onto these, so this module
@@ -75,6 +76,9 @@ data class FeedDirectionRowUi(
     val blocked: Boolean,
     val overduePending: Boolean,
     val completed: Boolean,
+    /** Verification-lifecycle bucket: "pending", "pending_verification", or "completed" (empty =
+     *  pending). Drives the 3-state status chip. */
+    val lifecycleStatus: String,
 )
 
 /** One feed item's whole-scope total. */
@@ -105,15 +109,33 @@ data class FeedFilterUi(
     val sessions: List<FeedDropdownOption> = emptyList(),
     val selectedSessionNo: Int = 0,
     val selectedSessionLabel: String? = null,
+    /** Verification-lifecycle filter: "" (all), "pending", "pending_verification", or "completed".
+     *  The dropdown resolves its label inline (stable client vocabulary), so no label field is needed. */
+    val status: String = "",
 ) {
     val isShedFilterEnabled: Boolean get() = selectedParkId.isNotBlank() && sheds.isNotEmpty()
     val isSessionFilterEnabled: Boolean get() = sessions.isNotEmpty()
+}
+
+/** The three backend-owned verification-lifecycle buckets a feed shed-session can be filtered by.
+ *  Stable client vocabulary (like the workflow filter); the backend owns the semantics via the
+ *  `status` query param. Labels are resolved from string resources at render time. */
+object FeedStatus {
+    const val PENDING = "pending"
+    const val AWAITING = "pending_verification"
+    const val COMPLETED = "completed"
 }
 
 @Immutable
 data class FeedDirectionUiState(
     val title: String,
     val targetDateLabel: String = "",
+    // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
+    // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
+    val today: String = "",
+    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
+    // capture flow while this is false.
+    val canCapture: Boolean = true,
     val filters: FeedFilterUi = FeedFilterUi(),
     val summary: FeedDirectionSummaryUi = FeedDirectionSummaryUi(),
     val hasSummary: Boolean = false,
@@ -134,6 +156,12 @@ sealed interface FeedDirectionEvent {
 
     /** The session_no to filter to; 0 = every session. */
     data class SelectSession(val sessionNo: Int) : FeedDirectionEvent
+
+    /** The verification-lifecycle bucket to filter to; "" = every status. */
+    data class SelectStatus(val status: String) : FeedDirectionEvent
+
+    /** The feed day to view; never applied by the ViewModel when it is in the future. */
+    data class SelectDate(val date: LocalDate) : FeedDirectionEvent
 
     /** Tap a row to open its shed-session completion detail. */
     data class OpenRow(
@@ -173,10 +201,24 @@ fun FeedDirectionScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item(key = "date_bar") {
+                FeedDateBar(
+                    selectedDate = state.targetDateLabel,
+                    today = state.today,
+                    onSelectDate = { onEvent(FeedDirectionEvent.SelectDate(it)) },
+                )
+            }
+            if (!state.canCapture) {
+                item(key = "read_only_banner") {
+                    FeedReadOnlyBanner(modifier = Modifier.padding(horizontal = 16.dp))
+                }
+            }
             item(key = "filters") {
                 FeedDirectionFilterBar(state.filters, onEvent)
             }
-            item(key = "summary") { FeedDirectionSummaryCard(state.summary) }
+            // Feed direction shows NO ration/quantities (maintainer rule 2026-07-26): it is only the
+            // operator's confirmation that a shed-session was fed. The feed itself is shown on the feed
+            // PACKING screen. So there is no feed-totals summary card here.
             item(key = "caption") { FeedSectionCaption(stringResource(R.string.feed_direction_caption)) }
 
             if (rows.itemCount == 0 && state.emptyMessage != null) {
@@ -192,7 +234,10 @@ fun FeedDirectionScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    FeedDirectionRowCard(row) {
+                    // Past-day rows are VIEW ONLY: `canCapture = false` disables the card's clickable
+                    // modifier below, so a tap never reaches this lambda and OpenRow — hence the
+                    // verifier-gated capture screen — is never dispatched for a non-today day.
+                    FeedDirectionRowCard(row, canCapture = state.canCapture) {
                         onEvent(
                             FeedDirectionEvent.OpenRow(
                                 parkId = row.parkId,
@@ -259,7 +304,7 @@ private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectio
     val normalLabel = stringResource(R.string.feed_workflow_normal)
     val experimentLabel = stringResource(R.string.feed_workflow_experiment)
     val hasActive = filters.selectedShedId.isNotBlank() || filters.workflow.isNotBlank() ||
-        filters.selectedSessionNo != 0
+        filters.selectedSessionNo != 0 || filters.status.isNotBlank()
 
     Column(
         modifier = Modifier
@@ -341,6 +386,13 @@ private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectio
                 modifier = Modifier.weight(1f),
             )
         }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FeedStatusDropdown(
+                selectedStatus = filters.status,
+                onSelect = { onEvent(FeedDirectionEvent.SelectStatus(it)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -367,65 +419,40 @@ internal fun FeedSessionDropdown(
     )
 }
 
+/**
+ * The verification-lifecycle status picker, shared by both feed filter bars. Fixed client vocabulary
+ * (like the workflow filter) — the backend owns the semantics via the `status` query param and
+ * filters the whole scope before paging. Key "" is the synthetic "all statuses" entry.
+ */
 @Composable
-private fun FeedDirectionSummaryCard(summary: FeedDirectionSummaryUi) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.feed_totals_title),
-            color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            FeedStatTile(
-                label = stringResource(R.string.feed_stat_sheds),
-                value = summary.shedCount.toString(),
-                accent = MeshaColors.BrandD,
-                modifier = Modifier.weight(1f),
-            )
-            FeedStatTile(
-                label = stringResource(R.string.feed_stat_rows),
-                value = summary.rowCount.toString(),
-                accent = MeshaColors.Ink,
-                modifier = Modifier.weight(1f),
-            )
-            FeedStatTile(
-                label = stringResource(R.string.feed_stat_blocked),
-                value = summary.blockedCount.toString(),
-                accent = if (summary.blockedCount > 0) MeshaColors.Warn else MeshaColors.Teal,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        // Whole-scope kg per feed item (backend rollup, never re-summed from the paged rows). A
-        // 0-kg total with no blocked cells is nothing to pack, so it is hidden like the per-shed lines.
-        summary.totalsByItem.filter { it.quantityKg.toKgOrZero() != 0.0 || it.blockedCells > 0 }.forEach { total ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = total.feedItem, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text(
-                    text = stringResource(R.string.feed_kg_fmt, total.quantityKg),
-                    color = MeshaColors.Ink,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.W700,
-                )
-            }
-        }
-    }
+internal fun FeedStatusDropdown(
+    selectedStatus: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val allStatuses = stringResource(R.string.feed_filter_all_statuses)
+    val options = listOf(
+        FeedDropdownOption(key = "", label = allStatuses),
+        FeedDropdownOption(key = FeedStatus.PENDING, label = stringResource(R.string.feed_status_pending)),
+        FeedDropdownOption(key = FeedStatus.AWAITING, label = stringResource(R.string.feed_status_awaiting)),
+        FeedDropdownOption(key = FeedStatus.COMPLETED, label = stringResource(R.string.feed_status_completed)),
+    )
+    FeedDropdownField(
+        label = stringResource(R.string.feed_filter_status),
+        selectedLabel = options.firstOrNull { it.key == selectedStatus && it.key.isNotEmpty() }?.label,
+        placeholder = allStatuses,
+        options = options,
+        onSelect = onSelect,
+        enabled = true,
+        modifier = modifier,
+    )
 }
 
 /** Parses a wire kg string ("0.000", "451.000") to a Double, treating null/blank/unparseable as 0. */
 internal fun String?.toKgOrZero(): Double = this?.trim()?.toDoubleOrNull() ?: 0.0
 
 @Composable
-private fun FeedDirectionRowCard(row: FeedDirectionRowUi, onOpen: () -> Unit) {
+private fun FeedDirectionRowCard(row: FeedDirectionRowUi, canCapture: Boolean, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,37 +460,61 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi, onOpen: () -> Unit) {
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
-            .clickable(onClick = onOpen)
+            // Disabled here means Compose never fires onOpen on tap — the same suppression the
+            // caller comments on above; a past day's row card is inert, not just visually dimmed.
+            .clickable(enabled = canCapture, onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
-            if (row.completed) FeedCompletedChip()
+            FeedDirectionStatusChip(status = row.lifecycleStatus)
             FeedWorkflowChip(row.workflow)
         }
+        // Confirmation-only: shed identity + which session. NO ration/quantities/totals/head count — the
+        // feed is shown on the feed PACKING screen (maintainer rule 2026-07-26). Tapping the row (today
+        // only) opens the distribution video capture that confirms this shed-session was fed.
         val subtitle = buildList {
             if (row.shedTag.isNotBlank()) add(row.shedTag)
             if (row.breed.isNotBlank()) add(row.breed)
             if (row.experimentArm.isNotBlank()) add(row.experimentArm)
             add(row.sessionLabel)
         }.joinToString(" · ")
-        Text(text = subtitle, color = MeshaColors.Muted, fontSize = 12.sp)
-        Text(
-            text = stringResource(R.string.feed_head_count_fmt, row.headCount),
-            color = MeshaColors.Faint,
-            fontSize = 11.sp,
-        )
-        // A zero-kg ration line is hidden to keep the sheet readable — this shed simply isn't fed that
-        // item. A BLOCKED line is NOT zero (the backend's pointer-is-the-contract rule) and stays.
-        row.items.filter { it.blocked || it.quantityKg.toKgOrZero() != 0.0 }.forEach { item -> FeedItemQtyRow(item) }
-        if (!row.blocked) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = stringResource(R.string.feed_session_total), color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
-                Text(text = stringResource(R.string.feed_kg_fmt, row.sessionTotalKg), color = MeshaColors.BrandD, fontSize = 13.sp, fontWeight = FontWeight.W800)
-            }
+        if (subtitle.isNotBlank()) {
+            Text(text = subtitle, color = MeshaColors.Muted, fontSize = 12.sp)
         }
     }
+}
+
+/** The 3-state verification-lifecycle badge for a feed shed-session, shared by both screens. The
+ *  "completed" bucket reads differently per screen ("Fed" on direction, "Completed" on packing), so
+ *  the caller passes [completedLabel]; the other two buckets are the same everywhere. Mirrors the
+ *  backend's [FeedStatus] buckets — empty/unknown falls through to Pending. */
+@Composable
+internal fun FeedLifecycleChip(status: String, completedLabel: String) {
+    data class Chip(val label: String, val fg: androidx.compose.ui.graphics.Color, val bg: androidx.compose.ui.graphics.Color)
+    val chip = when (status) {
+        FeedStatus.COMPLETED -> Chip(completedLabel, MeshaColors.Ok, MeshaColors.OkX)
+        FeedStatus.AWAITING -> Chip(stringResource(R.string.feed_status_awaiting_chip), MeshaColors.Warn, MeshaColors.WarnX)
+        else -> Chip(stringResource(R.string.feed_direction_pending), MeshaColors.Muted, MeshaColors.Hair)
+    }
+    Text(
+        text = chip.label,
+        color = chip.fg,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.W700,
+        modifier = Modifier
+            .padding(end = 6.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(chip.bg)
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+    )
+}
+
+/** Direction's status badge: "Fed" for the verifier-approved (completed) bucket. */
+@Composable
+internal fun FeedDirectionStatusChip(status: String) {
+    FeedLifecycleChip(status = status, completedLabel = stringResource(R.string.feed_direction_fed))
 }
 
 @Composable
@@ -509,18 +560,3 @@ internal fun FeedWorkflowChip(workflow: String) {
     )
 }
 
-/** A "Completed" pill shown on a shed-session that has a recorded feed.direction.completed. */
-@Composable
-internal fun FeedCompletedChip() {
-    Text(
-        text = stringResource(R.string.feed_completed_badge),
-        color = MeshaColors.Ok,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
-        modifier = Modifier
-            .padding(end = 6.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(MeshaColors.OkX)
-            .padding(horizontal = 10.dp, vertical = 3.dp),
-    )
-}

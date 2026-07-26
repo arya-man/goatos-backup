@@ -102,22 +102,25 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     fun onEvent(event: FeedDistributionEvent) {
         when (event) {
-            FeedDistributionEvent.RecordFeedVideo -> recordFeedVideo()
-            FeedDistributionEvent.TakeWaterPhoto -> captureWater(isVideo = false)
-            FeedDistributionEvent.RecordWaterVideo -> captureWater(isVideo = true)
+            FeedDistributionEvent.RecordFeedVideo -> captureFeedVideo(fromGallery = false)
+            FeedDistributionEvent.PickFeedVideo -> captureFeedVideo(fromGallery = true)
+            FeedDistributionEvent.TakeWaterPhoto -> captureWater(isVideo = false, fromGallery = false)
+            FeedDistributionEvent.RecordWaterVideo -> captureWater(isVideo = true, fromGallery = false)
+            FeedDistributionEvent.PickWaterVideo -> captureWater(isVideo = true, fromGallery = true)
             FeedDistributionEvent.MarkDone -> markDone()
             FeedDistributionEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
-    /** MANDATORY feed-distribution video. Captures a clip and enqueues a PROOF_UPLOAD on the
+    /** MANDATORY feed-distribution video — a LIVE camera clip ([fromGallery] false) or one picked
+     *  from the gallery ([fromGallery] true). Either way it enqueues a PROOF_UPLOAD on the
      *  shed-session group so it drains before the completion. */
-    private fun recordFeedVideo() {
+    private fun captureFeedVideo(fromGallery: Boolean) {
         if (_state.value.isCapturingVideo || _state.value.videoCaptured || shedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo()
+                if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed distribution video capture failed")
                 null
@@ -164,8 +167,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
-    /** MANDATORY water-distribution proof — PHOTO or VIDEO. One water slot, one stable [waterKey]. */
-    private fun captureWater(isVideo: Boolean) {
+    /** MANDATORY water-distribution proof — PHOTO or VIDEO. One water slot, one stable [waterKey].
+     *  [fromGallery] applies only to the video option (photos remain a live camera capture). */
+    private fun captureWater(isVideo: Boolean, fromGallery: Boolean) {
         if (_state.value.isCapturingWater || _state.value.waterCaptured || shedId.isBlank()) return
         _state.update { it.copy(isCapturingWater = true, waterMessage = null) }
         viewModelScope.launch {
@@ -175,7 +179,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             val durationMs: Long?
             if (isVideo) {
                 val captured = try {
-                    proofCaptureSource.captureVideo()
+                    if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
                 } catch (error: Exception) {
                     crashReporter.recordException(error, "feed distribution water video capture failed")
                     null

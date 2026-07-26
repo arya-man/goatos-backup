@@ -135,6 +135,10 @@ type PreviewQuery struct {
 	// Workflow optionally narrows the served issue to one dispatch workflow (normal | experiment).
 	// Empty means both -- the read path unions the park-day's issues.
 	Workflow string
+	// Status optionally narrows to one verification-lifecycle bucket (SessionStatus* value). Empty
+	// means every status. Applied over the WHOLE scope BEFORE the shed paging, so a filtered page and
+	// its summary describe the same status set and pagination stays correct.
+	Status string
 	// Draft, when true, LIVE-COMPUTES a what-if sheet WITHOUT reading or writing any issue. It is the
 	// only path that may live-compute, and the response is stamped Draft so it is never mistaken for
 	// an issued sheet. It exists so someone tuning ration rates can preview the effect before issue.
@@ -155,6 +159,9 @@ type PackingQuery struct {
 	SessionNo int32
 	// Workflow optionally narrows the served issue to one dispatch workflow. Empty means both.
 	Workflow string
+	// Status optionally narrows to one verification-lifecycle bucket (SessionStatus* value). Empty
+	// means every status. Applied over the whole scope before paging, mirroring PreviewQuery.Status.
+	Status string
 	// Draft live-computes the worklist without touching any issue. See PreviewQuery.Draft.
 	Draft  bool
 	Limit  int32
@@ -283,6 +290,55 @@ type DirectionRow struct {
 	// whole shed-session is completed at once (that is the completion grain), so every ration grain
 	// of the same (shed, session) reports Completed together.
 	Completed bool `json:"completed"`
+	// LifecycleStatus is the verification-lifecycle bucket of this shed-session's feed-distribution
+	// completion, one of the three SessionStatus* values. It is the finer state Completed collapses:
+	// SessionStatusCompleted iff Completed is true. Set by the serve path from
+	// feed_distribution_completions; every ration grain of the same (shed, session) reports the same
+	// value. See SessionStatus* / NormalizeSessionStatus for the raw->bucket mapping.
+	LifecycleStatus string `json:"lifecycle_status"`
+}
+
+// Session lifecycle status buckets (maintainer decision 2026-07-26). A shed-session's
+// feed-distribution / feed-packing completion moves through these client-visible buckets. The raw
+// table has a fourth state, 'rework' (verifier rejected), which is INTENTIONALLY merged into
+// SessionStatusPending here: from the operator's list it is "needs my action again", the same bucket
+// as never-submitted. See NormalizeSessionStatus.
+const (
+	// SessionStatusPending: the operator has not submitted proof yet (no completion row), OR the
+	// verifier bounced it back for rework. Either way the next action is the operator's.
+	SessionStatusPending = "pending"
+	// SessionStatusAwaitingVerification: the operator submitted proof and a verifier has not acted
+	// (raw 'pending_verification'). The next action is the verifier's.
+	SessionStatusAwaitingVerification = "pending_verification"
+	// SessionStatusCompleted: a verifier approved the proof (raw 'completed'). Terminal.
+	SessionStatusCompleted = "completed"
+)
+
+// NormalizeSessionStatus maps a raw completion-row status onto the three client-visible buckets. An
+// empty/unknown raw status (including the absence of a completion row) and raw 'rework' both map to
+// SessionStatusPending; 'pending_verification' and 'completed' pass through. This is the single
+// producer of the bucket vocabulary, so a status filter and the row chip can never diverge.
+func NormalizeSessionStatus(raw string) string {
+	switch raw {
+	case SessionStatusCompleted:
+		return SessionStatusCompleted
+	case SessionStatusAwaitingVerification:
+		return SessionStatusAwaitingVerification
+	default:
+		// "", "rework", and any unexpected value are all "operator must (re)act" == pending.
+		return SessionStatusPending
+	}
+}
+
+// IsValidSessionStatusFilter reports whether raw is a status the read APIs accept as a filter. The
+// empty string ("all statuses") is valid; every other accepted value is one of the three buckets.
+func IsValidSessionStatusFilter(raw string) bool {
+	switch raw {
+	case "", SessionStatusPending, SessionStatusAwaitingVerification, SessionStatusCompleted:
+		return true
+	default:
+		return false
+	}
 }
 
 // PreviewPage is one page of generated rows plus the WHOLE-SCOPE summary.
@@ -479,6 +535,11 @@ type PackingRow struct {
 	// both lets the client show a "completed" badge without losing the packing state. A shed-session
 	// is completed as a whole, so this packing line (which IS one shed-session) maps 1:1 to it.
 	Completed bool `json:"completed"`
+	// LifecycleStatus is the verification-lifecycle bucket of this shed-session's feed-PACKING
+	// completion (one of the SessionStatus* values), the finer state Completed collapses. Orthogonal
+	// to Status (the ready/blocked/empty ration state): a line can be blocked underneath and still be
+	// pending_verification. Set by the serve path from feed_packing_completions.
+	LifecycleStatus string `json:"lifecycle_status"`
 	// BlockedReasons lists the distinct gaps behind a blocked status.
 	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 }

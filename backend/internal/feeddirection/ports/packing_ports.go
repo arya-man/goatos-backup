@@ -102,6 +102,13 @@ type PackingCompletionStore interface {
 	// shed catalog x sessions, never by herd size.
 	ListVerifiedPacking(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]VerifiedPacking, error)
 
+	// ListPackingSessionStatuses returns EVERY (shed, session, workflow) that has a
+	// feed_packing_completions row for one park-day, each with its RAW status -- the packing serve
+	// path's status overlay + filter source. Unlike ListVerifiedPacking (completed-only), this includes
+	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's shed catalog
+	// x sessions, never by herd size.
+	ListPackingSessionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]SessionCompletionStatus, error)
+
 	// ApplyVerifiedPacking flips 'pending_verification' -> 'completed', stamps verified_by/at, and emits
 	// feed.packing.completed in one transaction. Returns applied=true only when it actually flipped a
 	// pending row; already-completed or non-pending (stale) rows return false with no side effects.

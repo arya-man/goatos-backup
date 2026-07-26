@@ -16,10 +16,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -29,12 +36,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 // Shared building blocks for the two Feed screens (Direction + Packing). Deliberately mirrors the
 // Counts module's form kit so the two verticals read and behave identically; feature modules may not
@@ -144,4 +156,168 @@ internal fun FeedSectionCaption(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(horizontal = 16.dp),
     )
 }
+
+/**
+ * Shared date-navigation bar for the two Feed read screens (Direction + Packing). Purely a UI
+ * affordance over the existing `target_date` query parameter both screens already send — this never
+ * introduces a new backend field. [selectedDate] is the ISO `YYYY-MM-DD` string the caller's
+ * ViewModel selection already carries; [today] is the caller's business-day "today" (Asia/Kolkata),
+ * so a future date can never be reached from the prev/next arrows OR the [DatePicker] itself.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FeedDateBar(
+    selectedDate: String,
+    today: String,
+    onSelectDate: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selected = remember(selectedDate) { selectedDate.toLocalDateOrNull() ?: LocalDate.now() }
+    val todayDate = remember(today) { today.toLocalDateOrNull() ?: LocalDate.now() }
+    val isToday = selected == todayDate
+    var pickerOpen by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onSelectDate(selected.minusDays(1)) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.ChevronLeft,
+                contentDescription = stringResource(R.string.feed_date_prev_description),
+                tint = MeshaColors.Muted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { pickerOpen = true }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Calendar,
+                contentDescription = null,
+                tint = MeshaColors.Muted,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = selected.format(FEED_DATE_LABEL_FORMATTER),
+                color = MeshaColors.Ink,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.W700,
+            )
+            if (isToday) {
+                Text(
+                    text = stringResource(R.string.feed_date_today_chip),
+                    color = MeshaColors.Ok,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(MeshaColors.OkX)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(enabled = !isToday) { onSelectDate(selected.plusDays(1)) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Chevron,
+                contentDescription = stringResource(R.string.feed_date_next_description),
+                tint = if (isToday) MeshaColors.Faint else MeshaColors.Muted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+
+    if (pickerOpen) {
+        val todayEndMillis = todayDate.toEpochMillisUtc()
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selected.toEpochMillisUtc(),
+            yearRange = IntRange(DatePickerDefaults.YearRange.first, todayDate.year),
+            selectableDates = object : SelectableDates {
+                // Never selectable in the future — the same clamp the prev/next arrows apply.
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= todayEndMillis
+                override fun isSelectableYear(year: Int): Boolean = year <= todayDate.year
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis -> onSelectDate(millis.toLocalDateUtc()) }
+                    pickerOpen = false
+                }) {
+                    Text(stringResource(id = android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerOpen = false }) {
+                    Text(stringResource(id = android.R.string.cancel))
+                }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Shown above the row list on both Feed read screens when the operator has stepped to a past day
+ *  via [FeedDateBar] — that day's rows are historical record, not an executable worklist. */
+@Composable
+internal fun FeedReadOnlyBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Surf3)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Eye,
+            contentDescription = null,
+            tint = MeshaColors.Muted,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = stringResource(R.string.feed_date_read_only_banner),
+            color = MeshaColors.Muted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.W600,
+        )
+    }
+}
+
+private val FEED_DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
+private val FEED_ISO_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+
+private fun String.toLocalDateOrNull(): LocalDate? = runCatching { LocalDate.parse(this, FEED_ISO_DATE_FORMATTER) }.getOrNull()
+
+private fun LocalDate.toEpochMillisUtc(): Long = atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun Long.toLocalDateUtc(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
 

@@ -56,6 +56,9 @@ data class FeedDirectionQuery(
     val shedId: String? = null,
     val session: Int? = null,
     val workflow: String? = null,
+    // Verification-lifecycle filter (pending | pending_verification | completed); null = every status.
+    // Part of roomKey so a status change caches its own page/summary, never mixing two status scopes.
+    val status: String? = null,
 ) {
     fun roomKey(): String = cacheKey(
         parkId,
@@ -63,6 +66,7 @@ data class FeedDirectionQuery(
         shedId,
         session?.toString(),
         workflow,
+        status,
         FEED_PAGE_SIZE.toString(),
     )
 }
@@ -73,8 +77,9 @@ data class FeedPackingQuery(
     val targetDate: String,
     val session: Int? = null,
     val workflow: String? = null,
+    val status: String? = null,
 ) {
-    fun roomKey(): String = cacheKey(parkId, targetDate, session?.toString(), workflow, FEED_PAGE_SIZE.toString())
+    fun roomKey(): String = cacheKey(parkId, targetDate, session?.toString(), workflow, status, FEED_PAGE_SIZE.toString())
 }
 
 /**
@@ -232,10 +237,17 @@ private class FeedDirectionRemoteMediator(
                 shedId = query.shedId,
                 session = query.session,
                 workflow = query.workflow,
+                status = query.status,
                 limit = FEED_PAGE_SIZE,
                 offset = offset,
             )
-            val endReached = response.items.size < FEED_PAGE_SIZE
+            // The backend pages the SHED set (limit/offset count SHEDS, not rows), and every shed
+            // yields multiple rows (one per session x breed). So the next page's shed offset advances
+            // by the number of DISTINCT sheds returned — NOT by row count, which would skip
+            // (rows-per-shed - 1) x pageSize sheds each page and hide whole sheds. End-of-pagination
+            // comes from the backend's has_more, not a short row page (a full shed page is > pageSize rows).
+            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val endReached = !response.hasMore
             val updatedAt = clock()
             database.withTransaction {
                 val itemDao = database.feedDirectionItemDao()
@@ -244,12 +256,15 @@ private class FeedDirectionRemoteMediator(
                     itemDao.deleteQuery(queryKey)
                     remoteKeyDao.delete(queryKey)
                 }
+                // sortIndex must be a monotonic ROW cursor across pages; the shed offset cannot serve
+                // as it (shed offset + row index would overlap the previous page's rows).
+                val rowBase = itemDao.countForQuery(queryKey)
                 itemDao.upsertAll(
                     response.items.mapIndexed { index, row ->
                         FeedDirectionItemEntity(
                             queryKey = queryKey,
                             grainKey = row.grainKey,
-                            sortIndex = offset + index,
+                            sortIndex = rowBase + index,
                             dtoJson = json.encodeToString(row),
                             updatedAt = updatedAt,
                         )
@@ -258,7 +273,7 @@ private class FeedDirectionRemoteMediator(
                 remoteKeyDao.upsert(
                     FeedDirectionRemoteKeyEntity(
                         queryKey = queryKey,
-                        nextOffset = offset + response.items.size,
+                        nextOffset = offset + shedsReturned,
                         endReached = endReached,
                         updatedAt = updatedAt,
                     ),
@@ -329,10 +344,14 @@ private class FeedPackingRemoteMediator(
                 targetDate = query.targetDate,
                 session = query.session,
                 workflow = query.workflow,
+                status = query.status,
                 limit = FEED_PAGE_SIZE,
                 offset = offset,
             )
-            val endReached = response.items.size < FEED_PAGE_SIZE
+            // Backend pages the SHED set; advance by DISTINCT sheds (not rows), end on has_more.
+            // See FeedDirectionRemoteMediator for the full rationale.
+            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val endReached = !response.hasMore
             val updatedAt = clock()
             database.withTransaction {
                 val itemDao = database.feedPackingItemDao()
@@ -341,12 +360,13 @@ private class FeedPackingRemoteMediator(
                     itemDao.deleteQuery(queryKey)
                     remoteKeyDao.delete(queryKey)
                 }
+                val rowBase = itemDao.countForQuery(queryKey)
                 itemDao.upsertAll(
                     response.items.mapIndexed { index, row ->
                         FeedPackingItemEntity(
                             queryKey = queryKey,
                             grainKey = row.grainKey,
-                            sortIndex = offset + index,
+                            sortIndex = rowBase + index,
                             dtoJson = json.encodeToString(row),
                             updatedAt = updatedAt,
                         )
@@ -355,7 +375,7 @@ private class FeedPackingRemoteMediator(
                 remoteKeyDao.upsert(
                     FeedPackingRemoteKeyEntity(
                         queryKey = queryKey,
-                        nextOffset = offset + response.items.size,
+                        nextOffset = offset + shedsReturned,
                         endReached = endReached,
                         updatedAt = updatedAt,
                     ),

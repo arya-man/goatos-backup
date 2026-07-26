@@ -201,6 +201,13 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
 	// generated rows.
 	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.SessionNo)
+	// Stamp LifecycleStatus/Completed and apply the status filter over the WHOLE scope BEFORE paging, so
+	// the page and the summary describe the same status set and pagination stays correct.
+	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -235,14 +242,28 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 	// frozen scope before paging + summary, so both the page and the summary describe the same session.
 	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
 
+	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging (a packing row IS a
+	// shed-session, so the completion key matches). Filtering here — not on the built page — keeps the
+	// page/summary consistent and pagination correct, exactly as the direction path does.
+	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
 	items := domain.DistinctFeedItems(scopeRows)
 
+	// scopeRows are already status-filtered; stamp the built packing rows for display (no further
+	// filter — statusFilter "").
+	scopePacking := stampAndFilterPackingRows(domain.BuildPackingRows(scopeRows, items), statusMap, "")
+	pagePacking := stampAndFilterPackingRows(domain.BuildPackingRows(pageRows, items), statusMap, "")
+
 	return domain.PackingPage{
-		Items:      domain.BuildPackingRows(pageRows, items),
-		Summary:    domain.SummarizePacking(domain.BuildPackingRows(scopeRows, items), items),
+		Items:      pagePacking,
+		Summary:    domain.SummarizePacking(scopePacking, items),
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,
@@ -322,6 +343,13 @@ func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQue
 		return domain.PreviewPage{}, err
 	}
 
+	// Stamp + status-filter over the whole scope before paging (same contract as the served path).
+	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -371,14 +399,21 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		return domain.PackingPage{}, err
 	}
 
+	// Filter DirectionRows by packing status before the shed paging, then stamp the built rows.
+	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
 	items := domain.DistinctFeedItems(scopeRows)
 
 	return domain.PackingPage{
-		Items:      domain.BuildPackingRows(pageRows, items),
-		Summary:    domain.SummarizePacking(domain.BuildPackingRows(scopeRows, items), items),
+		Items:      stampAndFilterPackingRows(domain.BuildPackingRows(pageRows, items), statusMap, ""),
+		Summary:    domain.SummarizePacking(stampAndFilterPackingRows(domain.BuildPackingRows(scopeRows, items), statusMap, ""), items),
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,

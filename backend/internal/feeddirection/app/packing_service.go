@@ -174,20 +174,3 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	}
 	return result, nil
 }
-
-// verifiedPackingSet is an in-memory membership index over one park-day's VERIFIED packing sessions,
-// keyed by the shed-session-workflow grain, reusing the same key shape as the distribution overlay.
-type verifiedPackingSet map[string]struct{}
-
-func newVerifiedPackingSet(items []ports.VerifiedPacking) verifiedPackingSet {
-	set := make(verifiedPackingSet, len(items))
-	for _, d := range items {
-		set[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = struct{}{}
-	}
-	return set
-}
-
-func (s verifiedPackingSet) has(shedID string, sessionNo int32, workflow string) bool {
-	_, ok := s[completedKey(shedID, sessionNo, workflow)]
-	return ok
-}

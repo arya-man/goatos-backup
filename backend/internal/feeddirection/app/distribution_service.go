@@ -183,20 +183,3 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 	}
 	return result, nil
 }
-
-// verifiedDistributionSet is an in-memory membership index over one park-day's VERIFIED distributions,
-// keyed by the shed-session-workflow grain, reusing the same key shape as the packing overlay.
-type verifiedDistributionSet map[string]struct{}
-
-func newVerifiedDistributionSet(items []ports.VerifiedDistribution) verifiedDistributionSet {
-	set := make(verifiedDistributionSet, len(items))
-	for _, d := range items {
-		set[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = struct{}{}
-	}
-	return set
-}
-
-func (s verifiedDistributionSet) has(shedID string, sessionNo int32, workflow string) bool {
-	_, ok := s[completedKey(shedID, sessionNo, workflow)]
-	return ok
-}

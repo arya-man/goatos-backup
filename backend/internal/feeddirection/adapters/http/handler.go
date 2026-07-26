@@ -400,6 +400,13 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	// status narrows to one verification-lifecycle bucket (pending | pending_verification | completed);
+	// empty means every status. A present-but-unknown value is rejected rather than widened to all.
+	status := strings.TrimSpace(query.Get("status"))
+	if !domain.IsValidSessionStatusFilter(status) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "status must be one of pending, pending_verification, completed", nil)
+		return
+	}
 
 	page, err := h.service.Preview(r.Context(), domain.PreviewQuery{
 		TenantID:   tenantID,
@@ -408,6 +415,7 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		ShedID:     strings.TrimSpace(query.Get("shed_id")),
 		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),
+		Status:     status,
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
@@ -450,6 +458,12 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	// Same status contract as the preview: one bucket or empty for all; unknown values are rejected.
+	status := strings.TrimSpace(query.Get("status"))
+	if !domain.IsValidSessionStatusFilter(status) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "status must be one of pending, pending_verification, completed", nil)
+		return
+	}
 
 	page, err := h.service.PackingWorklist(r.Context(), domain.PackingQuery{
 		TenantID:   tenantID,
@@ -457,6 +471,7 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		TargetDate: targetDate,
 		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),
+		Status:     status,
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
