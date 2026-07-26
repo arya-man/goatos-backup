@@ -124,7 +124,11 @@ func navigation() domain.NavigationContract {
 				ID: "feed", Label: "Feed", Icon: "wheat", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
-					navLeaf("feed-direction", "Feed Direction", "/feed/direction", nil),
+					// Feed Direction is an app-only (operator + verifier) workflow — the operator
+					// captures the mandatory feed-distribution video + water proof per shed-session
+					// and a verifier approves it in the mobile verifier queue. It is deliberately not
+					// a web surface, so no "/feed/direction" left-bar leaf. The /feed/config
+					// authoring screen and the packing worklist remain web surfaces.
 					navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
 				},
 			},
