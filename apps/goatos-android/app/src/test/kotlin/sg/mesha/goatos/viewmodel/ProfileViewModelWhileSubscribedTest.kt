@@ -144,6 +144,7 @@ class ProfileViewModelWhileSubscribedTest {
         override fun refreshStatus() {}
         override fun openSystemPairing() {}
         override fun setCaptureEnabled(enabled: Boolean) {}
+        override fun setCompletionKeySwallowEnabled(enabled: Boolean) {}
         override fun onKeyEvent(event: KeyEvent): Boolean = false
     }
 }

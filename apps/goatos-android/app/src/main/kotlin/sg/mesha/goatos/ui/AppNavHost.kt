@@ -461,6 +461,10 @@ fun AppNavHost(
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
+                            if (selected?.canOpen == false) {
+                                Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             if (selected?.opensRecordOnly == true) {
                                 Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
                                 return@ShedsScreen
@@ -511,6 +515,10 @@ fun AppNavHost(
                                     // the execute loop (Scan → Submit). Mirrors the mock's shed card
                                     // ("View completed record ›" vs "Start / scan").
                                     val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                    if (selected?.canOpen == false) {
+                                        Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                        return@ShedsScreen
+                                    }
                                     if (selected?.opensRecordOnly == true) {
                                         Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
                                         return@ShedsScreen
@@ -536,11 +544,13 @@ fun AppNavHost(
         ) { entry ->
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(vm, state.scanEnabled) {
-                vm.setCaptureActive(state.scanEnabled)
-            }
             DisposableEffect(vm) {
-                onDispose { vm.setCaptureActive(false) }
+                vm.setCompletionKeySwallowActive(true)
+                vm.setCaptureActive(true)
+                onDispose {
+                    vm.setCompletionKeySwallowActive(false)
+                    vm.setCaptureActive(false)
+                }
             }
             val onScanEvent: (ScanEvent) -> Unit = { event ->
                     when (event) {
