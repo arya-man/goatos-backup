@@ -27,6 +27,7 @@
     "protocol.version.published",
     "feed.direction.completed",
     "feed.distribution.completed",
+    "feed.packing.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
     "vaccination.leave.changed"
@@ -273,7 +274,12 @@
         {
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
-          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate: a feed-direction session is completed only when a verifier approves the operator's video + water proof. Separate NEW table; feed PACKING (feed_direction_session_completions / feed.direction.completed) is untouched."
+          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate: a feed-direction session is completed only when a verifier approves the operator's video + water proof. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_packing_verification_handler.go",
+          "notes": "FeedPackingVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_packing_completion (distinct from the distribution handler, which shares module=feed but uses ref_type=feed_distribution_completion) and calls PackingCompletionStore.ApplyVerifiedPacking, which flips the feed_packing_completions row 'pending_verification' -> 'completed' and emits feed.packing.completed. Maintainer-2026-07-26 gate (SUPERSEDING the earlier 'packing stays instant' rule): a feed PACKING session is completed only when a verifier approves the operator's ONE mandatory packing video. Separate NEW table."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -281,7 +287,8 @@
         "backend/internal/verification/app/service_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
-        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go"
+        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -518,7 +525,7 @@
     },
     {
       "eventType": "feed.distribution.completed",
-      "producer": "feed DISTRIBUTION verifier approval (maintainer decision, 2026-07-26): feeddirection.Repository.ApplyVerifiedDistribution, consuming verification.verdict.approved for a feed_distribution item, flips the NEW feed_distribution_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion. Entirely separate from feed.direction.completed (packing), which is unchanged.",
+      "producer": "feed DISTRIBUTION verifier approval (maintainer decision, 2026-07-26): feeddirection.Repository.ApplyVerifiedDistribution, consuming verification.verdict.approved for a feed_distribution item, flips the NEW feed_distribution_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion. Entirely separate from the old instant feed.direction.completed path, which is inert.",
       "producerFiles": [
         "backend/internal/feeddirection/adapters/postgres/distribution_completions.go"
       ],
@@ -526,6 +533,23 @@
       "owningDoc": "docs/decisions/feed-distribution-verification.md",
       "e2eProof": [
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "feed.packing.completed",
+      "producer": "feed PACKING verifier approval (maintainer decision, 2026-07-26, SUPERSEDING the earlier 'packing stays instant, no verifier' rule): feeddirection.Repository.ApplyVerifiedPacking, consuming verification.verdict.approved for a feed_packing item, flips the NEW feed_packing_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion. Requires ONE mandatory packing video. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert.",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/packing_completions.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/feed-distribution-verification.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",

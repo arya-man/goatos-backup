@@ -30,9 +30,14 @@ type Service interface {
 	PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error)
 	CompleteSession(ctx context.Context, in app.CompleteSessionInput) (ports.CompleteSessionResult, error)
 	// CompleteDistribution is the verifier-gated feed DISTRIBUTION completion, entirely separate from
-	// CompleteSession (feed PACKING). It requires two mandatory proofs and flips the session to
+	// CompleteSession (the old instant path). It requires two mandatory proofs and flips the session to
 	// pending_verification (maintainer decision, 2026-07-26).
 	CompleteDistribution(ctx context.Context, in app.CompleteDistributionInput) (ports.CompleteDistributionResult, error)
+	// CompletePacking is the verifier-gated feed PACKING completion (maintainer decision, 2026-07-26,
+	// SUPERSEDING the "packing stays instant" rule). It requires ONE mandatory packing video and flips the
+	// session to pending_verification. Separate from CompleteSession (the old instant path, now inert) and
+	// from CompleteDistribution.
+	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
 }
 
 type Handler struct {
@@ -49,8 +54,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
 	mux.HandleFunc("POST /feed-direction/complete", h.PostComplete)
 	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
-	// (packing), which is untouched.
+	// (the old instant path).
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
+	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26). Separate route from
+	// both POST /feed-direction/complete (old instant path) and the distribution route.
+	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
 }
 
 // completeSessionRequest is the completion body: which shed-session, on which feed day and workflow,
@@ -255,6 +263,98 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// completePackingRequest is the verifier-gated packing completion body: which shed-session, on which
+// feed day and workflow, plus the ONE mandatory packing video reference. The Idempotency-Key header,
+// not the body, carries the replay key.
+type completePackingRequest struct {
+	ParkID          string `json:"park_id"`
+	ShedID          string `json:"shed_id"`
+	SessionNo       int32  `json:"session_no"`
+	TargetDate      string `json:"target_date"`
+	Workflow        string `json:"workflow"`
+	PackingProofRef string `json:"packing_proof_ref"`
+}
+
+type completePackingResponse struct {
+	CompletionID string `json:"completion_id"`
+	// Status is 'pending_verification' on a fresh submit or a rework re-submit, or 'completed' when the
+	// shed-session was already verifier-approved.
+	Status string `json:"status"`
+	// NewlyPending is true when this call flipped the session into pending_verification (a verification
+	// item was enqueued). False on an idempotent replay or an already-pending/already-completed no-op.
+	NewlyPending bool `json:"newly_pending"`
+}
+
+// PostCompletePacking records a shed-session's ONE mandatory packing video and flips it to
+// pending_verification (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays instant" rule).
+// Nothing is completed here: the packing session is completed only when a verifier approves the video.
+// Idempotent: the same Idempotency-Key returns the original result and runs no new side effects. Entirely
+// separate from PostComplete (the old instant path) and PostCompleteDistribution.
+func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key header is required", nil)
+		return
+	}
+	if len(key) < 8 || len(key) > 200 {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key must be between 8 and 200 characters", nil)
+		return
+	}
+
+	var body completePackingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	targetDate, err := businessDateFromString(body.TargetDate)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	// The packing video is mandatory. Reject a blank one with 422 proof_required BEFORE calling the
+	// service, mirroring the distribution route, so a proofless request never reaches the write path.
+	if strings.TrimSpace(body.PackingProofRef) == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: "a packing video proof (packing_proof_ref) is required"}, nil)
+		return
+	}
+
+	res, err := h.service.CompletePacking(r.Context(), app.CompletePackingInput{
+		TenantID:        tenantID,
+		ParkID:          strings.TrimSpace(body.ParkID),
+		ShedID:          strings.TrimSpace(body.ShedID),
+		SessionNo:       body.SessionNo,
+		TargetDate:      targetDate,
+		Workflow:        strings.TrimSpace(body.Workflow),
+		PackingProofRef: strings.TrimSpace(body.PackingProofRef),
+		CompletedBy:     actorID,
+		IdempotencyKey:  key,
+		ActorID:         actorID,
+		ActorType:       "operator",
+		TraceID:         httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "feed packing complete", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, completePackingResponse{
+		CompletionID: res.CompletionID,
+		Status:       res.Status,
+		NewlyPending: res.NewlyPending,
+	})
+}
+
 // businessDateFromString parses a required YYYY-MM-DD feed day in Asia/Kolkata, same contract as the
 // read routes' target_date. An instant is rejected rather than truncated.
 func businessDateFromString(raw string) (time.Time, error) {
@@ -393,8 +493,13 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	case errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrPackingProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
-		errors.Is(err, app.ErrDistributionEnqueuerNotWired):
+		errors.Is(err, app.ErrDistributionEnqueuerNotWired),
+		errors.Is(err, ports.ErrPackingStoreUnavailable),
+		errors.Is(err, app.ErrPackingEnqueuerNotWired):
 		// A wiring/deployment fault, not a client error: 500.
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)
 	default:

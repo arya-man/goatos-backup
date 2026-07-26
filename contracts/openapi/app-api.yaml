@@ -2570,6 +2570,67 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/packing/complete:
+    post:
+      tags:
+        - Feed Direction
+      operationId: completeFeedPacking
+      summary: Submit one shed-session's feed packing for verifier approval.
+      description: >-
+        The verifier-GATED feed PACKING completion (maintainer decision, 2026-07-26, SUPERSEDING the
+        earlier "packing stays instant, no verifier" rule). The operator submits ONE mandatory packing
+        VIDEO (`packing_proof_ref`), which writes a `pending_verification` row and enqueues ONE
+        verification item carrying the video. NOTHING is completed here.
+
+
+        The packing session is `completed` only when a verifier APPROVES the item; a rejection bounces
+        it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After
+        verifier approval the `/feed-packing/worklist` rows for that shed-session report
+        `completed: true`.
+
+
+        This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert)
+        and from the distribution gate. The packing video is MANDATORY: a request missing
+        `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is
+        nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay
+        returns the original result and runs no side effects; the same key with a different payload is
+        `409`) and on the shed-session natural key.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPackingCompleteRequest"
+      responses:
+        "200":
+          description: >-
+            The shed-session is recorded pending_verification (or was already completed). The packing
+            session is not done until a verifier approves.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPackingCompleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: >-
+            The mandatory packing video is missing (`code: proof_required`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/ration-rates:
     get:
       tags:
@@ -6440,6 +6501,70 @@ components:
             `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier);
             `completed` when the shed-session had already been verifier-approved. Never `completed` on
             a first submit -- distribution is done only at verifier approval.
+        newly_pending:
+          type: boolean
+          description: >-
+            True when this call flipped the session into pending_verification and enqueued a
+            verification item. False on an idempotent replay or an already-pending/already-completed
+            no-op.
+    FeedPackingCompleteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - session_no
+        - target_date
+        - workflow
+        - packing_proof_ref
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          description: >-
+            The park the shed belongs to. Optional: when omitted the server resolves the tenant's
+            default park, matching the read routes. Exactly one park per completion.
+        shed_id:
+          type: string
+          format: uuid
+          description: The shed whose packing session was carried out.
+        session_no:
+          type: integer
+          minimum: 1
+          description: >-
+            The feeding session that was packed. A concrete session (>= 1); session 0 is a read
+            filter, never a completion target.
+        target_date:
+          type: string
+          format: date
+          description: The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+        workflow:
+          type: string
+          enum: [normal, experiment]
+          description: The dispatch workflow packed. REQUIRED -- a completion records ONE concrete workflow.
+        packing_proof_ref:
+          type: string
+          minLength: 1
+          description: >-
+            MANDATORY. The server-minted `proof_id` of the packing VIDEO. A blank value is rejected
+            `422 proof_required`. The bytes live in GCS; only the reference is recorded.
+    FeedPackingCompleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - status
+        - newly_pending
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_verification, completed]
+          description: >-
+            `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier);
+            `completed` when the shed-session had already been verifier-approved. Never `completed` on
+            a first submit -- packing is done only at verifier approval.
         newly_pending:
           type: boolean
           description: >-

@@ -226,6 +226,12 @@ var protectedRoutes = []Route{
 	// carried out (optional video proof). Idempotency-Key required; gated on the operator write twin
 	// FeedDirectionComplete, not on the feed reads.
 	{OperationID: "completeFeedDirectionSession", Method: "POST", Pattern: "/feed-direction/complete", Permissions: []string{FeedDirectionComplete}},
+	// The verifier-gated feed DISTRIBUTION and PACKING completions (maintainer decision, 2026-07-26).
+	// Both are operator WRITE paths on the same feed-direction surface as /feed-direction/complete, so
+	// both reuse FeedDirectionComplete. They MUST be registered here: the auth middleware 403s
+	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
+	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
+	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//

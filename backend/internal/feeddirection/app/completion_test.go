@@ -64,6 +64,31 @@ func (f *fakeDistributionStore) BounceDistributionForRework(_ context.Context, _
 	return false, nil
 }
 
+// fakePackingStore is the PACKING verification-gated store (the NEW table the PACKING overlay reads
+// verified sessions from -- separate from fakeCompletionStore, the inert instant path, and from
+// fakeDistributionStore). Maintainer decision 2026-07-26 gated packing too.
+type fakePackingStore struct {
+	verified  []ports.VerifiedPacking
+	listCalls int
+}
+
+func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePackingParams) (ports.CompletePackingResult, error) {
+	return ports.CompletePackingResult{}, nil
+}
+
+func (f *fakePackingStore) ListVerifiedPacking(_ context.Context, _, _ string, _ time.Time) ([]ports.VerifiedPacking, error) {
+	f.listCalls++
+	return f.verified, nil
+}
+
+func (f *fakePackingStore) ApplyVerifiedPacking(_ context.Context, _ ports.ApplyPackingParams) (bool, error) {
+	return false, nil
+}
+
+func (f *fakePackingStore) BouncePackingForRework(_ context.Context, _ ports.BouncePackingParams) (bool, error) {
+	return false, nil
+}
+
 type fakeProofValidator struct {
 	calls   int
 	lastIDs []string
@@ -145,9 +170,13 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 
 func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
-	store := &fakeCompletionStore{}
+	// The PACKING overlay now reads the PACKING verification-gated table (maintainer decision,
+	// 2026-07-26): a packing session is Completed only after a verifier approves, i.e. status='completed'
+	// in feed_packing_completions. So the overlay's read is ListVerifiedPacking, not the old instant
+	// ListCompletedSessions.
+	store := &fakePackingStore{}
 	service, _, _ := newTestService()
-	service.WithCompletionStore(store)
+	service.WithPackingStore(store)
 
 	q := domain.PackingQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate()}
 	page, err := service.PackingWorklist(context.Background(), q)
@@ -158,7 +187,7 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 		t.Fatal("no packing lines to overlay")
 	}
 	target := page.Items[0]
-	store.completed = []ports.CompletedSession{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	store.verified = []ports.VerifiedPacking{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
 	page2, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
 		t.Fatalf("PackingWorklist 2: %v", err)

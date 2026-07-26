@@ -428,8 +428,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithCompletionStore(feedDirectionRepo).
 		// Feed DISTRIBUTION verification gate (maintainer decision, 2026-07-26): a SEPARATE store on a NEW
 		// table (feed_distribution_completions). The enqueue seam is wired below, once verificationService
-		// exists. Packing's WithCompletionStore path above is untouched.
+		// exists. The old instant WithCompletionStore path above is left inert.
 		WithDistributionStore(feedDirectionRepo).
+		// Feed PACKING verification gate (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays
+		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
+		// now reads verified rows from here, and the enqueue seam is wired below.
+		WithPackingStore(feedDirectionRepo).
 		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
@@ -489,6 +493,22 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	feedDirectionService.WithDistributionVerificationEnqueuer(
 		feeddirectionverificationbridge.New(verificationService))
+	// Feed PACKING verification (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays instant"
+	// rule): a feed PACKING session is completed only after a verifier approves the operator's ONE
+	// mandatory packing video, so packing is a verification producer too. Same feed module as
+	// distribution, but a DISTINCT category (feed_packing) and ref_type so the two feed gates never
+	// cross-fire. Register the category and wire the enqueue seam.
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      feeddirectiondomain.VerificationVerticalFeed,
+		Module:        feeddirectiondomain.VerificationModuleFeed,
+		Category:      feeddirectiondomain.VerificationCategoryPacking,
+		ExpectedMedia: []string{"video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	feedDirectionService.WithPackingVerificationEnqueuer(
+		feeddirectionverificationbridge.NewPacking(verificationService))
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
@@ -586,6 +606,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// emitted); a rejection bounces it to rework for a re-shoot. Subscribes to the generic verification
 	// verdict events and filters to feed/feed_distribution_completion.
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, log).Register(bus)
+	// Feed PACKING verification consumer (maintainer decision, 2026-07-26): subscribes to the verification
+	// verdict events and filters to feed/feed_packing_completion, so a verifier's approve flips the
+	// packing session to completed (feed.packing.completed) and a reject bounces it to rework.
+	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, log).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then

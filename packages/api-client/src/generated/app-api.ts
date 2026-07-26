@@ -970,6 +970,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/packing/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one shed-session's feed packing for verifier approval.
+         * @description The verifier-GATED feed PACKING completion (maintainer decision, 2026-07-26, SUPERSEDING the earlier "packing stays instant, no verifier" rule). The operator submits ONE mandatory packing VIDEO (`packing_proof_ref`), which writes a `pending_verification` row and enqueues ONE verification item carrying the video. NOTHING is completed here.
+         *
+         *     The packing session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-packing/worklist` rows for that shed-session report `completed: true`.
+         *
+         *     This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert) and from the distribution gate. The packing video is MANDATORY: a request missing `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         */
+        post: operations["completeFeedPacking"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -2407,6 +2431,43 @@ export interface components {
             completion_id: string;
             /**
              * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the shed-session had already been verifier-approved. Never `completed` on a first submit -- distribution is done only at verifier approval.
+             * @enum {string}
+             */
+            status: "pending_verification" | "completed";
+            /** @description True when this call flipped the session into pending_verification and enqueued a verification item. False on an idempotent replay or an already-pending/already-completed no-op. */
+            newly_pending: boolean;
+        };
+        FeedPackingCompleteRequest: {
+            /**
+             * Format: uuid
+             * @description The park the shed belongs to. Optional: when omitted the server resolves the tenant's default park, matching the read routes. Exactly one park per completion.
+             */
+            park_id?: string;
+            /**
+             * Format: uuid
+             * @description The shed whose packing session was carried out.
+             */
+            shed_id: string;
+            /** @description The feeding session that was packed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
+            session_no: number;
+            /**
+             * Format: date
+             * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+             */
+            target_date: string;
+            /**
+             * @description The dispatch workflow packed. REQUIRED -- a completion records ONE concrete workflow.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            /** @description MANDATORY. The server-minted `proof_id` of the packing VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
+            packing_proof_ref: string;
+        };
+        FeedPackingCompleteResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the shed-session had already been verifier-approved. Never `completed` on a first submit -- packing is done only at verifier approval.
              * @enum {string}
              */
             status: "pending_verification" | "completed";
@@ -7506,6 +7567,47 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeFeedPacking: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPackingCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The shed-session is recorded pending_verification (or was already completed). The packing session is not done until a verifier approves. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPackingCompleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The mandatory packing video is missing (`code: proof_required`). */
             422: {
                 headers: {
                     [name: string]: unknown;
