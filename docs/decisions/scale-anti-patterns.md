@@ -35,6 +35,19 @@ new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
 
+Vaccination submit grain drift is the same class of bug at runtime. Multiple
+sheds can share one hidden park/batch-level `sop_tasks` parent, but operators,
+WF, CT, AC, Calendar, Android, and verifier rows are shed-grained. A first shed
+submission must not make another shed look submitted, proof-uploaded, or
+verification-pending by reading the shared parent task state or by taking the
+latest bare `sop_submissions` row for the parent task. Per-shed surfaces must
+derive those states from shed-scoped `sop_submission_items`,
+`sop_submissions`, `vaccination_completions`, and proof rows joined through the
+current goat/shed grain. The shared parent may advance only as an aggregate
+rollup after every eligible goat item under that parent has a submitted/accepted
+item, and submit idempotency keys must include the active shed scope so Old
+Yashoda, Godel 1, and Godel 2 cannot collide on the same hidden parent.
+
 Operator-role drift is part of the same failure mode. In CPT operator-drive
 rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
 none of them is support-only, backup-only, or park-head-only. Their week-offs

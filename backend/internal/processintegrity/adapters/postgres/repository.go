@@ -812,10 +812,15 @@ raw AS (
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
   LEFT JOIN LATERAL (
-    SELECT submission_id, state, proof_refs, submitted_at, accepted_at
-    FROM sop_submissions sub
-    WHERE sub.tenant_id = oi.tenant_id
-      AND sub.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
+    SELECT sub.submission_id, sub.state, sub.proof_refs, sub.submitted_at, sub.accepted_at
+    FROM sop_submission_items si
+    JOIN sop_submissions sub
+      ON sub.tenant_id = si.tenant_id
+     AND sub.submission_id = si.submission_id
+    WHERE si.tenant_id = oi.tenant_id
+      AND si.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
+      AND oi.target_type = 'goat'
+      AND si.goat_id = oi.target_id
       -- as_of correctness: evidence submitted AFTER as_of must not be seen.
       AND sub.submitted_at <= $10::timestamptz
     ORDER BY sub.submitted_at DESC, sub.submission_id DESC
@@ -1142,7 +1147,7 @@ stateful AS (
       -- obligation lifecycle only; the assignment gap surfaces through owner/drive fields below.
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
-        OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
+        OR enriched.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
@@ -1228,7 +1233,7 @@ derived AS (
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rework'
       WHEN stateful.task_state IN ('in_progress') THEN 'in_progress'
-      WHEN stateful.task_state IN ('submitted', 'needs_review') THEN 'submitted'
+      WHEN stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'submitted'
       WHEN stateful.task_state = 'accepted' THEN 'accepted'
       WHEN stateful.task_state IN ('rework_requested', 'rejected') THEN 'rework'
       ELSE 'not_started'
@@ -1236,12 +1241,12 @@ derived AS (
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rejected'
       WHEN stateful.completion_accepted > 0 AND stateful.completion_recorded = 0 THEN 'accepted'
-      WHEN stateful.proof_count > 0 OR stateful.completion_recorded > 0 OR stateful.task_state IN ('submitted', 'needs_review') THEN 'uploaded'
+      WHEN stateful.proof_count > 0 OR stateful.completion_recorded > 0 OR stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'uploaded'
       ELSE 'missing'
     END AS proof_state,
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rejected'
-      WHEN stateful.completion_recorded > 0 OR stateful.task_state IN ('submitted', 'needs_review') THEN 'pending'
+      WHEN stateful.completion_recorded > 0 OR stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'pending'
       WHEN stateful.completion_accepted > 0 AND stateful.completed_count = stateful.expected_count THEN 'accepted'
       ELSE 'not_ready'
     END AS verification_state

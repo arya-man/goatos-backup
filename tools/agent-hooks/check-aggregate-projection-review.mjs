@@ -153,7 +153,16 @@ function main() {
   );
   const testFiles = files.filter((file) => /(?:_test\.go|\.test\.[cm]?[jt]s|\.spec\.[cm]?[jt]s)$/.test(file));
   const sourceHunks = sourceFiles.flatMap((file) => hunks(diffFor(file, base, untracked)).filter(isCandidate).map((h) => ({ ...h, file })));
+  const shedGrainFailures = files.includes(PROCESS_INTEGRITY_REPO)
+    ? inspectProcessIntegrityShedGrain(readFileSync(resolve(repo, PROCESS_INTEGRITY_REPO), "utf8"))
+    : [];
   if (sourceHunks.length === 0) {
+    if (shedGrainFailures.length) {
+      console.error("aggregate-projection-guard: FAIL");
+      for (const failure of shedGrainFailures) console.error(`  - ${failure}`);
+      console.error("\nSee docs/decisions/scale-anti-patterns.md");
+      process.exit(1);
+    }
     console.log("aggregate-projection-guard: PASS (no changed aggregate projection hunks)");
     return;
   }
@@ -163,9 +172,7 @@ function main() {
     hunks(diffFor(file, base, untracked)).map((hunk) => hunk.added),
   ).join("\n");
   const failures = inspectFixture(sourceHunks, changedTests);
-  if (files.includes(PROCESS_INTEGRITY_REPO)) {
-    failures.push(...inspectProcessIntegrityShedGrain(readFileSync(resolve(repo, PROCESS_INTEGRITY_REPO), "utf8")));
-  }
+  failures.push(...shedGrainFailures);
   if (failures.length) {
     console.error("aggregate-projection-guard: FAIL");
     for (const hunk of sourceHunks) console.error(`  candidate: ${hunk.file}`);

@@ -45,6 +45,7 @@ const (
 	piTodayObl      = "71000000-0000-4000-8000-000000000023"
 	piCodedVersion  = "71000000-0000-4000-8000-000000000024"
 	piCodedRule     = "71000000-0000-4000-8000-000000000025"
+	piSubItem       = "71000000-0000-4000-8000-000000000026"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -1327,6 +1328,10 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		 VALUES ($1, $2, $3, $4, $5, 'pi-submission', '{}'::jsonb,
 		   jsonb_build_array(jsonb_build_object('proof_id', $6::text)), 'submitted', TIMESTAMPTZ '2026-06-24 09:00:00+00')`,
 		piSub, piTenant, piTask, piSOPVersion, piOperator, piProof)
+	execPI(t, ctx, pool, "submission item",
+		`INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state)
+		 VALUES ($1, $2, $3, $4, $5, 'pi-goat-item', 'needs_review')`,
+		piSubItem, piTenant, piSub, piTask, piGoat)
 	execPI(t, ctx, pool, "batch",
 		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, sop_task_id, conducted_by)
 		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5, $6)`,
