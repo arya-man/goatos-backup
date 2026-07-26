@@ -25,6 +25,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import kotlinx.coroutines.delay
 import sg.mesha.goatos.capture.BindPhotoCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
@@ -46,6 +47,7 @@ import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
+import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
@@ -1121,6 +1123,20 @@ fun AppNavHost(
                     else -> vm.onEvent(event)
                 }
             }
+            // On a successful submission the proofs are durably enqueued (QUEUED) or already
+            // SYNCED. Don't strand the operator on the capture screen: show the success tone
+            // briefly, then pop back to the Feed Direction list (which is RefreshOnResume, so
+            // it refreshes once on landing and shows the session as pending verification).
+            val submitted = state.result?.status == FeedDistributionStatus.SYNCED ||
+                state.result?.status == FeedDistributionStatus.QUEUED
+            LaunchedEffect(submitted) {
+                if (submitted) {
+                    delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
+                    // Pop this exact destination if it is still on top; a no-op if the operator
+                    // already navigated away, so we never pop an extra screen.
+                    navController.popBackStack(Routes.FEED_DISTRIBUTION_COMPLETE, inclusive = true)
+                }
+            }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                 BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
@@ -1307,6 +1323,11 @@ internal fun startDestinationFor(navState: NavState): String {
     return navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
         ?: Routes.CALENDAR
 }
+
+// How long the feed-distribution capture screen lingers on its success tone before
+// auto-returning to the Feed Direction list. Long enough to confirm the submit
+// registered, short enough not to feel stuck.
+private const val SUBMIT_SUCCESS_RETURN_DELAY_MS = 800L
 
 private val supportedRootDestinations = setOf(
     Routes.CALENDAR,
