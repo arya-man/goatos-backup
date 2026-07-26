@@ -32,6 +32,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsbridge "github.com/vgoats/goatos/backend/internal/countsbridge"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
 	feedpg "github.com/vgoats/goatos/backend/internal/feed/adapters/postgres"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
@@ -596,20 +597,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
-	// Shifting-move verification consumer (maintainer decision, 2026-07-26): a verifier's approval of
-	// the operator's video applies the relocation (count moves now); a rejection bounces the move back
-	// to authorized for a re-shoot. Subscribes to the generic verification verdict events and filters
-	// to counts/shifting_event.
-	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
-	// Feed distribution verification consumer (maintainer decision, 2026-07-26): a verifier's approval of
-	// the operator's video + water proof completes the feed-direction session (feed.distribution.completed
-	// emitted); a rejection bounces it to rework for a re-shoot. Subscribes to the generic verification
-	// verdict events and filters to feed/feed_distribution_completion.
-	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, log).Register(bus)
-	// Feed PACKING verification consumer (maintainer decision, 2026-07-26): subscribes to the verification
-	// verdict events and filters to feed/feed_packing_completion, so a verifier's approve flips the
-	// packing session to completed (feed.packing.completed) and a reject bounces it to rework.
-	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, log).Register(bus)
+	// Shifting + feed verification appliers: the ONE shared registration (internal/eventwiring), also
+	// called by cmd/outbox-relay and cmd/domain-event-consumer so the three buses cannot drift.
+	// NOTE: this API in-process bus does NOT receive the async verdict events — the verification service
+	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
+	// consumers above. Registering here keeps parity through the same helper. Each handler filters
+	// strictly on source.module + source.ref_type, so no cross-fire.
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, log)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then

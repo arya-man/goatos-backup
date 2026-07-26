@@ -17,6 +17,9 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -151,6 +154,12 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 		calendarRepo := calendarpg.NewRepository(pool, pgCfg.QueryTimeout)
 		calendarService := calendarapp.NewService(calendarRepo)
+		// Counts approval + feed-direction repos for the shifting/feed verification appliers below. The
+		// shifting apply relocates animals and writes identity audit in one txn, so it needs the identity
+		// tx writer (approval_repository.go WithIdentityTxWriter), same as bootstrap/api.go.
+		identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
+		countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -161,6 +170,10 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
+		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
+		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
+		// without these a verifier approval never applies locally either.
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:
