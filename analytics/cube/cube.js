@@ -14,6 +14,41 @@
 // No secret value lives in this file. CUBEJS_API_SECRET and the DB credentials
 // come from the environment (.env.ceo-ai.local locally; Secret Manager in stg).
 
+const crypto = require('crypto');
+
+function b64urlDecodeJSON(part) {
+  const padded = part + '='.repeat((4 - (part.length % 4)) % 4);
+  return JSON.parse(Buffer.from(padded, 'base64url').toString('utf8'));
+}
+
+function verifySecurityContext(auth) {
+  const raw = String(auth || '').replace(/^Bearer\s+/i, '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 3) {
+    throw new Error('Cube: invalid JWT');
+  }
+  const [headerPart, payloadPart, sigPart] = parts;
+  const header = b64urlDecodeJSON(headerPart);
+  if (header.alg !== 'HS256') {
+    throw new Error('Cube: unsupported JWT alg');
+  }
+  const expected = crypto
+    .createHmac('sha256', process.env.CUBEJS_API_SECRET || '')
+    .update(`${headerPart}.${payloadPart}`)
+    .digest('base64url');
+  const actualSig = Buffer.from(sigPart);
+  const expectedSig = Buffer.from(expected);
+  if (actualSig.length !== expectedSig.length || !crypto.timingSafeEqual(actualSig, expectedSig)) {
+    throw new Error('Cube: invalid JWT signature');
+  }
+  const payload = b64urlDecodeJSON(payloadPart);
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && Number(payload.exp) < now) {
+    throw new Error('Cube: expired JWT');
+  }
+  return payload.securityContext || payload;
+}
+
 /** Cubes/views whose tenant filter is applied by queryRewrite. Every cube in
  *  analytics/cube/model exposes a `tenant_id` dimension. */
 function cubesReferenced(query) {
@@ -37,11 +72,9 @@ function cubesReferenced(query) {
 }
 
 module.exports = {
-  // NOTE: we intentionally do NOT override checkAuth. Cube's built-in auth
-  // verifies the JWT signature with CUBEJS_API_SECRET and sets securityContext
-  // to the decoded token payload. Overriding checkAuth would suppress that
-  // decode. Tenant presence is enforced in queryRewrite below, which rejects
-  // any query whose security context has no tenant_id.
+  checkAuth: (_req, auth) => ({
+    security_context: verifySecurityContext(auth),
+  }),
 
   queryRewrite: (query, { securityContext }) => {
     const tenant = securityContext && securityContext.tenant_id;

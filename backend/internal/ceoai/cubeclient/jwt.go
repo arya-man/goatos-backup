@@ -21,8 +21,11 @@ func signSecurityContext(secret, tenantID string, ttl time.Duration) (string, er
 	header := map[string]string{"alg": "HS256", "typ": "JWT"}
 	payload := map[string]any{
 		"tenant_id": tenantID,
-		"iat":       now.Unix(),
-		"exp":       now.Add(ttl).Unix(),
+		"securityContext": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"iat": now.Unix(),
+		"exp": now.Add(ttl).Unix(),
 	}
 	hb, err := json.Marshal(header)
 	if err != nil {
