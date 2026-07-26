@@ -121,7 +121,8 @@ export function MeshaLogo(props: { width?: number; height?: number; className?: 
 export function CeoAiStyles(): ReactElement {
   return (
     <style>{`
-.mzai-root{position:fixed;bottom:24px;right:24px;z-index:80;font-family:var(--f);transition:all .3s cubic-bezier(.34,.1,.64,.9)}
+.mzai-root{position:fixed;bottom:24px;right:24px;z-index:80;font-family:var(--f);transition:all .3s cubic-bezier(.34,.1,.64,.9);
+  overscroll-behavior:contain}
 .mzai-bubble{width:56px;height:56px;border-radius:50%;border:2px solid var(--brand);
   background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
   cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}
@@ -136,7 +137,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-panel{display:flex;flex-direction:column;height:100%;background:var(--panel);
   border:1px solid var(--line);border-radius:20px;overflow:hidden;
   box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);
-  animation:mzai-panel-open .3s cubic-bezier(.34,.1,.64,.9)}
+  animation:mzai-panel-open .3s cubic-bezier(.34,.1,.64,.9);overscroll-behavior:contain}
 @keyframes mzai-panel-open{from{opacity:0;transform:scale(.8) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .mzai-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);
   background:linear-gradient(135deg,var(--panel) 0%,var(--panel-2) 100%)}
@@ -166,7 +167,7 @@ export function CeoAiStyles(): ReactElement {
   transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}
 .mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}
 .mzai-newbtn .ic{width:13px;height:13px}
-.mzai-threads{flex:1;overflow-y:auto;padding:6px 8px 10px}
+.mzai-threads{flex:1;overflow-y:auto;padding:6px 8px 10px;overscroll-behavior:contain}
 .mzai-thread{display:flex;align-items:center;gap:6px;border-radius:10px;padding:8px 8px;cursor:pointer;
   transition:all .12s ease}
 .mzai-thread:hover{background:var(--sidebar-2)}
@@ -183,8 +184,8 @@ export function CeoAiStyles(): ReactElement {
 .mzai-thread-act:hover{background:var(--danger);color:#fff}
 .mzai-thread-act .ic{width:13px;height:13px}
 .mzai-side-empty{padding:12px;font-size:12px;color:var(--muted);line-height:1.6}
-.mzai-main{flex:1;display:flex;flex-direction:column;min-width:0}
-.mzai-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+.mzai-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.mzai-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;overscroll-behavior:contain}
 .mzai-msg-wrap{display:flex;gap:8px;align-items:flex-start;max-width:100%}
 .mzai-msg{display:flex;flex-direction:column;gap:6px;max-width:80%}
 .mzai-msg.user{align-self:flex-end;align-items:flex-end;max-width:85%}
@@ -237,7 +238,15 @@ export function CeoAiStyles(): ReactElement {
 .mzai-reason button{border:none;background:var(--brand);color:#fff;border-radius:8px;padding:6px 14px;
   font:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s ease}
 .mzai-reason button:hover{background:var(--brand-d)}
-.mzai-starters{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px}
+.mzai-suggestbar{display:flex;justify-content:flex-start;padding:0 16px 8px}
+.mzai-suggestbar button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--ink);border-radius:10px;padding:7px 10px;font:inherit;
+  font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease}
+.mzai-suggestbar button:hover,.mzai-suggestbar button[aria-expanded="true"]{border-color:var(--brand-l);
+  background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04));color:var(--brand-d)}
+.mzai-suggestbar .ic{width:14px;height:14px}
+.mzai-starters{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-height:164px;
+  overflow-y:auto;overscroll-behavior:contain}
 .mzai-starters button{display:flex;align-items:center;gap:6px;border:1px solid var(--line);
   background:var(--panel-2);color:var(--ink);border-radius:20px;padding:8px 14px;font:inherit;
   font-size:12px;cursor:pointer;text-align:left;transition:all .15s ease}

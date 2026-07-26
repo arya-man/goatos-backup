@@ -172,6 +172,7 @@ data class ShedRow(
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
     val opensRecordOnly: Boolean = false,
+    val canOpen: Boolean = true,
 )
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.
@@ -878,7 +879,7 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clickable(onClick = onOpen),
+            .clickable(enabled = row.canOpen, onClick = onOpen),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Surf),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

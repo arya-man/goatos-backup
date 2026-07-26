@@ -121,7 +121,7 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
 
 fun sampleScanState(): ScanUiState = ScanUiState(
     shedLabel = "Vaccination · Gandhi 1",
-    cohortLabel = "Milking does",
+    cohortLabel = "Gandhi 1 Scan",
     ringDone = 12,
     ringTotal = 40,
     ringUnitLabel = "vaccinated",

@@ -51,6 +51,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskPresentationDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -191,6 +192,43 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `scan header title uses task shed name plus scan`() = runTest(dispatcher) {
+        val vm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(
+                TaskDetail(
+                    task = TaskSummaryDto(
+                        taskId = "task-1",
+                        title = "Generic vaccination cohort",
+                        presentation = TaskPresentationDto(title = "Park"),
+                    ),
+                    form = FormSpec.Empty,
+                ),
+            ),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shedId" to "shed-1",
+                    "taskId" to "task-1",
+                    "scanTitle" to "Gandhi 1 - Part 3",
+                ),
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
+    }
+
+    @Test
     fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
@@ -219,7 +257,8 @@ class ScanViewModelTest {
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(1, scanVm.state.value.feed.size)
+        assertEquals(2, scanVm.state.value.feed.size)
+        assertTrue(scanVm.state.value.feed.first().vaccineLabel.startsWith("already scanned"))
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }
 
@@ -651,6 +690,7 @@ private class FakeRfidReaderPort : RfidReaderPort {
     override fun refreshStatus() {}
     override fun openSystemPairing() {}
     override fun setCaptureEnabled(enabled: Boolean) {}
+    override fun setCompletionKeySwallowEnabled(enabled: Boolean) {}
     override fun onKeyEvent(event: KeyEvent): Boolean = false
 }
 
