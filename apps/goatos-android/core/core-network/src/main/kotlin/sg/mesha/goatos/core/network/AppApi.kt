@@ -13,6 +13,8 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -636,6 +638,20 @@ interface AppApi {
         request: FeedDistributionCompleteRequestDto,
     ): FeedDistributionCompleteResponseDto
 
+    /**
+     * POST /feed-direction/packing/complete — the verifier-GATED feed-PACKING completion. Carries a
+     * SINGLE MANDATORY packing video ref; flips the shed-session to `pending_verification` and
+     * enqueues a verification item — NOTHING is completed until a verifier approves. A blank proof
+     * is rejected `422 proof_required`. Idempotent on [idempotencyKey]: a replay re-enqueues the SAME
+     * verification item and completes nobody twice. This is separate from both
+     * [completeFeedDirectionSession] (the untouched instant packing path) and
+     * [completeFeedDistribution] (the two-proof distribution path).
+     */
+    suspend fun completeFeedPacking(
+        idempotencyKey: String,
+        request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto
+
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
@@ -1056,6 +1072,16 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): FeedDistributionCompleteResponseDto =
         FeedDistributionCompleteResponseDto(
             completionId = "fake-distribution-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
+
+    override suspend fun completeFeedPacking(
+        idempotencyKey: String,
+        request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto =
+        FeedPackingCompleteResponseDto(
+            completionId = "fake-packing-completion",
             status = "pending_verification",
             newlyPending = true,
         )

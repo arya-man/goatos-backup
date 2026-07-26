@@ -295,6 +295,28 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("feed distribution completion sync is not configured")
 
     /**
+     * Enqueue a verifier-GATED feed-PACKING completion (`POST /feed-direction/packing/complete`).
+     * Simpler than [enqueueFeedDistributionComplete]: a SINGLE proof is MANDATORY and passed by
+     * REFERENCE to its PROOF_UPLOAD outbox row ([packingProofOutboxItemId]): the dispatcher resolves
+     * the uploaded proof_id and sends it, exactly like [enqueueShiftingComplete] resolves its single
+     * mandatory video. Both writes MUST share the same [groupKey] (the shed-session) so the proof
+     * drains strictly before this completion. [idempotencyKey] must be a STABLE caller-persisted key
+     * so a resend re-enqueues the SAME verification item instead of completing twice. This is
+     * SEPARATE from both [enqueueFeedDirectionComplete] (the untouched instant packing path) and
+     * [enqueueFeedDistributionComplete] (the two-proof distribution path).
+     */
+    suspend fun enqueueFeedPackingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        packingProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
+
+    /**
      * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
      * Assigns [permanentIdentifier] to the temporary-tagged goat [groupKey], atomically retiring its
      * temp tag. The caller derives a STABLE [idempotencyKey] from the goat id (never a timestamp-
@@ -719,6 +741,31 @@ class DefaultSyncRepository(
                 workflow = workflow.trim(),
                 distributionProofOutboxItemId = distributionProofOutboxItemId,
                 waterProofOutboxItemId = waterProofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueFeedPackingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        packingProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_PACKING_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedPackingCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                sessionNo = sessionNo,
+                targetDate = targetDate.trim(),
+                workflow = workflow.trim(),
+                packingProofOutboxItemId = packingProofOutboxItemId,
             ),
         ),
     )

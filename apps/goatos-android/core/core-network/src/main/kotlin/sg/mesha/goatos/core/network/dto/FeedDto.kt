@@ -322,6 +322,45 @@ data class FeedDistributionCompleteResponseDto(
     @SerialName("newly_pending") val newlyPending: Boolean = false,
 )
 
+// ---------------------------------------------------------------------------
+// WRITE — POST /feed-direction/packing/complete (verifier-gated)
+// ---------------------------------------------------------------------------
+
+/**
+ * The gated feed-PACKING completion body. Distinct from both [FeedDirectionCompleteRequestDto]
+ * (the untouched instant packing/direction path) and [FeedDistributionCompleteRequestDto] (the
+ * two-proof distribution path): packing needs only ONE MANDATORY packing video. Recording it flips
+ * the shed-session to `pending_verification` and enqueues a verification item — nothing is
+ * completed until a verifier approves.
+ *
+ * Grain is (park, shed, session, target_date, workflow). [parkId] may be null (server resolves the
+ * default park). [packingProofRef] is REQUIRED — a blank value is rejected `422 proof_required`
+ * server-side (the client also gates Submit on it being uploaded). The Idempotency-Key header, not
+ * the body, carries the replay key.
+ */
+@Serializable
+data class FeedPackingCompleteRequestDto(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("session_no") val sessionNo: Int,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("workflow") val workflow: String,
+    @SerialName("packing_proof_ref") val packingProofRef: String,
+)
+
+/**
+ * The gated-completion result. The session is NOT completed here — it moves to
+ * `pending_verification` and a verification item is enqueued. [status] is the new completion status
+ * (`pending_verification`); [newlyPending] is false on an idempotent replay of an already-pending
+ * completion.
+ */
+@Serializable
+data class FeedPackingCompleteResponseDto(
+    @SerialName("completion_id") val completionId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("newly_pending") val newlyPending: Boolean = false,
+)
+
 /** The two dispatch workflows a feed row can belong to. `""` (unset filter) means both. */
 object FeedWorkflow {
     const val NORMAL = "normal"

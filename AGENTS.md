@@ -178,19 +178,40 @@ carrying BOTH proofs — NOTHING is completed yet. ONE verifier APPROVE
 (`BounceDistributionForRework`) flips it to `rework` for a re-shoot. Applies to
 BOTH `normal` and `experiment` workflows. Feed direction is app-only: the
 `/feed/direction` admin-web left-bar leaf is removed (keep `/feed/config`).
-FEED PACKING IS DELIBERATELY NOT GATED AND NOT DISTURBED: its shared completion
-path — `feed_direction_session_completions` (migration `000030`),
-`POST /feed-direction/complete`, `feed.direction.completed`, `CompleteSession`,
-`overlayPackingCompleted`, and the mobile packing screen — is left EXACTLY as
-today (instant, optional-video, no verifier). The gated flow is a SEPARATE
-record, never an ALTER of the packing table. Wiring is the generic Verification
-module: producer `feeddirection` `CompleteDistribution` +
-`feeddirection/adapters/verificationbridge` enqueue; consumer
-`feeddirection/app.FeedDistributionVerificationHandler` on
+Wiring is the generic Verification module: producer `feeddirection`
+`CompleteDistribution` + `feeddirection/adapters/verificationbridge` enqueue;
+consumer `feeddirection/app.FeedDistributionVerificationHandler` on
 `verification.verdict.approved`/`.rework`, filtered to `source.module=feed,
 ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
+
+Confirmed feed-PACKING verification gate (maintainer decision 2026-07-26,
+SUPERSEDING the "FEED PACKING IS DELIBERATELY NOT GATED" rule that the
+feed-distribution lock above originally carried): feed PACKING is now gated the
+same way as feed direction. The operator completes a packing shed-session with
+ONE MANDATORY packing VIDEO (`packing_proof_ref`); a completion missing it is
+rejected 422 `proof_required`. That flips a NEW `feed_packing_completions` row to
+`pending_verification` and enqueues ONE `feed_packing` verification item carrying
+the video — NOTHING is completed yet. ONE verifier APPROVE
+(`ApplyVerifiedPacking`) flips the packing session to `completed` (this is when
+`feed.packing.completed` is emitted); a REJECT (`BouncePackingForRework`) flips
+it to `rework` for a re-shoot. Applies to BOTH `normal` and `experiment`
+workflows; `overlayPackingCompleted` now reads `ListVerifiedPacking`. The gated
+flow is a SEPARATE record on a NEW table, never an ALTER of the old packing
+table. The OLD instant packing path — `feed_direction_session_completions`
+(migration `000030`), `POST /feed-direction/complete`, `feed.direction.completed`,
+`CompleteSession`, and the mobile `FeedCompleteScreen`/`feedCompleteRoute` — is
+left INERT (no longer navigated to from packing) but not deleted; retiring it is
+a separate cleanup. Both feed gates share `source.module=feed` and are kept apart
+ONLY by `ref_type` (`feed_packing_completion` vs `feed_distribution_completion`).
+Wiring: producer `feeddirection` `CompletePacking` +
+`feeddirection/adapters/verificationbridge` `NewPacking`; consumer
+`feeddirection/app.FeedPackingVerificationHandler`. Route
+`POST /feed-direction/packing/complete` (registered in `permissions/routes.go`
+alongside the distribution route, which had been unregistered and would 403).
+Canonical source: `docs/decisions/feed-distribution-verification.md`; migration
+`000033_feed_packing_verification_gate.sql`.
 
 ## Domain Event Integration Is Mandatory
 

@@ -237,3 +237,22 @@ data class FeedDistributionCompletePayload(
     /** Outbox id of the MANDATORY water-distribution proof's (photo or video) PROOF_UPLOAD item. */
     @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String,
 )
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_PACKING_COMPLETE] —
+ * the verifier-GATED packing flow. Simpler than [FeedDistributionCompletePayload]: only ONE
+ * MANDATORY packing video, carried by reference to its PROOF_UPLOAD outbox row (exactly like
+ * [ShiftingCompletePayload]'s single mandatory video). The dispatcher resolves the row's uploaded
+ * `proof_id` and sends it as `packing_proof_ref`. The proof upload is enqueued on the SAME group as
+ * this completion, so it drains first. The shed-session key is the outbox group key.
+ */
+@Serializable
+data class FeedPackingCompletePayload(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("session_no") val sessionNo: Int,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("workflow") val workflow: String,
+    /** Outbox id of the MANDATORY packing VIDEO's PROOF_UPLOAD item. */
+    @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
+)

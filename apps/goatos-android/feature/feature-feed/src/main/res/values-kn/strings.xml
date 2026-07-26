@@ -49,4 +49,11 @@
     <string name="feed_dist_water_captured">ನೀರಿನ ಪುರಾವೆ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
     <string name="feed_dist_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
     <string name="feed_dist_need_both">ಸಲ್ಲಿಸಲು ಎರಡೂ ಪುರಾವೆಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="feed_pack_complete_caption">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ. ಈ ಪ್ಯಾಕಿಂಗ್ ಪೂರ್ಣಗೊಂಡಿದೆ ಎಂದು ಎಣಿಸುವ ಮೊದಲು ಪರಿಶೀಲಕರು ಅದನ್ನು ಪರಿಶೀಲಿಸುತ್ತಾರೆ.</string>
+    <string name="feed_pack_complete_video_title">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ (ಅಗತ್ಯ)</string>
+    <string name="feed_pack_complete_record_video">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_pack_complete_video_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="feed_pack_complete_video_recorded">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
+    <string name="feed_pack_complete_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
+    <string name="feed_pack_complete_need_video">ಸಲ್ಲಿಸಲು ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
 </resources>

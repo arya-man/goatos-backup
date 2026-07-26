@@ -1,10 +1,12 @@
-# Feed distribution requires verifier-approved video before a session is completed
+# Feed distribution AND packing require a verifier-approved video before a session is completed
 
 **Status:** Accepted — maintainer decision, 2026-07-26.
-**Supersedes (for the feed-direction operator flow only):** the "operator marks a shed-session fed
-(optional video), row completed at submit" behaviour as the DIRECTION operator's completion path. The
-`feed_direction_session_completions` table + `POST /feed-direction/complete` are retained unchanged
-for feed PACKING (see below).
+**Supersedes:** the "operator marks a shed-session fed (optional video), row completed at submit"
+behaviour as the operator completion path for BOTH feed DIRECTION and feed PACKING. Direction was
+gated first; packing was gated in a follow-up decision the same day (see
+[Feed packing (also gated)](#feed-packing-also-gated--follow-up-2026-07-26) below), which retired the
+earlier "feed packing is deliberately NOT gated" carve-out. The old `feed_direction_session_completions`
+table + `POST /feed-direction/complete` are now INERT (no longer navigated to), not deleted.
 
 ## Context
 
@@ -20,14 +22,14 @@ Feed direction is also **not a web surface** — it is an app-only operator + ve
 `/feed/direction` left-bar leaf is removed from admin-web nav; `/feed/config` (ration authoring) and
 the packing worklist remain web surfaces.
 
-**Feed packing is deliberately NOT gated and NOT disturbed.** Today feed direction and feed packing
-share one completion record (`feed_direction_session_completions`, migration `000030`): the packing
-worklist is read-only, and on mobile both the Direction and Packing screens open the same
-complete action. Rather than gate that shared record (which would drag packing into the verification
-flow), the gated distribution+water flow is a **separate record** in a **new** table. The entire
-`feed_direction_session_completions` path — table, `POST /feed-direction/complete`,
-`feed.direction.completed`, and the mobile packing screen — is left **exactly as today** (instant,
-optional-video, no verifier). Packing's completion is untouched.
+**Feed packing was initially carved out, then also gated (same day).** When distribution was gated,
+packing was deliberately left instant so the shared `feed_direction_session_completions` record was not
+dragged into verification. A follow-up maintainer decision the same day gated packing too, on the SAME
+pattern — its own separate new table (`feed_packing_completions`), one mandatory packing video, one
+verifier approve. See [Feed packing (also gated)](#feed-packing-also-gated--follow-up-2026-07-26). The
+old `feed_direction_session_completions` path (table, `POST /feed-direction/complete`,
+`feed.direction.completed`, and the mobile `FeedCompleteScreen`) is now INERT — nothing navigates to it —
+but is retained, not deleted; retiring it is a separate cleanup.
 
 ## Decision
 
@@ -76,7 +78,8 @@ Feed reuses the generic Verification module (the same machinery vaccination and 
 
 The direction preview overlay (`overlayDirectionCompleted`) reads the NEW
 `feed_distribution_completions` table (verified distributions); the packing overlay
-(`overlayPackingCompleted`) keeps reading the untouched `feed_direction_session_completions` table.
+(`overlayPackingCompleted`) reads the NEW `feed_packing_completions` table (see the packing section
+below) — no overlay reads the inert `feed_direction_session_completions` table anymore.
 
 ## Schema
 
@@ -115,5 +118,49 @@ touched — it remains packing's completion record):
   emitted + idempotent replay; rejection → `rework` + re-submit.
 - Registered in `context/architecture/domain-event-registry.json`: a new `feed.distribution.completed`
   producer, and a feeddirection consumer under `verification.verdict.approved` /
-  `verification.verdict.rework`. The existing `feed.direction.completed` producer (packing path) is
-  unchanged.
+  `verification.verdict.rework`. The existing `feed.direction.completed` producer (old instant path) is
+  unchanged but is now inert.
+
+## Feed packing (also gated) — follow-up, 2026-07-26
+
+The same day distribution was gated, the maintainer extended the gate to feed **PACKING**, retiring the
+"feed packing is deliberately NOT gated" carve-out above. Packing is gated on the identical pattern,
+with one difference: packing needs **ONE mandatory video** (no water proof), so it is a strictly
+simpler single-proof version of the distribution flow.
+
+```
+packing session -> operator uploads ONE MANDATORY packing VIDEO
+  -> PENDING VERIFICATION (feed_packing_completions.status='pending_verification'; NOTHING completed)
+  -> verifier APPROVES -> COMPLETED (feed.packing.completed emitted)
+  -> verifier REJECTS  -> REWORK (operator re-shoots + re-submits)
+```
+
+- **Separate new table + record.** Migration `000033_feed_packing_verification_gate.sql` adds
+  `feed_packing_completions` (same grain `(tenant, park, shed, session_no, target_date, workflow)`,
+  same `status` set, one `packing_proof_ref` instead of two proofs, same idempotency/row_version/audit
+  columns, same `CHECK` requiring the video on `pending_verification`/`completed`). It is NOT an ALTER
+  of the old `feed_direction_session_completions` table. The `validate_outbox_event_tenant()` trigger
+  gains a `feed_packing_completion` branch.
+- **Producer / enqueue** — `feeddirection` `CompletePacking` writes the pending row and (via
+  `feeddirection/adapters/verificationbridge.NewPacking`) enqueues one verification item, category
+  `feed_packing`, `SourceRef{module: feed, ref_type: feed_packing_completion}`, with the video as its
+  single media ref. Both feed gates share `module=feed`; the DISTINCT `ref_type` is what keeps the two
+  handlers from cross-firing.
+- **Consumer / apply** — `feeddirection/app.FeedPackingVerificationHandler` filters to
+  `module=feed, ref_type=feed_packing_completion` and calls `ApplyVerifiedPacking` (approve →
+  `completed` + `feed.packing.completed`, idempotent) or `BouncePackingForRework` (reject → `rework`).
+- **Overlay** — `overlayPackingCompleted` now reads `ListVerifiedPacking` (verified rows only).
+- **Route** — `POST /feed-direction/packing/complete` (422 `proof_required` when the video is blank),
+  registered in `permissions/routes.go` on `FeedDirectionComplete`. Registering it also surfaced that
+  the distribution route had never been added to `routes.go` — an unregistered route 403s
+  (`route_not_registered`), so both are now registered.
+- **Mobile** — a new `FeedPackingCompleteScreen`/`FeedPackingCompleteViewModel` (one mandatory video,
+  camera-only), outbox op `FEED_PACKING_COMPLETE`, `enqueueFeedPackingComplete` /
+  `dispatchFeedPackingComplete`. The packing row tap now opens this screen; the old
+  `FeedCompleteScreen`/`feedCompleteRoute` is left inert.
+
+**Proof:** `backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go`
+— missing-video rejected; completion → `pending_verification`; verifier approval → `completed` +
+`feed.packing.completed` + idempotent replay; rejection → `rework` + re-submit. Registered in the
+domain-event registry as a new `feed.packing.completed` producer plus feeddirection consumers under the
+verdict events.

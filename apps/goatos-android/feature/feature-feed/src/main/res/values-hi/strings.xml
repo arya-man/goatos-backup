@@ -49,4 +49,11 @@
     <string name="feed_dist_water_captured">पानी का प्रमाण रिकॉर्ड किया गया</string>
     <string name="feed_dist_submit">सत्यापन के लिए सबमिट करें</string>
     <string name="feed_dist_need_both">सबमिट करने के लिए दोनों प्रमाण रिकॉर्ड करें।</string>
+    <string name="feed_pack_complete_caption">पैकिंग वीडियो रिकॉर्ड करें। इस पैकिंग को पूर्ण गिनने से पहले एक सत्यापनकर्ता इसकी समीक्षा करता है।</string>
+    <string name="feed_pack_complete_video_title">पैकिंग वीडियो (आवश्यक)</string>
+    <string name="feed_pack_complete_record_video">पैकिंग वीडियो रिकॉर्ड करें</string>
+    <string name="feed_pack_complete_video_recording">रिकॉर्ड हो रहा है…</string>
+    <string name="feed_pack_complete_video_recorded">पैकिंग वीडियो रिकॉर्ड किया गया</string>
+    <string name="feed_pack_complete_submit">सत्यापन के लिए सबमिट करें</string>
+    <string name="feed_pack_complete_need_video">सबमिट करने के लिए पैकिंग वीडियो रिकॉर्ड करें।</string>
 </resources>
