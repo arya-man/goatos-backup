@@ -38,9 +38,11 @@ import javax.inject.Inject
  * confirming an approved movement physically happened.
  *
  * Two independent, offline-first writes:
- *  - **Optional video** (`enqueueProofUpload`): registered against the destination shed with the
- *    movement id in metadata, uploaded to GCS via the same signed-URL path as vaccination proof. It
- *    is OPTIONAL and does NOT gate completion.
+ *  - **Mandatory video** (`enqueueProofUpload`): captured LIVE with the in-app camera OR picked from
+ *    the device gallery, registered against the destination shed with the movement id in metadata,
+ *    uploaded to GCS via the same signed-URL path as vaccination proof. It is REQUIRED (maintainer
+ *    decision, 2026-07-26): completion stays disabled until a video is recorded/uploaded, and a
+ *    verifier must approve it before the move is applied.
  *  - **Mark done** (`enqueueShiftingComplete`): the write that RELOCATES the animals. Idempotency is
  *    a STABLE `SavedStateHandle`-persisted key keyed to the movement, so a resend after process
  *    death collapses onto the original relocation instead of moving the herd twice.
@@ -87,7 +89,8 @@ class ShiftingExecuteViewModel @Inject constructor(
 
     fun onEvent(event: ShiftingExecuteEvent) {
         when (event) {
-            ShiftingExecuteEvent.RecordVideo -> recordVideo()
+            ShiftingExecuteEvent.RecordVideo -> captureVideo(fromGallery = false)
+            ShiftingExecuteEvent.PickVideo -> captureVideo(fromGallery = true)
             ShiftingExecuteEvent.MarkDone -> markDone()
             ShiftingExecuteEvent.Back -> Unit // navigation — handled by the nav host.
         }
@@ -106,18 +109,19 @@ class ShiftingExecuteViewModel @Inject constructor(
     }
 
     /**
-     * MANDATORY video (maintainer decision, 2026-07-26). Captures a clip through the same
-     * [ProofCaptureSource] the vaccination flow binds, then enqueues a PROOF_UPLOAD under the
-     * MOVEMENT'S outbox group (shiftingEventId) so it drains strictly BEFORE the completion on the
-     * same group. The proof outbox item id is retained so the completion can resolve the uploaded
-     * proof_id and send it as proof_ref. Until a video is captured, "Mark done" stays disabled.
+     * MANDATORY video (maintainer decision, 2026-07-26). Records a LIVE clip ([fromGallery] false)
+     * or picks one from the device gallery ([fromGallery] true) through the same [ProofCaptureSource]
+     * the vaccination flow binds, then enqueues a PROOF_UPLOAD under the MOVEMENT'S outbox group
+     * (shiftingEventId) so it drains strictly BEFORE the completion on the same group. The proof
+     * outbox item id is retained so the completion can resolve the uploaded proof_id and send it as
+     * proof_ref. Until a video is captured, "Mark done" stays disabled.
      */
-    private fun recordVideo() {
+    private fun captureVideo(fromGallery: Boolean) {
         if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo()
+                if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
             } catch (error: Exception) {
                 crashReporter.recordException(error, "shifting execute video capture failed")
                 null
@@ -133,7 +137,16 @@ class ShiftingExecuteViewModel @Inject constructor(
                 scopeId = destinationShedId,
                 subjectType = "shed",
                 subjectId = destinationShedId,
-                metadata = mapOf(META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId)),
+                // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
+                // capture_source (in_app_camera | gallery_picker) plus the capture window. They come
+                // straight off the captured clip so a live recording and a gallery upload each
+                // register with the true source; omitting them is rejected 400 invalid_proof.
+                metadata = mapOf(
+                    META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId),
+                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
+                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
+                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
+                ),
             )
             val result = syncRepository.enqueueProofUpload(
                 // Group by the MOVEMENT (not the shed) so this proof drains strictly before the
@@ -256,11 +269,14 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val KEY_OUTBOX_ITEM_ID = "shiftingExecute.outboxItemId"
         const val KEY_PROOF_OUTBOX_ITEM_ID = "shiftingExecute.proofOutboxItemId"
         const val META_SHIFTING_EVENT_ID = "shifting_event_id"
+        const val META_CAPTURE_SOURCE = "capture_source"
+        const val META_CAPTURED_START_MS = "captured_start_ms"
+        const val META_CAPTURED_END_MS = "captured_end_ms"
         const val UNKNOWN_LOCATION = "—"
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
         const val SYNCED_MESSAGE = "Movement completed. The animals are now at the destination shed."
         const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
-        const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record it again."
+        const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record or upload it again."
         const val VIDEO_REQUIRED = "Record the video first — a verifier reviews it before the move is applied."
     }
 }

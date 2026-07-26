@@ -2,10 +2,9 @@
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
     <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
-    <string name="verify_module_counts">ಎಣಿಕೆ</string>
+    <string name="verify_module_shifting">ಸ್ಥಳಾಂತರ</string>
+    <string name="verify_module_packing">ಪ್ಯಾಕಿಂಗ್</string>
     <string name="verify_module_feed_direction">ಆಹಾರ ನಿರ್ದೇಶನ</string>
-    <string name="verify_module_under_construction">ನಿರ್ಮಾಣ ಹಂತದಲ್ಲಿದೆ</string>
-    <string name="verify_module_under_construction_subtitle">ಇದರ ಕಾರ್ಯಪ್ರವಾಹ ಸಿದ್ಧವಾದಾಗ ಈ ಪರಿಶೀಲನಾ ಸರತಿ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ.</string>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
     <string name="verify_action_queue_title">ಲಸಿಕೆ ವೀಡಿಯೊಗಳು</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>

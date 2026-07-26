@@ -136,7 +136,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 scopeId = shedId,
                 subjectType = "shed",
                 subjectId = shedId,
-                metadata = mapOf(META_SESSION_NO to JsonPrimitive(sessionNo.toString())),
+                // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
+                // capture_source (in_app_camera | gallery_picker) + the capture window. They come
+                // straight off the captured clip; omitting them is rejected 400 invalid_proof.
+                metadata = mapOf(
+                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
+                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
+                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
+                ),
             )
             when (
                 val result = syncRepository.enqueueProofUpload(
@@ -177,6 +185,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             val mimeType: String
             val localUri: String?
             val durationMs: Long?
+            // Video proofs (this water slot MAY be a video) must carry capture_source + the capture
+            // window, or the backend rejects them 400 invalid_proof. A photo needs none of the three.
+            val captureSource: String?
+            val capturedStartMs: Long?
+            val capturedEndMs: Long?
             if (isVideo) {
                 val captured = try {
                     if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
@@ -188,6 +201,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 mimeType = captured?.mimeType ?: "video/mp4"
                 localUri = captured?.localUri
                 durationMs = captured?.let { (it.endedAtMs - it.startedAtMs).takeIf { d -> d > 0 } }
+                captureSource = captured?.captureSource
+                capturedStartMs = captured?.startedAtMs
+                capturedEndMs = captured?.endedAtMs
             } else {
                 val captured = try {
                     photoCaptureSource.capturePhoto()
@@ -199,10 +215,23 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 mimeType = captured?.mimeType ?: "image/jpeg"
                 localUri = captured?.localUri
                 durationMs = null
+                captureSource = null
+                capturedStartMs = null
+                capturedEndMs = null
             }
             if (localUri == null) {
                 _state.update { it.copy(isCapturingWater = false) }
                 return@launch
+            }
+            val metadata = if (proofType == "video" && captureSource != null && capturedStartMs != null && capturedEndMs != null) {
+                mapOf(
+                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_CAPTURE_SOURCE to JsonPrimitive(captureSource),
+                    META_CAPTURED_START_MS to JsonPrimitive(capturedStartMs),
+                    META_CAPTURED_END_MS to JsonPrimitive(capturedEndMs),
+                )
+            } else {
+                mapOf(META_SESSION_NO to JsonPrimitive(sessionNo.toString()))
             }
             val request = ProofUploadRequestDto(
                 proofType = proofType,
@@ -211,7 +240,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 scopeId = shedId,
                 subjectType = "shed",
                 subjectId = shedId,
-                metadata = mapOf(META_SESSION_NO to JsonPrimitive(sessionNo.toString())),
+                metadata = metadata,
             )
             when (
                 val result = syncRepository.enqueueProofUpload(
@@ -337,6 +366,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val KEY_VIDEO_PROOF_ITEM_ID = "feedDistribution.videoProofItemId"
         private const val KEY_WATER_PROOF_ITEM_ID = "feedDistribution.waterProofItemId"
         private const val META_SESSION_NO = "session_no"
+        private const val META_CAPTURE_SOURCE = "capture_source"
+        private const val META_CAPTURED_START_MS = "captured_start_ms"
+        private const val META_CAPTURED_END_MS = "captured_end_ms"
         private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the video and water proof."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this feeding is counted."
         private const val VIDEO_QUEUED = "Feed video saved on this phone. It will upload automatically."
