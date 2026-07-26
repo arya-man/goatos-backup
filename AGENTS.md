@@ -168,6 +168,15 @@ immediately notifies the park verifier(s) and leadership with role-specific
 routes: verifier to video review, leadership to Vaccination overview. Run
 `make fcm-recipient-routing-guard` with local CI for any notification change.
 
+Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
+batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/
+verification truth in WF, CT, AC, Calendar, Android, or verifier queues. Shed
+grain state comes from shed-scoped facts: `sop_submissions`,
+`sop_submission_items`, `vaccination_completions`, and `proof_artifacts`, joined
+by the active shed/submission/batch grain. The mobile shed-submit idempotency key
+must include the active shed scope, and backend submit must stay idempotent when
+another shed on the same shared parent already submitted.
+
 Frontend/mobile render backend-owned contracts and send idempotent commands; they
 do not create private business follow-up pipelines. Direct live-animal table
 writes are allowed only through registered canonical producers or approved seed

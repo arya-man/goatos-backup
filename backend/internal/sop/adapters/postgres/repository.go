@@ -1358,12 +1358,42 @@ RETURNING submission_id::text`,
 	var taskID string
 	err = tx.QueryRow(ctx, `
 UPDATE sop_tasks
-SET state = $3,
+SET state = CASE
+        WHEN state = 'accepted' THEN state
+        WHEN $3 <> 'needs_review' THEN $3
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM obligation_batches ob
+            WHERE ob.tenant_id = sop_tasks.tenant_id
+              AND ob.sop_task_id = sop_tasks.task_id
+        ) THEN $3
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM obligation_instances oi
+            JOIN obligation_batches ob
+              ON ob.tenant_id = oi.tenant_id
+             AND ob.batch_id = oi.batch_id
+            WHERE oi.tenant_id = sop_tasks.tenant_id
+              AND ob.sop_task_id = sop_tasks.task_id
+              AND oi.target_type = 'goat'
+              AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM sop_submission_items si
+                  WHERE si.tenant_id = oi.tenant_id
+                    AND si.task_id = sop_tasks.task_id
+                    AND si.goat_id = oi.target_id
+                    AND si.state IN ('accepted', 'needs_review')
+              )
+        ) THEN $3
+        WHEN state IN ('queued', 'assigned') THEN 'in_progress'
+        ELSE state
+    END,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
-  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested')
+  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested', 'needs_review', 'accepted')
 RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.TaskState).Scan(&taskID)
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
