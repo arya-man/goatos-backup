@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
@@ -131,10 +132,14 @@ class ScanViewModel @Inject constructor(
 
     // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
     // per-goat capture's default subject instead of a hardcoded ProofSubject.GOAT.
-    private val proofPolicy: StateFlow<ProofPolicy> =
+    private val taskDetail: StateFlow<TaskDetail?> =
         (taskId?.let { id ->
-            tasksRepository.observeTaskDetail(id).map { it.data?.proofPolicy ?: ProofPolicy.Default }
-        } ?: flowOf(ProofPolicy.Default))
+            tasksRepository.observeTaskDetail(id).map { it.data }
+        } ?: flowOf(null))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val proofPolicy: StateFlow<ProofPolicy> =
+        taskDetail.map { it?.proofPolicy ?: ProofPolicy.Default }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProofPolicy.Default)
 
     /**
@@ -205,6 +210,7 @@ class ScanViewModel @Inject constructor(
         _refreshError,
         proofPolicy,
         _duplicateNotice,
+        taskDetail,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
         val total = values[1] as Int
@@ -228,6 +234,7 @@ class ScanViewModel @Inject constructor(
         val refreshError = values[18] as String?
         val policy = values[19] as ProofPolicy
         val duplicateNotice = values[20] as String?
+        val detail = values[21] as TaskDetail?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -287,6 +294,7 @@ class ScanViewModel @Inject constructor(
         val localFeedKeys = feed.map { it.primaryTag to it.vaccineLabel }.toSet()
         val mergedFeed = feed + serverFeed.filterNot { (it.primaryTag to it.vaccineLabel) in localFeedKeys }
         gate.copy(
+            cohortLabel = scanHeaderTitle(detail),
             feed = mergedFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
@@ -823,6 +831,15 @@ private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
 private const val OPERATOR_ROLE = "operator"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
+
+private fun scanHeaderTitle(detail: TaskDetail?): String {
+    val shedName = detail?.task?.presentation?.title
+        ?.takeIf { it.isNotBlank() }
+        ?: detail?.task?.title?.takeIf { it.isNotBlank() }
+    return shedName
+        ?.let { if (it.endsWith(" scan", ignoreCase = true)) it else "$it Scan" }
+        .orEmpty()
+}
 
 private fun emptyScanState(): ScanUiState = ScanUiState(
     shedLabel = "",

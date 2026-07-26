@@ -51,6 +51,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.TaskPresentationDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -188,6 +189,37 @@ class ScanViewModelTest {
 
         assertEquals("restored evidence must follow the duplicate path", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+    }
+
+    @Test
+    fun `scan header title uses task shed name plus scan`() = runTest(dispatcher) {
+        val vm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(
+                TaskDetail(
+                    task = TaskSummaryDto(
+                        taskId = "task-1",
+                        title = "Generic vaccination cohort",
+                        presentation = TaskPresentationDto(title = "Gandhi 1"),
+                    ),
+                    form = FormSpec.Empty,
+                ),
+            ),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("Gandhi 1 Scan", vm.state.value.cohortLabel)
     }
 
     @Test
