@@ -9,4 +9,8 @@
     <string name="proof_camera_stop_recording">Stop and save proof recording</string>
     <string name="proof_camera_state_ready">Ready to record</string>
     <string name="proof_camera_state_recording">Recording</string>
+    <string name="proof_photo_title">Take water proof photo</string>
+    <string name="proof_photo_instruction">Keep the water distribution clearly visible</string>
+    <string name="proof_photo_take">Take photo</string>
+    <string name="proof_photo_cancel">Cancel photo capture</string>
 </resources>

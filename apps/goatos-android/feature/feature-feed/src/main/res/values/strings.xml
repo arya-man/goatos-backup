@@ -36,4 +36,17 @@
     <string name="feed_complete_video_recording">Recording…</string>
     <string name="feed_complete_video_recorded">Video recorded</string>
     <string name="feed_complete_done">Mark fed — Done</string>
+    <string name="feed_dist_caption">Record the feed-distribution video and a water-distribution proof (photo or video). A verifier reviews them before this feeding is counted as done.</string>
+    <string name="feed_dist_video_title">Feed distribution video (required)</string>
+    <string name="feed_dist_record_video">Record feed video</string>
+    <string name="feed_dist_video_recording">Recording…</string>
+    <string name="feed_dist_video_recorded">Feed video recorded</string>
+    <string name="feed_dist_water_title">Water distribution proof (required)</string>
+    <string name="feed_dist_water_hint">Photo or video</string>
+    <string name="feed_dist_take_water_photo">Take water photo</string>
+    <string name="feed_dist_record_water_video">Record water video</string>
+    <string name="feed_dist_water_capturing">Capturing…</string>
+    <string name="feed_dist_water_captured">Water proof recorded</string>
+    <string name="feed_dist_submit">Submit for verification</string>
+    <string name="feed_dist_need_both">Record both proofs to submit.</string>
 </resources>

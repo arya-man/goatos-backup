@@ -9,4 +9,8 @@
     <string name="proof_camera_stop_recording">रोकें और प्रमाण रिकॉर्डिंग सहेजें</string>
     <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
     <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
+    <string name="proof_photo_title">पानी प्रमाण फ़ोटो लें</string>
+    <string name="proof_photo_instruction">पानी वितरण को स्पष्ट रूप से दिखाई देने दें</string>
+    <string name="proof_photo_take">फ़ोटो लें</string>
+    <string name="proof_photo_cancel">फ़ोटो कैप्चर रद्द करें</string>
 </resources>

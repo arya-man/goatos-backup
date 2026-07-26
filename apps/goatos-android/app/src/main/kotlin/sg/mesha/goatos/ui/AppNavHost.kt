@@ -25,8 +25,10 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import sg.mesha.goatos.capture.BindPhotoCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
+import sg.mesha.goatos.capture.rememberDelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
@@ -40,6 +42,8 @@ import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
@@ -83,6 +87,7 @@ import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
@@ -181,6 +186,28 @@ object Routes {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+    }
+
+    // L2 verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md),
+    // reached ONLY by tapping a shed-session row on Feed DIRECTION. Distinct route from the two L0 feed
+    // roots and from [FEED_COMPLETE] (the untouched Packing/direction-shared completion) — never a
+    // prefix reuse. Same grain args as [FEED_COMPLETE]; the operator records BOTH mandatory proofs here.
+    const val FEED_DISTRIBUTION_COMPLETE =
+        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+
+    fun feedDistributionCompleteRoute(
+        parkId: String,
+        shedId: String,
+        sessionNo: Int,
+        workflow: String,
+        targetDate: String,
+        shedLabel: String,
+        sessionLabel: String,
+    ): String {
+        fun e(value: String): String = Uri.encode(value)
+        val park = parkId.ifBlank { "-" }
+        return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
     }
 
@@ -948,8 +975,11 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
+                        // Direction rows open the verifier-GATED distribution flow (two mandatory
+                        // proofs -> pending_verification). Packing rows (below) keep the untouched
+                        // instant FeedCompleteScreen — docs/decisions/feed-distribution-verification.md.
                         is FeedDirectionEvent.OpenRow -> navController.navigate(
-                            Routes.feedCompleteRoute(
+                            Routes.feedDistributionCompleteRoute(
                                 parkId = event.parkId,
                                 shedId = event.shedId,
                                 sessionNo = event.sessionNo,
@@ -1031,6 +1061,42 @@ fun AppNavHost(
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                 FeedCompleteScreen(state = state, onEvent = onEvent)
+            }
+        }
+
+        // L2 verifier-GATED feed-DISTRIBUTION completion: MANDATORY feed video + MANDATORY water
+        // proof (photo or video) -> pending_verification. Both camera bindings are held only while
+        // composed (operator capture role gated), releasing on leave.
+        composable(
+            route = Routes.FEED_DISTRIBUTION_COMPLETE,
+            arguments = listOf(
+                navArgument(FeedDistributionCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
+                navArgument(FeedDistributionCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedDistributionCompleteViewModel.ARG_SESSION_NO) { type = NavType.StringType },
+                navArgument(FeedDistributionCompleteViewModel.ARG_WORKFLOW) { type = NavType.StringType },
+                navArgument(FeedDistributionCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
+                navArgument(FeedDistributionCompleteViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedDistributionCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: FeedDistributionCompleteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (FeedDistributionEvent) -> Unit = { event ->
+                when (event) {
+                    FeedDistributionEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                FeedDistributionCompleteScreen(state = state, onEvent = onEvent)
             }
         }
 

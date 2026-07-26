@@ -22,6 +22,8 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -412,6 +414,12 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: FeedDirectionCompleteRequestDto,
     ): FeedDirectionCompleteResponseDto
+
+    @POST("feed-direction/distribution/complete")
+    suspend fun completeFeedDistribution(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto
 
     @POST("app/counts/birth-events")
     suspend fun recordCountsBirthEvent(
@@ -821,6 +829,11 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: FeedDirectionCompleteRequestDto,
     ): FeedDirectionCompleteResponseDto = service.completeFeedDirectionSession(idempotencyKey, request)
+
+    override suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto = service.completeFeedDistribution(idempotencyKey, request)
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

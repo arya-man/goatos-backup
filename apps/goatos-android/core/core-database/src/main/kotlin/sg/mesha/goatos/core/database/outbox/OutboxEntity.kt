@@ -87,6 +87,20 @@ enum class OutboxOpType {
      * strictly oldest-first.
      */
     FEED_DIRECTION_COMPLETE,
+
+    /**
+     * Feed DISTRIBUTION completion (`POST /feed-direction/distribution/complete`), the
+     * verifier-GATED direction flow (docs/decisions/feed-distribution-verification.md). Distinct
+     * from [FEED_DIRECTION_COMPLETE] (the untouched packing path): it carries a MANDATORY
+     * feed-distribution video ref AND a MANDATORY water-distribution proof ref (photo or video),
+     * both resolved from PROOF_UPLOAD rows enqueued on the SAME group that drain first (mirroring
+     * [SHIFTING_COMPLETE]'s mandatory-video coupling). It flips the shed-session to
+     * `pending_verification` — nothing is completed until a verifier approves the pair. Its caller
+     * derives a STABLE idempotency key so a server-committed-but-client-unrecorded retry re-enqueues
+     * the SAME verification item instead of completing twice. The shed-session key is the outbox
+     * group key so two completions of the same shed-session drain strictly oldest-first.
+     */
+    FEED_DISTRIBUTION_COMPLETE,
 }
 
 /**
