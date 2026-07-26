@@ -257,7 +257,8 @@ class ScanViewModelTest {
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(1, scanVm.state.value.feed.size)
+        assertEquals(2, scanVm.state.value.feed.size)
+        assertTrue(scanVm.state.value.feed.first().vaccineLabel.startsWith("already scanned"))
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }
 
@@ -689,6 +690,7 @@ private class FakeRfidReaderPort : RfidReaderPort {
     override fun refreshStatus() {}
     override fun openSystemPairing() {}
     override fun setCaptureEnabled(enabled: Boolean) {}
+    override fun setCompletionKeySwallowEnabled(enabled: Boolean) {}
     override fun onKeyEvent(event: KeyEvent): Boolean = false
 }
 

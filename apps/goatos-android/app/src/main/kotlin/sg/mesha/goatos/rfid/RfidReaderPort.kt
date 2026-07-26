@@ -62,6 +62,9 @@ interface RfidReaderPort {
     /** Route gating: only capture hardware key events while an RFID-accepting screen is active. */
     fun setCaptureEnabled(enabled: Boolean)
 
+    /** Route gating: while on Scan, RFID Enter/Tab must never fall through to focused UI controls. */
+    fun setCompletionKeySwallowEnabled(enabled: Boolean)
+
     /** Feed a hardware key event; returns true if consumed as (part of) a tag read. */
     fun onKeyEvent(event: KeyEvent): Boolean
 }

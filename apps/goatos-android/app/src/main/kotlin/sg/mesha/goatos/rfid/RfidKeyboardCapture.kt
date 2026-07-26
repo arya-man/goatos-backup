@@ -30,14 +30,17 @@ class RfidKeyboardCapture(
     @Volatile
     var enabled: Boolean = false
 
+    @Volatile
+    var swallowCompletionKeys: Boolean = false
+
     private val buffer = StringBuilder()
     private var lastKeyAtMs: Long = 0L
     private var deviceName: String? = null
 
     /** Returns true if the event was consumed as tag input (caller must not pass it on). */
     fun onKeyEvent(event: KeyEvent): Boolean {
-        if (!enabled) return false
         val completion = isCompletionKey(event)
+        if (!enabled) return completion && swallowCompletionKeys
         val tagChar = event.unicodeChar != 0 && Character.isLetterOrDigit(event.unicodeChar)
         if (!completion && !tagChar) return false // let non-tag keys through
         if (event.action != KeyEvent.ACTION_DOWN) return true // swallow the UP of a consumed key

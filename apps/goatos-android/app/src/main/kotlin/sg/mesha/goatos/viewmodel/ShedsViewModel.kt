@@ -282,6 +282,7 @@ class ShedsViewModel @Inject constructor(
                 sopVersionId = identity.sopVersionId,
                 taskRowVersion = identity.taskRowVersion,
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
+                canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->

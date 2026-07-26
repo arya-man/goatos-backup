@@ -253,6 +253,7 @@ dependencies {
 
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
 }
 
 baselineProfile {

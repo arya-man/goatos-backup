@@ -329,7 +329,7 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    /** Enable/disable keyboard-wedge capture with the Scan screen's composition lifecycle. */
+    /** Enable/disable keyboard-wedge capture when the roster is ready to accept tag digits. */
     fun setCaptureActive(active: Boolean) {
         reader.setCaptureEnabled(active)
         if (active) {
@@ -350,8 +350,14 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    /** Swallow RFID completion keys while Scan owns the screen so Enter cannot trigger navigation. */
+    fun setCompletionKeySwallowActive(active: Boolean) {
+        reader.setCompletionKeySwallowEnabled(active)
+    }
+
     override fun onCleared() {
         readerRefreshJob?.cancel()
+        reader.setCompletionKeySwallowEnabled(false)
         reader.setCaptureEnabled(false)
     }
 
@@ -488,8 +494,12 @@ class ScanViewModel @Inject constructor(
                         recordRosterScan(row, tag, capturedAtMs)
                     } else {
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned")
-                        // Re-scanning an already-done tag must NOT pile another row into the feed
-                        // (the tag already has a DONE row there) — surface a transient strip instead.
+                        _feed.update {
+                            prependFeed(
+                                ScanFeedEntry(row.primaryTag, row.secondaryTag, "already scanned · ${row.vaccineLabel}", ScanStatus.DONE, scanTimeLabel(capturedAtMs)),
+                                it,
+                            )
+                        }
                         _duplicateNotice.value = "Already scanned · ${row.vaccineLabel}"
                     }
                 }
@@ -510,7 +520,7 @@ class ScanViewModel @Inject constructor(
      *  complete SSOT via [findScanRosterByTag], independent of the visible window). A background
      *  refresh is stale-while-revalidate only; while Room has a roster, it must not block scanning. */
     private fun canAcceptScanInput(): Boolean =
-        _operatorAllowed.value == true && rosterTotal.value > 0 && !state.value.hasMore
+        state.value.ringTotal > 0
 
     private fun draftDoneIds(): Set<String> =
         persistedScans.value.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet() + _localDone.value
@@ -669,7 +679,7 @@ class ScanViewModel @Inject constructor(
             pendingCount = pending,
             skippedCount = skipped,
             canSubmit = false, // computeProofGate decides
-            scanEnabled = operatorAllowed && total > 0 && !hasMore,
+            scanEnabled = total > 0 && !hasMore,
             hasMore = hasMore,
         )
     }
