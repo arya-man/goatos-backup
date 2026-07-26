@@ -251,18 +251,25 @@ function ApprovalsDrawerPanel({
           </div>
         </section>
 
+        {/* One decision block: the prominent green Approve action on top, then the reject reason and
+            a red (destructive) Reject action, separated by an "or" rule. Both are full-width so the
+            two choices read as equal-weight, mutually-exclusive decisions rather than two stray
+            buttons. Kept as two separate <form>s because approve and reject post to different server
+            actions and only reject carries a reason. */}
         <section className="card" style={{ marginTop: 14 }}>
           <div className="hd">
-            <h3>{COPY.approve.title}</h3>
+            <h3>{COPY.decision.title}</h3>
           </div>
-          <div className="bd">
-            <form action={approveApprovalAction} style={{ display: "grid", gap: 8 }}>
+          <div className="bd" style={{ display: "grid", gap: 12 }}>
+            {decided ? <div className="note">{COPY.approve.disabledDecided}</div> : null}
+
+            <form action={approveApprovalAction}>
               <input type="hidden" name="request_id" value={item.approval_request_id} />
               <input type="hidden" name="return_to" value={returnTo} />
-              {decided ? <div className="note">{COPY.approve.disabledDecided}</div> : null}
               <button
                 type="submit"
                 className="btn p"
+                style={{ width: "100%", justifyContent: "center" }}
                 disabled={decided}
                 aria-disabled={decided}
                 title={decided ? COPY.approve.disabledDecided : undefined}
@@ -270,14 +277,9 @@ function ApprovalsDrawerPanel({
                 {COPY.approve.submit}
               </button>
             </form>
-          </div>
-        </section>
 
-        <section className="card" style={{ marginTop: 14 }}>
-          <div className="hd">
-            <h3>{COPY.reject.title}</h3>
-          </div>
-          <div className="bd">
+            <div className="decision-or">{COPY.decision.or}</div>
+
             <form action={rejectApprovalAction} style={{ display: "grid", gap: 8 }}>
               <input type="hidden" name="request_id" value={item.approval_request_id} />
               <input type="hidden" name="return_to" value={returnTo} />
@@ -285,10 +287,10 @@ function ApprovalsDrawerPanel({
                 <span>{COPY.reject.reasonLabel}</span>
                 <textarea name="reason" rows={2} placeholder={COPY.reject.reasonPlaceholder} disabled={decided} required />
               </label>
-              {decided ? <div className="note">{COPY.reject.disabledDecided}</div> : null}
               <button
                 type="submit"
-                className="btn"
+                className="btn dng"
+                style={{ width: "100%", justifyContent: "center" }}
                 disabled={decided}
                 aria-disabled={decided}
                 title={decided ? COPY.reject.disabledDecided : undefined}
