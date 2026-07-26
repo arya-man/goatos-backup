@@ -59,6 +59,10 @@ export const APPROVALS_COPY = {
     summaryEmpty: "No additional detail on this request.",
     note: "Approving applies the request's effect atomically (a birth/death lifecycle change, or authorizing a shifting movement). Rejecting applies nothing and requires a reason the field operator will see.",
   },
+  decision: {
+    title: "Decision",
+    or: "or",
+  },
   approve: {
     title: "Approve",
     submit: "Approve request",

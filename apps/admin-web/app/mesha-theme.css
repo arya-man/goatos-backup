@@ -430,6 +430,15 @@
   .btn.sm{padding:6px 10px;font-size:12.5px}
   .btn.icon{width:32px;height:32px;min-height:32px;padding:0;justify-content:center;flex:0 0 auto}
   .btn.gh{background:transparent;border-color:transparent;color:var(--brand-d)}
+  /* Destructive action button (e.g. Reject request). Red fill so a reject reads as destructive
+     next to the green Approve, and disables to the same neutral chrome the primary button uses. */
+  .btn.dng{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.dng:hover{background:color-mix(in srgb,var(--danger) 82%,#000);border-color:color-mix(in srgb,var(--danger) 82%,#000)}
+  .btn.dng:disabled,.btn.dng[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
+  .btn.dng:disabled:hover,.btn.dng[aria-disabled="true"]:hover{background:var(--panel);border-color:var(--line)}
+  /* "or" separator between the Approve and Reject actions in the approval decision block. */
+  .decision-or{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:2px 0}
+  .decision-or::before,.decision-or::after{content:"";flex:1;height:1px;background:var(--line)}
   /* Light theme: green fill is darker (--brand #54A02C), so near-black text reads muddy.
      Use white text on the green highlight (active nav + primary button) in light theme only.
      Dark theme keeps #08130B on the brighter green. */
