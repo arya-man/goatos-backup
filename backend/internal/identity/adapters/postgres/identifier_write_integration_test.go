@@ -104,6 +104,48 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("birth with no management_stage inherits the shed's configured profile stage", func(t *testing.T) {
+		// "One shed, one tag": the birth form sends NO management_stage, so the created animal must
+		// adopt the destination shed's CONFIGURED profile stage — not persist NULL. A NULL stage
+		// carries no feed shed tag, which blocks the whole shed's feed packing (unknown_shed_tag).
+		// This reproduces the exact production defect: G-001683/G-001684 were created via the birth
+		// flow with a blank stage and blocked Gandhi 2 / Godel 1 - Part 1 feed packing.
+		seedShedProfile(t, pool, adminCreateShedLocation, "adult")
+
+		cmd := adminGoatCreateCommand(t, "idem-birth-inherit-0001", "aid1-birth-inherit-0001", "birth-inherit-aid2-0001")
+		cmd.OriginType = "birth"
+		cmd.ManagementStage = nil // birth form supplies none
+
+		result, err := repo.CreateAdminGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat (birth, blank stage): %v", err)
+		}
+		var stage string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(management_stage, '') FROM goats WHERE goat_id = $1::uuid`,
+			result.Goat.GoatID).Scan(&stage); err != nil {
+			t.Fatalf("read created goat stage: %v", err)
+		}
+		if stage != "adult" {
+			t.Fatalf("birth-created goat management_stage = %q, want the shed's configured profile stage %q (a blank/NULL stage blocks feed packing)", stage, "adult")
+		}
+	})
+
+	t.Run("create with no management_stage into a shed with no configured profile fails closed", func(t *testing.T) {
+		// A stage-less alive animal is a data-integrity defect (it silently breaks feed packing for
+		// its shed). If the shed has no active profile stage to inherit and none was supplied, the
+		// create must FAIL CLOSED rather than persist NULL. adminMoveTargetShed is a validly-parented
+		// shed with NO shed_profiles row.
+		cmd := adminGoatCreateCommand(t, "idem-birth-noprofile-0001", "aid1-birth-noprofile-0001", "birth-noprofile-aid2-0001")
+		cmd.OriginType = "birth"
+		cmd.ManagementStage = nil
+		cmd.ShedID = adminMoveTargetShed
+
+		if _, err := repo.CreateAdminGoat(ctx, cmd); !errors.Is(err, ports.ErrShedProfileStageRequired) {
+			t.Fatalf("CreateAdminGoat into profile-less shed: got err %v, want ErrShedProfileStageRequired", err)
+		}
+	})
+
 	t.Run("admin goat create exact replay rebuilds response and changed body conflicts", func(t *testing.T) {
 		cmd := adminGoatCreateCommand(t, "idem-create-goat-0002", "aid1-admin-create-0002", "admin-create-aid2-0002")
 		first, err := repo.CreateAdminGoat(ctx, cmd)
@@ -916,6 +958,23 @@ WHERE tenant_id = $1
   AND location_id IN ($2, $3, $4, $5, $6)
   AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed, adminMoveTargetShed); got != 5 {
 		t.Fatalf("admin create fixture locations = %d, want 5", got)
+	}
+}
+
+// seedShedProfile configures a shed's authoritative operational stage (an active shed_profiles row
+// joined through animal_stage_lookup) so a goat created into it with no supplied management_stage
+// inherits that stage. stageCode must already exist in animal_stage_lookup for the tenant.
+func seedShedProfile(t *testing.T, pool *pgxpool.Pool, shedID, stageCode string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id)
+SELECT $1::uuid, $2::uuid, a.animal_stage_id
+FROM animal_stage_lookup a
+WHERE a.tenant_id = $2::uuid AND a.stage_code = $3 AND a.status = 'active'
+ON CONFLICT (location_id) DO UPDATE
+SET animal_stage_id = EXCLUDED.animal_stage_id, updated_at = now()`,
+		shedID, meshaTenant, stageCode); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
 	}
 }
 

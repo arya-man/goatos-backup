@@ -180,6 +180,36 @@ func (r *Repository) CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	return r.createAdminGoatInTx(ctx, tx, cmd)
 }
 
+// resolveShedProfileStage reads a shed's CONFIGURED operational stage from its active
+// shed_profiles row joined through animal_stage_lookup — the SAME authority the shifting/relocate
+// path uses (resolveDestinationTag). A goat created into a shed with no supplied management_stage
+// inherits this stage so the shed stays homogeneous ("one shed, one tag") and downstream
+// stage-scoped work (feed ration resolution, vaccination eligibility) can classify the animal.
+// Returns ports.ErrShedProfileStageRequired when the shed has no active configured profile stage —
+// the create then FAILS CLOSED rather than persisting a stage-less (feed-blocking) alive animal.
+func (r *Repository) resolveShedProfileStage(ctx context.Context, tx pgx.Tx, tenantID, shedID string) (string, error) {
+	var stage string
+	err := tx.QueryRow(ctx, `
+SELECT a.stage_code
+FROM shed_profiles sp
+JOIN animal_stage_lookup a
+  ON a.tenant_id = sp.tenant_id
+ AND a.animal_stage_id = sp.animal_stage_id
+ AND a.status = 'active'
+WHERE sp.tenant_id = $1::uuid
+  AND sp.location_id = $2::uuid`, tenantID, shedID).Scan(&stage)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrShedProfileStageRequired
+	}
+	if err != nil {
+		return "", fmt.Errorf("identity: create goat: read shed profile stage: %w", err)
+	}
+	if strings.TrimSpace(stage) == "" {
+		return "", ports.ErrShedProfileStageRequired
+	}
+	return stage, nil
+}
+
 func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	tenantUUID, err := uuidParam(cmd.TenantID)
 	if err != nil {
@@ -215,6 +245,24 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	if err != nil {
 		return nil, err
 	}
+
+	// One shed, one tag: a goat CREATED into a shed with NO supplied management_stage inherits the
+	// shed's CONFIGURED profile stage (shed_profiles -> animal_stage_lookup), the same authority a
+	// shifting move uses (resolveDestinationTag). This keeps the destination shed homogeneous from
+	// birth/intake onward so stage-scoped work can classify the animal. A blank stage previously
+	// persisted as NULL and blocked the whole shed's feed packing (unknown_shed_tag) — the newborn
+	// carried no shed tag, so no ration course could be selected for the shed. Fail closed if the
+	// shed has no active profile stage: a stage-less alive animal is a data-integrity defect, not a
+	// valid state. An explicitly supplied stage is honoured as-is (already age-corrected upstream).
+	managementStage := cmd.ManagementStage
+	if managementStage == nil || strings.TrimSpace(*managementStage) == "" {
+		inheritedStage, err := r.resolveShedProfileStage(ctx, tx, cmd.TenantID, cmd.ShedID)
+		if err != nil {
+			return nil, err
+		}
+		managementStage = &inheritedStage
+	}
+
 	if _, err := tx.Exec(ctx, `
 	INSERT INTO goats (
 	  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
@@ -233,7 +281,7 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		stringValue(cmd.Breed),
 		cmd.Sex,
 		dateValue(cmd.DOB),
-		stringValue(cmd.ManagementStage),
+		stringValue(managementStage),
 		stringValue(cmd.HealthStatus),
 		cmd.CustodianPartyID,
 		cmd.ShedID,
