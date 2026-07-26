@@ -196,7 +196,10 @@ class VerifyQueueViewModel @Inject constructor(
             }
             is VerifyQueueEvent.SelectModule -> {
                 _selectedModule.value = event.module
-                if (event.module == VerifyModuleTab.VACCINATION) refresh()
+                // Every tab now backs a real verification category, so switching to any of them
+                // must fetch that category's queue (not just Vaccination) — otherwise a tab shows
+                // only its stale Room cache and looks empty on first open.
+                refresh()
             }
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
             VerifyQueueEvent.Refresh -> refresh()
@@ -248,15 +251,17 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     /**
-     * The verification category a module tab observes, or null for a tab that is not a verification
-     * producer in this queue. VACCINATION -> vaccination proofs; COUNTS -> shifting-move videos
-     * (review queue only — a shed move is applied on the verifier's approval, so it has no separate
-     * leadership close/action step); FEED_DIRECTION -> not yet a producer.
+     * The verification category a module tab observes, or null for a tab with no content in this
+     * queue. VACCINATION -> vaccination proofs. SHIFTING -> shed-move videos, PACKING -> feed-packing
+     * videos, FEED_DIRECTION -> feed-distribution proofs: all three are review-queue only, because a
+     * shed move / feed session is applied on the verifier's approval, so none has a separate
+     * leadership close/action step (hence null in the action queue).
      */
     private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
         VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
-        VerifyModuleTab.COUNTS -> if (isActionQueue) null else SHIFTING_CATEGORY
-        VerifyModuleTab.FEED_DIRECTION -> null
+        VerifyModuleTab.SHIFTING -> if (isActionQueue) null else SHIFTING_CATEGORY
+        VerifyModuleTab.PACKING -> if (isActionQueue) null else PACKING_CATEGORY
+        VerifyModuleTab.FEED_DIRECTION -> if (isActionQueue) null else FEED_DISTRIBUTION_CATEGORY
     }
 
     private fun closeDrive(batchId: String) = viewModelScope.launch {
@@ -362,6 +367,10 @@ class VerifyQueueViewModel @Inject constructor(
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val SHIFTING_CATEGORY = "shifting_move"
+// Feed verification categories (backend feeddirection/domain.VerificationCategoryPacking /
+// VerificationCategoryFeed) — kept apart by category exactly as the backend enqueues them.
+private const val PACKING_CATEGORY = "feed_packing"
+private const val FEED_DISTRIBUTION_CATEGORY = "feed_distribution"
 
 private fun locationOptions(
     allLabel: String,

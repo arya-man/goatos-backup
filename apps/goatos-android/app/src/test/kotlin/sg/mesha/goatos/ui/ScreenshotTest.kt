@@ -329,7 +329,7 @@ class ScreenshotTest {
     fun shifting_verifier_queue() = shot("shifting_verifier_queue") {
         VerifyQueueScreen(
             state = VerifyQueueUiState(
-                selectedModule = VerifyModuleTab.COUNTS,
+                selectedModule = VerifyModuleTab.SHIFTING,
                 rows = listOf(
                     VerificationQueueRow(
                         id = "shift-1",

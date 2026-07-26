@@ -126,7 +126,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 scopeId = shedId,
                 subjectType = "shed",
                 subjectId = shedId,
-                metadata = mapOf(META_SESSION_NO to JsonPrimitive(sessionNo.toString())),
+                // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
+                // capture_source (in_app_camera | gallery_picker) + the capture window. They come
+                // straight off the captured clip; omitting them is rejected 400 invalid_proof.
+                metadata = mapOf(
+                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
+                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
+                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
+                ),
             )
             when (
                 val result = syncRepository.enqueueProofUpload(
@@ -246,6 +254,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
         private const val KEY_OUTBOX_ITEM_ID = "feedPacking.outboxItemId"
         private const val KEY_VIDEO_PROOF_ITEM_ID = "feedPacking.videoProofItemId"
         private const val META_SESSION_NO = "session_no"
+        private const val META_CAPTURE_SOURCE = "capture_source"
+        private const val META_CAPTURED_START_MS = "captured_start_ms"
+        private const val META_CAPTURED_END_MS = "captured_end_ms"
         private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the packing video."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this packing is counted."
         private const val VIDEO_QUEUED = "Packing video saved on this phone. It will upload automatically."

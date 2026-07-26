@@ -8,10 +8,9 @@
 -->
 <resources>
     <string name="verify_module_vaccination">Vaccination</string>
-    <string name="verify_module_counts">Counts</string>
+    <string name="verify_module_shifting">Shifting</string>
+    <string name="verify_module_packing">Packing</string>
     <string name="verify_module_feed_direction">Feed direction</string>
-    <string name="verify_module_under_construction">Under construction</string>
-    <string name="verify_module_under_construction_subtitle">This verification queue will appear here when its workflow is ready.</string>
     <string name="verify_queue_title">Video verification</string>
     <string name="verify_action_queue_title">Vaccination videos</string>
     <string name="verify_queue_refresh">Refresh</string>

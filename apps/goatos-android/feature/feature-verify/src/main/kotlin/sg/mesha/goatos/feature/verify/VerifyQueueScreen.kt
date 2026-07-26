@@ -95,7 +95,7 @@ data class VerifyCategoryOption(val value: String?, val label: String?)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
-enum class VerifyModuleTab { VACCINATION, COUNTS, FEED_DIRECTION }
+enum class VerifyModuleTab { VACCINATION, SHIFTING, PACKING, FEED_DIRECTION }
 
 @Immutable
 data class VerifyQueueUiState(
@@ -145,7 +145,6 @@ fun VerifyQueueScreen(
     val listState = rememberLazyListState()
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
         if (
-            state.selectedModule != VerifyModuleTab.VACCINATION ||
             !state.hasMore ||
             state.isLoadingMore ||
             state.rows.isEmpty()
@@ -209,16 +208,7 @@ fun VerifyQueueScreen(
                     )
                 }
             }
-            if (state.selectedModule == VerifyModuleTab.FEED_DIRECTION) {
-                item {
-                    EmptyState(
-                        title = stringResource(R.string.verify_module_under_construction),
-                        subtitle = stringResource(R.string.verify_module_under_construction_subtitle),
-                        icon = MeshaIcons.Video,
-                        tone = EmptyTone.Neutral,
-                    )
-                }
-            } else if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
+            if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
                 item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
             } else if (state.rows.isEmpty()) {
                 item {
@@ -342,7 +332,8 @@ private fun ModuleTabs(
 ) {
     val tabs = listOf(
         VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
-        VerifyModuleTab.COUNTS to stringResource(R.string.verify_module_counts),
+        VerifyModuleTab.SHIFTING to stringResource(R.string.verify_module_shifting),
+        VerifyModuleTab.PACKING to stringResource(R.string.verify_module_packing),
         VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
     )
     LazyRow(

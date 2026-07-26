@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,13 +37,15 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  *
  * This is where an operator standing in the park confirms an approved movement PHYSICALLY happened:
  *  1. See what to move — source shed -> destination shed, priority/category, the animals.
- *  2. Optionally record a video of the move (optional for now).
+ *  2. Add a MANDATORY video of the move — record it live with the in-app camera OR upload one from
+ *     the device gallery.
  *  3. **Mark done** — the only action that RELOCATES the animals. It enqueues the complete write to
  *     the durable outbox, so a press in a dead-signal shed is safe and replays under one stable key.
  *
- * The video is NOT required and does NOT gate "Mark done": an operator may complete a movement they
- * could not film. When captured, the clip uploads to GCS through the same signed-URL proof path as
- * vaccination proof, linked to the movement by metadata — independently of the completion.
+ * The video is REQUIRED and GATES "Mark done" (maintainer decision, 2026-07-26): completion stays
+ * disabled until a video is captured, and a verifier must approve it before the move is applied. The
+ * clip uploads to GCS through the same signed-URL proof path as vaccination proof, linked to the
+ * movement by metadata.
  */
 
 /** One animal to move, for the drill-down roster preview. */
@@ -65,7 +68,7 @@ data class ShiftingExecuteUiState(
     val animalCount: Int = 0,
     val animals: List<ShiftingExecuteAnimalUi> = emptyList(),
     val animalsTruncated: Boolean = false,
-    /** Optional video: null until captured/queued. */
+    /** Mandatory video: false until captured/queued. Gates [canComplete]. */
     val videoCaptured: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
@@ -75,7 +78,11 @@ data class ShiftingExecuteUiState(
 )
 
 sealed interface ShiftingExecuteEvent {
+    /** Record the mandatory move video with the LIVE in-app camera. */
     data object RecordVideo : ShiftingExecuteEvent
+
+    /** Pick the mandatory move video from the device gallery. */
+    data object PickVideo : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
 }
@@ -158,36 +165,84 @@ private fun MovementCard(state: ShiftingExecuteUiState) {
 
 @Composable
 private fun VideoCard(state: ShiftingExecuteUiState, onEvent: (ShiftingExecuteEvent) -> Unit) {
+    val committed = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED
     Column(modifier = cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Video (optional)", color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            Text("Video (required)", color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
             if (state.videoCaptured) {
                 Icon(MeshaIcons.CheckCircle, contentDescription = "captured", tint = MeshaColors.Ok, modifier = Modifier.size(18.dp))
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-                .clickable(enabled = !state.isCapturingVideo) { onEvent(ShiftingExecuteEvent.RecordVideo) }
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(18.dp))
-            Text(
-                text = when {
-                    state.isCapturingVideo -> "Opening camera…"
-                    state.videoCaptured -> "Re-record video"
-                    else -> "Record a video"
-                },
-                color = MeshaColors.Ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.W600,
+        when {
+            // Importing/recording in progress: a single, non-tappable loader row so a long
+            // gallery import can never be double-triggered.
+            state.isCapturingVideo -> VideoActionButton(
+                icon = null,
+                label = "Adding video…",
+                enabled = false,
+                loading = true,
+                onClick = {},
             )
+            // Record live OR upload from the gallery. Re-tapping either replaces the clip, so an
+            // operator who filmed the wrong pen can redo it right up until they mark the move done.
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                VideoActionButton(
+                    icon = MeshaIcons.Video,
+                    label = if (state.videoCaptured) "Re-record" else "Record video",
+                    enabled = !committed,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
+                )
+                VideoActionButton(
+                    icon = MeshaIcons.Download,
+                    label = if (state.videoCaptured) "Re-upload" else "Upload from gallery",
+                    enabled = !committed,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(ShiftingExecuteEvent.PickVideo) },
+                )
+            }
         }
         state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
+        if (!state.videoCaptured && !state.isCapturingVideo) {
+            Text(
+                "A video is required. A verifier reviews it before the move is applied.",
+                color = MeshaColors.Faint,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MeshaColors.Muted)
+        } else if (icon != null) {
+            Icon(icon, contentDescription = null, tint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint, modifier = Modifier.size(18.dp))
+        }
+        Text(
+            text = label,
+            color = if (enabled || loading) MeshaColors.Ink else MeshaColors.Faint,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W600,
+        )
     }
 }
 
