@@ -79,6 +79,15 @@ type Service struct {
 	// Without it CompleteDistribution fails closed rather than stranding a pending_verification row with
 	// nothing for a verifier to act on.
 	distributionEnqueuer FeedDistributionVerificationEnqueuer
+	// packing is the OPTIONAL feed PACKING verification-gated store (a SEPARATE table from both completions
+	// and distributions). Without it the packing overlay overlays no verified state and CompletePacking is
+	// unavailable. Maintainer decision 2026-07-26 gated packing too. See
+	// docs/decisions/feed-distribution-verification.md.
+	packing ports.PackingCompletionStore
+	// packingEnqueuer enqueues the verifier queue item for a fresh pending packing completion. Without it
+	// CompletePacking fails closed rather than stranding a pending_verification row with nothing for a
+	// verifier to act on.
+	packingEnqueuer FeedPackingVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
 }
@@ -165,6 +174,22 @@ func (s *Service) WithDistributionStore(store ports.DistributionCompletionStore)
 // verifier queue item.
 func (s *Service) WithDistributionVerificationEnqueuer(enqueuer FeedDistributionVerificationEnqueuer) *Service {
 	s.distributionEnqueuer = enqueuer
+	return s
+}
+
+// WithPackingStore wires the feed PACKING verification-gated table (a SEPARATE record from both the
+// completions store and the distributions store). Without it the packing overlay overlays no verified
+// state and CompletePacking returns ports.ErrPackingStoreUnavailable.
+func (s *Service) WithPackingStore(store ports.PackingCompletionStore) *Service {
+	s.packing = store
+	return s
+}
+
+// WithPackingVerificationEnqueuer wires the verifier-queue enqueue seam for packing. Without it,
+// CompletePacking fails closed rather than flipping a session to pending_verification with no verifier
+// queue item.
+func (s *Service) WithPackingVerificationEnqueuer(enqueuer FeedPackingVerificationEnqueuer) *Service {
+	s.packingEnqueuer = enqueuer
 	return s
 }
 
@@ -283,39 +308,28 @@ func (s *Service) overlayDirectionCompleted(ctx context.Context, tenantID, parkI
 	return nil
 }
 
-// overlayPackingCompleted is the packing twin of overlayDirectionCompleted.
+// overlayPackingCompleted is the packing twin of overlayDirectionCompleted. It now reads the PACKING
+// verification-gated table (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays instant"
+// rule): a packing session is "completed" only after a verifier approves the operator's video, i.e.
+// status='completed' in feed_packing_completions. So the overlay's read is ListVerifiedPacking, not the
+// old instant ListCompletedSessions. ONE bounded read, skipped when the store is unwired or the page is
+// empty -- so it never touches the beyond-horizon/never-issued paths that have no rows, and it is a
+// separate read from the config snapshot (read-count invariant preserved).
 func (s *Service) overlayPackingCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.PackingRow) error {
-	if s.completions == nil || len(rows) == 0 {
+	if s.packing == nil || len(rows) == 0 {
 		return nil
 	}
-	completed, err := s.completions.ListCompletedSessions(ctx, tenantID, parkID, asOf)
+	verified, err := s.packing.ListVerifiedPacking(ctx, tenantID, parkID, asOf)
 	if err != nil {
 		return err
 	}
-	set := newCompletedSet(completed)
+	set := newVerifiedPackingSet(verified)
 	for i := range rows {
 		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
 			rows[i].Completed = true
 		}
 	}
 	return nil
-}
-
-// completedSet is an in-memory membership index over one park-day's completions, keyed by the
-// shed-session-workflow grain the completion is recorded at.
-type completedSet map[string]struct{}
-
-func newCompletedSet(items []ports.CompletedSession) completedSet {
-	set := make(completedSet, len(items))
-	for _, c := range items {
-		set[completedKey(c.ShedID, c.SessionNo, c.Workflow)] = struct{}{}
-	}
-	return set
-}
-
-func (s completedSet) has(shedID string, sessionNo int32, workflow string) bool {
-	_, ok := s[completedKey(shedID, sessionNo, workflow)]
-	return ok
 }
 
 func completedKey(shedID string, sessionNo int32, workflow string) string {
