@@ -304,9 +304,18 @@ func gapText(row domain.Row) string {
 
 func alertTitle(row domain.Row) string {
 	if row.DriveName != nil && *row.DriveName != "" {
-		return *row.DriveName
+		if title := humanAlertTitle(*row.DriveName); title != "" {
+			return title
+		}
 	}
-	return strings.TrimSpace(row.ProtocolName + " " + row.DoseCode)
+	return humanAlertTitle(strings.TrimSpace(row.ProtocolName + " " + row.DoseCode))
+}
+
+func humanAlertTitle(raw string) string {
+	title := strings.TrimSpace(raw)
+	title = strings.TrimPrefix(title, "Preventive Care Vaccination Matrix -")
+	title = strings.TrimPrefix(title, "Preventive Care Vaccination Matrix")
+	return strings.TrimSpace(title)
 }
 
 func alertDetail(row domain.Row) string {

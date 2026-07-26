@@ -2,7 +2,7 @@ import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
-import { copy, optionGroup, optionalCopy, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   TONE_SWATCH,
   type Tone,
@@ -44,9 +44,9 @@ function driveCapacityTag(pageContract: AdminUiPageContract, row: ActionCenterOb
       return {
         tone: "dng",
         label: copy(pageContract, "label.drive_over_cap_required"),
-        title: optionalCopy(pageContract, "tooltip.drive_over_cap_required")
-          ?.replace("{animals}", String(animals))
-          .replace("{slots}", String(slots)) ?? "",
+        title: copy(pageContract, "tooltip.drive_over_cap_required")
+          .replace("{animals}", String(animals))
+          .replace("{slots}", String(slots)),
       };
     }
     case "medical_defer":

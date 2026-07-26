@@ -70,6 +70,22 @@ func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T
 	}
 }
 
+func TestActionCenterPublishesDriveCapacityBadgeCopy(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
+	for _, key := range []string{
+		"label.drive_over_cap_required",
+		"label.drive_medical_defer",
+		"label.drive_terminal_closed",
+		"tooltip.drive_over_cap_required",
+		"tooltip.drive_medical_defer",
+		"tooltip.drive_terminal_closed",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("action-center contract missing copy key %s", key)
+		}
+	}
+}
+
 func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
 

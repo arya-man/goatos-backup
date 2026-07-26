@@ -193,6 +193,34 @@ func TestVaccinationCommandSurfacesUseHumanDoseLabel(t *testing.T) {
 	}
 }
 
+func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("raw-drive-name", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)
+	row.ProtocolName = "Preventive Care Vaccination Matrix"
+	row.DoseCode = "ET+TT adult course dose 2"
+	row.DriveName = strPtr("Preventive Care Vaccination Matrix - ET+TT adult course dose 2")
+	row.NextAction = "Verifier to accept or reject proof"
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows:              []domain.Row{row},
+		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateVerificationPending, Count: 1}},
+	}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("alerts = %+v", got.Alerts)
+	}
+	title := got.Alerts[0].Title
+	if strings.Contains(title, "Preventive Care Vaccination Matrix") {
+		t.Fatalf("control tower alert leaked raw matrix name: %q", title)
+	}
+	if title != "ET+TT adult course dose 2" {
+		t.Fatalf("title = %q, want human dose label", title)
+	}
+}
+
 func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r2", domain.WorkStateDeferred, domain.SeverityWatch, due)

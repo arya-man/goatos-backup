@@ -6,6 +6,14 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  "action-center": {
+    "label.drive_over_cap_required": "capacity action",
+    "label.drive_medical_defer": "medical defer",
+    "label.drive_terminal_closed": "terminal closed",
+    "tooltip.drive_over_cap_required": "{animals} animals assigned against {slots} operator slots; finish before latest-safe date",
+    "tooltip.drive_medical_defer": "Hard medical defer blocks vaccination until cleared",
+    "tooltip.drive_terminal_closed": "Terminal animal state closed this vaccination work",
+  },
   calendar: {
     "calendar.picker.previous_month": "Previous month",
     "calendar.picker.next_month": "Next month",
