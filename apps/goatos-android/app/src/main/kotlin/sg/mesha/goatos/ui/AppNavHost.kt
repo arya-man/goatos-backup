@@ -43,6 +43,8 @@ import sg.mesha.goatos.feature.feed.FeedDirectionEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
+import sg.mesha.goatos.feature.feed.FeedPackingCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
@@ -88,6 +90,7 @@ import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
@@ -208,6 +211,28 @@ object Routes {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+    }
+
+    // L2 verifier-GATED feed-PACKING completion, reached ONLY by tapping a shed-session row on Feed
+    // PACKING. Distinct route from the two L0 feed roots, [FEED_COMPLETE] (the untouched packing/
+    // direction-shared completion), and [FEED_DISTRIBUTION_COMPLETE] — never a prefix reuse. Same
+    // grain args; simpler than distribution — the operator records ONE mandatory proof here.
+    const val FEED_PACKING_COMPLETE =
+        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+
+    fun feedPackingCompleteRoute(
+        parkId: String,
+        shedId: String,
+        sessionNo: Int,
+        workflow: String,
+        targetDate: String,
+        shedLabel: String,
+        sessionLabel: String,
+    ): String {
+        fun e(value: String): String = Uri.encode(value)
+        val park = parkId.ifBlank { "-" }
+        return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
     }
 
@@ -1013,8 +1038,11 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
+                        // Packing rows open the verifier-GATED packing flow (ONE mandatory proof ->
+                        // pending_verification), mirroring Direction rows above. [FEED_COMPLETE] (the
+                        // untouched instant path) stays in the graph but is no longer reached from here.
                         is FeedPackingEvent.OpenRow -> navController.navigate(
-                            Routes.feedCompleteRoute(
+                            Routes.feedPackingCompleteRoute(
                                 parkId = event.parkId,
                                 shedId = event.shedId,
                                 sessionNo = event.sessionNo,
@@ -1097,6 +1125,42 @@ fun AppNavHost(
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                 BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 FeedDistributionCompleteScreen(state = state, onEvent = onEvent)
+            }
+        }
+
+        // L2 verifier-GATED feed-PACKING completion: ONE MANDATORY packing video ->
+        // pending_verification. Camera binding is held only while composed (operator capture role
+        // gated), releasing on leave. Simpler than [FEED_DISTRIBUTION_COMPLETE] — no water proof, no
+        // photo capture.
+        composable(
+            route = Routes.FEED_PACKING_COMPLETE,
+            arguments = listOf(
+                navArgument(FeedPackingCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
+                navArgument(FeedPackingCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedPackingCompleteViewModel.ARG_SESSION_NO) { type = NavType.StringType },
+                navArgument(FeedPackingCompleteViewModel.ARG_WORKFLOW) { type = NavType.StringType },
+                navArgument(FeedPackingCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
+                navArgument(FeedPackingCompleteViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: FeedPackingCompleteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (FeedPackingCompleteEvent) -> Unit = { event ->
+                when (event) {
+                    FeedPackingCompleteEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                FeedPackingCompleteScreen(state = state, onEvent = onEvent)
             }
         }
 

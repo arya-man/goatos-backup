@@ -49,4 +49,11 @@
     <string name="feed_dist_water_captured">నీటి రుజువు రికార్డ్ చేయబడింది</string>
     <string name="feed_dist_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
     <string name="feed_dist_need_both">సమర్పించడానికి రెండు రుజువులను రికార్డ్ చేయండి.</string>
+    <string name="feed_pack_complete_caption">ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి. ఈ ప్యాకింగ్ పూర్తయినట్లు లెక్కించే ముందు వెరిఫయర్ దానిని సమీక్షిస్తారు.</string>
+    <string name="feed_pack_complete_video_title">ప్యాకింగ్ వీడియో (అవసరం)</string>
+    <string name="feed_pack_complete_record_video">ప్యాకింగ్ వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_pack_complete_video_recording">రికార్డ్ అవుతోంది…</string>
+    <string name="feed_pack_complete_video_recorded">ప్యాకింగ్ వీడియో రికార్డ్ చేయబడింది</string>
+    <string name="feed_pack_complete_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
+    <string name="feed_pack_complete_need_video">సమర్పించడానికి ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి.</string>
 </resources>

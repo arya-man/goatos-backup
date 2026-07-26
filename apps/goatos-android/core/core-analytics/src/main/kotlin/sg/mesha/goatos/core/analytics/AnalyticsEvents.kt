@@ -171,6 +171,19 @@ object AnalyticsEvents {
     /** A feed-distribution completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_DISTRIBUTION_FAILURE = "feed_distribution_failure"
 
+    /** The verifier-gated feed-packing completion detail was opened (a Packing row tapped). */
+    const val FEED_PACKING_COMPLETE_OPENED = "feed_packing_complete_opened"
+
+    /** The MANDATORY packing video was captured on the packing completion detail. */
+    const val FEED_PACKING_VIDEO_CAPTURED = "feed_packing_video_captured"
+
+    /** A feed-packing completion was submitted for verification (proof queued, completion enqueued
+     *  -> the shed-session moves to pending_verification). */
+    const val FEED_PACKING_SUBMITTED = "feed_packing_submitted"
+
+    /** A feed-packing completion or proof could not be queued. [Params.REASON] a coarse cause. */
+    const val FEED_PACKING_COMPLETE_FAILURE = "feed_packing_complete_failure"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 

@@ -16,6 +16,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
@@ -226,6 +227,7 @@ class SyncEngine(
         OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
+        OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -501,6 +503,30 @@ class SyncEngine(
                 workflow = payload.workflow,
                 distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
                 waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The verifier-GATED feed-PACKING completion. Simpler than [dispatchFeedDistributionComplete]:
+     * a SINGLE mandatory packing video, resolved from its coupled PROOF_UPLOAD outbox row (same
+     * group, drained first) exactly like [dispatchShiftingComplete]'s single video. A missing
+     * coupling or a permanently-failed upload is terminal — a gated completion without a verifiable
+     * proof must not reach the backend. The backend re-rejects a blank proof with `422
+     * proof_required` (terminal by [recordFailure]'s check).
+     */
+    private suspend fun dispatchFeedPackingComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+        val response = api.completeFeedPacking(
+            item.idempotencyKey,
+            FeedPackingCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                sessionNo = payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+                packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),
             ),
         )
         return syncJson.encodeToString(response)

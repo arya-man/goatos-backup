@@ -101,6 +101,19 @@ enum class OutboxOpType {
      * group key so two completions of the same shed-session drain strictly oldest-first.
      */
     FEED_DISTRIBUTION_COMPLETE,
+
+    /**
+     * Feed PACKING completion (`POST /feed-direction/packing/complete`), the verifier-GATED packing
+     * flow. Distinct from [FEED_DIRECTION_COMPLETE] (the untouched instant packing/direction path)
+     * and simpler than [FEED_DISTRIBUTION_COMPLETE]: it carries a SINGLE MANDATORY packing video ref,
+     * resolved from a PROOF_UPLOAD row enqueued on the SAME group that drains first (mirroring
+     * [SHIFTING_COMPLETE]'s mandatory-video coupling). It flips the shed-session to
+     * `pending_verification` — nothing is completed until a verifier approves. Its caller derives a
+     * STABLE idempotency key so a server-committed-but-client-unrecorded retry re-enqueues the SAME
+     * verification item instead of completing twice. The shed-session key is the outbox group key so
+     * two completions of the same shed-session drain strictly oldest-first.
+     */
+    FEED_PACKING_COMPLETE,
 }
 
 /**
