@@ -66,10 +66,19 @@ type Service struct {
 	// pinned-date fixture must never depend on when the test suite happens to run.
 	now         Clock
 	generatedBy string
-	// completions is the OPTIONAL feed-completion store (the module's only write path). Without it,
-	// the serve path overlays no completion state and CompleteSession is unavailable -- a pure
-	// generation unit test wires only config+counts. Production wires it.
+	// completions is the OPTIONAL feed-completion store (the PACKING write path). Without it,
+	// the packing overlay overlays no completion state and CompleteSession is unavailable -- a pure
+	// generation unit test wires only config+counts. Production wires it. UNTOUCHED by the
+	// distribution verification gate.
 	completions ports.CompletionStore
+	// distributions is the OPTIONAL feed DISTRIBUTION verification-gated store (a SEPARATE table from
+	// completions). Without it the direction overlay overlays no verified state and CompleteDistribution
+	// is unavailable. See docs/decisions/feed-distribution-verification.md.
+	distributions ports.DistributionCompletionStore
+	// distributionEnqueuer enqueues the verifier queue item for a fresh pending distribution completion.
+	// Without it CompleteDistribution fails closed rather than stranding a pending_verification row with
+	// nothing for a verifier to act on.
+	distributionEnqueuer FeedDistributionVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
 }
@@ -140,6 +149,22 @@ func (s *Service) WithCompletionStore(store ports.CompletionStore) *Service {
 // WithProofValidator wires optional video-proof validation. Nil skips validation.
 func (s *Service) WithProofValidator(proofs ports.ProofValidator) *Service {
 	s.proofs = proofs
+	return s
+}
+
+// WithDistributionStore wires the feed DISTRIBUTION verification-gated table (a SEPARATE record from
+// the packing completions store). Without it the direction overlay overlays no verified state and
+// CompleteDistribution returns ports.ErrDistributionStoreUnavailable.
+func (s *Service) WithDistributionStore(store ports.DistributionCompletionStore) *Service {
+	s.distributions = store
+	return s
+}
+
+// WithDistributionVerificationEnqueuer wires the verifier-queue enqueue seam. Without it,
+// CompleteDistribution fails closed rather than flipping a session to pending_verification with no
+// verifier queue item.
+func (s *Service) WithDistributionVerificationEnqueuer(enqueuer FeedDistributionVerificationEnqueuer) *Service {
+	s.distributionEnqueuer = enqueuer
 	return s
 }
 
@@ -234,19 +259,22 @@ type CompleteSessionInput struct {
 	TraceID        string
 }
 
-// overlayDirectionCompleted flips DirectionRow.Completed for any shed-session with a recorded
-// completion. ONE bounded read (ListCompletedSessions), skipped when the store is unwired or the page
+// overlayDirectionCompleted flips DirectionRow.Completed for any shed-session with a VERIFIED
+// distribution completion (maintainer decision, 2026-07-26). It reads the NEW
+// feed_distribution_completions table (status='completed', i.e. verifier-approved) rather than the
+// packing table: a direction session is "completed" only after a verifier approves the operator's
+// video. ONE bounded read (ListVerifiedDistributions), skipped when the store is unwired or the page
 // is empty -- so it never touches the beyond-horizon/never-issued paths that have no rows, and it is a
 // separate read from the config snapshot (read-count invariant preserved).
 func (s *Service) overlayDirectionCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.DirectionRow) error {
-	if s.completions == nil || len(rows) == 0 {
+	if s.distributions == nil || len(rows) == 0 {
 		return nil
 	}
-	completed, err := s.completions.ListCompletedSessions(ctx, tenantID, parkID, asOf)
+	verified, err := s.distributions.ListVerifiedDistributions(ctx, tenantID, parkID, asOf)
 	if err != nil {
 		return err
 	}
-	set := newCompletedSet(completed)
+	set := newVerifiedDistributionSet(verified)
 	for i := range rows {
 		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
 			rows[i].Completed = true

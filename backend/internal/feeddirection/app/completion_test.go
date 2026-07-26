@@ -40,6 +40,30 @@ func (f *fakeCompletionStore) ListCompletedSessions(_ context.Context, _, _ stri
 	return f.completed, nil
 }
 
+// fakeDistributionStore is the DISTRIBUTION verification-gated store (the NEW table the DIRECTION
+// overlay reads verified sessions from -- separate from fakeCompletionStore, which is packing).
+type fakeDistributionStore struct {
+	verified  []ports.VerifiedDistribution
+	listCalls int
+}
+
+func (f *fakeDistributionStore) CompleteDistribution(_ context.Context, _ ports.CompleteDistributionParams) (ports.CompleteDistributionResult, error) {
+	return ports.CompleteDistributionResult{}, nil
+}
+
+func (f *fakeDistributionStore) ListVerifiedDistributions(_ context.Context, _, _ string, _ time.Time) ([]ports.VerifiedDistribution, error) {
+	f.listCalls++
+	return f.verified, nil
+}
+
+func (f *fakeDistributionStore) ApplyVerifiedDistribution(_ context.Context, _ ports.ApplyDistributionParams) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeDistributionStore) BounceDistributionForRework(_ context.Context, _ ports.BounceDistributionParams) (bool, error) {
+	return false, nil
+}
+
 type fakeProofValidator struct {
 	calls   int
 	lastIDs []string
@@ -71,9 +95,13 @@ func validCompleteInput() CompleteSessionInput {
 
 func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
-	store := &fakeCompletionStore{}
+	// The DIRECTION overlay now reads the DISTRIBUTION verification-gated table (maintainer decision,
+	// 2026-07-26): a session is Completed only after a verifier approves, i.e. status='completed' in
+	// feed_distribution_completions. So the overlay's read is ListVerifiedDistributions, not the packing
+	// ListCompletedSessions.
+	store := &fakeDistributionStore{}
 	service, config, _ := newTestService()
-	service.WithCompletionStore(store)
+	service.WithDistributionStore(store)
 
 	q := domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate()}
 	page, err := service.Preview(context.Background(), q)
@@ -86,16 +114,16 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 		}
 	}
 	if store.listCalls != 1 {
-		t.Fatalf("ListCompletedSessions calls = %d, want 1 (one overlay read per request)", store.listCalls)
+		t.Fatalf("ListVerifiedDistributions calls = %d, want 1 (one overlay read per request)", store.listCalls)
 	}
 	// The overlay is a DEDICATED read: it must not have added a config snapshot read.
 	if config.snapshotCalls != 1 {
 		t.Fatalf("config snapshot reads = %d, want exactly 1 (overlay must not touch the snapshot)", config.snapshotCalls)
 	}
 
-	// Now complete exactly the first row's shed-session and re-serve.
+	// Now VERIFY exactly the first row's shed-session and re-serve.
 	target := page.Items[0]
-	store.completed = []ports.CompletedSession{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	store.verified = []ports.VerifiedDistribution{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
 	page2, err := service.Preview(context.Background(), q)
 	if err != nil {
 		t.Fatalf("Preview 2: %v", err)
