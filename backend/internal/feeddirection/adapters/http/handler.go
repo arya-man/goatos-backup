@@ -29,6 +29,10 @@ type Service interface {
 	Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error)
 	PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error)
 	CompleteSession(ctx context.Context, in app.CompleteSessionInput) (ports.CompleteSessionResult, error)
+	// CompleteDistribution is the verifier-gated feed DISTRIBUTION completion, entirely separate from
+	// CompleteSession (feed PACKING). It requires two mandatory proofs and flips the session to
+	// pending_verification (maintainer decision, 2026-07-26).
+	CompleteDistribution(ctx context.Context, in app.CompleteDistributionInput) (ports.CompleteDistributionResult, error)
 }
 
 type Handler struct {
@@ -44,6 +48,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
 	mux.HandleFunc("POST /feed-direction/complete", h.PostComplete)
+	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
+	// (packing), which is untouched.
+	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
 }
 
 // completeSessionRequest is the completion body: which shed-session, on which feed day and workflow,
@@ -140,6 +147,111 @@ func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
 		CompletionID: res.CompletionID,
 		Status:       res.Status,
 		Applied:      res.Applied,
+	})
+}
+
+// completeDistributionRequest is the verifier-gated distribution completion body: which shed-session,
+// on which feed day and workflow, plus the TWO mandatory proof references (a feed-distribution video
+// and a water proof). The Idempotency-Key header, not the body, carries the replay key.
+type completeDistributionRequest struct {
+	ParkID               string `json:"park_id"`
+	ShedID               string `json:"shed_id"`
+	SessionNo            int32  `json:"session_no"`
+	TargetDate           string `json:"target_date"`
+	Workflow             string `json:"workflow"`
+	DistributionProofRef string `json:"distribution_proof_ref"`
+	WaterProofRef        string `json:"water_proof_ref"`
+}
+
+type completeDistributionResponse struct {
+	CompletionID string `json:"completion_id"`
+	// Status is 'pending_verification' on a fresh submit or a rework re-submit, or 'completed' when the
+	// shed-session was already verifier-approved.
+	Status string `json:"status"`
+	// NewlyPending is true when this call flipped the session into pending_verification (a verification
+	// item was enqueued). False on an idempotent replay or an already-pending/already-completed no-op.
+	NewlyPending bool `json:"newly_pending"`
+}
+
+// codedError is the small {code,message} envelope the distribution route uses for its actionable input
+// errors (422 proof_required), so a client sees a stable machine code.
+type codedError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// PostCompleteDistribution records a shed-session's two mandatory proofs and flips it to
+// pending_verification (maintainer decision, 2026-07-26). Nothing is completed here: the session is
+// completed only when a verifier approves the video. Idempotent: the same Idempotency-Key returns the
+// original result and runs no new side effects. Entirely separate from PostComplete (packing).
+func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key header is required", nil)
+		return
+	}
+	if len(key) < 8 || len(key) > 200 {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key must be between 8 and 200 characters", nil)
+		return
+	}
+
+	var body completeDistributionRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	targetDate, err := businessDateFromString(body.TargetDate)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	// Both proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the service,
+	// mirroring the shifting complete route, so a proofless request never reaches the write path.
+	if strings.TrimSpace(body.DistributionProofRef) == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: "a feed-distribution video proof (distribution_proof_ref) is required"}, nil)
+		return
+	}
+	if strings.TrimSpace(body.WaterProofRef) == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: "a water-distribution proof (water_proof_ref) is required"}, nil)
+		return
+	}
+
+	res, err := h.service.CompleteDistribution(r.Context(), app.CompleteDistributionInput{
+		TenantID:             tenantID,
+		ParkID:               strings.TrimSpace(body.ParkID),
+		ShedID:               strings.TrimSpace(body.ShedID),
+		SessionNo:            body.SessionNo,
+		TargetDate:           targetDate,
+		Workflow:             strings.TrimSpace(body.Workflow),
+		DistributionProofRef: strings.TrimSpace(body.DistributionProofRef),
+		WaterProofRef:        strings.TrimSpace(body.WaterProofRef),
+		CompletedBy:          actorID,
+		IdempotencyKey:       key,
+		ActorID:              actorID,
+		ActorType:            "operator",
+		TraceID:              httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "feed distribution complete", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, completeDistributionResponse{
+		CompletionID: res.CompletionID,
+		Status:       res.Status,
+		NewlyPending: res.NewlyPending,
 	})
 }
 
@@ -275,6 +387,16 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+	case errors.Is(err, ports.ErrDistributionProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrWaterProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
+		errors.Is(err, app.ErrDistributionEnqueuerNotWired):
+		// A wiring/deployment fault, not a client error: 500.
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)
 	}

@@ -946,6 +946,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/distribution/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one shed-session's feed distribution for verifier approval.
+         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits TWO mandatory proofs -- a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification` row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+         *
+         *     The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-direction/preview` rows for that shed-session report `completed: true`.
+         *
+         *     Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         */
+        post: operations["completeFeedDistribution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -2349,6 +2373,45 @@ export interface components {
             status: "completed";
             /** @description False on an idempotent replay or when the shed-session was already completed by an earlier request -- the original completion is returned and no new side effects ran. */
             applied: boolean;
+        };
+        FeedDistributionCompleteRequest: {
+            /**
+             * Format: uuid
+             * @description The park the shed belongs to. Optional: when omitted the server resolves the tenant's default park, matching the read routes. Exactly one park per completion.
+             */
+            park_id?: string;
+            /**
+             * Format: uuid
+             * @description The shed whose feeding session was distributed.
+             */
+            shed_id: string;
+            /** @description The feeding session that was distributed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
+            session_no: number;
+            /**
+             * Format: date
+             * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+             */
+            target_date: string;
+            /**
+             * @description The dispatch workflow distributed. REQUIRED -- a completion records ONE concrete workflow.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
+            distribution_proof_ref: string;
+            /** @description MANDATORY. The server-minted `proof_id` of the water-distribution proof (a photo OR a video). A blank value is rejected `422 proof_required`. */
+            water_proof_ref: string;
+        };
+        FeedDistributionCompleteResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the shed-session had already been verifier-approved. Never `completed` on a first submit -- distribution is done only at verifier approval.
+             * @enum {string}
+             */
+            status: "pending_verification" | "completed";
+            /** @description True when this call flipped the session into pending_verification and enqueued a verification item. False on an idempotent replay or an already-pending/already-completed no-op. */
+            newly_pending: boolean;
         };
         FeedPackingWorklistSummary: {
             /**
@@ -7410,6 +7473,47 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeFeedDistribution: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedDistributionCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The shed-session is recorded pending_verification (or was already completed). The session is not done until a verifier approves. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDistributionCompleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

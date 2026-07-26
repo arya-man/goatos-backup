@@ -42,7 +42,9 @@ import (
 	feeddirectionhttp "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/http"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	feeddirectionproof "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/proof"
+	feeddirectionverificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
+	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
@@ -424,6 +426,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithIssueStore(feedDirectionRepo).
 		WithScheduleReader(feedDirectionRepo).
 		WithCompletionStore(feedDirectionRepo).
+		// Feed DISTRIBUTION verification gate (maintainer decision, 2026-07-26): a SEPARATE store on a NEW
+		// table (feed_distribution_completions). The enqueue seam is wired below, once verificationService
+		// exists. Packing's WithCompletionStore path above is untouched.
+		WithDistributionStore(feedDirectionRepo).
 		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
@@ -467,6 +473,22 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	countsShiftingExecutionService.WithVerificationEnqueuer(
 		countsbridge.NewShiftingVerificationEnqueuer(verificationService))
+	// Feed distribution verification (maintainer decision, 2026-07-26): a feed-direction session is
+	// completed only after a verifier approves the operator's video + water proof, so feed is a
+	// verification producer just like vaccination and shifting. Register its category and wire the
+	// enqueue seam into the feed-direction service now that verificationService exists. The video +
+	// water proof travel on one item (photo_or_video covers the water proof, which may be a photo).
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      feeddirectiondomain.VerificationVerticalFeed,
+		Module:        feeddirectiondomain.VerificationModuleFeed,
+		Category:      feeddirectiondomain.VerificationCategoryFeed,
+		ExpectedMedia: []string{"video", "photo_or_video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	feedDirectionService.WithDistributionVerificationEnqueuer(
+		feeddirectionverificationbridge.New(verificationService))
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
@@ -559,6 +581,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// to authorized for a re-shoot. Subscribes to the generic verification verdict events and filters
 	// to counts/shifting_event.
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
+	// Feed distribution verification consumer (maintainer decision, 2026-07-26): a verifier's approval of
+	// the operator's video + water proof completes the feed-direction session (feed.distribution.completed
+	// emitted); a rejection bounces it to rework for a re-shoot. Subscribes to the generic verification
+	// verdict events and filters to feed/feed_distribution_completion.
+	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, log).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then

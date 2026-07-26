@@ -2507,6 +2507,69 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/distribution/complete:
+    post:
+      tags:
+        - Feed Direction
+      operationId: completeFeedDistribution
+      summary: Submit one shed-session's feed distribution for verifier approval.
+      description: >-
+        The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely
+        separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant,
+        optional-video, no verifier). The operator submits TWO mandatory proofs -- a
+        feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof
+        (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification`
+        row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+
+
+        The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to
+        `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After
+        verifier approval the `/feed-direction/preview` rows for that shed-session report
+        `completed: true`.
+
+
+        Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is
+        rejected `422 proof_required` before any state changes -- there is nothing for a verifier to
+        approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original
+        result and runs no side effects; the same key with a different payload is `409`) and on the
+        shed-session natural key.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedDistributionCompleteRequest"
+      responses:
+        "200":
+          description: >-
+            The shed-session is recorded pending_verification (or was already completed). The session
+            is not done until a verifier approves.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDistributionCompleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: >-
+            A mandatory proof is missing (`code: proof_required`): either the feed-distribution video
+            or the water-distribution proof was blank.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/ration-rates:
     get:
       tags:
@@ -6312,6 +6375,77 @@ components:
           description: >-
             False on an idempotent replay or when the shed-session was already completed by an
             earlier request -- the original completion is returned and no new side effects ran.
+    FeedDistributionCompleteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - session_no
+        - target_date
+        - workflow
+        - distribution_proof_ref
+        - water_proof_ref
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          description: >-
+            The park the shed belongs to. Optional: when omitted the server resolves the tenant's
+            default park, matching the read routes. Exactly one park per completion.
+        shed_id:
+          type: string
+          format: uuid
+          description: The shed whose feeding session was distributed.
+        session_no:
+          type: integer
+          minimum: 1
+          description: >-
+            The feeding session that was distributed. A concrete session (>= 1); session 0 is a read
+            filter, never a completion target.
+        target_date:
+          type: string
+          format: date
+          description: The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+        workflow:
+          type: string
+          enum: [normal, experiment]
+          description: The dispatch workflow distributed. REQUIRED -- a completion records ONE concrete workflow.
+        distribution_proof_ref:
+          type: string
+          minLength: 1
+          description: >-
+            MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is
+            rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded.
+        water_proof_ref:
+          type: string
+          minLength: 1
+          description: >-
+            MANDATORY. The server-minted `proof_id` of the water-distribution proof (a photo OR a
+            video). A blank value is rejected `422 proof_required`.
+    FeedDistributionCompleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - status
+        - newly_pending
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_verification, completed]
+          description: >-
+            `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier);
+            `completed` when the shed-session had already been verifier-approved. Never `completed` on
+            a first submit -- distribution is done only at verifier approval.
+        newly_pending:
+          type: boolean
+          description: >-
+            True when this call flipped the session into pending_verification and enqueued a
+            verification item. False on an idempotent replay or an already-pending/already-completed
+            no-op.
     FeedPackingWorklistSummary:
       type: object
       additionalProperties: false
