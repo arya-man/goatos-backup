@@ -125,12 +125,7 @@ fun FeedDistributionCompleteScreen(
             fontWeight = FontWeight.W700,
         )
         when {
-            state.videoCaptured -> FeedDistActionButton(
-                label = stringResource(R.string.feed_dist_video_recorded),
-                enabled = false,
-                primary = false,
-                onClick = {},
-            )
+            state.videoCaptured -> FeedDistCaptured(label = stringResource(R.string.feed_dist_video_recorded))
             state.isCapturingVideo -> FeedDistActionButton(
                 label = stringResource(R.string.feed_dist_video_uploading),
                 enabled = false,
@@ -174,12 +169,7 @@ fun FeedDistributionCompleteScreen(
             )
         }
         when {
-            state.waterCaptured -> Text(
-                text = stringResource(R.string.feed_dist_water_captured),
-                color = MeshaColors.Ok,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
-            )
+            state.waterCaptured -> FeedDistCaptured(label = stringResource(R.string.feed_dist_water_captured))
             state.isCapturingWater -> FeedDistActionButton(
                 label = stringResource(R.string.feed_dist_water_uploading),
                 enabled = false,
@@ -233,6 +223,23 @@ fun FeedDistributionCompleteScreen(
             }
             Text(text = result.message, color = tone, fontSize = 13.sp, fontWeight = FontWeight.W700)
         }
+    }
+}
+
+/**
+ * Shared "proof captured" confirmation. Both the feed video and the water proof use this so the
+ * post-upload state renders identically (green check + label) instead of the earlier mismatch —
+ * a disabled button for video vs. plain text for water.
+ */
+@Composable
+private fun FeedDistCaptured(label: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = "✓", color = MeshaColors.Ok, fontSize = 14.sp, fontWeight = FontWeight.W800)
+        Text(text = label, color = MeshaColors.Ok, fontSize = 13.sp, fontWeight = FontWeight.W700)
     }
 }
 

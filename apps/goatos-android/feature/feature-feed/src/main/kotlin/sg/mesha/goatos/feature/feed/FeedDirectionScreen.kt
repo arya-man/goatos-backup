@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import java.time.LocalDate
 
@@ -186,6 +187,10 @@ fun FeedDirectionScreen(
     onEvent: (FeedDirectionEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Refresh-on-open (docs/decisions/android-offline-first.md): cached Room rows show
+    // instantly and a background refresh fires on every resume, including when the
+    // operator pops back here after submitting a feed-distribution session.
+    RefreshOnResume { onEvent(FeedDirectionEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         FeedHeader(
             title = state.title,
