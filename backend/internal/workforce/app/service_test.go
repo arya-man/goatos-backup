@@ -380,11 +380,12 @@ func TestVisibleNavigationFor(t *testing.T) {
 	}
 }
 
-// TestNavChromeFor verifies chrome follows the composed drawer: a leadership
-// principal with >=2 available modules (CEO: vaccination + counts) gets the
-// expanded drawer; a single-module leader (PC Director / Park Head) and every
-// field operator get minimal chrome (bottom bar only). Chrome is derived from
-// the composed modules, so cases pass the real modulesFor() output.
+// TestNavChromeFor verifies chrome follows the composed drawer for operators and
+// leadership alike: any non-verifier principal with >=2 available modules (CEO:
+// vaccination + counts; OPERATOR: vaccination + counts + feed) gets the expanded
+// drawer; a single-module principal (PC Director, or an operator with one module)
+// gets minimal chrome (bottom bar only). Chrome is derived from the composed
+// modules, so cases pass the real modulesFor() output.
 func TestNavChromeFor(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -416,11 +417,19 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeMinimal,
 		},
 		{
-			// Operator drawer rollout is disabled for now, even with multiple modules.
-			name:           "operator with two modules stays minimal",
+			// Operator drawer rollout ENABLED (maintainer decision 2026-07-27): an
+			// operator with >=2 available modules gets the module-switcher drawer,
+			// same as leadership, so they can reach counts/feed alongside vaccination.
+			name:           "operator with two modules expands",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			grantedModules: []string{"vaccination", "counts"},
-			want:           domain.NavChromeMinimal,
+			want:           domain.NavChromeExpanded,
+		},
+		{
+			name:           "operator with vaccination + counts + feed expands",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination", "counts", "feed_direction"},
+			want:           domain.NavChromeExpanded,
 		},
 		{
 			name:   "verifier minimal",
@@ -441,7 +450,7 @@ func TestNavChromeFor(t *testing.T) {
 // TestBootstrapNavComposition verifies that navigation is composed from granted modules,
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
-// 2. Operator drawer chrome is disabled while module-specific bars still compose
+// 2. Operator drawer chrome expands once the operator holds >=2 modules (rollout enabled)
 // 3. Leadership principals use the shared Vaccination module after Overview removal
 // 4. Nav items are deduplicated by shared_key
 func TestBootstrapNavComposition(t *testing.T) {
