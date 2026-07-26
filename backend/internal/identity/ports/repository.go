@@ -57,6 +57,16 @@ var (
 	// configured has no authority to assign a cohort and the move FAILS CLOSED. This is exactly the
 	// empty/spare-shed case: configure the shed's profile first, then move animals into it.
 	ErrDestinationProfileMissing = errors.New("identity relocate: destination shed has no active configured operational profile")
+	// ErrShedProfileStageRequired: a goat is being CREATED into a shed with no supplied
+	// management_stage, but the shed has no ACTIVE configured operational profile stage to inherit
+	// (an active shed_profiles row joined through animal_stage_lookup). "One shed, one tag": a
+	// created animal adopts its shed's CONFIGURED stage — the same authority a shifting move uses
+	// (resolveDestinationTag) — so the shed stays homogeneous from birth/intake onward and
+	// stage-scoped work (feed ration resolution, vaccination eligibility) can classify the animal.
+	// A blank stage previously persisted as NULL and blocked the whole shed's feed packing
+	// (unknown_shed_tag). Fail closed rather than create a stage-less alive animal: configure the
+	// shed's profile first, then create animals into it (or supply an explicit stage).
+	ErrShedProfileStageRequired = errors.New("identity create goat: shed has no active configured profile stage to assign and no management_stage was supplied")
 )
 
 type SearchGoatsParams struct {
