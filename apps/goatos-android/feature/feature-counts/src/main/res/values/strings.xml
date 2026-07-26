@@ -61,6 +61,8 @@
     <string name="counts_mode_death">Death</string>
     <string name="counts_submit_birth">Record birth</string>
     <string name="counts_submit_death">Record death</string>
+    <string name="counts_record_another_birth">Record another birth</string>
+    <string name="counts_record_another_death">Record another death</string>
     <string name="counts_death_guardrail_note">A death is recorded through the protected death path and cancels the animal\'s open vaccination work automatically.</string>
 
     <!-- Shifting screen -->

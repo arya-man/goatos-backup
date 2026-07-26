@@ -132,6 +132,11 @@ data class ShiftingUiState(
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
+    /**
+     * Transient success confirmation shown after a synced movement auto-clears the form, so the
+     * operator sees the movement was raised on a fresh form. Cleared when they start the next entry.
+     */
+    val lastRecordedMessage: String? = null,
 ) {
     /** The sheds of the currently chosen park — the second dropdown's whole option set. */
     val shedsForSelectedPark: List<ShiftingShedUi>
@@ -205,6 +210,12 @@ fun ShiftingScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { CountsResultBanner(state.result) }
+            // A synced movement clears the form and leaves this confirmation above the fresh entry.
+            state.lastRecordedMessage?.let { message ->
+                item(key = "recorded") {
+                    CountsResultBanner(CountsWriteResultUi(CountsWriteStatus.SYNCED, message))
+                }
+            }
 
             // --- 1. Find the animal -----------------------------------------------------------
             item(key = "animal-title") {

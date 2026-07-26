@@ -35,6 +35,8 @@
     <string name="counts_mode_death">ಮರಣ</string>
     <string name="counts_submit_birth">ಜನನ ದಾಖಲಿಸಿ</string>
     <string name="counts_submit_death">ಮರಣ ದಾಖಲಿಸಿ</string>
+    <string name="counts_record_another_birth">ಇನ್ನೊಂದು ಜನನ ದಾಖಲಿಸಿ</string>
+    <string name="counts_record_another_death">ಇನ್ನೊಂದು ಮರಣ ದಾಖಲಿಸಿ</string>
     <string name="counts_death_guardrail_note">ಮರಣವನ್ನು ಸಂರಕ್ಷಿತ ಮರಣ ಮಾರ್ಗದ ಮೂಲಕ ದಾಖಲಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಪ್ರಾಣಿಯ ತೆರೆದ ಲಸಿಕೆ ಕೆಲಸವನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ರದ್ದುಗೊಳಿಸುತ್ತದೆ.</string>
 
     <!-- Shifting screen -->

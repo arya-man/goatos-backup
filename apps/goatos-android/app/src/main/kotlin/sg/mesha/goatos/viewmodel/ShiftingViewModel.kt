@@ -173,6 +173,10 @@ class ShiftingViewModel @Inject constructor(
             statusJob?.cancel()
             _state.update { it.copy(result = CountsWriteResultUi()) }
         }
+        // Starting the next movement dismisses the confirmation left by the previous one.
+        if (_state.value.lastRecordedMessage != null) {
+            _state.update { it.copy(lastRecordedMessage = null) }
+        }
         return true
     }
 
@@ -355,12 +359,39 @@ class ShiftingViewModel @Inject constructor(
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
                     item ?: return@collect
-                    _state.update {
-                        it.copy(result = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE))
+                    val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                    // Once the movement is server-confirmed (synced), auto-clear the form for the next
+                    // one and show a transient confirmation, instead of leaving the previous animal's
+                    // values on a locked form. A still-syncing (queued) or terminally-rejected (failed)
+                    // write keeps its banner and values.
+                    if (writeResult.status == CountsWriteStatus.SYNCED) {
+                        resetForNextEntry(confirmation = writeResult.message)
+                        return@collect
                     }
+                    _state.update { it.copy(result = writeResult) }
                     recomputeSubmitGate()
                 }
         }
+    }
+
+    /**
+     * Clears the form for the next movement after a server-confirmed sync. [confirmation] is shown as
+     * a transient success banner above the fresh form. The committed row is durable in the outbox and
+     * syncs on its own, so we drop only THIS ViewModel's references to it and mint a fresh idempotency
+     * key for the next movement, while KEEPING the cached destination catalog so the form stays usable.
+     */
+    private fun resetForNextEntry(confirmation: String?) {
+        statusJob?.cancel()
+        statusJob = null
+        idempotencyKey.invalidate()
+        outboxItemId.value = null
+        _state.update { current ->
+            ShiftingUiState(
+                destinationParks = current.destinationParks,
+                lastRecordedMessage = confirmation,
+            )
+        }
+        recomputeSubmitGate()
     }
 
     private fun recomputeSubmitGate() {

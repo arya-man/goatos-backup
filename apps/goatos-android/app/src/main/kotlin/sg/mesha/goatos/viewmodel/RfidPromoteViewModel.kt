@@ -234,7 +234,16 @@ class RfidPromoteViewModel @Inject constructor(
                         // A terminal server rejection (e.g. a stale row_version) drops the persisted key
                         // so a corrected resubmission mints a fresh one; a queued/synced write is done.
                         if (writeResult.isCorrectable) promoteKey.invalidate()
-                        it.copy(result = writeResult, canSubmit = writeResult.isCorrectable && it.rfidInput.isNotBlank())
+                        // Once the promote is server-confirmed, clear the typed RFID(s) so the page does
+                        // not keep showing the entered values after the goat has been retagged. The goat
+                        // is already gone from the awaiting-RFID list, so there is nothing to re-submit.
+                        val syncedDone = writeResult.status == CountsWriteStatus.SYNCED
+                        it.copy(
+                            result = writeResult,
+                            rfidInput = if (syncedDone) "" else it.rfidInput,
+                            rfid2Input = if (syncedDone) "" else it.rfid2Input,
+                            canSubmit = writeResult.isCorrectable && it.rfidInput.isNotBlank(),
+                        )
                     }
                 }
         }

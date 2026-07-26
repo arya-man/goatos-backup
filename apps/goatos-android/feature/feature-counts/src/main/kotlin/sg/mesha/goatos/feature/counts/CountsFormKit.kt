@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DatePicker
@@ -241,16 +242,29 @@ internal fun CountsDateField(
     isError: Boolean = false,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
-    CountsTextField(
-        value = value,
-        onValueChange = {}, // read-only: the picker is the only way to change this field
-        label = label,
-        modifier = modifier.clickable { pickerOpen = true },
-        required = required,
-        supporting = supporting,
-        isError = isError,
-        readOnly = true,
-    )
+    // A read-only OutlinedTextField still consumes the tap for focus, so a `.clickable` on the
+    // field's own modifier never fires and the picker never opens. Overlay a transparent, top-most
+    // click target (matchParentSize, no ripple) that reliably captures the tap and opens the picker.
+    Box(modifier = modifier.fillMaxWidth()) {
+        CountsTextField(
+            value = value,
+            onValueChange = {}, // read-only: the picker is the only way to change this field
+            label = label,
+            modifier = Modifier.fillMaxWidth(),
+            required = required,
+            supporting = supporting,
+            isError = isError,
+            readOnly = true,
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { pickerOpen = true },
+        )
+    }
     if (pickerOpen) {
         val initialMillis = value.toEpochMillisOrNull()
             ?: Instant.now().toEpochMilli()
