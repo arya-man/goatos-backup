@@ -87,6 +87,7 @@ class ScanViewModel @Inject constructor(
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
+    private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
     private var readerRefreshJob: Job? = null
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
@@ -294,7 +295,7 @@ class ScanViewModel @Inject constructor(
         val localFeedKeys = feed.map { it.primaryTag to it.vaccineLabel }.toSet()
         val mergedFeed = feed + serverFeed.filterNot { (it.primaryTag to it.vaccineLabel) in localFeedKeys }
         gate.copy(
-            cohortLabel = scanHeaderTitle(detail),
+            cohortLabel = scanHeaderTitle(routeScanTitle, detail),
             feed = mergedFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
@@ -832,8 +833,9 @@ private const val READER_REFRESH_MS = 1_000L
 private const val OPERATOR_ROLE = "operator"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
 
-private fun scanHeaderTitle(detail: TaskDetail?): String {
-    val shedName = detail?.task?.presentation?.title
+private fun scanHeaderTitle(routeTitle: String?, detail: TaskDetail?): String {
+    val shedName = routeTitle
+        ?: detail?.task?.presentation?.title
         ?.takeIf { it.isNotBlank() }
         ?: detail?.task?.title?.takeIf { it.isNotBlank() }
     return shedName

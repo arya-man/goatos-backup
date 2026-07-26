@@ -208,18 +208,24 @@ class ScanViewModelTest {
                     task = TaskSummaryDto(
                         taskId = "task-1",
                         title = "Generic vaccination cohort",
-                        presentation = TaskPresentationDto(title = "Gandhi 1"),
+                        presentation = TaskPresentationDto(title = "Park"),
                     ),
                     form = FormSpec.Empty,
                 ),
             ),
             analytics = NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shedId" to "shed-1",
+                    "taskId" to "task-1",
+                    "scanTitle" to "Gandhi 1 - Part 3",
+                ),
+            ),
         )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        assertEquals("Gandhi 1 Scan", vm.state.value.cohortLabel)
+        assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
     }
 
     @Test

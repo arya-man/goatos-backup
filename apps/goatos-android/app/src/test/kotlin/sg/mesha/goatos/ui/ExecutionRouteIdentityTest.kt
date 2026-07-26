@@ -8,8 +8,8 @@ class ExecutionRouteIdentityTest {
     @Test
     fun `scan and submit routes preserve selected execution identity`() {
         val routes = listOf(
-            Routes.scanRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7),
-            Routes.submitRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7),
+            Routes.scanRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3"),
+            Routes.submitRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3"),
         )
 
         routes.forEach { route ->
@@ -19,6 +19,7 @@ class ExecutionRouteIdentityTest {
             assertTrue(route.contains("taskId=task-a"))
             assertTrue(route.contains("sopVersionId=sop-a"))
             assertTrue(route.contains("taskRowVersion=7"))
+            assertTrue(route.contains("scanTitle=Gandhi%201%20-%20Part%203"))
         }
     }
 
