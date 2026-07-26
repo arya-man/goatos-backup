@@ -160,7 +160,12 @@ function QueueRow({ item, searchParams }: { item: VerificationQueueItem; searchP
         {item.vertical} / {item.module}
       </td>
       <td>
-        {item.operator_id ? shortId(item.operator_id) : "—"} · {item.shed_id ? shortId(item.shed_id) : "—"}
+        {/* Backend-owned "Subject" (subject_label): e.g. "Shed move · 12 animals" for a shifting_move
+            item, the vaccination subject for a vaccination_proof item. Aligns this cell with its
+            "Subject" column header; the operator/shed detail lives in the review drawer. */}
+        {item.subject_label?.trim()
+          ? item.subject_label
+          : `${item.operator_name || (item.operator_id ? shortId(item.operator_id) : "—")} · ${item.shed_label || (item.shed_id ? shortId(item.shed_id) : "—")}`}
       </td>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {fmtDateTime(item.captured_at)}
