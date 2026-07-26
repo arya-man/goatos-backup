@@ -46,7 +46,10 @@ derive those states from shed-scoped `sop_submission_items`,
 current goat/shed grain. The shared parent may advance only as an aggregate
 rollup after every eligible goat item under that parent has a submitted/accepted
 item, and submit idempotency keys must include the active shed scope so Old
-Yashoda, Godel 1, and Godel 2 cannot collide on the same hidden parent.
+Yashoda, Godel 1, and Godel 2 cannot collide on the same hidden parent. Once the
+shared parent is `accepted`, it is terminal: only exact idempotency replay may be
+read as success, and a fresh submit key must not insert new submissions, fanouts,
+audits, or movement side effects.
 
 Operator-role drift is part of the same failure mode. In CPT operator-drive
 rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
