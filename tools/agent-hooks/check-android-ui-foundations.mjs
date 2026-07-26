@@ -148,12 +148,23 @@ function rfidScanRouteFindings(read = (rel) => fs.readFileSync(path.join(sourceR
       /DisposableEffect\(vm\)[\s\S]{0,260}setCompletionKeySwallowActive\(true\)[\s\S]{0,160}setCaptureActive\(true\)[\s\S]{0,260}onDispose[\s\S]{0,180}setCompletionKeySwallowActive\(false\)[\s\S]{0,160}setCaptureActive\(false\)/,
       "scan RFID capture must be tied to the Scan route lifecycle, with completion-key swallowing enabled until route disposal",
     ],
+    [
+      /state\.captureAccessRequired[\s\S]{0,120}CaptureAccessGate/,
+      "scan permission access must be gated by operator execution intent, not by scanEnabled completion state",
+    ],
   ]));
   if (/setCaptureActive\s*\(\s*state\.scanEnabled\s*\)/.test(appNavHostText)) {
     findings.push({
       rel: appNavHost,
       line: lineNumber(appNavHostText, appNavHostText.search(/setCaptureActive\s*\(\s*state\.scanEnabled\s*\)/)),
       message: "scan RFID capture must never be gated by ScanUiState.scanEnabled; UI refresh/completion flicker must not drop BLE Enter",
+    });
+  }
+  if (/state\.scanEnabled[\s\S]{0,120}CaptureAccessGate/.test(appNavHostText)) {
+    findings.push({
+      rel: appNavHost,
+      line: lineNumber(appNavHostText, appNavHostText.search(/state\.scanEnabled[\s\S]{0,120}CaptureAccessGate/)),
+      message: "scan permissions must not be gated by scanEnabled; completed scans must still have already requested camera/RFID/upload access before Submit",
     });
   }
 
@@ -171,6 +182,10 @@ function rfidScanRouteFindings(read = (rel) => fs.readFileSync(path.join(sourceR
     [
       /already scanned\s*·/,
       "duplicate RFID scans must render an explicit already-scanned feed row instead of silently disappearing",
+    ],
+    [
+      /captureAccessRequired\s*=\s*operatorAllowed\s*&&\s*total\s*>\s*0/,
+      "scan permission requirement must follow operator execution scope and roster presence, not pending-scan state",
     ],
   ]));
   const canAcceptMatch = scanVmText.match(/private\s+fun\s+canAcceptScanInput\(\):\s*Boolean\s*=\s*([\s\S]{0,180})/);
@@ -342,7 +357,7 @@ function runSelfTest() {
   );
   const badScanRouteFiles = {
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt":
-      "LaunchedEffect(vm, state.scanEnabled) { vm.setCaptureActive(state.scanEnabled) }",
+      "LaunchedEffect(vm, state.scanEnabled) { vm.setCaptureActive(state.scanEnabled) }\nif (state.scanEnabled) { CaptureAccessGate { ScanScreen() } }",
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ScanViewModel.kt":
       "private fun canAcceptScanInput(): Boolean = _operatorAllowed.value == true && rosterTotal.value > 0 && !state.value.hasMore",
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/rfid/RfidKeyboardCapture.kt":
@@ -356,9 +371,9 @@ function runSelfTest() {
   };
   const goodScanRouteFiles = {
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt":
-      "DisposableEffect(vm) { vm.setCompletionKeySwallowActive(true); vm.setCaptureActive(true); onDispose { vm.setCompletionKeySwallowActive(false); vm.setCaptureActive(false) } }",
+      "DisposableEffect(vm) { vm.setCompletionKeySwallowActive(true); vm.setCaptureActive(true); onDispose { vm.setCompletionKeySwallowActive(false); vm.setCaptureActive(false) } }\nif (state.captureAccessRequired) { CaptureAccessGate { ScanScreen() } }",
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ScanViewModel.kt":
-      "fun setCompletionKeySwallowActive(active: Boolean) { reader.setCompletionKeySwallowEnabled(active) }\nprivate fun canAcceptScanInput(): Boolean = state.value.ringTotal > 0\nval label = \"already scanned · ET+TT\"",
+      "fun setCompletionKeySwallowActive(active: Boolean) { reader.setCompletionKeySwallowEnabled(active) }\nval state = copy(captureAccessRequired = operatorAllowed && total > 0)\nval label = \"already scanned · ET+TT\"\nprivate fun canAcceptScanInput(): Boolean = state.value.ringTotal > 0",
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/rfid/RfidKeyboardCapture.kt":
       "class RfidKeyboardCapture { var swallowCompletionKeys: Boolean = false; fun onKeyEvent(event: KeyEvent): Boolean { val completion = true; if (!enabled) return completion && swallowCompletionKeys } }",
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/rfid/RfidReaderPort.kt":

@@ -574,7 +574,7 @@ fun AppNavHost(
                         else -> vm.onEvent(event)
                     }
                 }
-            if (state.scanEnabled) {
+            if (state.captureAccessRequired) {
                 CaptureAccessGate {
                     BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                     ScanScreen(state = state, onEvent = onScanEvent)
