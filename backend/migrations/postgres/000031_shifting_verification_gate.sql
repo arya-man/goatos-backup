@@ -29,6 +29,13 @@
 -- counts execution service + the verification consumer on the production path. No seed command
 -- changes; see docs/runbooks/initial-seed-migration-coupling.md classification.
 
+-- The operator's supplied destination cohort tag must survive from completion (submit) to the later
+-- verifier-approval relocation, so the profile cross-check (a supplied tag must AGREE with the
+-- destination shed's configured cohort) still runs when the move is actually applied. Nullable: for
+-- an occupied/configured shed the operator supplies nothing and the cohort is derived server-side.
+ALTER TABLE public.shifting_events
+    ADD COLUMN IF NOT EXISTS completion_destination_tag text;
+
 -- +goose StatementBegin
 DO $$
 BEGIN
@@ -76,6 +83,7 @@ DO $$
 BEGIN
     ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_pending_verification_requires_authorization_check;
     ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_pending_verification_proof_check;
+    ALTER TABLE public.shifting_events DROP COLUMN IF EXISTS completion_destination_tag;
 
     -- Restore the pre-000031 event_status domain. Any rows still in 'pending_verification' would
     -- violate the restored constraint; move them back to 'authorized' (their pre-completion state)

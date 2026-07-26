@@ -628,6 +628,14 @@ func (f *fakeRepo) CancelShiftingEvent(context.Context, domain.ShiftingCancellat
 	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
 }
 
+func (f *fakeRepo) ApplyVerifiedShiftingEvent(context.Context, domain.ShiftingVerifiedApplyCommand) (domain.ShiftingExecutionResult, bool, error) {
+	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) BounceShiftingEventForRework(context.Context, domain.ShiftingReworkCommand) error {
+	return errors.New("not implemented")
+}
+
 func (f *fakeRepo) ListShiftingEventsPendingExecution(context.Context, domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error) {
 	return domain.ShiftingExecutionPage{}, errors.New("not implemented")
 }

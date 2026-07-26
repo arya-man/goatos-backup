@@ -148,13 +148,14 @@ UPDATE shifting_events
 SET event_status = 'pending_verification',
     verification_state = 'unverified',
     proof_ref = $3,
+    completion_destination_tag = nullif($6, ''),
     completion_idempotency_key = nullif($4, ''),
     completion_request_fingerprint = nullif($5, ''),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'authorized'`,
 		in.TenantID, in.ShiftingEventID, strings.TrimSpace(in.ProofRef),
-		in.IdempotencyKey, in.RequestFingerprint)
+		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag))
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: submit shifting for verification: %w", err)
 	}
@@ -254,6 +255,22 @@ func (r *Repository) ApplyVerifiedShiftingEvent(
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read shifting source location: %w", err)
 	}
 
+	// The destination cohort tag the OPERATOR supplied at completion (for the profile cross-check) was
+	// persisted on the row, because the relocation runs here at approval, not at completion. A tag on
+	// the command overrides it (unused today; the consumer supplies none).
+	destinationTag := in.DestinationTag
+	if destinationTag == "" {
+		var persistedTag *string
+		if err := tx.QueryRow(ctx,
+			`SELECT completion_destination_tag FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+			in.TenantID, in.ShiftingEventID).Scan(&persistedTag); err != nil {
+			return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read completion destination tag: %w", err)
+		}
+		if persistedTag != nil {
+			destinationTag = *persistedTag
+		}
+	}
+
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
 		TenantID:       in.TenantID,
 		ActorID:        in.VerifiedByUserID,
@@ -262,7 +279,7 @@ func (r *Repository) ApplyVerifiedShiftingEvent(
 		FromShedID:     sourceShedID,
 		ToParkID:       destParkID,
 		ToShedID:       destShedID,
-		DestinationTag: in.DestinationTag,
+		DestinationTag: destinationTag,
 		TraceID:        in.TraceID,
 		Reason:         "counts shifting verified " + in.ShiftingEventID,
 		// The relocation is stamped with the moment of VERIFICATION -- when the move became real.
