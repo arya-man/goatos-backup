@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -111,13 +112,15 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 		}
 	}
 	for name, sql := range map[string]string{
-		"execution": vaccinationExecutionSQL,
-		"roster":    scanRosterSQL,
+		"execution":         vaccinationExecutionSQL,
+		"roster":            scanRosterSQL,
+		"drive assignments": driveAssignmentsSQL,
 	} {
 		if !strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") {
 			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
 		}
-		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") {
+		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") &&
+			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") {
 			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
 		}
 	}
@@ -381,6 +384,31 @@ func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPag
 	}
 	if len(operatorB) != 1 || operatorB[0].ObligationCount != 1 || operatorB[0].Partition != "Part 2" || operatorB[0].OperatorName == nil || *operatorB[0].OperatorName != "Operator B" {
 		t.Fatalf("operator B rows = %#v, want only Part 2 work", operatorB)
+	}
+}
+
+func TestReassignPlannedDrivesSelectedOperatorsOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ScheduledDate ParkScope StatusMatrix: selected operator config reassigns only open planned drive assignment rows from the effective drive date")
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository source: %v", err)
+	}
+	sql := string(source)
+	requiredFragments := map[string]string{
+		"selected operator ranking":  "COALESCE(array_position($4::uuid[], osc.operator_id), 999)",
+		"planned-only membership":    "AND ob.status = 'planned'",
+		"park scope":                 "AND vda.park_id = $2::uuid",
+		"scheduled effective date":   "AND vda.planned_date >= $6::date",
+		"page-boundary distribution": "WHERE ranked.roster_rank = ((ta.assignment_rank - 1) % GREATEST(ranked.available_count, 1)) + 1",
+		"status-preserving update":   "UPDATE vaccination_drive_assignments vda",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("ReassignPlannedDrives lost %s invariant %q", name, fragment)
+		}
+	}
+	if strings.Contains(sql, "DELETE FROM vaccination_completions") || strings.Contains(sql, "UPDATE vaccination_completions") {
+		t.Fatalf("ReassignPlannedDrives must not mutate completed scan/proof history")
 	}
 }
 

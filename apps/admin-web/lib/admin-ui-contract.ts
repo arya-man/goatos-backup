@@ -209,7 +209,63 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   },
 };
 
+const PROCESS_WORK_STATE_OPTIONS: AdminUiOption[] = [
+  { key: "due", label: "Due", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "overdue", label: "Overdue", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+  { key: "missed", label: "Missed", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "blocked", label: "Blocked", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+  { key: "proof_pending", label: "Proof pending", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "verification_pending", label: "Verification pending", title: "", tone: "pur", enabled: true, disabled_reason: "" },
+  { key: "rejected", label: "Rejected", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+  { key: "deferred", label: "Deferred", title: "", tone: "mut", enabled: true, disabled_reason: "" },
+  { key: "scheduled", label: "Scheduled", title: "", tone: "info", enabled: true, disabled_reason: "" },
+  { key: "in_progress", label: "In progress", title: "", tone: "info", enabled: true, disabled_reason: "" },
+  { key: "completed", label: "Completed", title: "", tone: "ok", enabled: true, disabled_reason: "" },
+];
+
+const PROCESS_SEVERITY_OPTIONS: AdminUiOption[] = [
+  { key: "ok", label: "OK", title: "", tone: "ok", enabled: true, disabled_reason: "" },
+  { key: "watch", label: "Watch", title: "", tone: "info", enabled: true, disabled_reason: "" },
+  { key: "at_risk", label: "At risk", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "broken", label: "Broken", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+];
+
+const PROCESS_SOP_STATE_OPTIONS: AdminUiOption[] = [
+  { key: "not_started", label: "SOP: not started", title: "", tone: "mut", enabled: true, disabled_reason: "" },
+  { key: "in_progress", label: "SOP: in progress", title: "", tone: "info", enabled: true, disabled_reason: "" },
+  { key: "submitted", label: "SOP: submitted", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "accepted", label: "SOP: accepted", title: "", tone: "ok", enabled: true, disabled_reason: "" },
+  { key: "rework", label: "SOP: rework", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+];
+
+const PROCESS_PROOF_STATE_OPTIONS: AdminUiOption[] = [
+  { key: "not_required", label: "Proof: n/a", title: "", tone: "mut", enabled: true, disabled_reason: "" },
+  { key: "missing", label: "Proof: missing", title: "", tone: "warn", enabled: true, disabled_reason: "" },
+  { key: "uploaded", label: "Proof: uploaded", title: "", tone: "info", enabled: true, disabled_reason: "" },
+  { key: "accepted", label: "Proof: accepted", title: "", tone: "ok", enabled: true, disabled_reason: "" },
+  { key: "rejected", label: "Proof: rejected", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+];
+
+const PROCESS_VERIFICATION_STATE_OPTIONS: AdminUiOption[] = [
+  { key: "not_ready", label: "Verify: not ready", title: "", tone: "mut", enabled: true, disabled_reason: "" },
+  { key: "pending", label: "Verify: pending", title: "", tone: "pur", enabled: true, disabled_reason: "" },
+  { key: "accepted", label: "Verify: accepted", title: "", tone: "ok", enabled: true, disabled_reason: "" },
+  { key: "rejected", label: "Verify: rejected", title: "", tone: "dng", enabled: true, disabled_reason: "" },
+];
+
+const PROCESS_OPTION_GROUP_FALLBACKS: Record<string, AdminUiOption[]> = {
+  work_state_filter_chips: PROCESS_WORK_STATE_OPTIONS,
+  severity_chips: PROCESS_SEVERITY_OPTIONS,
+  sop_state_chips: PROCESS_SOP_STATE_OPTIONS,
+  proof_state_chips: PROCESS_PROOF_STATE_OPTIONS,
+  verification_state_chips: PROCESS_VERIFICATION_STATE_OPTIONS,
+};
+
 const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = {
+  "control-tower": PROCESS_OPTION_GROUP_FALLBACKS,
+  "protocol-adherence": PROCESS_OPTION_GROUP_FALLBACKS,
+  workflows: PROCESS_OPTION_GROUP_FALLBACKS,
+  "workflow-drilldown": PROCESS_OPTION_GROUP_FALLBACKS,
   vaccination: {
     schedule_status_legend: [
       { key: "overdue", label: "Overdue", title: "missed, overdue, or rejected", tone: "dng", enabled: true, disabled_reason: "" },
@@ -311,7 +367,7 @@ export function optionalOptionGroup(page: AdminUiPageContract, groupId: string):
 }
 
 export function optionalOption(page: AdminUiPageContract, groupId: string, key: string): AdminUiOption | undefined {
-  return optionGroup(page, groupId).find((item) => item.key === key);
+  return optionalOptionGroup(page, groupId).find((item) => item.key === key);
 }
 
 export function optionLabel(page: AdminUiPageContract, groupId: string, key: string): string {

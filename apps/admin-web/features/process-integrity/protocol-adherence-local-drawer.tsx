@@ -3,7 +3,7 @@
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionalOption, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AdherenceRow } from "@/lib/api/server";
 import { Syringe, X } from "lucide-react";
 import type { Tone } from "./process-integrity";
@@ -24,7 +24,7 @@ function adherenceRowId(record: ProtocolAdherenceDrawerRecord): string {
 }
 
 function workStateTone(pageContract: AdminUiPageContract, workState: string): Tone {
-  return (optionalOption(pageContract, "work_state_filter_chips", workState)?.tone ?? "mut") as Tone;
+  return optionTone(pageContract, "work_state_filter_chips", workState) as Tone;
 }
 
 export function ProtocolAdherenceLocalDrawer({

@@ -1526,6 +1526,21 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .lvempty { color: var(--faint); font-size: 12.5px; padding: 10px 0; }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 150; }
 .scrim.on { display: flex; }
+button.scrim{
+  display:block;
+  align-items:normal;
+  justify-content:normal;
+  z-index:210;
+  border:0;
+  padding:0;
+  background:rgba(6,12,9,.42);
+  backdrop-filter:none;
+  opacity:0;
+  pointer-events:none;
+  cursor:default;
+}
+button.scrim.on{display:block;opacity:1;pointer-events:auto}
+aside.drawer{z-index:220;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4)}
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden; }
 .modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .modal .mh .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px solid var(--brand); font-size: 12px; }
@@ -1559,6 +1574,14 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .fld label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 select { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 8px 10px; font: inherit; min-width: 170px; }
 select:disabled { opacity: .45; }
+.selectgrid { display: flex; flex-wrap: wrap; gap: 10px; }
+.pickop { display: inline-flex; align-items: center; gap: 9px; min-width: 150px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 10px; padding: 8px 12px; font: inherit; text-align: left; cursor: pointer; }
+.pickop:hover { border-color: var(--brand); }
+.pickop:disabled { opacity: .45; cursor: not-allowed; }
+.pickop.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.pickop .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 11px; background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand); flex: 0 0 auto; }
+.pickop b { display: block; font-size: 12.5px; }
+.pickop small { display: block; color: var(--muted); font-size: 10.5px; }
 /* Vaccination-operators drive-assignment fallback chain + weekly preview
    (ported verbatim from mock/vaccination-operators-hrms-mock.html — these
    classes were used in JSX but never had styles, so the chain rendered as

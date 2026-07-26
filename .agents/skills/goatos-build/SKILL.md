@@ -213,6 +213,13 @@ verification -> read-model chain from
 `context/architecture/operational-kernel.md`. The end goal is always process
 integrity: was the expected process followed, where broken, who owns next action,
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
+For vaccination FCM, do not stop at "an alert exists": each rule must name its
+trigger, audience source, cadence/SLA, message summary, and tap route. Routine
+day-start/afternoon nudges are field-scoped; the 20:30 IST due-today checkpoint
+adds PC director/CEO leadership only when scheduled sheds are still not
+submitted. Proof submission sends role-specific rows: verifier devices deep-link
+to video review, leadership devices deep-link to Vaccination overview. Run
+`make fcm-recipient-routing-guard` before landing notification changes.
 For any backend/frontend/mobile CRUD, import, mobile offline write, domain event,
 or future module such as shifting, dead birth, or feed direction, also load
 `context/architecture/domain-event-integration-contract.md` and keep
@@ -623,3 +630,5 @@ one product; this skill is the navigation layer.
 <!-- Coupling review 2026-07-24: CPT adult campaign generation ignores entry_date/post_arrival as a strict splitter; adults group by vaccine/rule plus physical shed/partition under the configured cap, using last vaccination date when present and otherwise the partition campaign start. Kid/young schedules keep strict age/entry timing. The one-time 2026-07-25 ET+TT 210-animal allowance is represented only as an explicit seed_catchup_overrides row; normal operator cap semantics remain 200. -->
 <!-- Coupling review 2026-07-24: CPT operator-drive clean reseed may start from a freshly migrated local DB. seed-roster-real resolves only centers present in the selected source bundle and can create that required park row before HRMS import; generation history uses the full as-of business day so same-day accepted completions suppress duplicate open work before the 2026-07-25 ET+TT 210 catch-up proof runs. -->
 <!-- Coupling review 2026-07-25: Editable vaccination caps (migration 000045 + PUT /vaccination/capacity-config): the operator daily animal cap and a new nullable per-animal shot-cap override are edited on the People/vaccination-operators screen and written to vaccination_capacity_config, cascading vaccination.capacity.changed per active park to re-plan future drives. Seed leaves the override NULL (planner falls back to rule_dsl/default), so no seed fixture, roster, or SOP contract changes. The apply-leave path additionally enforces a min-1-operator-per-day coverage guard (min_operator_coverage 409). -->
+<!-- Coupling review 2026-07-25: selected_operator_ids on vaccination_operator_assignment_config is an admin-selected parallel roster preference. Seed leaves it empty; saving config may reassign current/future open planned drive rows, but source fixture bytes, HRMS roster import, SOP definitions, and completed proofs remain unchanged. -->
+<!-- Coupling review 2026-07-25: migration 000002 restores selected_operator_ids on already-migrated DBs after the collapsed baseline gained the column. It is a runtime schema repair only; backfill from default_operator_id keeps previous scheduling behavior and does not alter fixture/source contracts. -->

@@ -222,6 +222,30 @@ func scsSeedShedProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tas
 	}
 }
 
+func scsSeedShedProofReturningID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, objectKey, uploadState string) string {
+	t.Helper()
+	return scanText(t, ctx, pool,
+		`INSERT INTO proof_artifacts
+		   (tenant_id, storage_provider, object_key, scope_type, scope_id, subject_type, subject_id, proof_type, upload_state)
+		 VALUES ($1, 'local', $2, 'shed', $3, 'shed', $3, 'video', $4)
+		 RETURNING proof_id::text`,
+		impTenant, objectKey, shedID, uploadState)
+}
+
+func scsSeedShedSubmission(t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID, shedID, proofID, state string) {
+	t.Helper()
+	proofRefs := fmt.Sprintf(`[{"proof_id":%q,"proof_type":"video","subject_type":"shed","subject_id":%q,"upload_state":"completed"}]`, proofID, shedID)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sop_submissions
+		   (tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, submitted_at)
+		 SELECT st.tenant_id, st.task_id, st.sop_version_id, $3, $4, '{}'::jsonb, $5::jsonb, $6, now()
+		   FROM sop_tasks st
+		  WHERE st.tenant_id = $1 AND st.task_id = $2`,
+		impTenant, taskID, impParty, "scs-submit:"+taskID+":"+shedID+":"+proofID, proofRefs, state); err != nil {
+		t.Fatalf("shed submission %s/%s: %v", shedID, state, err)
+	}
+}
+
 // TestShedCompletionSummaryShedLevelProofOneToManyPageBoundaryParkScopeStatusBuckets
 // is the shed-video-mode sibling of the older per-goat proof adversarial tests.
 // It covers the aggregate guard dimensions touched by the proof-mode projection:
@@ -293,6 +317,57 @@ func TestShedCompletionSummaryShedLevelProofOneToManyPageBoundaryParkScopeStatus
 	}
 	if !got.SubmitEnabled || got.BlockingReason != nil {
 		t.Fatalf("shed-level submit should be enabled with all scans and 1..5 shed videos: enabled=%v reason=%v", got.SubmitEnabled, got.BlockingReason)
+	}
+}
+
+func TestShedCompletionSummaryShedLevelSubmitStateOneToManyPageBoundaryParkScopeStatusBucketsPerShedSubmissionNotParentTask(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	const shedA = "36000000-0000-4000-8000-0000000000a1"
+	const shedB = "36000000-0000-4000-8000-0000000000b1"
+	seedShedOperational(t, ctx, pool, shedA, "Old Yashoda", true, false, false)
+	seedShedOperational(t, ctx, pool, shedB, "Godel 1", true, false, false)
+
+	taskID, batchID := scsSeedParkDrive(t, ctx, pool, versionID, impCbe, "per-shed-submit-state", nil)
+	scsSwitchTaskToShedLevelProof(t, ctx, pool, taskID)
+	if _, err := pool.Exec(ctx, `UPDATE sop_tasks SET state='needs_review' WHERE tenant_id=$1 AND task_id=$2`, impTenant, taskID); err != nil {
+		t.Fatalf("mark parent submitted: %v", err)
+	}
+
+	for i, pair := range []struct {
+		shedID string
+		prefix string
+	}{{shedA, "old"}, {shedB, "godel"}} {
+		goatID := fmt.Sprintf("36000000-0000-4000-8000-0000000001%02d", i)
+		seedGoatAtShed(t, ctx, pool, goatID, pair.shedID)
+		scsSeedObligation(t, ctx, pool, versionID, ruleID, batchID, goatID, "scheduled", i+1)
+		scsSeedScan(t, ctx, pool, taskID, goatID, pair.prefix+"-tag")
+	}
+	oldProofID := scsSeedShedProofReturningID(t, ctx, pool, shedA, "old-yashoda-submitted", "completed")
+	scsSeedShedSubmission(t, ctx, pool, taskID, shedA, oldProofID, "needs_review")
+	scsSeedShedProof(t, ctx, pool, taskID, shedB, "godel-uploaded-not-submitted", "completed")
+
+	vacc := NewRepository(pool, 5*time.Second)
+	oldYashoda, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shedA)
+	if err != nil {
+		t.Fatalf("old yashoda summary: %v", err)
+	}
+	godel, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shedB)
+	if err != nil {
+		t.Fatalf("godel summary: %v", err)
+	}
+	if oldYashoda.SubmitState != "submitted" {
+		t.Fatalf("old yashoda submit_state = %q, want submitted", oldYashoda.SubmitState)
+	}
+	if godel.ProofReadyCount != 1 || !godel.SubmitEnabled {
+		t.Fatalf("godel readiness = proof %d enabled %v, want uploaded and ready", godel.ProofReadyCount, godel.SubmitEnabled)
+	}
+	if godel.SubmitState != "draft" {
+		t.Fatalf("godel inherited parent/submitted shed state: submit_state = %q, want draft", godel.SubmitState)
 	}
 }
 

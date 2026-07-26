@@ -9,7 +9,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 )
 
-var ErrChannelNotConfigured = errors.New("notification channel is not configured")
+var (
+	ErrChannelNotConfigured = errors.New("notification channel is not configured")
+	ErrInvalidRecipient     = errors.New("notification recipient is invalid")
+)
 
 type ClaimParams struct {
 	TenantID     string
@@ -63,4 +66,11 @@ type ResultRepository interface {
 		tenantID, notificationRequestID, leaseToken, deliveredBy, providerMessageID string,
 		now time.Time,
 	) error
+}
+
+// InvalidRecipientRepository is implemented by repositories that can retire provider-rejected
+// recipient references, such as FCM registration tokens that Firebase reports as NotRegistered.
+type InvalidRecipientRepository interface {
+	Repository
+	SuppressInvalidRecipient(ctx context.Context, tenantID, recipientRef, reason string, now time.Time) (int, error)
 }

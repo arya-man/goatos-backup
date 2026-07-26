@@ -209,7 +209,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
 		os.Exit(1)
 	}
-	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant; operators/director are department-bound and leadership/verifier have a mobile workforce profile\n", len(results))
+	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant and mobile profile\n", len(results))
 }
 
 func envOrDefault(key, def string) string {

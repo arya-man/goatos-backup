@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Syringe } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
-import { copy, optionalCopy, optionalOption, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
@@ -69,7 +69,7 @@ function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string
 }
 
 function workStateTone(pageContract: AdminUiPageContract, workState: string): Tone {
-  return (optionalOption(pageContract, "work_state_filter_chips", workState)?.tone ?? "mut") as Tone;
+  return optionTone(pageContract, "work_state_filter_chips", workState) as Tone;
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {

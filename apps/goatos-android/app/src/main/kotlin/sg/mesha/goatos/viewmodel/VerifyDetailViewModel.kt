@@ -33,6 +33,7 @@ import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
+import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 import javax.inject.Inject
 
 /** Transient (non-Room) UI flags, combined with the Room-observed item below. */
@@ -78,6 +79,8 @@ class VerifyDetailViewModel @Inject constructor(
     private val shedId: String? = savedStateHandle.get<String>("shedId")
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
+    private val watchTimeByProof = mutableMapOf<String, Long>()
+    private var trackedItemOpened = false
     private val observedQueue: Flow<Resource<VerificationQueueResponseDto>> =
         if (isActionMode) {
             repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
@@ -101,6 +104,18 @@ class VerifyDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
+        viewModelScope.launch {
+            observedItem.collect { item ->
+                if (!trackedItemOpened && item != null) {
+                    trackedItemOpened = true
+                    AnalyticsFunnels.trackVerifyItemOpened(
+                        analytics = analytics,
+                        itemId = itemId,
+                        category = item.category.ifBlank { category.orEmpty() },
+                    )
+                }
+            }
+        }
         refresh()
     }
 
@@ -110,6 +125,7 @@ class VerifyDetailViewModel @Inject constructor(
             VerifyDetailEvent.Refresh -> refresh()
             VerifyDetailEvent.Approve -> submitVerdict(VerificationDecision.APPROVED, reason = null)
             is VerifyDetailEvent.Reject -> submitVerdict(VerificationDecision.REJECTED, reason = event.reason)
+            is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
         }
     }
 
@@ -130,7 +146,7 @@ class VerifyDetailViewModel @Inject constructor(
 
         val rowVersion = observedItem.value?.rowVersion ?: 1
         _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
-        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision)
+        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision, totalWatchTimeMs())
         val result = syncRepo.enqueueVerificationVerdict(
             itemId = itemId,
             decision = decision,
@@ -143,7 +159,8 @@ class VerifyDetailViewModel @Inject constructor(
                 val waitError = waitForBackendDecision(result.value)
                 if (waitError == null) {
                     _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = true) }
-                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision)
+                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision, totalWatchTimeMs())
+                    watchTimeByProof.clear()
                 } else {
                     _flags.update {
                         it.copy(
@@ -156,11 +173,50 @@ class VerifyDetailViewModel @Inject constructor(
             }
             is AppResult.Err -> {
                 _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message) }
-                result.cause?.let { crashReporter.recordException(it, "verification verdict enqueue failed") }
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification verdict enqueue failed") }
+                }
                 AnalyticsFunnels.trackVerifyVerdictFailed(analytics, itemId, decision, result.message)
+                watchTimeByProof.clear()
             }
         }
     }
+
+    private fun trackVideoPlayback(event: VerifyDetailEvent.VideoPlayback) {
+        when (event.action) {
+            VideoPlaybackAction.PLAY_STARTED ->
+                AnalyticsFunnels.trackVerifyVideoPlayStarted(
+                    analytics = analytics,
+                    itemId = itemId,
+                    proofId = event.proofSubject,
+                    mimeType = event.mimeType,
+                    durationMs = event.durationMs,
+                )
+            VideoPlaybackAction.WATCH_SUMMARY -> {
+                watchTimeByProof[event.proofSubject] = (watchTimeByProof[event.proofSubject] ?: 0L) + event.watchTimeMs.coerceAtLeast(0)
+                AnalyticsFunnels.trackVerifyVideoWatchSummary(
+                    analytics = analytics,
+                    itemId = itemId,
+                    proofId = event.proofSubject,
+                    mimeType = event.mimeType,
+                    watchTimeMs = event.watchTimeMs,
+                    durationMs = event.durationMs,
+                    positionMs = event.positionMs,
+                    percentWatched = event.percentWatched,
+                    seekCount = event.seekCount,
+                    replayCount = event.replayCount,
+                    bufferingTimeMs = event.bufferingTimeMs,
+                )
+            }
+            VideoPlaybackAction.PLAYBACK_ERROR -> {
+                val reason = event.reason ?: "unknown"
+                runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
+                AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
+            }
+        }
+    }
+
+    private fun totalWatchTimeMs(): Long = watchTimeByProof.values.sum()
 
     private suspend fun waitForBackendDecision(outboxItemId: String): String? {
         repeat(30) {

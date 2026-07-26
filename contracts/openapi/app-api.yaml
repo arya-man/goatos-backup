@@ -12470,6 +12470,13 @@ components:
           type: string
           format: uuid
           description: The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
+        selectedOperatorIds:
+          type: array
+          description: Explicit operators selected for parallel mode. When empty, the backend falls back to roster order.
+          items:
+            type: string
+            format: uuid
+          maxItems: 3
         rowVersion:
           type: integer
           format: int64
@@ -12497,6 +12504,12 @@ components:
         defaultOperatorId:
           type: string
           format: uuid
+        selectedOperatorIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 3
         rowVersion:
           type: integer
           format: int64

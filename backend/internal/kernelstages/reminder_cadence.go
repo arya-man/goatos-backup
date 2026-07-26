@@ -18,7 +18,7 @@ import (
 )
 
 // ReminderCadenceStage materializes the vaccination reminder cadence ladder
-// (T-7 days, twice-daily, due-today) by calling SweepReminderCadence to find
+// (T-7 days, day-start/afternoon/EOD, due-today) by calling SweepReminderCadence to find
 // fires at each ladder slot, resolving recipients from the workforce roster
 // (operators, park heads, PHC managers), and queueing notification_requests rows
 // via QueueReminderCadenceBatch. This replaces the deleted cmd/calendar-reminder-sweeper.
@@ -180,12 +180,16 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 			// Map fires to fire inputs with resolved recipients.
 			var fireInputs []calendarports.ReminderCadenceFireInput
 			for _, fire := range fires {
+				recipients := recipientsByPark[fire.ParkID]
+				if isLeadershipCadenceSlot(fire) {
+					recipients = appendRecipients(recipients, tenantRecipients)
+				}
 				fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
 					Fire:       fire,
 					Title:      renderReminderTitle(fire),
 					Body:       renderReminderBody(fire),
 					Context:    renderReminderContext(fire),
-					Recipients: appendRecipients(recipientsByPark[fire.ParkID], tenantRecipients),
+					Recipients: recipients,
 				})
 			}
 
@@ -345,6 +349,10 @@ func appendRecipients(base []calendarports.NotificationRecipient, extra []calend
 	return out
 }
 
+func isLeadershipCadenceSlot(fire calendarports.ReminderCadenceFire) bool {
+	return fire.NotificationType == "due_today" && fire.Slot == "20:30"
+}
+
 // splitParkPositionKey parses the "<scopeID>|<positionCode>" key ResolvePositionRecipientsBatch emits.
 func splitParkPositionKey(key string) (scopeID, positionCode string, ok bool) {
 	idx := strings.LastIndex(key, "|")
@@ -365,6 +373,9 @@ func renderReminderTitle(fire calendarports.ReminderCadenceFire) string {
 	case "reminder":
 		return "Vaccination reminder"
 	case "due_today":
+		if isLeadershipCadenceSlot(fire) {
+			return "Vaccination EOD exception"
+		}
 		return "Vaccination due today"
 	case "overdue":
 		return "Vaccination overdue"
@@ -381,6 +392,9 @@ func renderReminderBody(fire calendarports.ReminderCadenceFire) string {
 	case "reminder":
 		return fmt.Sprintf("%d vaccination(s) due soon", fire.ObligationCount)
 	case "due_today":
+		if isLeadershipCadenceSlot(fire) {
+			return fmt.Sprintf("%d scheduled vaccination shed(s) still not submitted by 8:30 PM", fire.ObligationCount)
+		}
 		return fmt.Sprintf("%d vaccination(s) due today", fire.ObligationCount)
 	case "overdue":
 		return fmt.Sprintf("%d vaccination(s) overdue", fire.ObligationCount)

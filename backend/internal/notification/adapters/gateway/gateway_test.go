@@ -3,12 +3,14 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
+	"github.com/vgoats/goatos/backend/internal/notification/ports"
 	"golang.org/x/oauth2"
 )
 
@@ -139,6 +141,45 @@ func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
 	err := gateway.Send(context.Background(), request("push_fcm", ""))
 	if err == nil || !strings.Contains(err.Error(), "push_fcm recipient") {
 		t.Fatalf("expected recipient error, got %v", err)
+	}
+}
+
+func TestSendFCMClassifiesNotRegisteredAsInvalidRecipient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{
+		  "error": {
+		    "code": 404,
+		    "message": "NotRegistered",
+		    "status": "NOT_FOUND",
+		    "details": [{"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": "UNREGISTERED"}]
+		  }
+		}`))
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "fcm-token"}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", "dead-device-token"))
+	if !errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatalf("error=%v, want ErrInvalidRecipient", err)
+	}
+}
+
+func TestWebhookNotRegisteredBodyKeepsGenericRetryableFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"status":"unregistered customer webhook"}`))
+	}))
+	defer server.Close()
+
+	gateway := New(Config{WebhookURL: server.URL}, nil)
+	err := gateway.Send(context.Background(), request("webhook", "customer-webhook"))
+	if err == nil {
+		t.Fatal("expected webhook delivery failure")
+	}
+	if errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatalf("webhook error must not be classified as invalid FCM recipient: %v", err)
 	}
 }
 

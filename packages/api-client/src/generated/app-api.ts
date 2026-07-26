@@ -4629,6 +4629,8 @@ export interface components {
              * @description The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
              */
             defaultOperatorId: string;
+            /** @description Explicit operators selected for parallel mode. When empty, the backend falls back to roster order. */
+            selectedOperatorIds?: string[];
             /**
              * Format: int64
              * @description Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
@@ -4642,6 +4644,7 @@ export interface components {
             activeOperatorsPerDay: number;
             /** Format: uuid */
             defaultOperatorId: string;
+            selectedOperatorIds?: string[];
             /**
              * Format: int64
              * @description The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.

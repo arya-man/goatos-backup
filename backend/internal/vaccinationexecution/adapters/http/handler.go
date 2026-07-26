@@ -1305,6 +1305,7 @@ type operatorAssignmentConfigResponse struct {
 	ParkID                string                    `json:"parkId"`
 	ActiveOperatorsPerDay int                       `json:"activeOperatorsPerDay"`
 	DefaultOperatorID     string                    `json:"defaultOperatorId"`
+	SelectedOperatorIDs   []string                  `json:"selectedOperatorIds,omitempty"`
 	RowVersion            int64                     `json:"rowVersion"`
 	Shifts                []vaccexecd.OperatorShift `json:"shifts"`
 }
@@ -1370,6 +1371,7 @@ func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		ParkID:                parkID,
 		ActiveOperatorsPerDay: view.Config.ActiveOperatorsPerDay,
 		DefaultOperatorID:     view.Config.DefaultOperatorID,
+		SelectedOperatorIDs:   append([]string{}, view.Config.SelectedOperatorIDs...),
 		RowVersion:            view.Config.RowVersion,
 		Shifts:                view.Shifts,
 	})
@@ -1398,10 +1400,11 @@ func parkScopeAmbiguousMessage(parkCount int) string {
 // updateOperatorAssignmentConfigRequest is the PUT body: N + default operator + the row_version the
 // admin last read (optimistic concurrency -- 0 means "no config exists yet, create it").
 type updateOperatorAssignmentConfigRequest struct {
-	ParkID                string `json:"parkId"`
-	ActiveOperatorsPerDay int    `json:"activeOperatorsPerDay"`
-	DefaultOperatorID     string `json:"defaultOperatorId"`
-	RowVersion            int64  `json:"rowVersion"`
+	ParkID                string   `json:"parkId"`
+	ActiveOperatorsPerDay int      `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string   `json:"defaultOperatorId"`
+	SelectedOperatorIDs   []string `json:"selectedOperatorIds,omitempty"`
+	RowVersion            int64    `json:"rowVersion"`
 }
 
 // PutOperatorAssignmentConfig writes the park's N + default operator config. Write authority is enforced
@@ -1425,6 +1428,7 @@ func (h *Handler) PutOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		ParkID:                req.ParkID,
 		ActiveOperatorsPerDay: req.ActiveOperatorsPerDay,
 		DefaultOperatorID:     req.DefaultOperatorID,
+		SelectedOperatorIDs:   append([]string{}, req.SelectedOperatorIDs...),
 		RowVersion:            req.RowVersion,
 	})
 	if code != "" {

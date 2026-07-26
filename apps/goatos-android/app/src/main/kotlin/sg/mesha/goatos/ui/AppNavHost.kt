@@ -389,6 +389,7 @@ fun AppNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
+    showProtocolAdherenceCard: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -500,6 +501,7 @@ fun AppNavHost(
             val context = LocalContext.current
             ShedsScreen(
                 state = state,
+                showProtocolAdherenceCard = showProtocolAdherenceCard,
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
@@ -540,6 +542,7 @@ fun AppNavHost(
                 val context = LocalContext.current
                 ShedsScreen(
                     state = state,
+                    showProtocolAdherenceCard = showProtocolAdherenceCard,
                     onEvent = { event ->
                         when (event) {
                             is ShedsEvent.OpenShedRecord -> {

@@ -4,6 +4,9 @@
 # Order is mechanical, not conversational:
 #   fetch origin/main -> rebase candidate -> install push guards -> ci-local
 #   -> fetch origin/main again -> retry if main moved -> push HEAD:main -> verify.
+# Set GOATOS_BYPASS_LOCAL_CI=1 for an explicit fatigue/incident bypass of the
+# local CI run and exact-SHA evidence guard. The script still rebases on fresh
+# origin/main and keeps the staging promotion push guard installed.
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -55,6 +58,11 @@ local_ci_evidence_script() {
 }
 
 test_mode="${GOATOS_LAND_TEST_MODE:-0}"
+bypass_local_ci="${GOATOS_BYPASS_LOCAL_CI:-0}"
+case "$bypass_local_ci" in
+  0|1) ;;
+  *) die "GOATOS_BYPASS_LOCAL_CI must be 0 or 1" ;;
+esac
 origin_url="$(git remote get-url origin 2>/dev/null || true)"
 if [ "$test_mode" != "1" ]; then
   case "$origin_url" in
@@ -107,11 +115,19 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
   if [ "$test_mode" = "1" ]; then
     test_ci="${GOATOS_LAND_TEST_CI_COMMAND:-}"
-    [ -n "$test_ci" ] || die "GOATOS_LAND_TEST_CI_COMMAND is required in test mode"
-    "$test_ci"
+    if [ "$bypass_local_ci" = "1" ]; then
+      echo "land-main: GOATOS_BYPASS_LOCAL_CI=1; test-mode CI command skipped"
+    else
+      [ -n "$test_ci" ] || die "GOATOS_LAND_TEST_CI_COMMAND is required in test mode"
+      "$test_ci"
+    fi
   else
     bash tools/agent-hooks/install-stg-push-guard.sh
-    make ci-local
+    if [ "$bypass_local_ci" = "1" ]; then
+      echo "land-main: GOATOS_BYPASS_LOCAL_CI=1; skipping make ci-local and exact-SHA local-CI receipt"
+    else
+      make ci-local
+    fi
   fi
 
   [ "$(git rev-parse HEAD)" = "$candidate_sha" ] || die "HEAD changed while ci-local ran; refusing to push uncertified code"
@@ -144,7 +160,11 @@ while [ "$attempt" -le "$max_attempts" ]; do
             echo "land-main: test mode verified patch-identical rebase receipt reuse at $(short_sha "$candidate_sha"); push skipped"
             exit 0
           fi
-          echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
+          if [ "$bypass_local_ci" = "1" ]; then
+            echo "land-main: pushing local-CI-bypassed $(short_sha "$candidate_sha") to main"
+          else
+            echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
+          fi
           if git mesha-push HEAD:main; then
             landed="$(fetch_main)"
             if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then
@@ -178,7 +198,11 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit 0
   fi
 
-  echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
+  if [ "$bypass_local_ci" = "1" ]; then
+    echo "land-main: pushing local-CI-bypassed $(short_sha "$candidate_sha") to main"
+  else
+    echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
+  fi
   if git mesha-push HEAD:main; then
     landed="$(fetch_main)"
     if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then

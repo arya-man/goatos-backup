@@ -46,7 +46,6 @@ import androidx.compose.ui.res.pluralStringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
 

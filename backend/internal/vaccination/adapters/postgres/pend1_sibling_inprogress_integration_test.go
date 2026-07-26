@@ -138,6 +138,26 @@ func TestAcceptCompletionAtomicFlipsOpenSiblingToInProgress(t *testing.T) {
 		impTenant, ob2); got != 1 {
 		t.Fatalf("ob2 in_progress audit count = %d, want 1", got)
 	}
+	if got := scanText(t, ctx, pool,
+		`SELECT metadata->>'domain' FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.in_progress'`,
+		impTenant, ob2); got != "vaccination" {
+		t.Fatalf("ob2 in_progress audit domain = %q, want vaccination", got)
+	}
+	if got := scanText(t, ctx, pool,
+		`SELECT metadata->>'status' FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.in_progress'`,
+		impTenant, ob2); got != "in_progress" {
+		t.Fatalf("ob2 in_progress audit status = %q, want in_progress", got)
+	}
+	if got := scanText(t, ctx, pool,
+		`SELECT metadata->>'domain' FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='vaccination.completed'`,
+		impTenant, ob1); got != "vaccination" {
+		t.Fatalf("ob1 completed audit domain = %q, want vaccination", got)
+	}
+	if got := scanText(t, ctx, pool,
+		`SELECT metadata->>'status' FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='vaccination.completed'`,
+		impTenant, ob1); got != "completed" {
+		t.Fatalf("ob1 completed audit status = %q, want completed", got)
+	}
 
 	// --- Accept g2: the last open obligation on the batch closes it out to completed.
 	ar2, err := completion.Accept(ctx, vaccapp.AcceptInput{Completion: mk(ob2, g2, "pend1-sib-g2")})

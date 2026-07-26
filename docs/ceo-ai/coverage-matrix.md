@@ -113,6 +113,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary; API tier executor wired (operations_audit_summary tool, via operationsaudit.Service.Summary) |
 | GET /operations/dlq | api + view:ops_exception_queue | Failed-event queue (see gap G5) |
 | GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5); API tier executor wired (operations_kernel_health tool, via processintegrity.Service.ControlTower with OnlyBrokenOrAtRisk) |
+| func:SuppressInvalidRecipient | EXCLUDED | Notification delivery hygiene only: clears FCM tokens that Firebase reports as invalid and suppresses queued rows for that exact token. Leadership delivery health remains covered by `ceo_ai.notification_delivery_health` / `mesha_notification_delivery_health`; this function is not a leadership read surface. |
 | GET /workflows/{row_id} | EXCLUDED | Row-level workflow detail |
 | GET /protocols | api | Protocol/schedule definitions |
 | GET /protocols/versions/{id}, /protocols/animal-stages | EXCLUDED | Protocol version / reference taxonomy |
@@ -347,6 +348,17 @@ operator assignment, but no new leadership-relevant table, official KPI, or
 reporting view is introduced. Explicit documented exclusion — no coverage-matrix
 mapping required.
 
+2026-07-25 follow-up: the same `table:vaccination_operator_assignment_config`
+admin config gained `selected_operator_ids` plus
+`func:ReassignPlannedDrives` so saving the People / HRMS operator setting can
+immediately reassign current/future open planned drive assignment rows to the
+selected operators. This is still admin-only authoring plumbing on the existing
+vaccination execution/schedule APIs. It adds NO leadership KPI, read API route,
+Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; completed scans/proofs remain
+untouched. Explicit documented exclusion — no coverage-matrix mapping required.
+
+| vaccination_operator_assignment_config | func:ReassignPlannedDrives | Explicit exclusion: admin-only operator assignment config write/reassignment; existing vaccination execution/schedule reads remain the covered user-visible source. |
+
 ## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
 
 `func:RecomputeFutureVaccinationDrives`
@@ -392,13 +404,15 @@ mapping required.
 ## Explicit exclusion: vaccination scan draft + shed-readiness helpers (2026-07-25)
 
 `func:RecordScanCapture` persists per-tap draft scan rows for the mobile operator
-outbox, and `func:ShedCompletionReadiness` gates whether a shed-level submission
-has the expected scans/proofs before it can enter verification. Both are internal
-write/readiness helpers on the existing vaccination SOP execution path. They add
-NO new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, or
-MCP Toolbox tool; the leadership assistant read surface remains the existing
-vaccination execution/process-integrity coverage. Explicit documented exclusion —
-no coverage-matrix mapping required.
+outbox, `func:ShedCompletionReadiness` gates whether a shed-level submission has
+the expected scans/proofs before it can enter verification, and
+`func:CompletedTaskProofRefs` recovers completed server proof refs for that same
+operator submit path when the mobile cache no longer carries the local proof row.
+All three are internal write/readiness helpers on the existing vaccination SOP
+execution path. They add NO new leadership KPI, table, read API route, Cube
+metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read
+surface remains the existing vaccination execution/process-integrity coverage.
+Explicit documented exclusion — no coverage-matrix mapping required.
 
 ## Explicit exclusion: proof artifact retention lifecycle plumbing (2026-07-25)
 
