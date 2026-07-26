@@ -71,6 +71,17 @@ type VerifiedDistribution struct {
 	Workflow  string
 }
 
+// SessionCompletionStatus is one shed-session's completion row with its RAW status
+// ('pending_verification' | 'rework' | 'completed'), for the serve-path status overlay + filter.
+// Shared by the distribution and packing status reads. A shed-session with NO completion row is
+// simply absent from the list (the serve path treats absence as pending).
+type SessionCompletionStatus struct {
+	ShedID    string
+	SessionNo int32
+	Workflow  string
+	Status    string
+}
+
 // ApplyDistributionParams flips a distribution completion whose video a verifier APPROVED
 // 'pending_verification' -> 'completed'. Issued by the verification.verdict.approved consumer.
 type ApplyDistributionParams struct {
@@ -104,6 +115,13 @@ type DistributionCompletionStore interface {
 	// one park-day in one bounded indexed read -- the direction serving-read overlay. Bounded by the
 	// park's shed catalog x sessions, never by herd size.
 	ListVerifiedDistributions(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]VerifiedDistribution, error)
+
+	// ListDistributionSessionStatuses returns EVERY (shed, session, workflow) that has a
+	// feed_distribution_completions row for one park-day, each with its RAW status -- the serve path's
+	// status overlay + filter source. Unlike ListVerifiedDistributions (completed-only), this includes
+	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's shed catalog
+	// x sessions, never by herd size.
+	ListDistributionSessionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]SessionCompletionStatus, error)
 
 	// ApplyVerifiedDistribution flips 'pending_verification' -> 'completed', stamps verified_by/at, and
 	// emits feed.distribution.completed in one transaction. Returns applied=true only when it actually

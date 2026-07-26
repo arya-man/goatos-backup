@@ -12,7 +12,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -33,12 +35,12 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
     val context = LocalContext.current
     var recorderRequested by remember { mutableStateOf(false) }
     val resultChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
-    val pickerChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
+    // Carry only the raw picked Uri back on the main thread; the (potentially large) copy into
+    // app-private storage runs off-main inside the suspend `pick` delegate below, so importing a
+    // long clip from the gallery never blocks the UI thread (ANR).
+    val pickerChannel = remember { Channel<Uri?>(capacity = 1) }
     val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        pickerChannel.trySend(uri?.let { selected ->
-            val now = System.currentTimeMillis()
-            copyPickedVideoToPrivateCache(context, selected, now)
-        })
+        pickerChannel.trySend(uri)
     }
 
     DisposableEffect(source) {
@@ -49,7 +51,11 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
             },
             pick = {
                 pickerLauncher.launch("video/*")
-                pickerChannel.receive()
+                pickerChannel.receive()?.let { selected ->
+                    withContext(Dispatchers.IO) {
+                        copyPickedVideoToPrivateCache(context, selected, System.currentTimeMillis())
+                    }
+                }
             },
         )
         onDispose { source.unbind(bindToken) }

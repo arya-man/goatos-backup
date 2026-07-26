@@ -397,6 +397,7 @@ interface AppApiService {
         @Query("shed_id") shedId: String?,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
+        @Query("status") status: String?,
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedDirectionPreviewPageDto
@@ -407,6 +408,7 @@ interface AppApiService {
         @Query("target_date") targetDate: String,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
+        @Query("status") status: String?,
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedPackingWorklistPageDto
@@ -818,20 +820,22 @@ class RetrofitAppApi(
         shedId: String?,
         session: Int?,
         workflow: String?,
+        status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedDirectionPreviewPageDto =
-        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, limit, offset)
+        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, status, limit, offset)
 
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
         session: Int?,
         workflow: String?,
+        status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto =
-        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, limit, offset)
+        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
 
     override suspend fun completeFeedDirectionSession(
         idempotencyKey: String,

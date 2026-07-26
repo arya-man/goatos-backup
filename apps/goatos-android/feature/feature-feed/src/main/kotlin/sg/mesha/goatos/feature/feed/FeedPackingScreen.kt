@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import java.time.LocalDate
 
 // ---------------------------------------------------------------------------
 // UI models (feature-local; mapped from DTOs by the :app @HiltViewModel).
@@ -53,6 +54,9 @@ data class FeedPackingRowUi(
     /** "ready" | "blocked" | "empty" */
     val status: String,
     val completed: Boolean,
+    /** Verification-lifecycle bucket: "pending" | "pending_verification" | "completed" (empty =
+     *  pending). Orthogonal to [status]; drives the 3-state status chip. */
+    val lifecycleStatus: String,
 )
 
 @Immutable
@@ -67,6 +71,12 @@ data class FeedPackingSummaryUi(
 data class FeedPackingUiState(
     val title: String,
     val targetDateLabel: String = "",
+    // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
+    // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
+    val today: String = "",
+    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
+    // capture flow while this is false.
+    val canCapture: Boolean = true,
     // Packing filters are farm + workflow only — the worklist endpoint has no shed filter (a packer
     // draws the whole park's bags), so the shed dropdown is deliberately absent here.
     val filters: FeedFilterUi = FeedFilterUi(),
@@ -88,6 +98,12 @@ sealed interface FeedPackingEvent {
 
     /** The session_no to filter to; 0 = every session. */
     data class SelectSession(val sessionNo: Int) : FeedPackingEvent
+
+    /** The verification-lifecycle bucket to filter to; "" = every status. */
+    data class SelectStatus(val status: String) : FeedPackingEvent
+
+    /** The feed day to view; never applied by the ViewModel when it is in the future. */
+    data class SelectDate(val date: LocalDate) : FeedPackingEvent
 
     /** Tap a packing line to open its shed-session completion detail. */
     data class OpenRow(
@@ -123,6 +139,18 @@ fun FeedPackingScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item(key = "date_bar") {
+                FeedDateBar(
+                    selectedDate = state.targetDateLabel,
+                    today = state.today,
+                    onSelectDate = { onEvent(FeedPackingEvent.SelectDate(it)) },
+                )
+            }
+            if (!state.canCapture) {
+                item(key = "read_only_banner") {
+                    FeedReadOnlyBanner(modifier = Modifier.padding(horizontal = 16.dp))
+                }
+            }
             item(key = "filters") { FeedPackingFilterBar(state.filters, onEvent) }
             item(key = "summary") { FeedPackingSummaryCard(state.summary) }
             item(key = "caption") { FeedSectionCaption(stringResource(R.string.feed_packing_caption)) }
@@ -140,7 +168,10 @@ fun FeedPackingScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    FeedPackingRowCard(row) {
+                    // Past-day rows are VIEW ONLY: `canCapture = false` disables the card's clickable
+                    // modifier below, so a tap never reaches this lambda and OpenRow — hence the
+                    // verifier-gated capture screen — is never dispatched for a non-today day.
+                    FeedPackingRowCard(row, canCapture = state.canCapture) {
                         onEvent(
                             FeedPackingEvent.OpenRow(
                                 parkId = row.parkId,
@@ -164,7 +195,7 @@ private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEve
     val allSessions = stringResource(R.string.feed_filter_all_sessions)
     val normalLabel = stringResource(R.string.feed_workflow_normal)
     val experimentLabel = stringResource(R.string.feed_workflow_experiment)
-    val hasActive = filters.workflow.isNotBlank() || filters.selectedSessionNo != 0
+    val hasActive = filters.workflow.isNotBlank() || filters.selectedSessionNo != 0 || filters.status.isNotBlank()
 
     Column(
         modifier = Modifier
@@ -231,6 +262,13 @@ private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEve
                 modifier = Modifier.weight(1f),
             )
         }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FeedStatusDropdown(
+                selectedStatus = filters.status,
+                onSelect = { onEvent(FeedPackingEvent.SelectStatus(it)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -287,7 +325,7 @@ private fun FeedPackingSummaryCard(summary: FeedPackingSummaryUi) {
 }
 
 @Composable
-private fun FeedPackingRowCard(row: FeedPackingRowUi, onOpen: () -> Unit) {
+private fun FeedPackingRowCard(row: FeedPackingRowUi, canCapture: Boolean, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -295,13 +333,15 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi, onOpen: () -> Unit) {
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
-            .clickable(onClick = onOpen)
+            // Disabled here means Compose never fires onOpen on tap — the same suppression the
+            // caller comments on above; a past day's row card is inert, not just visually dimmed.
+            .clickable(enabled = canCapture, onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
-            if (row.completed) FeedCompletedChip()
+            FeedLifecycleChip(status = row.lifecycleStatus, completedLabel = stringResource(R.string.feed_completed_badge))
             FeedWorkflowChip(row.workflow)
         }
         val subtitle = buildList {

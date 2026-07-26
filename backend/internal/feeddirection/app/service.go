@@ -284,52 +284,90 @@ type CompleteSessionInput struct {
 	TraceID        string
 }
 
-// overlayDirectionCompleted flips DirectionRow.Completed for any shed-session with a VERIFIED
-// distribution completion (maintainer decision, 2026-07-26). It reads the NEW
-// feed_distribution_completions table (status='completed', i.e. verifier-approved) rather than the
-// packing table: a direction session is "completed" only after a verifier approves the operator's
-// video. ONE bounded read (ListVerifiedDistributions), skipped when the store is unwired or the page
-// is empty -- so it never touches the beyond-horizon/never-issued paths that have no rows, and it is a
-// separate read from the config snapshot (read-count invariant preserved).
-func (s *Service) overlayDirectionCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.DirectionRow) error {
-	if s.distributions == nil || len(rows) == 0 {
-		return nil
+// directionStatusMap reads ONE park-day's feed_distribution_completions in a single bounded indexed
+// read and returns each shed-session's NORMALIZED lifecycle bucket (SessionStatus*) keyed by
+// completedKey. A nil/empty map (store unwired, or no rows) is valid: the caller treats a missing key
+// as SessionStatusPending. This is the finer-grained successor to the old ListVerifiedDistributions
+// overlay -- it now surfaces pending_verification and rework, not just completed. ONE read per serve
+// path, so the read-count invariant is preserved.
+func (s *Service) directionStatusMap(ctx context.Context, tenantID, parkID string, asOf time.Time) (map[string]string, error) {
+	if s.distributions == nil {
+		return nil, nil
 	}
-	verified, err := s.distributions.ListVerifiedDistributions(ctx, tenantID, parkID, asOf)
+	list, err := s.distributions.ListDistributionSessionStatuses(ctx, tenantID, parkID, asOf)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	set := newVerifiedDistributionSet(verified)
-	for i := range rows {
-		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
-			rows[i].Completed = true
-		}
+	out := make(map[string]string, len(list))
+	for _, d := range list {
+		out[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
 	}
-	return nil
+	return out, nil
 }
 
-// overlayPackingCompleted is the packing twin of overlayDirectionCompleted. It now reads the PACKING
-// verification-gated table (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays instant"
-// rule): a packing session is "completed" only after a verifier approves the operator's video, i.e.
-// status='completed' in feed_packing_completions. So the overlay's read is ListVerifiedPacking, not the
-// old instant ListCompletedSessions. ONE bounded read, skipped when the store is unwired or the page is
-// empty -- so it never touches the beyond-horizon/never-issued paths that have no rows, and it is a
-// separate read from the config snapshot (read-count invariant preserved).
-func (s *Service) overlayPackingCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.PackingRow) error {
-	if s.packing == nil || len(rows) == 0 {
-		return nil
+// packingStatusMap is the packing twin of directionStatusMap, reading feed_packing_completions
+// (maintainer decision 2026-07-26 gated packing too).
+func (s *Service) packingStatusMap(ctx context.Context, tenantID, parkID string, asOf time.Time) (map[string]string, error) {
+	if s.packing == nil {
+		return nil, nil
 	}
-	verified, err := s.packing.ListVerifiedPacking(ctx, tenantID, parkID, asOf)
+	list, err := s.packing.ListPackingSessionStatuses(ctx, tenantID, parkID, asOf)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	set := newVerifiedPackingSet(verified)
+	out := make(map[string]string, len(list))
+	for _, d := range list {
+		out[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
+	}
+	return out, nil
+}
+
+// stampAndFilterDirectionRows sets each row's LifecycleStatus (default SessionStatusPending) and
+// Completed from statusMap, then returns the rows narrowed to statusFilter. statusFilter "" keeps
+// every row (stamp only). MUST run over the WHOLE scope BEFORE the shed paging, so the page and its
+// summary describe the same status set and pagination stays correct. A shed-session's grains all
+// share one status, so filtering keeps or drops a session as a unit.
+func stampAndFilterDirectionRows(rows []domain.DirectionRow, statusMap map[string]string, statusFilter string) []domain.DirectionRow {
+	out := rows
+	if statusFilter != "" {
+		out = make([]domain.DirectionRow, 0, len(rows))
+	}
 	for i := range rows {
-		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
-			rows[i].Completed = true
+		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow)]
+		if bucket == "" {
+			bucket = domain.SessionStatusPending
+		}
+		rows[i].LifecycleStatus = bucket
+		rows[i].Completed = bucket == domain.SessionStatusCompleted
+		if statusFilter != "" {
+			if bucket == statusFilter {
+				out = append(out, rows[i])
+			}
 		}
 	}
-	return nil
+	return out
+}
+
+// stampAndFilterPackingRows is the packing twin of stampAndFilterDirectionRows.
+func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]string, statusFilter string) []domain.PackingRow {
+	out := rows
+	if statusFilter != "" {
+		out = make([]domain.PackingRow, 0, len(rows))
+	}
+	for i := range rows {
+		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow)]
+		if bucket == "" {
+			bucket = domain.SessionStatusPending
+		}
+		rows[i].LifecycleStatus = bucket
+		rows[i].Completed = bucket == domain.SessionStatusCompleted
+		if statusFilter != "" {
+			if bucket == statusFilter {
+				out = append(out, rows[i])
+			}
+		}
+	}
+	return out
 }
 
 func completedKey(shedID string, sessionNo int32, workflow string) string {
@@ -366,9 +404,9 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
-	if err := s.overlayDirectionCompleted(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, page.Items); err != nil {
-		return domain.PreviewPage{}, err
-	}
+	// LifecycleStatus + the status filter are applied INSIDE the serve/generate paths, over the whole
+	// scope before paging (servePreview / servePreviewGenerated), and stamp-only for draft below -- so
+	// a status-filtered page and its summary stay consistent and pagination stays correct.
 	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
 	if err != nil {
 		return domain.PreviewPage{}, err
@@ -392,8 +430,16 @@ func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQue
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
+	// Draft pages inside generate, so the status filter (which must precede paging) cannot apply here;
+	// stamp LifecycleStatus/Completed onto the page rows only. Draft is the config-authoring what-if,
+	// not an operator worklist, so an ignored status filter is acceptable.
+	statusMap, err := s.directionStatusMap(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	pageRows := stampAndFilterDirectionRows(result.pageRows, statusMap, "")
 	return domain.PreviewPage{
-		Items:      result.pageRows,
+		Items:      pageRows,
 		Summary:    domain.SummarizeScope(result.scopeRows, result.config.PlannedFeedItems()),
 		Lifecycle:  domain.Lifecycle{State: domain.LifecycleStateDraft, Workflows: []domain.WorkflowLifecycle{}},
 		Draft:      true,
@@ -429,9 +475,8 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
-	if err := s.overlayPackingCompleted(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, page.Items); err != nil {
-		return domain.PackingPage{}, err
-	}
+	// LifecycleStatus + the status filter are applied INSIDE servePacking / servePackingGenerated over
+	// the whole scope before paging (stamp-only for draft), same contract as the preview path.
 	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -519,9 +564,14 @@ func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQue
 		return domain.PackingPage{}, err
 	}
 	items := result.config.PlannedFeedItems()
+	// Draft pages inside generate, so status is stamp-only here (no filter), mirroring previewDraft.
+	statusMap, err := s.packingStatusMap(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
 	return domain.PackingPage{
-		Items:      domain.BuildPackingRows(result.pageRows, items),
-		Summary:    domain.SummarizePacking(domain.BuildPackingRows(result.scopeRows, items), items),
+		Items:      stampAndFilterPackingRows(domain.BuildPackingRows(result.pageRows, items), statusMap, ""),
+		Summary:    domain.SummarizePacking(stampAndFilterPackingRows(domain.BuildPackingRows(result.scopeRows, items), statusMap, ""), items),
 		Lifecycle:  domain.Lifecycle{State: domain.LifecycleStateDraft, Workflows: []domain.WorkflowLifecycle{}},
 		Draft:      true,
 		TargetDate: biztime.BusinessDate(normalized.TargetDate),

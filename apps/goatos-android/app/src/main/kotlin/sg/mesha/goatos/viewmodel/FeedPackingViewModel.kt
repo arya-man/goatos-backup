@@ -50,13 +50,11 @@ class FeedPackingViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
-    private val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
-
     private val _filters = MutableStateFlow(FeedPackingSelection())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observed: StateFlow<FeedPackingEnvelope> = _filters
-        .flatMapLatest { selection -> repo.observePackingTotals(selection.toQuery(targetDate)) }
+        .flatMapLatest { selection -> repo.observePackingTotals(selection.toQuery()) }
         .scan(FeedPackingEnvelope()) { carried, resource ->
             val fresh = resource.data?.filters
             FeedPackingEnvelope(
@@ -79,7 +77,9 @@ class FeedPackingViewModel @Inject constructor(
         val hasSummary = dto != null
         FeedPackingUiState(
             title = TITLE,
-            targetDateLabel = targetDate,
+            targetDateLabel = selection.targetDate,
+            today = todayIso(),
+            canCapture = selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
             summary = dto?.toSummaryUi() ?: FeedPackingSummaryUi(),
             hasSummary = hasSummary,
@@ -97,7 +97,13 @@ class FeedPackingViewModel @Inject constructor(
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        FeedPackingUiState(title = TITLE, emptyMessage = LOADING_MESSAGE),
+        FeedPackingUiState(
+            title = TITLE,
+            emptyMessage = LOADING_MESSAGE,
+            targetDateLabel = todayIso(),
+            today = todayIso(),
+            canCapture = true,
+        ),
     )
 
     // Combined with the optimistic local-completion set — a just-completed shed-session shows
@@ -106,7 +112,7 @@ class FeedPackingViewModel @Inject constructor(
     val rows: Flow<PagingData<FeedPackingRowUi>> =
         combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
             .flatMapLatest { (selection, completed) ->
-                repo.packingRows(selection.toQuery(targetDate))
+                repo.packingRows(selection.toQuery())
                     .map { page -> page.map { it.toRowUi(completed) } }
             }
             .cachedIn(viewModelScope)
@@ -132,6 +138,8 @@ class FeedPackingViewModel @Inject constructor(
             is FeedPackingEvent.SelectPark -> selectPark(event.parkId)
             is FeedPackingEvent.SelectWorkflow -> selectWorkflow(event.workflow)
             is FeedPackingEvent.SelectSession -> selectSession(event.sessionNo)
+            is FeedPackingEvent.SelectStatus -> selectStatus(event.status)
+            is FeedPackingEvent.SelectDate -> selectDate(event.date)
             // Row-tap navigation is handled by the NavHost (opens the completion detail).
             is FeedPackingEvent.OpenRow -> Unit
             FeedPackingEvent.ClearFilters -> clearFilters()
@@ -165,12 +173,33 @@ class FeedPackingViewModel @Inject constructor(
         trackFilter(DIMENSION_SESSION, if (sessionNo == 0) "" else sessionNo.toString())
     }
 
+    private fun selectStatus(status: String) {
+        val current = _filters.value
+        if (current.status == status) return
+        _filters.value = current.copy(status = status)
+        trackFilter(DIMENSION_STATUS, status)
+    }
+
     private fun clearFilters() {
         val current = _filters.value
-        if (current.workflow.isBlank() && current.session == 0) return
-        _filters.value = current.copy(workflow = "", session = 0)
+        if (current.workflow.isBlank() && current.session == 0 && current.status.isBlank()) return
+        _filters.value = current.copy(workflow = "", session = 0, status = "")
         trackFilter(DIMENSION_ALL, value = "")
     }
+
+    // Ignore a future date outright — the date bar's next-day arrow already disables itself on
+    // today and the DatePicker's own SelectableDates already blocks it, so reaching here with a
+    // future date would only be a defensive-programming edge case, never the normal path.
+    private fun selectDate(date: LocalDate) {
+        if (date > LocalDate.now(ZoneId.of(INDIA_ZONE))) return
+        val current = _filters.value
+        val iso = date.toString()
+        if (current.targetDate == iso) return
+        _filters.value = current.copy(targetDate = iso)
+        trackFilter(DIMENSION_DATE, iso)
+    }
+
+    private fun todayIso(): String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
 
     private fun trackFilter(dimension: String, value: String) {
         analytics.track(
@@ -194,6 +223,7 @@ class FeedPackingViewModel @Inject constructor(
             sessions = sessionOptions,
             selectedSessionNo = selection.session,
             selectedSessionLabel = sessionOptions.firstOrNull { it.key == selection.session.toString() }?.label,
+            status = selection.status,
         )
     }
 
@@ -220,6 +250,7 @@ class FeedPackingViewModel @Inject constructor(
         totalKg = totalKg,
         status = status,
         completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, sessionNo, workflow)),
+        lifecycleStatus = lifecycleStatus,
     )
 
     private data class FeedPackingSelection(
@@ -227,12 +258,19 @@ class FeedPackingViewModel @Inject constructor(
         val workflow: String = "",
         // 0 = every session (unfiltered); a positive value is a backend session_no.
         val session: Int = 0,
+        // "" = every status; else a backend verification-lifecycle bucket
+        // (pending | pending_verification | completed).
+        val status: String = "",
+        // The feed day. Reactive (not a fixed val) so the date bar can step it to a past day and
+        // re-query, same as every other filter here.
+        val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
     ) {
-        fun toQuery(targetDate: String): FeedPackingQuery = FeedPackingQuery(
+        fun toQuery(): FeedPackingQuery = FeedPackingQuery(
             parkId = parkId,
             targetDate = targetDate,
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
+            status = status.takeIf { it.isNotBlank() },
         )
     }
 
@@ -250,6 +288,8 @@ class FeedPackingViewModel @Inject constructor(
         const val DIMENSION_FARM = "farm"
         const val DIMENSION_WORKFLOW = "workflow"
         const val DIMENSION_SESSION = "session"
+        const val DIMENSION_STATUS = "status"
+        const val DIMENSION_DATE = "date"
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"

@@ -149,6 +149,9 @@ data class FeedDirectionRowDto(
     // True when this shed-session has a recorded completion (feed.direction.completed). Backend-owned;
     // a whole shed-session is completed at once, so every grain of the same (shed, session) carries it.
     @SerialName("completed") val completed: Boolean = false,
+    // Verification-lifecycle bucket: pending | pending_verification | completed. Backend-owned, the
+    // finer state `completed` collapses (completed iff this == "completed"). Empty defaults to pending.
+    @SerialName("lifecycle_status") val lifecycleStatus: String = "",
 ) {
     /**
      * Stable identity of this row within a filter scope. Used as the Room primary key and the
@@ -205,6 +208,9 @@ data class FeedPackingRowDto(
     @SerialName("status") val status: String = "",
     // Orthogonal to [status]: a completed line was still ready/blocked/empty underneath. Backend-owned.
     @SerialName("completed") val completed: Boolean = false,
+    // Verification-lifecycle bucket: pending | pending_verification | completed. Orthogonal to [status]
+    // (the ration state). Backend-owned; empty defaults to pending.
+    @SerialName("lifecycle_status") val lifecycleStatus: String = "",
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String

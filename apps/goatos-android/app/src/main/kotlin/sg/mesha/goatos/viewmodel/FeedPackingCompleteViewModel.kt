@@ -95,20 +95,22 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     fun onEvent(event: FeedPackingCompleteEvent) {
         when (event) {
-            FeedPackingCompleteEvent.RecordPackingVideo -> recordPackingVideo()
+            FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo(fromGallery = false)
+            FeedPackingCompleteEvent.PickPackingVideo -> capturePackingVideo(fromGallery = true)
             FeedPackingCompleteEvent.MarkDone -> markDone()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
-    /** MANDATORY packing video. Camera-only capture; enqueues a PROOF_UPLOAD on the shed-session
-     *  group so it drains before the completion. */
-    private fun recordPackingVideo() {
+    /** MANDATORY packing video — a LIVE camera clip ([fromGallery] false) or one picked from the
+     *  gallery ([fromGallery] true); either enqueues a PROOF_UPLOAD on the shed-session group so it
+     *  drains before the completion. */
+    private fun capturePackingVideo(fromGallery: Boolean) {
         if (_state.value.isCapturingVideo || _state.value.videoCaptured || shedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo()
+                if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed packing video capture failed")
                 null

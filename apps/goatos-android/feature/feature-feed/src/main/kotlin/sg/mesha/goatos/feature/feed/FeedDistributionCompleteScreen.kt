@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -65,9 +67,16 @@ data class FeedDistributionUiState(
 }
 
 sealed interface FeedDistributionEvent {
+    /** Record the feed video with the LIVE in-app camera. */
     data object RecordFeedVideo : FeedDistributionEvent
+
+    /** Pick the feed video from the device gallery. */
+    data object PickFeedVideo : FeedDistributionEvent
     data object TakeWaterPhoto : FeedDistributionEvent
     data object RecordWaterVideo : FeedDistributionEvent
+
+    /** Pick the water video from the device gallery. */
+    data object PickWaterVideo : FeedDistributionEvent
     data object MarkDone : FeedDistributionEvent
     data object Back : FeedDistributionEvent
 }
@@ -108,23 +117,44 @@ fun FeedDistributionCompleteScreen(
             fontSize = 12.sp,
         )
 
-        // Tile 1 — MANDATORY feed-distribution video.
+        // Tile 1 — MANDATORY feed-distribution video: record live OR upload from the gallery.
         Text(
             text = stringResource(R.string.feed_dist_video_title),
             color = MeshaColors.Ink,
             fontSize = 13.sp,
             fontWeight = FontWeight.W700,
         )
-        FeedDistActionButton(
-            label = when {
-                state.videoCaptured -> stringResource(R.string.feed_dist_video_recorded)
-                state.isCapturingVideo -> stringResource(R.string.feed_dist_video_recording)
-                else -> stringResource(R.string.feed_dist_record_video)
-            },
-            enabled = !state.isCapturingVideo && !state.isCapturingWater && !state.videoCaptured && !committed,
-            primary = false,
-            onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
-        )
+        when {
+            state.videoCaptured -> FeedDistActionButton(
+                label = stringResource(R.string.feed_dist_video_recorded),
+                enabled = false,
+                primary = false,
+                onClick = {},
+            )
+            state.isCapturingVideo -> FeedDistActionButton(
+                label = stringResource(R.string.feed_dist_video_uploading),
+                enabled = false,
+                primary = false,
+                loading = true,
+                onClick = {},
+            )
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FeedDistActionButton(
+                    label = stringResource(R.string.feed_dist_record_video),
+                    enabled = !state.isCapturingWater && !committed,
+                    primary = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
+                )
+                FeedDistActionButton(
+                    label = stringResource(R.string.feed_dist_upload_video),
+                    enabled = !state.isCapturingWater && !committed,
+                    primary = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(FeedDistributionEvent.PickFeedVideo) },
+                )
+            }
+        }
         state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
 
         Spacer(modifier = Modifier.height(2.dp))
@@ -143,29 +173,42 @@ fun FeedDistributionCompleteScreen(
                 fontSize = 12.sp,
             )
         }
-        if (state.waterCaptured) {
-            Text(
+        when {
+            state.waterCaptured -> Text(
                 text = stringResource(R.string.feed_dist_water_captured),
                 color = MeshaColors.Ok,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.W700,
             )
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            state.isCapturingWater -> FeedDistActionButton(
+                label = stringResource(R.string.feed_dist_water_uploading),
+                enabled = false,
+                primary = false,
+                loading = true,
+                onClick = {},
+            )
+            else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FeedDistActionButton(
+                        label = stringResource(R.string.feed_dist_take_water_photo),
+                        enabled = !state.isCapturingVideo && !committed,
+                        primary = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onEvent(FeedDistributionEvent.TakeWaterPhoto) },
+                    )
+                    FeedDistActionButton(
+                        label = stringResource(R.string.feed_dist_record_water_video),
+                        enabled = !state.isCapturingVideo && !committed,
+                        primary = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
+                    )
+                }
                 FeedDistActionButton(
-                    label = if (state.isCapturingWater) stringResource(R.string.feed_dist_water_capturing)
-                    else stringResource(R.string.feed_dist_take_water_photo),
-                    enabled = !state.isCapturingWater && !state.isCapturingVideo && !committed,
+                    label = stringResource(R.string.feed_dist_upload_water_video),
+                    enabled = !state.isCapturingVideo && !committed,
                     primary = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onEvent(FeedDistributionEvent.TakeWaterPhoto) },
-                )
-                FeedDistActionButton(
-                    label = stringResource(R.string.feed_dist_record_water_video),
-                    enabled = !state.isCapturingWater && !state.isCapturingVideo && !committed,
-                    primary = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
+                    onClick = { onEvent(FeedDistributionEvent.PickWaterVideo) },
                 )
             }
         }
@@ -200,6 +243,7 @@ private fun FeedDistActionButton(
     primary: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    loading: Boolean = false,
 ) {
     val bg = when {
         !enabled -> MeshaColors.Hair
@@ -222,6 +266,14 @@ private fun FeedDistActionButton(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MeshaColors.Muted,
+            )
+            Spacer(modifier = Modifier.size(10.dp))
+        }
         Text(text = label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
     }
 }

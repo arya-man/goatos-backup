@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
-    <string name="feed_direction_caption">Generated feed sheet — quantity per shed and session</string>
+    <string name="feed_direction_caption">Confirm each shed-session was fed</string>
     <string name="feed_packing_caption">Per-shed bags to pack for this feed day</string>
     <string name="feed_refresh_description">Refresh</string>
 
@@ -17,6 +17,17 @@
     <string name="feed_filter_workflow_all">Normal + Experiment</string>
     <string name="feed_workflow_normal">Normal</string>
     <string name="feed_workflow_experiment">Experiment</string>
+    <string name="feed_filter_status">Status</string>
+    <string name="feed_filter_all_statuses">All statuses</string>
+    <string name="feed_status_pending">Pending</string>
+    <string name="feed_status_awaiting">Awaiting verification</string>
+    <string name="feed_status_awaiting_chip">In review</string>
+    <string name="feed_status_completed">Completed</string>
+
+    <string name="feed_date_prev_description">Previous day</string>
+    <string name="feed_date_next_description">Next day</string>
+    <string name="feed_date_today_chip">Today</string>
+    <string name="feed_date_read_only_banner">Viewing a past day — read-only</string>
 
     <string name="feed_totals_title">Totals (whole farm)</string>
     <string name="feed_stat_sheds">Sheds</string>
@@ -30,6 +41,8 @@
     <string name="feed_pack_total">Pack total</string>
     <string name="feed_blocked_label">Blocked</string>
     <string name="feed_completed_badge">Completed</string>
+    <string name="feed_direction_fed">Fed</string>
+    <string name="feed_direction_pending">Pending</string>
     <string name="feed_complete_back">‹ Back</string>
     <string name="feed_complete_caption">Record an optional video, then mark this feeding done.</string>
     <string name="feed_complete_record_video">Record video (optional)</string>
@@ -39,20 +52,26 @@
     <string name="feed_dist_caption">Record the feed-distribution video and a water-distribution proof (photo or video). A verifier reviews them before this feeding is counted as done.</string>
     <string name="feed_dist_video_title">Feed distribution video (required)</string>
     <string name="feed_dist_record_video">Record feed video</string>
+    <string name="feed_dist_upload_video">Upload from gallery</string>
     <string name="feed_dist_video_recording">Recording…</string>
+    <string name="feed_dist_video_uploading">Uploading…</string>
     <string name="feed_dist_video_recorded">Feed video recorded</string>
     <string name="feed_dist_water_title">Water distribution proof (required)</string>
     <string name="feed_dist_water_hint">Photo or video</string>
     <string name="feed_dist_take_water_photo">Take water photo</string>
     <string name="feed_dist_record_water_video">Record water video</string>
+    <string name="feed_dist_upload_water_video">Upload video from gallery</string>
     <string name="feed_dist_water_capturing">Capturing…</string>
+    <string name="feed_dist_water_uploading">Uploading…</string>
     <string name="feed_dist_water_captured">Water proof recorded</string>
     <string name="feed_dist_submit">Submit for verification</string>
     <string name="feed_dist_need_both">Record both proofs to submit.</string>
     <string name="feed_pack_complete_caption">Record the packing video. A verifier reviews it before this packing is counted as done.</string>
     <string name="feed_pack_complete_video_title">Packing video (required)</string>
     <string name="feed_pack_complete_record_video">Record packing video</string>
+    <string name="feed_pack_complete_upload_video">Upload from gallery</string>
     <string name="feed_pack_complete_video_recording">Recording…</string>
+    <string name="feed_pack_complete_video_uploading">Uploading…</string>
     <string name="feed_pack_complete_video_recorded">Packing video recorded</string>
     <string name="feed_pack_complete_submit">Submit for verification</string>
     <string name="feed_pack_complete_need_video">Record the packing video to submit.</string>

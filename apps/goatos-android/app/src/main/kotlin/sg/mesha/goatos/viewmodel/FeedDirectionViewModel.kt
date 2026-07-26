@@ -57,16 +57,11 @@ class FeedDirectionViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
-    // The feed day. Feed is generated for exactly one Asia/Kolkata business day; today is the
-    // default the operator dispatches against. Resolved once at construction — a read screen does
-    // not re-plan the day mid-session.
-    private val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
-
     private val _filters = MutableStateFlow(FeedDirectionSelection())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observed: StateFlow<FeedDirectionEnvelope> = _filters
-        .flatMapLatest { selection -> repo.observeDirectionTotals(selection.toQuery(targetDate)) }
+        .flatMapLatest { selection -> repo.observeDirectionTotals(selection.toQuery()) }
         .scan(FeedDirectionEnvelope()) { carried, resource ->
             val fresh = resource.data?.filters
             // Carry the last usable filter vocabulary forward: a newly-selected scope's cache is
@@ -93,7 +88,9 @@ class FeedDirectionViewModel @Inject constructor(
         val hasSummary = dto != null
         FeedDirectionUiState(
             title = TITLE,
-            targetDateLabel = targetDate,
+            targetDateLabel = selection.targetDate,
+            today = todayIso(),
+            canCapture = selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
             summary = dto?.toSummaryUi() ?: FeedDirectionSummaryUi(),
             hasSummary = hasSummary,
@@ -111,7 +108,13 @@ class FeedDirectionViewModel @Inject constructor(
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        FeedDirectionUiState(title = TITLE, emptyMessage = LOADING_MESSAGE),
+        FeedDirectionUiState(
+            title = TITLE,
+            emptyMessage = LOADING_MESSAGE,
+            targetDateLabel = todayIso(),
+            today = todayIso(),
+            canCapture = true,
+        ),
     )
 
     // Rows combine the paged Room window with the optimistic local-completion set, so a shed-session
@@ -121,7 +124,7 @@ class FeedDirectionViewModel @Inject constructor(
     val rows: Flow<PagingData<FeedDirectionRowUi>> =
         combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
             .flatMapLatest { (selection, completed) ->
-                repo.directionRows(selection.toQuery(targetDate))
+                repo.directionRows(selection.toQuery())
                     .map { page -> page.map { it.toRowUi(completed) } }
             }
             .cachedIn(viewModelScope)
@@ -148,6 +151,8 @@ class FeedDirectionViewModel @Inject constructor(
             is FeedDirectionEvent.SelectShed -> selectShed(event.shedId)
             is FeedDirectionEvent.SelectWorkflow -> selectWorkflow(event.workflow)
             is FeedDirectionEvent.SelectSession -> selectSession(event.sessionNo)
+            is FeedDirectionEvent.SelectStatus -> selectStatus(event.status)
+            is FeedDirectionEvent.SelectDate -> selectDate(event.date)
             // Row-tap navigation is handled by the NavHost (it opens the completion detail); the
             // ViewModel has nothing to do here.
             is FeedDirectionEvent.OpenRow -> Unit
@@ -194,13 +199,34 @@ class FeedDirectionViewModel @Inject constructor(
         trackFilter(DIMENSION_SESSION, if (sessionNo == 0) "" else sessionNo.toString())
     }
 
+    private fun selectStatus(status: String) {
+        val current = _filters.value
+        if (current.status == status) return
+        _filters.value = current.copy(status = status)
+        trackFilter(DIMENSION_STATUS, status)
+    }
+
     private fun clearFilters() {
         val current = _filters.value
-        if (current.shedId.isBlank() && current.workflow.isBlank() && current.session == 0) return
+        if (current.shedId.isBlank() && current.workflow.isBlank() && current.session == 0 && current.status.isBlank()) return
         // Keep the selected park (it is required scope); clear the narrowing filters.
-        _filters.value = current.copy(shedId = "", workflow = "", session = 0)
+        _filters.value = current.copy(shedId = "", workflow = "", session = 0, status = "")
         trackFilter(DIMENSION_ALL, value = "")
     }
+
+    // Ignore a future date outright — the date bar's next-day arrow already disables itself on
+    // today and the DatePicker's own SelectableDates already blocks it, so reaching here with a
+    // future date would only be a defensive-programming edge case, never the normal path.
+    private fun selectDate(date: LocalDate) {
+        if (date > LocalDate.now(ZoneId.of(INDIA_ZONE))) return
+        val current = _filters.value
+        val iso = date.toString()
+        if (current.targetDate == iso) return
+        _filters.value = current.copy(targetDate = iso)
+        trackFilter(DIMENSION_DATE, iso)
+    }
+
+    private fun todayIso(): String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
 
     private fun trackFilter(dimension: String, value: String) {
         analytics.track(
@@ -231,6 +257,7 @@ class FeedDirectionViewModel @Inject constructor(
             sessions = sessionOptions,
             selectedSessionNo = selection.session,
             selectedSessionLabel = sessionOptions.firstOrNull { it.key == selection.session.toString() }?.label,
+            status = selection.status,
         )
     }
 
@@ -263,6 +290,7 @@ class FeedDirectionViewModel @Inject constructor(
         overduePending = overduePending,
         // Backend truth OR the optimistic local overlay for a just-completed shed-session.
         completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, sessionNo, workflow)),
+        lifecycleStatus = lifecycleStatus,
     )
 
     private data class FeedDirectionSelection(
@@ -271,13 +299,21 @@ class FeedDirectionViewModel @Inject constructor(
         val workflow: String = "",
         // 0 = every session (unfiltered); a positive value is a backend session_no.
         val session: Int = 0,
+        // "" = every status; else a backend verification-lifecycle bucket
+        // (pending | pending_verification | completed).
+        val status: String = "",
+        // The feed day. Feed is generated for exactly one Asia/Kolkata business day; today is the
+        // default the operator dispatches against. Reactive (not a fixed val) so the date bar can
+        // step it to a past day and re-query, same as every other filter here.
+        val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
     ) {
-        fun toQuery(targetDate: String): FeedDirectionQuery = FeedDirectionQuery(
+        fun toQuery(): FeedDirectionQuery = FeedDirectionQuery(
             parkId = parkId,
             targetDate = targetDate,
             shedId = shedId.takeIf { it.isNotBlank() },
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
+            status = status.takeIf { it.isNotBlank() },
         )
     }
 
@@ -296,6 +332,8 @@ class FeedDirectionViewModel @Inject constructor(
         const val DIMENSION_SHED = "shed"
         const val DIMENSION_WORKFLOW = "workflow"
         const val DIMENSION_SESSION = "session"
+        const val DIMENSION_STATUS = "status"
+        const val DIMENSION_DATE = "date"
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"

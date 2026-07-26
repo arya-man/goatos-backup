@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
-    <string name="feed_direction_caption">రూపొందించిన ఫీడ్ షీట్ — ప్రతి షెడ్ మరియు సెషన్ పరిమాణం</string>
+    <string name="feed_direction_caption">ప్రతి షెడ్-సెషన్‌కు మేత వేసినట్లు నిర్ధారించండి</string>
     <string name="feed_packing_caption">ఈ ఫీడ్ రోజుకు ప్రతి-షెడ్ సంచులు</string>
     <string name="feed_refresh_description">రిఫ్రెష్</string>
 
@@ -17,6 +17,17 @@
     <string name="feed_filter_workflow_all">సాధారణ + ప్రయోగం</string>
     <string name="feed_workflow_normal">సాధారణ</string>
     <string name="feed_workflow_experiment">ప్రయోగం</string>
+    <string name="feed_filter_status">స్థితి</string>
+    <string name="feed_filter_all_statuses">అన్ని స్థితులు</string>
+    <string name="feed_status_pending">పెండింగ్</string>
+    <string name="feed_status_awaiting">ధృవీకరణ పెండింగ్</string>
+    <string name="feed_status_awaiting_chip">సమీక్షలో</string>
+    <string name="feed_status_completed">పూర్తయింది</string>
+
+    <string name="feed_date_prev_description">మునుపటి రోజు</string>
+    <string name="feed_date_next_description">తదుపరి రోజు</string>
+    <string name="feed_date_today_chip">ఈరోజు</string>
+    <string name="feed_date_read_only_banner">గత రోజును చూస్తున్నారు — చదవడానికి మాత్రమే</string>
 
     <string name="feed_totals_title">మొత్తం (మొత్తం ఫారం)</string>
     <string name="feed_stat_sheds">షెడ్‌లు</string>
@@ -30,6 +41,8 @@
     <string name="feed_pack_total">ప్యాక్ మొత్తం</string>
     <string name="feed_blocked_label">నిరోధించబడింది</string>
     <string name="feed_completed_badge">పూర్తయింది</string>
+    <string name="feed_direction_fed">మేత వేశారు</string>
+    <string name="feed_direction_pending">పెండింగ్</string>
     <string name="feed_complete_back">‹ వెనుకకు</string>
     <string name="feed_complete_caption">ఐచ్ఛిక వీడియోను రికార్డ్ చేయండి, ఆపై ఈ దాణాను పూర్తయినట్లు గుర్తించండి.</string>
     <string name="feed_complete_record_video">వీడియో రికార్డ్ చేయండి (ఐచ్ఛికం)</string>
@@ -39,12 +52,16 @@
     <string name="feed_dist_caption">దాణా-పంపిణీ వీడియో మరియు నీటి-పంపిణీ రుజువు (ఫోటో లేదా వీడియో) రికార్డ్ చేయండి. ఈ దాణా పూర్తయినట్లు లెక్కించే ముందు వెరిఫయర్ వాటిని సమీక్షిస్తారు.</string>
     <string name="feed_dist_video_title">దాణా పంపిణీ వీడియో (అవసరం)</string>
     <string name="feed_dist_record_video">దాణా వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_dist_upload_video">గ్యాలరీ నుండి అప్‌లోడ్ చేయండి</string>
+    <string name="feed_dist_video_uploading">అప్‌లోడ్ అవుతోంది…</string>
     <string name="feed_dist_video_recording">రికార్డ్ అవుతోంది…</string>
     <string name="feed_dist_video_recorded">దాణా వీడియో రికార్డ్ చేయబడింది</string>
     <string name="feed_dist_water_title">నీటి పంపిణీ రుజువు (అవసరం)</string>
     <string name="feed_dist_water_hint">ఫోటో లేదా వీడియో</string>
     <string name="feed_dist_take_water_photo">నీటి ఫోటో తీయండి</string>
     <string name="feed_dist_record_water_video">నీటి వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_dist_upload_water_video">గ్యాలరీ నుండి వీడియో అప్‌లోడ్ చేయండి</string>
+    <string name="feed_dist_water_uploading">అప్‌లోడ్ అవుతోంది…</string>
     <string name="feed_dist_water_capturing">క్యాప్చర్ అవుతోంది…</string>
     <string name="feed_dist_water_captured">నీటి రుజువు రికార్డ్ చేయబడింది</string>
     <string name="feed_dist_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
@@ -52,6 +69,8 @@
     <string name="feed_pack_complete_caption">ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి. ఈ ప్యాకింగ్ పూర్తయినట్లు లెక్కించే ముందు వెరిఫయర్ దానిని సమీక్షిస్తారు.</string>
     <string name="feed_pack_complete_video_title">ప్యాకింగ్ వీడియో (అవసరం)</string>
     <string name="feed_pack_complete_record_video">ప్యాకింగ్ వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_pack_complete_upload_video">గ్యాలరీ నుండి అప్‌లోడ్ చేయండి</string>
+    <string name="feed_pack_complete_video_uploading">అప్‌లోడ్ అవుతోంది…</string>
     <string name="feed_pack_complete_video_recording">రికార్డ్ అవుతోంది…</string>
     <string name="feed_pack_complete_video_recorded">ప్యాకింగ్ వీడియో రికార్డ్ చేయబడింది</string>
     <string name="feed_pack_complete_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>

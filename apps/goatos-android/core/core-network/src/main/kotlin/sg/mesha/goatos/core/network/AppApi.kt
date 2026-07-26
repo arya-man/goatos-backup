@@ -605,6 +605,10 @@ interface AppApi {
         shedId: String? = null,
         session: Int? = null,
         workflow: String? = null,
+        // Optional verification-lifecycle filter: pending | pending_verification | completed.
+        // null/blank means every status. Backend-owned semantics; the backend filters the whole scope
+        // before paging so the page and its summary stay consistent.
+        status: String? = null,
         limit: Int? = null,
         offset: Int? = null,
     ): FeedDirectionPreviewPageDto
@@ -658,6 +662,8 @@ interface AppApi {
         // Optional session filter (session_no; null = every session). Mirrors the preview.
         session: Int? = null,
         workflow: String? = null,
+        // Optional verification-lifecycle filter, same contract as the preview.
+        status: String? = null,
         limit: Int? = null,
         offset: Int? = null,
     ): FeedPackingWorklistPageDto
@@ -1092,6 +1098,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         shedId: String?,
         session: Int?,
         workflow: String?,
+        status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedDirectionPreviewPageDto = FeedDirectionPreviewPageDto(targetDate = targetDate)
@@ -1101,6 +1108,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         targetDate: String,
         session: Int?,
         workflow: String?,
+        status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
-    <string name="feed_direction_caption">तैयार फ़ीड शीट — प्रति शेड और सत्र मात्रा</string>
+    <string name="feed_direction_caption">पुष्टि करें कि प्रत्येक शेड-सत्र को खिलाया गया</string>
     <string name="feed_packing_caption">इस फ़ीड दिन के लिए प्रति-शेड बैग</string>
     <string name="feed_refresh_description">रिफ़्रेश करें</string>
 
@@ -17,6 +17,17 @@
     <string name="feed_filter_workflow_all">सामान्य + प्रयोग</string>
     <string name="feed_workflow_normal">सामान्य</string>
     <string name="feed_workflow_experiment">प्रयोग</string>
+    <string name="feed_filter_status">स्थिति</string>
+    <string name="feed_filter_all_statuses">सभी स्थितियाँ</string>
+    <string name="feed_status_pending">लंबित</string>
+    <string name="feed_status_awaiting">सत्यापन प्रतीक्षित</string>
+    <string name="feed_status_awaiting_chip">समीक्षा में</string>
+    <string name="feed_status_completed">पूर्ण</string>
+
+    <string name="feed_date_prev_description">पिछला दिन</string>
+    <string name="feed_date_next_description">अगला दिन</string>
+    <string name="feed_date_today_chip">आज</string>
+    <string name="feed_date_read_only_banner">पिछला दिन देख रहे हैं — केवल पढ़ने के लिए</string>
 
     <string name="feed_totals_title">कुल (पूरा फ़ार्म)</string>
     <string name="feed_stat_sheds">शेड</string>
@@ -30,6 +41,8 @@
     <string name="feed_pack_total">पैक कुल</string>
     <string name="feed_blocked_label">अवरुद्ध</string>
     <string name="feed_completed_badge">पूर्ण</string>
+    <string name="feed_direction_fed">खिलाया गया</string>
+    <string name="feed_direction_pending">बाकी</string>
     <string name="feed_complete_back">‹ वापस</string>
     <string name="feed_complete_caption">वैकल्पिक वीडियो रिकॉर्ड करें, फिर इस फीडिंग को पूर्ण चिह्नित करें।</string>
     <string name="feed_complete_record_video">वीडियो रिकॉर्ड करें (वैकल्पिक)</string>
@@ -39,12 +52,16 @@
     <string name="feed_dist_caption">फ़ीड-वितरण वीडियो और पानी-वितरण प्रमाण (फ़ोटो या वीडियो) रिकॉर्ड करें। इस फीडिंग को पूर्ण गिनने से पहले एक सत्यापनकर्ता इनकी समीक्षा करता है।</string>
     <string name="feed_dist_video_title">फ़ीड वितरण वीडियो (आवश्यक)</string>
     <string name="feed_dist_record_video">फ़ीड वीडियो रिकॉर्ड करें</string>
+    <string name="feed_dist_upload_video">गैलरी से अपलोड करें</string>
+    <string name="feed_dist_video_uploading">अपलोड हो रहा है…</string>
     <string name="feed_dist_video_recording">रिकॉर्ड हो रहा है…</string>
     <string name="feed_dist_video_recorded">फ़ीड वीडियो रिकॉर्ड किया गया</string>
     <string name="feed_dist_water_title">पानी वितरण प्रमाण (आवश्यक)</string>
     <string name="feed_dist_water_hint">फ़ोटो या वीडियो</string>
     <string name="feed_dist_take_water_photo">पानी की फ़ोटो लें</string>
     <string name="feed_dist_record_water_video">पानी का वीडियो रिकॉर्ड करें</string>
+    <string name="feed_dist_upload_water_video">गैलरी से वीडियो अपलोड करें</string>
+    <string name="feed_dist_water_uploading">अपलोड हो रहा है…</string>
     <string name="feed_dist_water_capturing">कैप्चर हो रहा है…</string>
     <string name="feed_dist_water_captured">पानी का प्रमाण रिकॉर्ड किया गया</string>
     <string name="feed_dist_submit">सत्यापन के लिए सबमिट करें</string>
@@ -52,6 +69,8 @@
     <string name="feed_pack_complete_caption">पैकिंग वीडियो रिकॉर्ड करें। इस पैकिंग को पूर्ण गिनने से पहले एक सत्यापनकर्ता इसकी समीक्षा करता है।</string>
     <string name="feed_pack_complete_video_title">पैकिंग वीडियो (आवश्यक)</string>
     <string name="feed_pack_complete_record_video">पैकिंग वीडियो रिकॉर्ड करें</string>
+    <string name="feed_pack_complete_upload_video">गैलरी से अपलोड करें</string>
+    <string name="feed_pack_complete_video_uploading">अपलोड हो रहा है…</string>
     <string name="feed_pack_complete_video_recording">रिकॉर्ड हो रहा है…</string>
     <string name="feed_pack_complete_video_recorded">पैकिंग वीडियो रिकॉर्ड किया गया</string>
     <string name="feed_pack_complete_submit">सत्यापन के लिए सबमिट करें</string>

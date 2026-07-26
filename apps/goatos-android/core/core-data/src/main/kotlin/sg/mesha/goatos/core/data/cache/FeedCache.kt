@@ -102,6 +102,11 @@ interface FeedDirectionItemDao {
     @Query("DELETE FROM feed_direction_items WHERE queryKey = :queryKey")
     suspend fun deleteQuery(queryKey: String)
 
+    /** Rows already cached for this scope — the monotonic base for the next append page's sortIndex.
+     *  The backend pages by SHED (many rows per shed), so sortIndex must count ROWS, not shed offset. */
+    @Query("SELECT COUNT(*) FROM feed_direction_items WHERE queryKey = :queryKey")
+    suspend fun countForQuery(queryKey: String): Int
+
     @Query(
         "DELETE FROM feed_direction_items WHERE queryKey IN " +
             "(SELECT queryKey FROM feed_direction_remote_keys ORDER BY updatedAt DESC LIMIT -1 OFFSET :keepQueries)",
@@ -200,6 +205,11 @@ interface FeedPackingItemDao {
 
     @Query("DELETE FROM feed_packing_items WHERE queryKey = :queryKey")
     suspend fun deleteQuery(queryKey: String)
+
+    /** Rows already cached for this scope — the monotonic base for the next append page's sortIndex.
+     *  The backend pages by SHED (many rows per shed), so sortIndex must count ROWS, not shed offset. */
+    @Query("SELECT COUNT(*) FROM feed_packing_items WHERE queryKey = :queryKey")
+    suspend fun countForQuery(queryKey: String): Int
 
     @Query(
         "DELETE FROM feed_packing_items WHERE queryKey IN " +

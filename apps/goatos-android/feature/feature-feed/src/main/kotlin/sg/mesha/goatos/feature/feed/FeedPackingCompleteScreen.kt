@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -63,7 +65,11 @@ data class FeedPackingCompleteUiState(
 }
 
 sealed interface FeedPackingCompleteEvent {
+    /** Record the packing video with the LIVE in-app camera. */
     data object RecordPackingVideo : FeedPackingCompleteEvent
+
+    /** Pick the packing video from the device gallery. */
+    data object PickPackingVideo : FeedPackingCompleteEvent
     data object MarkDone : FeedPackingCompleteEvent
     data object Back : FeedPackingCompleteEvent
 }
@@ -104,23 +110,44 @@ fun FeedPackingCompleteScreen(
             fontSize = 12.sp,
         )
 
-        // Tile — MANDATORY packing video.
+        // Tile — MANDATORY packing video: record live OR upload from the gallery.
         Text(
             text = stringResource(R.string.feed_pack_complete_video_title),
             color = MeshaColors.Ink,
             fontSize = 13.sp,
             fontWeight = FontWeight.W700,
         )
-        FeedPackCompleteActionButton(
-            label = when {
-                state.videoCaptured -> stringResource(R.string.feed_pack_complete_video_recorded)
-                state.isCapturingVideo -> stringResource(R.string.feed_pack_complete_video_recording)
-                else -> stringResource(R.string.feed_pack_complete_record_video)
-            },
-            enabled = !state.isCapturingVideo && !state.videoCaptured && !committed,
-            primary = false,
-            onClick = { onEvent(FeedPackingCompleteEvent.RecordPackingVideo) },
-        )
+        when {
+            state.videoCaptured -> FeedPackCompleteActionButton(
+                label = stringResource(R.string.feed_pack_complete_video_recorded),
+                enabled = false,
+                primary = false,
+                onClick = {},
+            )
+            state.isCapturingVideo -> FeedPackCompleteActionButton(
+                label = stringResource(R.string.feed_pack_complete_video_uploading),
+                enabled = false,
+                primary = false,
+                loading = true,
+                onClick = {},
+            )
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FeedPackCompleteActionButton(
+                    label = stringResource(R.string.feed_pack_complete_record_video),
+                    enabled = !committed,
+                    primary = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(FeedPackingCompleteEvent.RecordPackingVideo) },
+                )
+                FeedPackCompleteActionButton(
+                    label = stringResource(R.string.feed_pack_complete_upload_video),
+                    enabled = !committed,
+                    primary = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onEvent(FeedPackingCompleteEvent.PickPackingVideo) },
+                )
+            }
+        }
         state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
 
         Spacer(modifier = Modifier.height(2.dp))
@@ -152,6 +179,7 @@ private fun FeedPackCompleteActionButton(
     primary: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    loading: Boolean = false,
 ) {
     val bg = when {
         !enabled -> MeshaColors.Hair
@@ -174,6 +202,14 @@ private fun FeedPackCompleteActionButton(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MeshaColors.Muted,
+            )
+            Spacer(modifier = Modifier.size(10.dp))
+        }
         Text(text = label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
     }
 }

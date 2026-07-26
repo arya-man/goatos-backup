@@ -43,8 +43,10 @@ func (f *fakeCompletionStore) ListCompletedSessions(_ context.Context, _, _ stri
 // fakeDistributionStore is the DISTRIBUTION verification-gated store (the NEW table the DIRECTION
 // overlay reads verified sessions from -- separate from fakeCompletionStore, which is packing).
 type fakeDistributionStore struct {
-	verified  []ports.VerifiedDistribution
-	listCalls int
+	verified    []ports.VerifiedDistribution
+	statuses    []ports.SessionCompletionStatus
+	listCalls   int
+	statusCalls int
 }
 
 func (f *fakeDistributionStore) CompleteDistribution(_ context.Context, _ ports.CompleteDistributionParams) (ports.CompleteDistributionResult, error) {
@@ -54,6 +56,11 @@ func (f *fakeDistributionStore) CompleteDistribution(_ context.Context, _ ports.
 func (f *fakeDistributionStore) ListVerifiedDistributions(_ context.Context, _, _ string, _ time.Time) ([]ports.VerifiedDistribution, error) {
 	f.listCalls++
 	return f.verified, nil
+}
+
+func (f *fakeDistributionStore) ListDistributionSessionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.SessionCompletionStatus, error) {
+	f.statusCalls++
+	return f.statuses, nil
 }
 
 func (f *fakeDistributionStore) ApplyVerifiedDistribution(_ context.Context, _ ports.ApplyDistributionParams) (bool, error) {
@@ -68,8 +75,10 @@ func (f *fakeDistributionStore) BounceDistributionForRework(_ context.Context, _
 // verified sessions from -- separate from fakeCompletionStore, the inert instant path, and from
 // fakeDistributionStore). Maintainer decision 2026-07-26 gated packing too.
 type fakePackingStore struct {
-	verified  []ports.VerifiedPacking
-	listCalls int
+	verified    []ports.VerifiedPacking
+	statuses    []ports.SessionCompletionStatus
+	listCalls   int
+	statusCalls int
 }
 
 func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePackingParams) (ports.CompletePackingResult, error) {
@@ -79,6 +88,11 @@ func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePa
 func (f *fakePackingStore) ListVerifiedPacking(_ context.Context, _, _ string, _ time.Time) ([]ports.VerifiedPacking, error) {
 	f.listCalls++
 	return f.verified, nil
+}
+
+func (f *fakePackingStore) ListPackingSessionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.SessionCompletionStatus, error) {
+	f.statusCalls++
+	return f.statuses, nil
 }
 
 func (f *fakePackingStore) ApplyVerifiedPacking(_ context.Context, _ ports.ApplyPackingParams) (bool, error) {
@@ -122,8 +136,8 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
 	// The DIRECTION overlay now reads the DISTRIBUTION verification-gated table (maintainer decision,
 	// 2026-07-26): a session is Completed only after a verifier approves, i.e. status='completed' in
-	// feed_distribution_completions. So the overlay's read is ListVerifiedDistributions, not the packing
-	// ListCompletedSessions.
+	// feed_distribution_completions. The overlay reads ListDistributionSessionStatuses (which also
+	// surfaces pending_verification/rework for the status filter), one bounded read per request.
 	store := &fakeDistributionStore{}
 	service, config, _ := newTestService()
 	service.WithDistributionStore(store)
@@ -137,18 +151,21 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 		if r.Completed {
 			t.Fatalf("no completion recorded, but row (%s s%d) reports completed", r.ShedID, r.SessionNo)
 		}
+		if r.LifecycleStatus != domain.SessionStatusPending {
+			t.Fatalf("no completion recorded, but row (%s s%d) status=%q, want pending", r.ShedID, r.SessionNo, r.LifecycleStatus)
+		}
 	}
-	if store.listCalls != 1 {
-		t.Fatalf("ListVerifiedDistributions calls = %d, want 1 (one overlay read per request)", store.listCalls)
+	if store.statusCalls != 1 {
+		t.Fatalf("ListDistributionSessionStatuses calls = %d, want 1 (one overlay read per request)", store.statusCalls)
 	}
 	// The overlay is a DEDICATED read: it must not have added a config snapshot read.
 	if config.snapshotCalls != 1 {
 		t.Fatalf("config snapshot reads = %d, want exactly 1 (overlay must not touch the snapshot)", config.snapshotCalls)
 	}
 
-	// Now VERIFY exactly the first row's shed-session and re-serve.
+	// Now VERIFY exactly the first row's shed-session (status='completed') and re-serve.
 	target := page.Items[0]
-	store.verified = []ports.VerifiedDistribution{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	store.statuses = []ports.SessionCompletionStatus{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow, Status: domain.SessionStatusCompleted}}
 	page2, err := service.Preview(context.Background(), q)
 	if err != nil {
 		t.Fatalf("Preview 2: %v", err)
@@ -172,8 +189,8 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
 	// The PACKING overlay now reads the PACKING verification-gated table (maintainer decision,
 	// 2026-07-26): a packing session is Completed only after a verifier approves, i.e. status='completed'
-	// in feed_packing_completions. So the overlay's read is ListVerifiedPacking, not the old instant
-	// ListCompletedSessions.
+	// in feed_packing_completions. The overlay reads ListPackingSessionStatuses (which also surfaces
+	// pending_verification/rework for the status filter).
 	store := &fakePackingStore{}
 	service, _, _ := newTestService()
 	service.WithPackingStore(store)
@@ -187,7 +204,7 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 		t.Fatal("no packing lines to overlay")
 	}
 	target := page.Items[0]
-	store.verified = []ports.VerifiedPacking{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	store.statuses = []ports.SessionCompletionStatus{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow, Status: domain.SessionStatusCompleted}}
 	page2, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
 		t.Fatalf("PackingWorklist 2: %v", err)
@@ -198,6 +215,103 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 			t.Fatalf("packing line (%s s%d %s) completed=%v, want %v", r.ShedID, r.SessionNo, r.Workflow, r.Completed, want)
 		}
 	}
+}
+
+// The status filter narrows the WHOLE scope BEFORE paging (so a filtered page + its summary stay
+// consistent) and the three buckets are correct: 'completed' keeps only verifier-approved
+// shed-sessions, and 'pending' KEEPS a rework session (rework merges into pending) while EXCLUDING a
+// completed one. Runs on the generated-preview path (the non-draft path that actually filters).
+func TestPreviewStatusFilterNarrowsScopeBeforePaging(t *testing.T) {
+	t.Parallel()
+	// now = 2026-07-30 08:00 -> today 07-30 = feedDayTarget: the generated-preview path (no issue).
+	now := istInstant(2026, 7, 30, 8)
+	svc, _, _, _ := newLifecycleService(now)
+	dist := &fakeDistributionStore{}
+	svc.WithDistributionStore(dist)
+
+	base := domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()}
+
+	// Unfiltered first: every shed-session is pending (no completion rows), so the fixture gives us the
+	// real (shed, session, workflow) keys to mark.
+	full, err := svc.Preview(context.Background(), base)
+	if err != nil {
+		t.Fatalf("Preview full: %v", err)
+	}
+	if len(full.Items) < 2 {
+		t.Fatalf("need >= 2 rows to exercise filtering, got %d", len(full.Items))
+	}
+	for _, r := range full.Items {
+		if r.LifecycleStatus != domain.SessionStatusPending || r.Completed {
+			t.Fatalf("no completions, row (%s s%d) status=%q completed=%v, want pending/false", r.ShedID, r.SessionNo, r.LifecycleStatus, r.Completed)
+		}
+	}
+
+	// Mark ONE shed-session completed and a DIFFERENT one rework.
+	done := full.Items[0]
+	var rework domain.DirectionRow
+	for _, r := range full.Items {
+		if r.ShedID != done.ShedID || r.SessionNo != done.SessionNo || r.Workflow != done.Workflow {
+			rework = r
+			break
+		}
+	}
+	if rework.ShedID == "" {
+		t.Fatal("fixture has only one shed-session; need a second to test the rework->pending merge")
+	}
+	dist.statuses = []ports.SessionCompletionStatus{
+		{ShedID: done.ShedID, SessionNo: done.SessionNo, Workflow: done.Workflow, Status: domain.SessionStatusCompleted},
+		{ShedID: rework.ShedID, SessionNo: rework.SessionNo, Workflow: rework.Workflow, Status: "rework"},
+	}
+
+	// status=completed -> ONLY the completed shed-session's grains, all stamped completed.
+	comp, err := svc.Preview(context.Background(), withStatus(base, domain.SessionStatusCompleted))
+	if err != nil {
+		t.Fatalf("Preview completed: %v", err)
+	}
+	if len(comp.Items) == 0 {
+		t.Fatal("completed filter returned no rows")
+	}
+	for _, r := range comp.Items {
+		if r.ShedID != done.ShedID || r.SessionNo != done.SessionNo || r.Workflow != done.Workflow {
+			t.Fatalf("completed filter leaked row (%s s%d %s)", r.ShedID, r.SessionNo, r.Workflow)
+		}
+		if r.LifecycleStatus != domain.SessionStatusCompleted || !r.Completed {
+			t.Fatalf("completed row status=%q completed=%v", r.LifecycleStatus, r.Completed)
+		}
+	}
+	// Summary describes the FILTERED scope, not the whole sheet: exactly the one completed shed.
+	if comp.Summary.ShedCount != 1 {
+		t.Fatalf("completed-filter summary ShedCount=%d, want 1 (summary must track the filtered scope)", comp.Summary.ShedCount)
+	}
+
+	// status=pending -> the rework session is present (merged into pending); the completed one is gone.
+	pend, err := svc.Preview(context.Background(), withStatus(base, domain.SessionStatusPending))
+	if err != nil {
+		t.Fatalf("Preview pending: %v", err)
+	}
+	sawRework, sawDone := false, false
+	for _, r := range pend.Items {
+		if r.ShedID == done.ShedID && r.SessionNo == done.SessionNo && r.Workflow == done.Workflow {
+			sawDone = true
+		}
+		if r.ShedID == rework.ShedID && r.SessionNo == rework.SessionNo && r.Workflow == rework.Workflow {
+			sawRework = true
+			if r.LifecycleStatus != domain.SessionStatusPending {
+				t.Fatalf("rework row not merged to pending: status=%q", r.LifecycleStatus)
+			}
+		}
+	}
+	if sawDone {
+		t.Fatal("pending filter leaked the completed shed-session")
+	}
+	if !sawRework {
+		t.Fatal("pending filter dropped the rework shed-session (rework must merge into pending)")
+	}
+}
+
+func withStatus(q domain.PreviewQuery, status string) domain.PreviewQuery {
+	q.Status = status
+	return q
 }
 
 // ---------------------------------------------------------------------------

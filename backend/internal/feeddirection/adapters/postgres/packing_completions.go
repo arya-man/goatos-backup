@@ -231,6 +231,34 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND
 	return out, rows.Err()
 }
 
+// ListPackingSessionStatuses returns EVERY (shed, session, workflow) with a feed_packing_completions
+// row for one park-day plus its RAW status -- the packing serve path's status overlay + filter
+// source (includes pending_verification and rework, not just completed).
+func (r *Repository) ListPackingSessionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.SessionCompletionStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// scale-guard:ignore: bounded read of ONE park-day's packing shed-session statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's shed catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
+	rows, err := r.pool.Query(ctx, `
+SELECT shed_id::text, session_no, workflow, status
+FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
+		tenantID, parkID, targetDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: list packing session statuses: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ports.SessionCompletionStatus, 0)
+	for rows.Next() {
+		var d ports.SessionCompletionStatus
+		if err := rows.Scan(&d.ShedID, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan packing session status: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // ApplyVerifiedPacking flips a packing completion whose video a verifier APPROVED
 // 'pending_verification' -> 'completed' and emits feed.packing.completed, in one transaction. It runs
 // from the verification.verdict.approved consumer, never from the operator's phone.
