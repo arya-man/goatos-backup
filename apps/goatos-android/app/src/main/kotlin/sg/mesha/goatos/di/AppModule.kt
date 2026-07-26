@@ -104,7 +104,9 @@ import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
+import sg.mesha.goatos.capture.DelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
 import sg.mesha.goatos.core.network.TelemetryInterceptor
@@ -413,6 +415,14 @@ object AppModule {
     @Provides
     @Singleton
     fun provideProofCaptureSource(delegate: DelegatingProofCaptureSource): ProofCaptureSource = delegate
+
+    @Provides
+    @Singleton
+    fun provideDelegatingPhotoCaptureSource(): DelegatingPhotoCaptureSource = DelegatingPhotoCaptureSource()
+
+    @Provides
+    @Singleton
+    fun providePhotoCaptureSource(delegate: DelegatingPhotoCaptureSource): PhotoCaptureSource = delegate
 
     @Provides
     @Singleton

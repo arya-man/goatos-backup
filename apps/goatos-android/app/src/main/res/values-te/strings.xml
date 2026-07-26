@@ -9,4 +9,8 @@
     <string name="proof_camera_stop_recording">ఆపి రుజువు రికార్డింగ్‌ను సేవ్ చేయండి</string>
     <string name="proof_camera_state_ready">రికార్డ్ చేయడానికి సిద్ధం</string>
     <string name="proof_camera_state_recording">రికార్డ్ అవుతోంది</string>
+    <string name="proof_photo_title">నీటి రుజువు ఫోటో తీయండి</string>
+    <string name="proof_photo_instruction">నీటి పంపిణీ స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_photo_take">ఫోటో తీయండి</string>
+    <string name="proof_photo_cancel">ఫోటో క్యాప్చర్‌ను రద్దు చేయండి</string>
 </resources>

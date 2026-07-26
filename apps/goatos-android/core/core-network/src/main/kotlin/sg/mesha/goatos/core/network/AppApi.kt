@@ -11,6 +11,8 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -620,6 +622,20 @@ interface AppApi {
         request: FeedDirectionCompleteRequestDto,
     ): FeedDirectionCompleteResponseDto
 
+    /**
+     * POST /feed-direction/distribution/complete — the verifier-GATED feed-distribution completion
+     * (docs/decisions/feed-distribution-verification.md). Carries a MANDATORY feed-distribution
+     * video ref plus a MANDATORY water-distribution proof ref; flips the shed-session to
+     * `pending_verification` and enqueues a verification item — NOTHING is completed until a verifier
+     * approves. A blank either proof is rejected `422 proof_required`. Idempotent on [idempotencyKey]:
+     * a replay re-enqueues the SAME verification item and completes nobody twice. This is separate
+     * from [completeFeedDirectionSession] (the untouched packing path).
+     */
+    suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto
+
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
@@ -1033,6 +1049,16 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: FeedDirectionCompleteRequestDto,
     ): FeedDirectionCompleteResponseDto =
         FeedDirectionCompleteResponseDto(completionId = "fake-completion", status = "completed", applied = true)
+
+    override suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto =
+        FeedDistributionCompleteResponseDto(
+            completionId = "fake-distribution-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

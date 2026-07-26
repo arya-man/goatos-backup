@@ -36,4 +36,17 @@
     <string name="feed_complete_video_recording">రికార్డ్ అవుతోంది…</string>
     <string name="feed_complete_video_recorded">వీడియో రికార్డ్ చేయబడింది</string>
     <string name="feed_complete_done">దాణా ఇవ్వబడింది — పూర్తయింది</string>
+    <string name="feed_dist_caption">దాణా-పంపిణీ వీడియో మరియు నీటి-పంపిణీ రుజువు (ఫోటో లేదా వీడియో) రికార్డ్ చేయండి. ఈ దాణా పూర్తయినట్లు లెక్కించే ముందు వెరిఫయర్ వాటిని సమీక్షిస్తారు.</string>
+    <string name="feed_dist_video_title">దాణా పంపిణీ వీడియో (అవసరం)</string>
+    <string name="feed_dist_record_video">దాణా వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_dist_video_recording">రికార్డ్ అవుతోంది…</string>
+    <string name="feed_dist_video_recorded">దాణా వీడియో రికార్డ్ చేయబడింది</string>
+    <string name="feed_dist_water_title">నీటి పంపిణీ రుజువు (అవసరం)</string>
+    <string name="feed_dist_water_hint">ఫోటో లేదా వీడియో</string>
+    <string name="feed_dist_take_water_photo">నీటి ఫోటో తీయండి</string>
+    <string name="feed_dist_record_water_video">నీటి వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_dist_water_capturing">క్యాప్చర్ అవుతోంది…</string>
+    <string name="feed_dist_water_captured">నీటి రుజువు రికార్డ్ చేయబడింది</string>
+    <string name="feed_dist_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
+    <string name="feed_dist_need_both">సమర్పించడానికి రెండు రుజువులను రికార్డ్ చేయండి.</string>
 </resources>

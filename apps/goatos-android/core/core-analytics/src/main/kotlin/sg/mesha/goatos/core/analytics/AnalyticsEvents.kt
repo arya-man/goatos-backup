@@ -155,6 +155,22 @@ object AnalyticsEvents {
     /** A feed completion could not be queued. [Params.REASON] carries a coarse, non-PII cause. */
     const val FEED_COMPLETE_FAILURE = "feed_complete_failure"
 
+    /** The verifier-gated feed-distribution completion detail was opened (a Direction row tapped). */
+    const val FEED_DISTRIBUTION_OPENED = "feed_distribution_opened"
+
+    /** The MANDATORY feed-distribution video was captured on the distribution detail. */
+    const val FEED_DISTRIBUTION_VIDEO_CAPTURED = "feed_distribution_video_captured"
+
+    /** The MANDATORY water-distribution proof was captured. [Params.KIND] is `photo`/`video`. */
+    const val FEED_DISTRIBUTION_WATER_PROOF_CAPTURED = "feed_distribution_water_proof_captured"
+
+    /** A feed-distribution completion was submitted for verification (both proofs queued, completion
+     *  enqueued -> the shed-session moves to pending_verification). */
+    const val FEED_DISTRIBUTION_SUBMITTED = "feed_distribution_submitted"
+
+    /** A feed-distribution completion or proof could not be queued. [Params.REASON] a coarse cause. */
+    const val FEED_DISTRIBUTION_FAILURE = "feed_distribution_failure"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 

@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
@@ -224,6 +225,7 @@ class SyncEngine(
         OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
         OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
+        OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -476,6 +478,53 @@ class SyncEngine(
             ),
         )
         return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md).
+     * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
+     * verbatim as the `Idempotency-Key` header. BOTH mandatory proofs are resolved from their coupled
+     * PROOF_UPLOAD outbox rows (same group, drained first) exactly like [dispatchShiftingComplete]'s
+     * single video; a missing coupling or a permanently-failed upload is terminal — a gated
+     * completion without both verifiable proofs must not reach the backend. The backend re-rejects a
+     * blank either proof with `422 proof_required` (terminal by [recordFailure]'s check).
+     */
+    private suspend fun dispatchFeedDistributionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+        val response = api.completeFeedDistribution(
+            item.idempotencyKey,
+            FeedDistributionCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                sessionNo = payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+                distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
+                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * Resolves an uploaded proof_id from a coupled PROOF_UPLOAD outbox row (same-group ordering means
+     * it has already drained to SUCCEEDED before the completion that references it). A not-yet-drained
+     * row throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or
+     * a blank proof id is terminal. Shared by the two mandatory feed-distribution proofs.
+     */
+    private suspend fun resolveUploadedProofRef(proofItemId: String): String {
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("A required proof upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for a proof upload to finish before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("A proof upload result is not yet available.")
+        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+        if (proofId.isBlank()) {
+            throw NonRetryableSyncException("A proof upload did not return a proof id.")
+        }
+        return proofId
     }
 
     /**

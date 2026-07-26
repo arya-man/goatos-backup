@@ -9,4 +9,8 @@
     <string name="proof_camera_stop_recording">ನಿಲ್ಲಿಸಿ ಮತ್ತು ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ಉಳಿಸಿ</string>
     <string name="proof_camera_state_ready">ರೆಕಾರ್ಡ್ ಮಾಡಲು ಸಿದ್ಧ</string>
     <string name="proof_camera_state_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="proof_photo_title">ನೀರಿನ ಪುರಾವೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="proof_photo_instruction">ನೀರಿನ ವಿತರಣೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_photo_take">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="proof_photo_cancel">ಫೋಟೋ ಕ್ಯಾಪ್ಚರ್ ರದ್ದುಮಾಡಿ</string>
 </resources>

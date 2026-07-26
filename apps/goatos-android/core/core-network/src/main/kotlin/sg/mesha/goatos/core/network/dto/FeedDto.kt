@@ -282,6 +282,46 @@ data class FeedDirectionCompleteResponseDto(
     @SerialName("applied") val applied: Boolean = false,
 )
 
+// ---------------------------------------------------------------------------
+// WRITE — POST /feed-direction/distribution/complete (verifier-gated)
+// ---------------------------------------------------------------------------
+
+/**
+ * The gated feed-DISTRIBUTION completion body (docs/decisions/feed-distribution-verification.md).
+ * This is a DIFFERENT record from the packing/direction [FeedDirectionCompleteRequestDto] path: the
+ * DIRECTION operator now records BOTH a MANDATORY feed-distribution video and a MANDATORY
+ * water-distribution proof (photo or video), which flips the shed-session to `pending_verification`
+ * and enqueues a verification item. Nothing is completed until a verifier approves the pair.
+ *
+ * Grain is (park, shed, session, target_date, workflow). [parkId] may be null (server resolves the
+ * default park). BOTH [distributionProofRef] and [waterProofRef] are REQUIRED — a blank either proof
+ * is rejected `422 proof_required` server-side (the client also gates on both being uploaded). The
+ * Idempotency-Key header, not the body, carries the replay key.
+ */
+@Serializable
+data class FeedDistributionCompleteRequestDto(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("session_no") val sessionNo: Int,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("workflow") val workflow: String,
+    @SerialName("distribution_proof_ref") val distributionProofRef: String,
+    @SerialName("water_proof_ref") val waterProofRef: String,
+)
+
+/**
+ * The gated-completion result. The session is NOT completed here — it moves to
+ * `pending_verification` and a verification item is enqueued. [status] is the new completion status
+ * (`pending_verification`); [newlyPending] is false on an idempotent replay of an already-pending
+ * completion.
+ */
+@Serializable
+data class FeedDistributionCompleteResponseDto(
+    @SerialName("completion_id") val completionId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("newly_pending") val newlyPending: Boolean = false,
+)
+
 /** The two dispatch workflows a feed row can belong to. `""` (unset filter) means both. */
 object FeedWorkflow {
     const val NORMAL = "normal"

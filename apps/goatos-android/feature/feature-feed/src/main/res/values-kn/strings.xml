@@ -36,4 +36,17 @@
     <string name="feed_complete_video_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="feed_complete_video_recorded">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
     <string name="feed_complete_done">ಆಹಾರ ನೀಡಲಾಗಿದೆ — ಮುಗಿದಿದೆ</string>
+    <string name="feed_dist_caption">ಆಹಾರ-ವಿತರಣೆ ವೀಡಿಯೊ ಮತ್ತು ನೀರು-ವಿತರಣೆ ಪುರಾವೆ (ಫೋಟೋ ಅಥವಾ ವೀಡಿಯೊ) ರೆಕಾರ್ಡ್ ಮಾಡಿ. ಈ ಆಹಾರವನ್ನು ಪೂರ್ಣಗೊಂಡಿದೆ ಎಂದು ಎಣಿಸುವ ಮೊದಲು ಪರಿಶೀಲಕರು ಅವುಗಳನ್ನು ಪರಿಶೀಲಿಸುತ್ತಾರೆ.</string>
+    <string name="feed_dist_video_title">ಆಹಾರ ವಿತರಣೆ ವೀಡಿಯೊ (ಅಗತ್ಯ)</string>
+    <string name="feed_dist_record_video">ಆಹಾರ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_dist_video_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="feed_dist_video_recorded">ಆಹಾರ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
+    <string name="feed_dist_water_title">ನೀರು ವಿತರಣೆ ಪುರಾವೆ (ಅಗತ್ಯ)</string>
+    <string name="feed_dist_water_hint">ಫೋಟೋ ಅಥವಾ ವೀಡಿಯೊ</string>
+    <string name="feed_dist_take_water_photo">ನೀರಿನ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="feed_dist_record_water_video">ನೀರಿನ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_dist_water_capturing">ಕ್ಯಾಪ್ಚರ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="feed_dist_water_captured">ನೀರಿನ ಪುರಾವೆ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
+    <string name="feed_dist_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
+    <string name="feed_dist_need_both">ಸಲ್ಲಿಸಲು ಎರಡೂ ಪುರಾವೆಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
 </resources>
