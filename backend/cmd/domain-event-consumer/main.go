@@ -22,6 +22,9 @@ import (
 	domainconsumerpg "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/postgres"
 	domainconsumerpubsub "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/pubsub"
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -122,6 +125,16 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	// Counts approval + feed-direction repos so this durable-bus consumer can apply the shifting,
+	// feed-distribution, and feed-packing verification verdicts. These handlers live on the API's
+	// in-process bus too (bootstrap/api.go), but that bus never receives the async verdict events --
+	// the verdict is delivered ONLY through the outbox -> this consumer, so a missing registration here
+	// is a silent drop that strands every feed/shifting approval in pending_verification (as it did).
+	// The shifting apply relocates animals and writes identity audit in one txn, so it needs the same
+	// identity tx writer the API wires (approval_repository.go WithIdentityTxWriter).
+	identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
+	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -133,6 +146,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
+	// Shifting + feed verification appliers (maintainer decision 2026-07-27): the ONE shared
+	// registration used by bootstrap/api.go and cmd/outbox-relay too, so a verifier's approve/reject
+	// actually applies on the durable bus. Missing this here is what stranded every feed/shifting
+	// approval in pending_verification.
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
 
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")

@@ -288,8 +288,10 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
-        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go"
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
+        "backend/internal/eventwiring/appliers_test.go"
       ],
+      "durableBusRegistration": "backend/internal/eventwiring/appliers.go (RegisterVerificationAppliers) is the SINGLE registration of the shifting + feed-distribution + feed-packing verdict appliers, called by bootstrap/api.go, cmd/outbox-relay, AND cmd/domain-event-consumer. The verdict is delivered ONLY via the outbox, so the durable-bus consumers (outbox-relay local / domain-event-consumer prod) MUST register them; before 2026-07-27 they did not and every feed/shifting approval was silently dropped while the API-bus registration never fired. appliers_test.go is the drift guard.",
       "surfaces": [
         "backend",
         "frontend",
