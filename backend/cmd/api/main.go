@@ -107,6 +107,9 @@ func assertLocalOriginMainStack() error {
 	}
 	repoRoot, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
+		if runningInContainer() {
+			return nil
+		}
 		return err
 	}
 	remote, err := git("remote", "get-url", "origin")
@@ -156,6 +159,13 @@ func git(args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func runningInContainer() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return os.Getenv("KUBERNETES_SERVICE_HOST") != ""
 }
 
 func shortSHA(sha string) string {

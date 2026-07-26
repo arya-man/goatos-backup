@@ -120,11 +120,19 @@ type Owner struct {
 }
 
 type Evidence struct {
-	ProofIDs              []string   `json:"proof_ids"`
-	EvidenceCount         int        `json:"evidence_count"`
-	LatestEvidenceAt      *time.Time `json:"latest_evidence_at,omitempty"`
-	LatestRejectionReason *string    `json:"latest_rejection_reason,omitempty"`
-	AuditRef              *string    `json:"audit_ref,omitempty"`
+	ProofIDs              []string    `json:"proof_ids"`
+	Media                 []MediaItem `json:"media,omitempty"`
+	EvidenceCount         int         `json:"evidence_count"`
+	LatestEvidenceAt      *time.Time  `json:"latest_evidence_at,omitempty"`
+	LatestRejectionReason *string     `json:"latest_rejection_reason,omitempty"`
+	AuditRef              *string     `json:"audit_ref,omitempty"`
+}
+
+type MediaItem struct {
+	ProofID     string `json:"proof_id"`
+	DownloadURL string `json:"download_url"`
+	MimeType    string `json:"mime_type,omitempty"`
+	DurationMS  *int64 `json:"duration_ms,omitempty"`
 }
 
 // Row is the generic process-integrity shape. The current API lens exposes only

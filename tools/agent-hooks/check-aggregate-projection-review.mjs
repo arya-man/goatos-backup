@@ -17,6 +17,7 @@ const TESTS = {
   scope: /(?:ScopeHierarchy|ParkScope|CohortScope)/,
   status: /(?:StatusMatrix|EveryStatus|StatusBuckets)/,
 };
+const PROCESS_INTEGRITY_REPO = "backend/internal/processintegrity/adapters/postgres/repository.go";
 
 function git(args, allowFailure = false) {
   try {
@@ -97,14 +98,43 @@ export function inspectFixture(sourceHunks, changedTests) {
   return failures;
 }
 
+function inspectProcessIntegrityShedGrain(source) {
+  const failures = [];
+  const badTaskState = /task_state\s+IN\s*\(\s*'submitted'\s*,\s*'needs_review'\s*\)/i;
+  const shedProjection = /submission_state|completion_recorded|proof_count|verification_state/i;
+  if (badTaskState.test(source) && shedProjection.test(source)) {
+    failures.push(
+      "process-integrity shed-grain state must not derive proof/verification/submitted from shared parent task_state; use submission_state/completion/proof facts",
+    );
+  }
+  const bareParentSubmission = /FROM\s+sop_submissions\s+sub[\s\S]{0,500}?sub\.task_id\s*=\s*COALESCE\s*\(\s*oi\.sop_task_id\s*,\s*ob\.sop_task_id\s*\)/i;
+  if (bareParentSubmission.test(source)) {
+    failures.push(
+      "process-integrity shed-grain submission lookup must join sop_submission_items by current goat before reading sop_submissions; latest parent submission leaks across sibling sheds",
+    );
+  }
+  return failures;
+}
+
 function selfTest() {
   const sql = `-- projection-review: membership=batch_members; group_key=batch_id; join_cardinality=dimensions pre-aggregated; pagination=one tenant aggregate before paging; scope=explicit park/shed/cohort CASE\nSELECT park_id, status, due_date, COUNT(*) FROM obligations JOIN dimensions USING (rule_id) GROUP BY park_id, status, due_date`;
   const hunk = { visible: sql, added: sql };
   const goodTests = "TestDriveOneToMany TestDrivePageBoundary TestDriveDateShift TestDriveScopeHierarchy TestDriveStatusMatrix";
   const bad = inspectFixture([{ visible: sql.replace(/-- projection-review.*\n/, ""), added: sql }], "");
   const good = inspectFixture([hunk], goodTests);
-  if (bad.length !== 6 || good.length !== 0) {
-    console.error("aggregate-projection-guard self-test failed", { bad, good });
+  const badShedGrain = inspectProcessIntegrityShedGrain("CASE WHEN task_state IN ('submitted', 'needs_review') THEN 'uploaded' END\nsubmission_state");
+  const goodShedGrain = inspectProcessIntegrityShedGrain("CASE WHEN submission_state IN ('submitted', 'needs_review') THEN 'uploaded' END\ntask_state");
+  const badParentSubmission = inspectProcessIntegrityShedGrain("FROM sop_submissions sub\nWHERE sub.tenant_id = oi.tenant_id\n  AND sub.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)");
+  const goodParentSubmission = inspectProcessIntegrityShedGrain("FROM sop_submission_items si\nJOIN sop_submissions sub ON sub.submission_id = si.submission_id\nWHERE si.goat_id = oi.target_id");
+  if (
+    bad.length !== 6 ||
+    good.length !== 0 ||
+    badShedGrain.length !== 1 ||
+    goodShedGrain.length !== 0 ||
+    badParentSubmission.length !== 1 ||
+    goodParentSubmission.length !== 0
+  ) {
+    console.error("aggregate-projection-guard self-test failed", { bad, good, badShedGrain, goodShedGrain, badParentSubmission, goodParentSubmission });
     process.exit(1);
   }
   console.log("aggregate-projection-guard self-test: PASS");
@@ -133,6 +163,9 @@ function main() {
     hunks(diffFor(file, base, untracked)).map((hunk) => hunk.added),
   ).join("\n");
   const failures = inspectFixture(sourceHunks, changedTests);
+  if (files.includes(PROCESS_INTEGRITY_REPO)) {
+    failures.push(...inspectProcessIntegrityShedGrain(readFileSync(resolve(repo, PROCESS_INTEGRITY_REPO), "utf8")));
+  }
   if (failures.length) {
     console.error("aggregate-projection-guard: FAIL");
     for (const hunk of sourceHunks) console.error(`  candidate: ${hunk.file}`);

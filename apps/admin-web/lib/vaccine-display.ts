@@ -7,6 +7,7 @@ const SEED_SUFFIX_RE = /\s*(?:-|\u2013)\s*seed_[a-z0-9]+-[a-z0-9_]+/gi;
 const DOSE_RE = /\b(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)\b/i;
 const DOSE_STRIP_RE = /(?:^|[\s_-]+)(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)(?:[\s_-]*\d+)?(?=$|[\s_-]+)/gi;
 const MATRIX_CODE_RE = /\b(blue_tongue|goat_pox|sheep_pox|et_tt|fmd|ppr|hs)(?:_adult|_kid)?(?:_w\d+|_m\d+|_yr\d+|_primary|_booster\d*|_annual|_catch_up)?\b/i;
+const MATRIX_PREFIX_RE = /^Preventive Care Vaccination Matrix\s*-?\s*/i;
 const VACCINE_LABELS: Record<string, string> = {
   BLUE_TONGUE: "Blue Tongue",
   ETTT: "ET+TT",
@@ -86,6 +87,17 @@ function matrixScheduleLabel(raw: string): string {
   return [vaccine, path, timingLabel].filter(Boolean).join(" ");
 }
 
+function naturalMatrixScheduleLabel(raw: string): string {
+  const source = cleanDisplayLabel(raw).replace(MATRIX_PREFIX_RE, "").trim();
+  const match = source.match(/\b(ET\+TT|ETTT|ET_TT|FMD|HS|PPR|Blue Tongue|Goat Pox|Sheep Pox)\b/i);
+  if (!match) return "";
+  const key = match[1].toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const vaccine = VACCINE_LABELS[key] ?? MATRIX_VACCINE_LABELS[key] ?? compactDisplayLabel(match[1]);
+  const course = source.match(/\b(adult|kid)\s+course\b/i)?.[0]?.toLowerCase() ?? "";
+  const dose = source.match(/\bdose\s+\d+\b/i)?.[0]?.toLowerCase() ?? "";
+  return [vaccine, course, dose].filter(Boolean).join(" ");
+}
+
 export function vaccinationProtocolDisplayName(protocol: NamedProtocol): string {
   return compactDisplayLabel(protocol.name) || normalizedProtocolName(protocol) || "Vaccination protocol";
 }
@@ -96,6 +108,8 @@ export function vaccinationProtocolDisplayName(protocol: NamedProtocol): string 
 export function vaccinationDriveDisplayName(raw: string | undefined | null): string {
   const source = (raw ?? "").trim();
   if (!source) return "Vaccination drive";
+  const naturalMatrixLabel = naturalMatrixScheduleLabel(source);
+  if (naturalMatrixLabel) return naturalMatrixLabel;
   const matrixLabel = matrixScheduleLabel(source);
   if (matrixLabel) return matrixLabel;
   const dose = doseLabel(source);
