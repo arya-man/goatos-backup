@@ -175,7 +175,10 @@ grain state comes from shed-scoped facts: `sop_submissions`,
 `sop_submission_items`, `vaccination_completions`, and `proof_artifacts`, joined
 by the active shed/submission/batch grain. The mobile shed-submit idempotency key
 must include the active shed scope, and backend submit must stay idempotent when
-another shed on the same shared parent already submitted.
+another shed on the same shared parent already submitted. That sibling allowance
+stops at `needs_review`: once the shared parent is `accepted`, fresh submit keys
+must fail before writing any new submission, fanout, audit, or movement side
+effect; only exact idempotency replay may read back the existing result.
 
 Frontend/mobile render backend-owned contracts and send idempotent commands; they
 do not create private business follow-up pipelines. Direct live-animal table

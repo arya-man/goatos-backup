@@ -1316,6 +1316,20 @@ func (r *Repository) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand
 		task, _, _, err := r.GetTask(ctx, cmd.TenantID, existing.TaskID)
 		return existing, task, true, err
 	}
+	var currentState string
+	if err := tx.QueryRow(ctx, `
+SELECT state
+FROM sop_tasks
+WHERE tenant_id = $1::uuid
+  AND task_id = $2::uuid`,
+		cmd.TenantID,
+		cmd.TaskID,
+	).Scan(&currentState); err != nil {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
+	}
+	if currentState == "accepted" {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrConflict
+	}
 	answers, err := json.Marshal(nonNilMap(cmd.Body.Answers))
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
@@ -1393,7 +1407,7 @@ SET state = CASE
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
-  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested', 'needs_review', 'accepted')
+  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested', 'needs_review')
 RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.TaskState).Scan(&taskID)
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
