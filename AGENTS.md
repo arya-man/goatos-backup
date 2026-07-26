@@ -143,6 +143,26 @@ or other clinical facts; those stay on their authoritative workflows. A real
 shifting-completion → Vaccination E2E test is mandatory—separate producer and
 consumer tests are not closure.
 
+Confirmed shifting verification gate (maintainer decision 2026-07-26,
+SUPERSEDING the 2026-07-19 "operator completion applies the move" rule FOR
+SHIFTING ONLY): a shed move now requires a verifier-approved video before it
+applies. The operator completes with a MANDATORY video (`shifting_events.proof_ref`;
+a proofless completion is rejected 422), which flips the move to
+`pending_verification` and enqueues a `shifting_move` verification item — NOTHING
+relocates and the count does NOT move yet. The animals relocate and the count
+moves ONLY when a verifier APPROVES the video (`ApplyVerifiedShiftingEvent`); a
+REJECTED video bounces the move back to `authorized` for a re-shoot
+(`BounceShiftingEventForRework`). The count (herd register / breakdown, read live
+from `goats.shed_id`) therefore reflects a move at verifier approval, not at
+operator completion; the completion→approval lag is accepted deliberately. Birth
+and death approvals are UNCHANGED (still apply immediately). The 2026-07-19 rule
+remains the REASON approval never relocates; only its final leg is replaced.
+Wiring is the generic Verification module: producer `CompleteShiftingEvent` +
+`internal/countsbridge` enqueue; consumer `counts/app.ShiftingVerificationHandler`
+on `verification.verdict.approved`/`.rework`. Canonical source:
+`docs/decisions/shifting-verification.md`; migration
+`000031_shifting_verification_gate.sql`.
+
 ## Domain Event Integration Is Mandatory
 
 Backend, admin-web, and mobile business mutations all use the same domain-event

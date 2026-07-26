@@ -263,12 +263,18 @@
         {
           "module": "notification",
           "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/shifting_verification_handler.go",
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.ApplyVerifiedShiftingEvent, which relocates the moved animals (goat.location.changed + goat.stage_changed) and flips the shifting_event 'pending_verification' -> 'applied'. This is the maintainer-2026-07-26 gate: a shed move's count only shifts when a verifier approves the operator's mandatory video."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -290,12 +296,18 @@
         {
           "module": "notification",
           "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/shifting_verification_handler.go",
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.BounceShiftingEventForRework, which returns the shifting_event 'pending_verification' -> 'authorized' (no relocation) so the operator re-records the video."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/vaccination/app/completion_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",
