@@ -25,8 +25,8 @@
 //  3. For operators/director only: binds the derived user_id onto their
 //     EXISTING named workforce_members roster row (seeded by seed-roster-real
 //     / seed-vaccination-cpt-operator-drive), and ensures
-//     department_module_grants gives their department the vaccination
-//     bottom bar. Leadership (ceo_internal) intentionally get no department:
+//     department_module_grants gives their department the vaccination + counts
+//     + feed_direction bottom bar. Leadership (ceo_internal) intentionally get no department:
 //     bootstrap_copy.go:214 already gives them every built module without one.
 //
 // Safe to re-run any number of times: every write is a guarded
@@ -52,9 +52,15 @@ import (
 )
 
 // defaultVaccinationModules matches the department_module_grants seeded
-// elsewhere for preventive_care (vaccination + counts) so operators/director
-// see the same bottom bar as any other preventive_care roster member.
-var defaultVaccinationModules = []string{"vaccination", "counts"}
+// elsewhere for preventive_care (vaccination + counts + feed_direction) so
+// operators/director see the same bottom bar as any other preventive_care
+// roster member. This MUST stay in sync with
+// seed-roster-real.defaultDepartmentModules["preventive_care"]: a PC operator
+// dispatches and packs what the feed direction says (maintainer decision
+// 2026-07-22), and RoleOperator already holds ProtocolRead/FeedPackingRead for
+// those two Feed tabs. Omitting feed_direction here is what left STG-seeded
+// operators without the Feed module while local (roster-seeded) operators had it.
+var defaultVaccinationModules = []string{"vaccination", "counts", "feed_direction"}
 
 var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 

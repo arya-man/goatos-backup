@@ -640,27 +640,29 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 }
 
 // navChromeFor decides the nav chrome from the COMPOSED drawer, following the
-// nav-composition rule "1 module -> bottom bar, >=2 -> drawer". A leadership
-// principal with a single available module (a preventive-care leader whose only
-// drawer entry is the vaccination home) gets the clean bottom bar, not a
-// one-row drawer; a CEO with vaccination + counts gets the expanded drawer.
-// Field operators stay on minimal chrome until the operator drawer rollout is
-// explicitly enabled again.
+// nav-composition rule "1 available module -> clean bottom bar, >=2 -> module
+// switcher drawer". This applies uniformly to field operators and leadership:
+// a preventive-care leader whose only drawer entry is the vaccination home, or
+// an operator granted a single module, gets the clean bottom bar; a CEO with
+// vaccination + counts, or an OPERATOR granted vaccination + counts + feed,
+// gets the expanded drawer so they can switch between their modules.
+//
+// Maintainer decision 2026-07-27: the operator module-switcher drawer rollout is
+// ENABLED (it was previously pinned to minimal). Operators with >=2 granted
+// modules now get the same >=2->drawer treatment as leadership. A standalone
+// verifier is the only principal deliberately kept on minimal chrome.
 func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
 	if isStandaloneVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
 	}
-	if isLeadershipPrincipal(grants) {
-		available := 0
-		for _, m := range modules {
-			if m.Status == moduleStatusAvailable {
-				available++
-			}
+	available := 0
+	for _, m := range modules {
+		if m.Status == moduleStatusAvailable {
+			available++
 		}
-		if available >= 2 {
-			return domain.NavChromeExpanded
-		}
-		return domain.NavChromeMinimal
+	}
+	if available >= 2 {
+		return domain.NavChromeExpanded
 	}
 	return domain.NavChromeMinimal
 }
