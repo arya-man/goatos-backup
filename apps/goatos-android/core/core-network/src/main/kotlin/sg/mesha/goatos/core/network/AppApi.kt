@@ -80,6 +80,7 @@ import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
@@ -325,6 +326,13 @@ interface AppApi {
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns. */
     suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
+    /** GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster — active scope RFID roster. */
+    suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        limit: Int = 250,
+    ): WeighingRosterResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -966,6 +974,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         )
 
     override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+
+    override suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        limit: Int,
+    ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,

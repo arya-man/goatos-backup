@@ -53,14 +53,14 @@ WITH inserted AS (
   INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
   SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
     CASE WHEN $6 = 'individual_animal' THEN (
-      SELECT count(*)::int FROM goats g WHERE g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'active' AND herd_register_is_kid(g.age_band, g.management_stage)
+      SELECT count(*)::int FROM goats g WHERE g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
     ) ELSE 1 END
   RETURNING campaign_shed_id, expected_animal_count
 )
 INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
 SELECT $1::uuid, $2::uuid, g.goat_id, $3::uuid, $5, inserted.campaign_shed_id
 FROM inserted
-JOIN goats g ON g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'active' AND herd_register_is_kid(g.age_band, g.management_stage)
+JOIN goats g ON g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
 WHERE $6 = 'individual_animal'
 ON CONFLICT DO NOTHING
 RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4, $5, (SELECT expected_animal_count FROM inserted), $6, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
@@ -131,6 +131,105 @@ func (r *Repository) ListCampaigns(ctx context.Context, tenantID string) ([]doma
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	if limit <= 0 {
+		limit = 250
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH scoped AS (
+  SELECT
+    ea.campaign_id,
+    ea.campaign_shed_id,
+    ea.animal_id,
+    g.display_id,
+    ea.expected_location_id,
+    ea.expected_location_label,
+    ea.status,
+    ea.availability_status,
+    ea.current_location_id,
+    ea.current_location_label,
+    ea.current_lifecycle_status,
+    row_number() OVER (ORDER BY ea.created_at, ea.animal_id) AS seq
+  FROM weighing_expected_animals ea
+  JOIN goats g ON g.tenant_id=ea.tenant_id AND g.goat_id=ea.animal_id
+  WHERE ea.tenant_id=$1::uuid
+    AND ea.campaign_id=$2::uuid
+    AND ea.campaign_shed_id=$3::uuid
+  ORDER BY ea.created_at, ea.animal_id
+  LIMIT $4
+)
+SELECT
+  scoped.campaign_id::text,
+  scoped.campaign_shed_id::text,
+  scoped.animal_id::text,
+  scoped.display_id,
+  COALESCE(primary_id.identifier_value, '') AS primary_identifier,
+  COALESCE(secondary_id.identifier_value, '') AS secondary_identifier,
+  scoped.expected_location_id::text,
+  scoped.expected_location_label,
+  scoped.status,
+  scoped.availability_status,
+  COALESCE(scoped.current_location_id::text, '') AS current_location_id,
+  COALESCE(scoped.current_location_label, '') AS current_location_label,
+  COALESCE(scoped.current_lifecycle_status, '') AS current_lifecycle_status,
+  scoped.seq::bigint
+FROM scoped
+LEFT JOIN LATERAL (
+  SELECT identifier_value
+  FROM goat_identifiers gi
+  WHERE gi.tenant_id=$1::uuid
+    AND gi.goat_id=scoped.animal_id
+    AND gi.identifier_type='animal_identifier_1'
+    AND gi.status='active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.created_at DESC, gi.identifier_id
+  LIMIT 1
+) primary_id ON true
+LEFT JOIN LATERAL (
+  SELECT identifier_value
+  FROM goat_identifiers gi
+  WHERE gi.tenant_id=$1::uuid
+    AND gi.goat_id=scoped.animal_id
+    AND gi.identifier_type='animal_identifier_2'
+    AND gi.status='active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.created_at DESC, gi.identifier_id
+  LIMIT 1
+) secondary_id ON true
+ORDER BY scoped.seq`, tenantID, campaignID, campaignShedID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.ExpectedAnimal, 0, limit)
+	for rows.Next() {
+		var animal domain.ExpectedAnimal
+		if err := rows.Scan(
+			&animal.CampaignID,
+			&animal.CampaignShedID,
+			&animal.AnimalID,
+			&animal.DisplayAnimalID,
+			&animal.PrimaryIdentifier,
+			&animal.SecondaryIdentifier,
+			&animal.ExpectedLocationID,
+			&animal.ExpectedLocationLabel,
+			&animal.Status,
+			&animal.AvailabilityStatus,
+			&animal.CurrentLocationID,
+			&animal.CurrentLocationLabel,
+			&animal.CurrentLifecycleStatus,
+			&animal.Seq,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, animal)
 	}
 	return out, rows.Err()
 }

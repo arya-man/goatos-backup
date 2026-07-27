@@ -52,6 +52,30 @@ data class WeighingCampaignListResponseDto(
 )
 
 @Serializable
+data class WeighingRosterRowDto(
+    @SerialName("campaign_id") val campaignId: String = "",
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    @SerialName("animal_id") val animalId: String = "",
+    @SerialName("display_animal_id") val displayAnimalId: String = "",
+    @SerialName("primary_identifier") val primaryIdentifier: String = "",
+    @SerialName("secondary_identifier") val secondaryIdentifier: String? = null,
+    @SerialName("expected_location_id") val expectedLocationId: String = "",
+    @SerialName("expected_location_label") val expectedLocationLabel: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("availability_status") val availabilityStatus: String? = null,
+    @SerialName("current_location_id") val currentLocationId: String? = null,
+    @SerialName("current_location_label") val currentLocationLabel: String? = null,
+    @SerialName("current_lifecycle_status") val currentLifecycleStatus: String? = null,
+    @SerialName("seq") val seq: Long = 0,
+)
+
+@Serializable
+data class WeighingRosterResponseDto(
+    @SerialName("items") val items: List<WeighingRosterRowDto> = emptyList(),
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+@Serializable
 data class WeighingAnimalObservationRequestDto(
     @SerialName("animal_id") val animalId: String,
     @SerialName("weight_kg") val weightKg: Double,

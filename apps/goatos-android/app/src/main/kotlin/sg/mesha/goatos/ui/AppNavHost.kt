@@ -696,6 +696,16 @@ fun AppNavHost(
                 onScanSubmit = vm::submitTypedScan,
                 onWeightChange = vm::onWeightInputChange,
                 onRecordIndividual = vm::recordIndividual,
+                onOpenAssignment = { assignment ->
+                    navController.navigate(
+                        Routes.weighingScanRoute(
+                            campaignId = assignment.campaignId,
+                            workGroupId = assignment.workGroupId,
+                            campaignShedId = assignment.campaignShedId,
+                            scanTitle = assignment.label,
+                        ),
+                    ) { launchSingleTop = true }
+                },
             )
         }
 
@@ -1645,9 +1655,10 @@ internal fun startDestinationFor(navState: NavState): String {
 private const val SUBMIT_SUCCESS_RETURN_DELAY_MS = 800L
 
 private val supportedRootDestinations = setOf(
-    Routes.CALENDAR,
-    Routes.VACCINATION,
-    Routes.VERIFY,
+	Routes.CALENDAR,
+	Routes.VACCINATION,
+	Routes.WEIGHING,
+	Routes.VERIFY,
     Routes.VERIFY_ACTION,
     Routes.YOU,
     Routes.ALERTS,

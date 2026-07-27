@@ -23,10 +23,12 @@ import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
+import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
+import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
@@ -52,6 +54,7 @@ class WeighingViewModel @Inject constructor(
     private val scanInput = MutableStateFlow("")
     private val weightInput = MutableStateFlow("")
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
+    private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private var readerRefreshJob: Job? = null
@@ -72,12 +75,20 @@ class WeighingViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     val state: StateFlow<WeighingUiState> =
-        combine(scopeState, formState) { scope, form ->
-            scope.toUiState(form.scan, form.weight, form.selected, form.message, form.busy)
+        combine(scopeState, formState, assignments) { scope, form, availableAssignments ->
+            scope.toUiState(form.scan, form.weight, form.selected, form.message, form.busy, availableAssignments)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
         if (scopeKey != null) {
+            viewModelScope.launch {
+                when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_LIMIT)) {
+                    is AppResult.Ok -> {
+                        if (refreshed.value == 0) message.value = "No animals are assigned to this weighing scope."
+                    }
+                    is AppResult.Err -> message.value = refreshed.message
+                }
+            }
             viewModelScope.launch {
                 reader.reads.collect { read -> matchTag(read.tag) }
             }
@@ -88,6 +99,13 @@ class WeighingViewModel @Inject constructor(
                         val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
                         repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
                     }
+                }
+            }
+        } else {
+            viewModelScope.launch {
+                when (val loaded = repository.listAssignments()) {
+                    is AppResult.Ok -> assignments.value = loaded.value
+                    is AppResult.Err -> message.value = loaded.message
                 }
             }
         }
@@ -213,8 +231,14 @@ class WeighingViewModel @Inject constructor(
         selected: WeighingRosterRowEntity?,
         currentMessage: String?,
         busy: Boolean,
+        availableAssignments: List<WeighingAssignment>,
     ): WeighingUiState {
-        val scope = this ?: return WeighingUiState(scanInput = scan, weightInput = weight, message = currentMessage)
+        val scope = this ?: return WeighingUiState(
+            scanInput = scan,
+            weightInput = weight,
+            message = currentMessage,
+            assignments = availableAssignments.map { it.toUiRow() },
+        )
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
             scopeLabel = "Campaign $campaignId - Work group $workGroupId - Scope $campaignShedId",
@@ -259,10 +283,23 @@ class WeighingViewModel @Inject constructor(
 
     private companion object {
         const val ROSTER_WINDOW_SIZE = 40
+        const val ROSTER_SYNC_LIMIT = 5000
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
     }
 }
+
+private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
+    WeighingAssignmentUiRow(
+        campaignId = campaignId,
+        workGroupId = workGroupId,
+        campaignShedId = campaignShedId,
+        label = label,
+        category = category,
+        status = status,
+        expectedCount = expectedCount,
+        periodLabel = periodLabel,
+    )
 
 private data class WeighingFormState(
     val scan: String = "",

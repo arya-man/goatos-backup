@@ -15,6 +15,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -76,6 +80,49 @@ class WeighingRepositoryTest {
         val after = repository.observeScope(scopeKey, windowSize = 20).first()
         assertEquals(20, after.rosterWindow.size)
         assertEquals(listOf("animal-5001"), after.individualDrafts.map { it.animalId })
+    }
+
+    @Test
+    fun `refresh scope hydrates Room roster from backend rows`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(
+                items = listOf(
+                    WeighingRosterRowDto(
+                        campaignId = campaignId,
+                        campaignShedId = campaignShedId,
+                        animalId = "animal-9",
+                        displayAnimalId = "KID-A-009",
+                        primaryIdentifier = "WG-RFID-0009",
+                        expectedLocationId = "shed-a",
+                        expectedLocationLabel = "Kid Shed A",
+                        currentLocationId = "shed-b",
+                        currentLocationLabel = "Kid Shed B",
+                        status = "pending",
+                        availabilityStatus = "moved_other_shed",
+                        seq = 9,
+                    ),
+                ),
+            )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            tenantId = "tenant-live",
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        assertEquals(1, (refreshed as AppResult.Ok).value)
+
+        val match = repository.matchTag(scopeKey, "WG-RFID-0009")
+        assertEquals("animal-9", match.row?.animalId)
+        assertEquals("tenant-live", match.row?.tenantId)
+        assertEquals("wrong_shed", match.outcome)
     }
 
     @Test

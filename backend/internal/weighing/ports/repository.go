@@ -19,6 +19,7 @@ type Repository interface {
 	CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, tenantID string) ([]domain.Campaign, error)
+	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error

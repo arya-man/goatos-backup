@@ -220,6 +220,45 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster:
+    get:
+      tags:
+        - Weighing
+      operationId: appGetWeighingScopeRoster
+      summary: Get a bounded operator-visible RFID roster for one Weighing scope.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 250
+      responses:
+        "200":
+          description: Weighing scope roster rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingRosterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/campaigns/{campaign_id}/animal-observations:
     post:
       tags:
@@ -14016,6 +14055,68 @@ components:
       properties:
         campaign:
           $ref: "#/components/schemas/WeighingCampaign"
+        trace_id:
+          type: string
+    WeighingRosterRow:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - campaign_shed_id
+        - animal_id
+        - display_animal_id
+        - expected_location_id
+        - expected_location_label
+        - status
+        - availability_status
+        - seq
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        campaign_shed_id:
+          type: string
+          format: uuid
+        animal_id:
+          type: string
+          format: uuid
+        display_animal_id:
+          type: string
+        primary_identifier:
+          type: string
+        secondary_identifier:
+          type: string
+        expected_location_id:
+          type: string
+          format: uuid
+        expected_location_label:
+          type: string
+        status:
+          type: string
+          enum: [pending, weighed, unavailable, missed, canceled, closed_by_override]
+        availability_status:
+          type: string
+          enum: [expected_shed, moved_other_shed, icu, quarantine, dead, culled, sold_transferred, exited, unknown_review]
+        current_location_id:
+          type: string
+          format: uuid
+        current_location_label:
+          type: string
+        current_lifecycle_status:
+          type: string
+        seq:
+          type: integer
+          minimum: 1
+    WeighingRosterResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingRosterRow"
         trace_id:
           type: string
     CreateWeighingCampaignShed:

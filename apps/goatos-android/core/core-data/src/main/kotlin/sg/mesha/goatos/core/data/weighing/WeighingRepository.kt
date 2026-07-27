@@ -14,7 +14,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.util.UUID
 
@@ -49,6 +52,17 @@ data class WeighingScopeState(
     val totalExpected: Int,
 )
 
+data class WeighingAssignment(
+    val campaignId: String,
+    val workGroupId: String,
+    val campaignShedId: String,
+    val label: String,
+    val category: String,
+    val status: String,
+    val expectedCount: Int,
+    val periodLabel: String,
+)
+
 data class IndividualWeighingCapture(
     val tenantId: String,
     val campaignId: String,
@@ -73,6 +87,8 @@ data class ShedPartitionWeighingCapture(
 
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
+    suspend fun listAssignments(): AppResult<List<WeighingAssignment>>
+    suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, limit: Int = 5000): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
@@ -83,6 +99,8 @@ interface WeighingRepository {
 }
 
 class DefaultWeighingRepository(
+    private val api: AppApi? = null,
+    private val tenantId: String = "",
     private val rosterDao: WeighingRosterDao,
     private val observationDao: WeighingObservationDao,
     private val shedObservationDao: WeighingShedObservationDao,
@@ -107,6 +125,30 @@ class DefaultWeighingRepository(
 
     override suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>) {
         rosterDao.replaceScope(scopeKey, rows)
+    }
+
+    override suspend fun listAssignments(): AppResult<List<WeighingAssignment>> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing assignments are not configured.")
+        runCatching {
+            val campaigns = client.listWeighingCampaigns().items
+            AppResult.Ok(campaigns.flatMap { it.toAssignments() })
+        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
+    }
+
+    override suspend fun refreshScope(
+        campaignId: String,
+        workGroupId: String,
+        campaignShedId: String,
+        limit: Int,
+    ): AppResult<Int> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing roster sync is not configured.")
+        val key = weighingScopeKey(campaignId, workGroupId, campaignShedId)
+        runCatching {
+            val response = client.getWeighingRoster(campaignId, campaignShedId, limit.coerceIn(1, 5000))
+            val rows = response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+            rosterDao.replaceScope(key, rows)
+            AppResult.Ok(rows.size)
+        }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
     }
 
     override suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch = withContext(Dispatchers.IO) {
@@ -288,6 +330,48 @@ private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
     )
+
+private fun WeighingRosterRowDto.toEntity(scopeKey: String, workGroupId: String, tenantId: String): WeighingRosterRowEntity =
+    WeighingRosterRowEntity(
+        id = listOf(campaignId, workGroupId, campaignShedId, animalId).joinToString(":"),
+        scopeKey = scopeKey,
+        tenantId = tenantId,
+        campaignId = campaignId,
+        workGroupId = workGroupId,
+        campaignShedId = campaignShedId,
+        expectedLocationId = expectedLocationId,
+        expectedLocationLabel = expectedLocationLabel,
+        actualLocationId = currentLocationId?.takeIf { it.isNotBlank() },
+        actualLocationLabel = currentLocationLabel?.takeIf { it.isNotBlank() },
+        animalId = animalId,
+        displayAnimalId = displayAnimalId.ifBlank { animalId.takeLast(8) },
+        primaryTag = primaryIdentifier,
+        secondaryTag = secondaryIdentifier?.takeIf { it.isNotBlank() },
+        normalizedPrimaryTag = normalizeWeighingTag(primaryIdentifier),
+        normalizedSecondaryTag = secondaryIdentifier?.takeIf { it.isNotBlank() }?.let(::normalizeWeighingTag),
+        status = status,
+        availabilityStatus = availabilityStatus,
+        seq = seq,
+        updatedAt = System.currentTimeMillis(),
+    )
+
+private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
+    sheds
+        .filter { shed -> status in setOf("published", "in_progress", "delayed") && shed.status != "cancelled" }
+        .map { shed ->
+            WeighingAssignment(
+                campaignId = campaignId,
+                workGroupId = shed.campaignShedId,
+                campaignShedId = shed.campaignShedId,
+                label = shed.displayName,
+                category = shed.weighingCategory,
+                status = shed.status,
+                expectedCount = shed.expectedAnimalCount,
+                periodLabel = listOf(periodStartDate, periodEndDate)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" - "),
+            )
+        }
 
 fun individualIdempotencyKey(
     campaignId: String,

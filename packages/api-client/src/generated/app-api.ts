@@ -127,6 +127,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a bounded operator-visible RFID roster for one Weighing scope. */
+        get: operations["appGetWeighingScopeRoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/campaigns/{campaign_id}/animal-observations": {
         parameters: {
             query?: never;
@@ -5330,6 +5347,33 @@ export interface components {
             campaign: components["schemas"]["WeighingCampaign"];
             trace_id?: string;
         };
+        WeighingRosterRow: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
+            animal_id: string;
+            display_animal_id: string;
+            primary_identifier?: string;
+            secondary_identifier?: string;
+            /** Format: uuid */
+            expected_location_id: string;
+            expected_location_label: string;
+            /** @enum {string} */
+            status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
+            /** @enum {string} */
+            availability_status: "expected_shed" | "moved_other_shed" | "icu" | "quarantine" | "dead" | "culled" | "sold_transferred" | "exited" | "unknown_review";
+            /** Format: uuid */
+            current_location_id?: string;
+            current_location_label?: string;
+            current_lifecycle_status?: string;
+            seq: number;
+        };
+        WeighingRosterResponse: {
+            items: components["schemas"]["WeighingRosterRow"][];
+            trace_id?: string;
+        };
         CreateWeighingCampaignShed: {
             /** Format: uuid */
             location_id: string;
@@ -6738,6 +6782,36 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingScopeRoster: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing scope roster rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingRosterResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

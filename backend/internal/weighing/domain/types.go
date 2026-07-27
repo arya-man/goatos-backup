@@ -51,7 +51,11 @@ type CampaignShed struct {
 
 type ExpectedAnimal struct {
 	CampaignID             string `json:"campaign_id"`
+	CampaignShedID         string `json:"campaign_shed_id"`
 	AnimalID               string `json:"animal_id"`
+	DisplayAnimalID        string `json:"display_animal_id"`
+	PrimaryIdentifier      string `json:"primary_identifier,omitempty"`
+	SecondaryIdentifier    string `json:"secondary_identifier,omitempty"`
 	ExpectedLocationID     string `json:"expected_location_id"`
 	ExpectedLocationLabel  string `json:"expected_location_label"`
 	Status                 string `json:"status"`
@@ -59,6 +63,7 @@ type ExpectedAnimal struct {
 	CurrentLocationID      string `json:"current_location_id,omitempty"`
 	CurrentLocationLabel   string `json:"current_location_label,omitempty"`
 	CurrentLifecycleStatus string `json:"current_lifecycle_status,omitempty"`
+	Seq                    int64  `json:"seq"`
 }
 
 type Observation struct {

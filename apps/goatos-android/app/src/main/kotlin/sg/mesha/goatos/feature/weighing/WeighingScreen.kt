@@ -28,6 +28,7 @@ data class WeighingUiState(
     val title: String = "Weighing",
     val scopeLabel: String = "",
     val hasScope: Boolean = false,
+    val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
@@ -55,6 +56,17 @@ data class WeighingRosterUiRow(
     val wrongShed: Boolean,
 )
 
+data class WeighingAssignmentUiRow(
+    val campaignId: String,
+    val workGroupId: String,
+    val campaignShedId: String,
+    val label: String,
+    val category: String,
+    val status: String,
+    val expectedCount: Int,
+    val periodLabel: String,
+)
+
 data class WeighingDraftUiRow(
     val id: String,
     val label: String,
@@ -69,6 +81,7 @@ fun WeighingScreen(
     onScanSubmit: () -> Unit = {},
     onWeightChange: (String) -> Unit = {},
     onRecordIndividual: () -> Unit = {},
+    onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier.fillMaxSize()) { padding ->
@@ -113,11 +126,13 @@ fun WeighingScreen(
                             onRecordIndividual = onRecordIndividual,
                         )
                     } else {
-                        Text(
-                            text = "Open an assigned weighing work group to scan.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (state.assignments.isEmpty()) {
+                            Text(
+                                text = "No assigned weighing work groups are available.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     state.message?.takeIf { it.isNotBlank() }?.let {
                         Text(
@@ -126,6 +141,13 @@ fun WeighingScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+
+            if (!state.hasScope && state.assignments.isNotEmpty()) {
+                item { SectionTitle("Assigned work groups") }
+                items(state.assignments, key = { it.campaignShedId }) { row ->
+                    AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
                 }
             }
 
@@ -148,6 +170,50 @@ fun WeighingScreen(
                 items(state.visibleRows, key = { it.id }) { row ->
                     RosterRow(row)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = row.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = row.status,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = listOf(row.category, "${row.expectedCount} expected", row.periodLabel)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" | "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+                Text("Open")
             }
         }
     }
