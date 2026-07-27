@@ -92,6 +92,7 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
+import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
@@ -125,6 +126,7 @@ import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
+import sg.mesha.goatos.viewmodel.WeighingViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -683,6 +685,42 @@ fun AppNavHost(
                     }
                 },
             )
+        }
+
+        composable(Routes.WEIGHING) {
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingScreen(state = state)
+        }
+
+        composable(
+            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_WORK_GROUP_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_CAMPAIGN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingScreen(state = state)
         }
         composable(
             route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}",

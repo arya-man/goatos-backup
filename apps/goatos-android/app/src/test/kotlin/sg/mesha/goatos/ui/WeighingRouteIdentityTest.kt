@@ -3,6 +3,8 @@ package sg.mesha.goatos.ui
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Path
+import kotlin.io.path.readText
 
 class WeighingRouteIdentityTest {
     @Test
@@ -27,5 +29,14 @@ class WeighingRouteIdentityTest {
         assertFalse(routeAcceptsWeighingRfid("/weighing"))
         assertFalse(routeAcceptsWeighingRfid("/scan?shedId=shed-1"))
         assertFalse(routeAcceptsWeighingRfid(null))
+    }
+
+    @Test
+    fun `weighing routes are registered as real navigation destinations`() {
+        val navHost = Path.of("src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt").readText()
+
+        assertTrue(navHost.contains("composable(Routes.WEIGHING)"))
+        assertTrue(navHost.contains("route = \"${'$'}{Routes.WEIGHING_SCAN}?"))
+        assertTrue(navHost.contains("WeighingScreen(state = state)"))
     }
 }
