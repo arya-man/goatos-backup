@@ -29,8 +29,11 @@ The design deliberately borrows Vaccination's work-session execution shape, but
 not its clinical scheduler. Weighing is not a vaccine obligation. It is a
 measurement campaign over selected kid sheds/partitions. Adults are explicitly
 out of scope for v1, even though source material mentions monthly adult weighing.
-All v1 weighing observations are individual animal observations with RFID,
-weight, and mandatory per-animal proof video.
+V1 supports two selected-shed categories: individual animal weighing and
+per-shed/partition weighing. Individual work captures RFID, weight, and
+mandatory per-animal proof video. Per-shed/partition work captures the selected
+scope's weighing result and required shed/partition proof video, without
+creating individual animal weight observations.
 
 ## 1.1 Last-30-commit Vaccination hardening lens
 
@@ -89,10 +92,11 @@ Canonical grains:
 | Grain | Purpose |
 |---|---|
 | Weighing campaign | One kids-only weekly instance created by leadership for a farm/park/week/start date. |
-| Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work and carries expected animal membership at planning time. |
+| Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work, carries expected animal membership at planning time, and stores the selected weighing category. |
 | Work group | One suggested operator chunk containing one or more whole selected sheds/partitions. It is an assignment container, not a weighing observation. |
 | Animal weighing observation | One animal's RFID, measured weight, proof video, and expected/actual shed context. |
-| Proof artifact | Mandatory per-animal video linked to the observation. |
+| Per-shed/partition weighing observation | One selected shed/partition's weighing result and required shed/partition proof. It is not animal latest-weight truth. |
+| Proof artifact | Mandatory per-animal video linked to an animal observation, or shed/partition proof linked to a per-shed/partition observation. |
 | Availability exception | Current herd-state explanation for why an expected animal is not weighable from the planned shed. |
 | Correction | Audited replacement/voiding of an incorrect weight or proof after sync. |
 
@@ -100,8 +104,11 @@ Shed/partition is atomic for assignment planning. A work group may contain
 multiple sheds/partitions. A shed/partition must not be split only to satisfy the
 daily cap. If one shed/partition exceeds the daily cap, the group remains the
 whole shed/partition and may span multiple business dates through execution
-progress. Completion remains animal-wise: one expected animal is complete only
-after its RFID/animal identity, weight, and per-animal proof video are accepted.
+progress. For individually marked sheds/partitions, completion remains
+animal-wise: one expected animal is complete only after its RFID/animal identity,
+weight, and per-animal proof video are accepted. For per-shed/partition marked
+scopes, completion is at the selected scope grain and must not update individual
+animal latest-weight projections.
 
 Every query, projection, outbox event, notification, Android route, and proof
 lookup must preserve this key set:
@@ -182,6 +189,7 @@ before implementation.
 | `location_type text not null` | `shed`, `cohort`, or implementation-supported partition grain. |
 | `display_name text not null` | Snapshot label for audit/display. |
 | `expected_animal_count int not null` | Snapshot count at planning time. |
+| `weighing_category text not null` | `individual_animal` or `per_shed_partition`. Selected by leadership per shed/partition; `per_shed_partition` may display as "lumpsum" in field-facing copy. |
 | `status text not null` | `pending`, `in_progress`, `completed`, `canceled`. |
 | `completed_at timestamptz` | Closed when expected membership is complete or leadership override closes it. |
 
@@ -264,6 +272,28 @@ rows that make old progress/proof counts impossible to reconstruct.
 Uniqueness should prevent duplicate same-campaign animal observations unless an
 explicit correction/replacement flow is added. V1 can use one accepted
 observation per `(campaign_id, animal_id)`.
+
+### `weighing_shed_observations`
+
+Per-shed/partition observations are separate from individual animal observations
+so they cannot accidentally update animal latest-weight truth.
+
+| Column | Notes |
+|---|---|
+| `shed_observation_id uuid pk` | Idempotent row identity. |
+| `campaign_id uuid not null` | Parent campaign. |
+| `campaign_shed_id uuid not null` | Selected shed/partition row with `weighing_category=per_shed_partition`. |
+| `work_group_id uuid` | Work group being executed. |
+| `weighing_result text/jsonb not null` | Implementation-defined result payload for the selected scope. Must be validated by backend policy. |
+| `observed_at timestamptz not null` | Device/business timestamp. |
+| `operator_user_id uuid not null` | Field operator. |
+| `proof_artifact_id uuid not null` | Required shed/partition proof video. |
+| `status text not null` | `local_pending`, `submitted`, `accepted`, `rejected`, `voided`, `replaced`. |
+
+Accepted `weighing_shed_observations` complete only the selected
+shed/partition category row. They do not create `weighing_observations`, mark
+expected animals as individually weighed, or update animal-level latest trusted
+weight.
 
 Expected-vs-extra counting rule:
 
@@ -436,7 +466,8 @@ Forbidden behavior:
 - Auto-cancel because week end passed.
 - Auto-split shed/partition rows to force daily cap.
 - Auto-move animal location because the animal was scanned in another shed.
-- Accept a completed observation without mandatory per-animal proof video.
+- Accept a completed observation without the mandatory proof for its selected
+  category.
 - Keep animals that are now dead, culled, sold/transferred, ICU, quarantine, or
   shifted elsewhere in the same "operator missed it" bucket forever.
 - Change completion counts by reading only the visible/paginated rows.
@@ -517,6 +548,7 @@ GET  /api/v1/app/weighing/work-groups/{work_group_id}
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/progress-contract
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/animals?status=&cursor=&limit=
 POST /api/v1/app/weighing/observations
+POST /api/v1/app/weighing/shed-observations
 POST /api/v1/app/weighing/observations/{observation_id}/corrections
 POST /api/v1/app/weighing/work-groups/{work_group_id}/submit-progress
 ```
@@ -600,7 +632,8 @@ Operator screen:
 - Work group detail grouped by selected shed/partition.
 - Scan-first flow.
 - Weight input.
-- Mandatory per-animal video capture.
+- Mandatory per-animal video capture for individual animal rows.
+- Required shed/partition proof capture for per-shed/partition rows.
 - Same table for all scanned animals, with mismatch highlighting and columns for
   expected/original shed and actual/current shed.
 - Pending section distinguishes true pending animals from unavailable/moved
@@ -650,7 +683,7 @@ Android data contract:
 ## 12. Proof/media
 
 Use the shared proof artifact/media system through weighing-specific policies.
-All completed weighing observations require animal-scoped proof:
+Individual animal observations require animal-scoped proof:
 
 - `subject_scope=animal`
 - `proof_mode=per_animal_video`
@@ -658,7 +691,15 @@ All completed weighing observations require animal-scoped proof:
 - capture source should prefer in-app camera where existing mobile policy
   requires it
 
-Shed-level proof is not sufficient for Weighing v1 completion.
+Per-shed/partition observations require shed/partition-scoped proof:
+
+- `subject_scope=shed_partition`
+- `proof_mode=shed_partition_video`
+- exactly one mandatory video for each accepted per-shed/partition observation
+- the proof must be linked to `campaign_shed_id` and the weighing session
+
+Shed/partition proof is not sufficient for individual animal rows. Per-animal
+proof is not required for selected per-shed/partition rows.
 
 Backend completion rule:
 
@@ -667,6 +708,15 @@ accepted_weighing_observation
 requires weight_kg > 0
 and resolved animal_id
 and proof_artifact_id with subject_scope=animal
+and proof upload accepted/recoverable
+and idempotent command accepted for the same semantic payload
+```
+
+```text
+accepted_shed_partition_weighing_observation
+requires campaign_shed_id with weighing_category=per_shed_partition
+and backend-valid weighing_result
+and proof_artifact_id with subject_scope=shed_partition
 and proof upload accepted/recoverable
 and idempotent command accepted for the same semantic payload
 ```
@@ -720,6 +770,8 @@ Read models:
 - Operator open work groups.
 - Campaign shed progress.
 - Animal weight history / latest trusted weight projection.
+- Per-shed/partition weighing progress, excluded from animal latest trusted
+  weight projection.
 - Other-shed mismatch summary.
 - Missing/unavailable expected animal summary by reason.
 - Proof recovery/review queue, if a proof upload exists without accepted
@@ -761,9 +813,9 @@ Campaign creation:
 
 - Key source: client idempotency key plus a semantic fingerprint containing
   tenant, farm/park scope, cadence type, cadence due date, weekly period, animal
-  group filter, selected shed/partition ids, expected membership snapshot or
-  source revision, operator id, start business date, planned cap, and requested
-  publish mode.
+  group filter, selected shed/partition ids, selected weighing categories,
+  expected membership snapshot or source revision, operator id, start business
+  date, planned cap, and requested publish mode.
 - Same key + same payload returns the existing campaign.
 - Same key + different payload fails.
 
@@ -837,6 +889,7 @@ Required indexes should cover:
 - `(campaign_id, animal_id)`
 - `(campaign_id, work_group_id, animal_id)`
 - `(campaign_id, availability_status, status)`
+- `(campaign_id, weighing_category, status)` on selected shed/partition rows
 - `(tenant_id, animal_id, status)` for affected-campaign reconciliation
 - proof/media lookup by subject and aggregate id using existing proof patterns
 
@@ -953,10 +1006,13 @@ Minimum tests before implementation is considered done:
 - V1 accepts only weekly kids/K/F campaigns; monthly adult and manual adult
   campaign commands are rejected.
 - Adult sheds and adult animals are not included in weekly campaign membership.
-- Every selected kid shed/partition requires individual animal observations with
-  RFID, weight, and mandatory per-animal proof.
-- No route, table, or progress shortcut can complete weighing without one animal,
-  one RFID/animal identity, one weight, and one per-animal video.
+- Leadership can select `individual_animal` or `per_shed_partition` category per
+  selected shed/partition.
+- Individually marked sheds/partitions require animal observations with RFID,
+  weight, and mandatory per-animal proof.
+- Per-shed/partition marked rows require one accepted selected-scope observation
+  with required shed/partition proof and must not update individual animal latest
+  trusted weight.
 - Planner allows over-cap single shed/partition.
 - Planner groups `80 + 20` but execution allows `80` today and rolls `20`.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
