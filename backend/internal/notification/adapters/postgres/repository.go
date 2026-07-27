@@ -155,7 +155,7 @@ SET status = 'suppressed',
 WHERE tenant_id = $1::uuid
   AND recipient_ref = $2
   AND channel = 'push_fcm'
-  AND status IN ('queued', 'failed')`, tenantID, recipientRef, reason, now)
+  AND status IN ('queued', 'failed', 'exhausted')`, tenantID, recipientRef, reason, now)
 	if err != nil {
 		return 0, fmt.Errorf("notification: suppress invalid recipient requests: %w", err)
 	}

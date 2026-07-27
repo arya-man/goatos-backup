@@ -7,6 +7,7 @@ import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/a
 import type { AdherenceRow } from "@/lib/api/server";
 import { Syringe, X } from "lucide-react";
 import type { Tone } from "./process-integrity";
+import { EvidenceMedia } from "./evidence-media";
 
 export type ProtocolAdherenceDrawerRecord = {
   row: AdherenceRow;
@@ -92,14 +93,6 @@ function AdherenceRecordDrawer({
   closeButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { row } = record;
-  const evidence = row.evidence;
-  const evidenceView = evidence.latest_rejection_reason ? (
-    <Tag tone="dng" title={evidence.latest_rejection_reason}>{copy(pageContract, "label.rejected")}</Tag>
-  ) : evidence.evidence_count > 0 ? (
-    <Tag tone="ok" title={evidence.audit_ref ?? undefined}>
-      {evidence.evidence_count} {copy(pageContract, evidence.evidence_count === 1 ? "label.proof_singular" : "label.proof_plural")}
-    </Tag>
-  ) : <span className="muted">—</span>;
 
   return (
     <aside className={`drawer${open ? " on" : ""}`} aria-label={copy(pageContract, "drawer.record.aria")} aria-hidden={!open} inert={!open}>
@@ -115,13 +108,13 @@ function AdherenceRecordDrawer({
       </div>
       <div className="dc">
         <div className="metagrid">
-          <div><div className="k">{ledgerLabels[0]}</div><div className="v">{record.expectedTitle}</div><div className="mt">{row.expected}</div></div>
+          <div><div className="k">{ledgerLabels[0]}</div><div className="v">{record.expectedTitle}</div><div className="mt">{record.expectedDetail}</div></div>
           <div><div className="k">{ledgerLabels[1]}</div><div className="v">{record.actual}</div></div>
           <div><div className="k">{ledgerLabels[2]}</div><div className="v"><Tag tone={workStateTone(pageContract, row.work_state)}>{record.gap}</Tag></div></div>
           <div><div className="k">{ledgerLabels[3]}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag></div></div>
           <div><div className="k">{ledgerLabels[4]}</div><div className="v">{record.owner}</div></div>
           <div><div className="k">{ledgerLabels[5]}</div><div className="v">{row.next_action}</div></div>
-          <div><div className="k">{ledgerLabels[6]}</div><div className="v">{evidenceView}</div></div>
+          <div><div className="k">{ledgerLabels[6]}</div><div className="v"><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></div></div>
         </div>
         <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.record.note")}</div>
       </div>

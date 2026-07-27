@@ -453,6 +453,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// through the EXISTING proof signed-URL port, never proxied/duplicated.
 	verificationRepo := verificationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	verificationMedia := verificationproofmedia.NewResolver(proofService)
+	processIntegrityService.WithMediaResolver(verificationMedia)
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical:      "preventive_care",

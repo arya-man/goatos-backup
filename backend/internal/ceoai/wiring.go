@@ -195,7 +195,7 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 			q.Dimensions = append(q.Dimensions, b.view+"."+suf)
 		}
 	}
-	// A grouped metric ("overdue by operator", "overdue by park") is asked so the
+	// A grouped metric ("overdue by operator", "overdue by shed") is asked so the
 	// answer can NAME and LEAD with the worst contributors. Order the rows by the
 	// measure descending so the composer's grounded lead reads "led by <worst> …"
 	// rather than an arbitrary Cube row order. This never changes any figure — only

@@ -235,6 +235,59 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	return artifact, err
 }
 
+func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	row := r.pool.QueryRow(ctx, `
+WITH doomed AS (
+  SELECT *
+  FROM proof_artifacts p
+  WHERE p.tenant_id = $1::uuid
+    AND p.proof_id = $2::uuid
+    AND p.retention_policy <> 'legal_hold'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM sop_submissions s
+      CROSS JOIN LATERAL jsonb_array_elements(s.proof_refs) ref(value)
+      WHERE s.tenant_id = p.tenant_id
+        AND ref.value->>'proof_id' = p.proof_id::text
+    )
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_review_goats rg WHERE rg.proof_ref_id = p.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM arrival_intake_reviews ar WHERE ar.media_proof_id = p.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_hf_vaccination_evidence pe WHERE pe.proof_ref_id = p.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM procurement_source_health_checks ph WHERE ph.proof_ref_id = p.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM source_entry_decisions sd WHERE sd.proof_ref_id = p.proof_id)
+    AND NOT EXISTS (SELECT 1 FROM transit_handoffs th WHERE th.proof_ref_id = p.proof_id)
+  LIMIT 1
+),
+deleted AS (
+  DELETE FROM proof_artifacts p
+  USING doomed d
+  WHERE p.tenant_id = d.tenant_id
+    AND p.proof_id = d.proof_id
+  RETURNING
+    p.proof_id::text, p.tenant_id::text, p.storage_provider, p.object_key, p.content_hash,
+    p.mime_type, p.size_bytes, p.duration_ms, p.upload_state, p.scope_type, p.scope_id::text,
+    p.subject_type, p.subject_id::text, p.proof_type, p.uploaded_by::text, p.metadata,
+    p.created_at, p.uploaded_at, p.retention_policy, p.retention_expires_at,
+    p.upload_expires_at, p.updated_at, p.row_version
+)
+SELECT * FROM deleted`, tenantID, proofID)
+	artifact, err := scanArtifact(row)
+	if err == nil {
+		return artifact, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Artifact{}, err
+	}
+	if _, getErr := r.GetProof(ctx, tenantID, proofID); errors.Is(getErr, ports.ErrNotFound) {
+		return domain.Artifact{}, ports.ErrNotFound
+	} else if getErr != nil {
+		return domain.Artifact{}, getErr
+	}
+	return domain.Artifact{}, ports.ErrInUse
+}
+
 func (r *Repository) getCompletedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
 	row := r.pool.QueryRow(ctx, artifactSelectSQL(`
 WHERE tenant_id = $1::uuid

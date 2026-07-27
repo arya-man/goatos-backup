@@ -7,10 +7,14 @@ export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   "action-center": {
-    "label.drive_over_cap_required": "capacity action",
+    "label.drive_over_cap_required": "capacity shortfall",
     "label.drive_medical_defer": "medical defer",
     "label.drive_terminal_closed": "terminal closed",
-    "tooltip.drive_over_cap_required": "{animals} animals assigned against {slots} operator slots; finish before latest-safe date",
+    "label.evidence": "Evidence",
+    "label.video_proof": "video proof",
+    "label.image_proof": "image proof",
+    "label.open_proof": "open proof",
+    "tooltip.drive_over_cap_required": "{animals} animals assigned against {slots} planned operator slots; leadership action needed before latest-safe date",
     "tooltip.drive_medical_defer": "Hard medical defer blocks vaccination until cleared",
     "tooltip.drive_terminal_closed": "Terminal animal state closed this vaccination work",
   },
@@ -180,6 +184,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "animals.status.culled": "Culled",
   },
   "protocol-adherence": {
+    "gap.capacity_shortfall": "capacity shortfall",
     "vaccine.blue_tongue": "Blue Tongue",
     "vaccine.goat_pox": "Goat Pox",
     "vaccine.sheep_pox": "Sheep Pox",
@@ -207,6 +212,10 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "adherence.help.window_prefix": "Adherence shows how much scheduled vaccination work was completed correctly in the selected operating window.",
     "label.due_lower": "due",
     "label.info_icon": "i",
+    "label.owner_short": "OWNER",
+    "label.video_proof": "video proof",
+    "label.image_proof": "image proof",
+    "label.open_proof": "open proof",
   },
   "goat-passport": {
     "drawer.passport.aria": "Animal Passport",

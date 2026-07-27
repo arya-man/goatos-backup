@@ -65,6 +65,10 @@ func TestLoadSignsTenantAndReturnsRows(t *testing.T) {
 	if tenant != "tenant-xyz" {
 		t.Fatalf("tenant not signed into token: %q", tenant)
 	}
+	securityContext := decodeJWTSecurityContext(t, gotAuth)
+	if securityContext["tenant_id"] != "tenant-xyz" {
+		t.Fatalf("tenant not signed into Cube securityContext: %v", securityContext)
+	}
 	q, _ := gotBody["query"].(map[string]any)
 	if _, leaked := q["filters"]; leaked {
 		t.Fatalf("query must not carry a tenant filter; got filters: %v", q["filters"])
@@ -193,4 +197,22 @@ func decodeJWTClaim(t *testing.T, token, claim string) string {
 	}
 	s, _ := m[claim].(string)
 	return s
+}
+
+func decodeJWTSecurityContext(t *testing.T, token string) map[string]any {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("not a JWT: %q", token)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	sc, _ := m["securityContext"].(map[string]any)
+	return sc
 }

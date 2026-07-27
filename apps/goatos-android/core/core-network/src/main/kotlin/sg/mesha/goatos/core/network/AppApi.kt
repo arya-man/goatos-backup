@@ -411,6 +411,11 @@ interface AppApi {
         durationMs: Long?,
     ): ProofCompleteResponseDto
 
+    /** DELETE /app/proofs/{proof_id} — removes a synced proof only while it is still unattached
+     *  to any submitted record. Used by pre-submit X/remove so the local UI cannot hide a backend
+     *  video that would still be eligible for submission. */
+    suspend fun deleteProof(proofId: String)
+
     /** GET /app/vaccination/gaps — animals excluded from vaccination coverage with reasons.
      *  Backs the mobile "Data gaps" overlay. */
     suspend fun getVaccinationGaps(
@@ -963,6 +968,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): ProofCompleteResponseDto = ProofCompleteResponseDto(
         proof = ProofArtifactDto(proofId = proofId, uploadState = "completed", mimeType = mimeType, durationMs = durationMs),
     )
+
+    override suspend fun deleteProof(proofId: String) = Unit
 
     override suspend fun getVaccinationGaps(
         parkId: String?,

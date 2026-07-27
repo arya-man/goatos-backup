@@ -99,6 +99,17 @@ func (s *Storage) Store(_ context.Context, proof domain.Artifact, body io.Reader
 	}, nil
 }
 
+func (s *Storage) Delete(_ context.Context, proof domain.Artifact) error {
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s *Storage) FinalizeUpload(_ context.Context, proof domain.Artifact, in domain.CompleteUpload) (domain.StoredObject, error) {
 	path, err := s.localPath(proof.ObjectKey)
 	if err != nil {

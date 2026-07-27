@@ -26,6 +26,7 @@ type Service interface {
 	StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error)
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 	OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error)
+	DeleteUpload(ctx context.Context, tenantID, proofID string) error
 	VerifySignedURL(method, path, tenantID, expires, signature string) bool
 }
 
@@ -47,6 +48,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /app/proofs/{proof_id}/upload", h.UploadLocal)
 	mux.HandleFunc("POST /app/proofs/{proof_id}/complete", h.CompleteUpload)
 	mux.HandleFunc("GET /app/proofs/{proof_id}/download", h.Download)
+	mux.HandleFunc("DELETE /app/proofs/{proof_id}", h.DeleteUpload)
 }
 
 func RegisterSigned(mux *http.ServeMux, h *Handler) {
@@ -233,6 +235,14 @@ func (h *Handler) DownloadSigned(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, proof.ProofID, proof.UpdatedAt, reader)
 }
 
+func (h *Handler) DeleteUpload(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteUpload(r.Context(), tenantID(r), r.PathValue("proof_id")); err != nil {
+		h.respondErr(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) verifySignedURL(r *http.Request, tenantID string) bool {
 	q := r.URL.Query()
 	return h.service.VerifySignedURL(r.Method, r.URL.Path, tenantID, q.Get("expires"), q.Get("sig"))
@@ -265,6 +275,9 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ports.ErrUnsupported):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "unsupported_storage_operation", Message: "storage provider does not support this operation", TraceID: traceID(r)}, err)
+	case errors.Is(err, ports.ErrInUse):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "proof_in_use", Message: "proof is already attached to a submitted record", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrIntegrityMismatch):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "proof_integrity_mismatch", Message: "proof upload does not match storage object", TraceID: traceID(r)}, nil)

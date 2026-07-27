@@ -28,6 +28,15 @@
     <string name="sheds_num_cell_done">DONE</string>
     <string name="sheds_partition_fmt">Part %1$s</string>
 
+    <!-- Status chips -->
+    <string name="sheds_status_done">Done</string>
+    <string name="sheds_status_in_progress">In progress</string>
+    <string name="sheds_status_in_review">In review</string>
+    <string name="sheds_status_submitted">Submitted</string>
+    <string name="sheds_status_open">Open</string>
+    <string name="sheds_status_overdue">Overdue</string>
+    <string name="sheds_status_complete">Complete</string>
+
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">Roster changes · since this drive was scheduled</string>
 

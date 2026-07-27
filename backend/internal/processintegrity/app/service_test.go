@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 type fakeRepo struct {
@@ -37,6 +38,14 @@ func (f *fakeRepo) CountByWorkState(_ context.Context, q domain.Query) ([]domain
 
 func (f *fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bool, error) {
 	return f.row, f.found, nil
+}
+
+type fakeMediaResolver struct {
+	items []verificationdomain.MediaItem
+}
+
+func (f fakeMediaResolver) ResolveMedia(context.Context, string, []string) ([]verificationdomain.MediaItem, error) {
+	return f.items, nil
 }
 
 func TestActionCenterUsesBoundedClosedHistoryByDefault(t *testing.T) {
@@ -249,7 +258,7 @@ func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	}
 }
 
-func TestProtocolAdherenceShowsOverCapRequiredAsVaccinationWork(t *testing.T) {
+func TestProtocolAdherenceShowsCapacityShortfallAsVaccinationWork(t *testing.T) {
 	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
 	latestSafe := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	row := processRow("over-cap", domain.WorkStateDue, domain.SeverityBroken, due)
@@ -276,14 +285,73 @@ func TestProtocolAdherenceShowsOverCapRequiredAsVaccinationWork(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(got.Rows))
 	}
 	r := got.Rows[0]
-	if r.Gap != "over_cap_required" {
-		t.Fatalf("gap = %q, want over_cap_required", r.Gap)
+	if r.Gap != "capacity_shortfall" {
+		t.Fatalf("gap = %q, want capacity_shortfall", r.Gap)
 	}
 	if r.DriveCapacityState != domain.DriveCapacityStateOverCapRequired || r.DriveAnimalsAssigned != 240 || r.DriveOperatorCap != 200 || r.DriveAvailableOperators != 1 {
 		t.Fatalf("drive fields = %+v", r)
 	}
-	if !strings.Contains(r.Actual, "finish over cap") || strings.Contains(strings.ToLower(r.NextAction), "escalate") {
+	if !strings.Contains(r.Actual, "add capacity or split the drive") || strings.Contains(strings.ToLower(r.NextAction), "escalate") {
 		t.Fatalf("actual/next action should direct vaccination, not escalation: actual=%q next=%q", r.Actual, r.NextAction)
+	}
+}
+
+func TestProtocolAdherenceDoesNotShowCapacityShortfallWhenAssignedWithinSlots(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	row := processRow("stale-over-cap", domain.WorkStateDue, domain.SeverityAtRisk, due)
+	row.DriveCapacityState = domain.DriveCapacityStateOverCapRequired
+	row.DriveAnimalsRequired = 120
+	row.DriveAnimalsAssigned = 120
+	row.DriveOperatorCap = 200
+	row.DriveAvailableOperators = 9
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows: []domain.Row{row},
+		AdherenceSummary: domain.AdherenceSummary{
+			ExpectedCount: row.ExpectedCount,
+		},
+	}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(got.Rows))
+	}
+	r := got.Rows[0]
+	if r.Gap != "none" {
+		t.Fatalf("gap = %q, want none", r.Gap)
+	}
+	if !strings.Contains(r.Actual, "120 assigned within 1800 planned operator slots") || strings.Contains(strings.ToLower(r.Actual), "over cap") {
+		t.Fatalf("actual should show available capacity, got %q", r.Actual)
+	}
+}
+
+func TestProtocolAdherenceResolvesProofMedia(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	row := processRow("media-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
+	row.Evidence.EvidenceCount = 1
+	duration := int64(42000)
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).
+		WithClock(func() time.Time { return due }).
+		WithMediaResolver(fakeMediaResolver{items: []verificationdomain.MediaItem{{
+			ProofID:     "70000000-0000-4000-8000-000000000001",
+			DownloadURL: "/app/proofs/70000000-0000-4000-8000-000000000001/download/signed?sig=ok",
+			MimeType:    "video/mp4",
+			DurationMS:  &duration,
+		}}})
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if len(got.Rows) != 1 || len(got.Rows[0].Evidence.Media) != 1 {
+		t.Fatalf("media = %+v", got.Rows)
+	}
+	media := got.Rows[0].Evidence.Media[0]
+	if media.ProofID != row.Evidence.ProofIDs[0] || media.MimeType != "video/mp4" || media.DurationMS == nil || *media.DurationMS != duration {
+		t.Fatalf("media metadata = %+v", media)
 	}
 }
 
