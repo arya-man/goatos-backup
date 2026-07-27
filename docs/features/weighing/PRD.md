@@ -1,8 +1,8 @@
 # Weighing — Product Requirements (PRD)
 
-**Status:** Draft v1 · **Date:** 2026-07-27  
-**Companion:** [TRD.md](./TRD.md)  
-**Source hierarchy:** maintainer clarification in the 2026-07-27 working session; existing Vaccination execution behavior for rolling task/window UX; `context/source-findings/goats-and-parks-source-findings.md`, `context/source-findings/goats-and-parks-source-extract.md`, and `context/source-findings/sheds-db-source-findings.md` for herd, RFID, shed, and weight source semantics.  
+**Status:** Draft v1 · **Date:** 2026-07-27
+**Companion:** [TRD.md](./TRD.md)
+**Source hierarchy:** maintainer clarification in the 2026-07-27 working session; existing Vaccination execution behavior for rolling task/window UX; `context/source-findings/goats-and-parks-source-findings.md`, `context/source-findings/goats-and-parks-source-extract.md`, and `context/source-findings/sheds-db-source-findings.md` for herd, RFID, shed, and weight source semantics.
 **Explicitly not a clone:** Preventive Care Vaccination has clinical due windows, vaccine rules, and strict obligation completion. Weighing reuses the shed/partition work-session pattern, but it has different evidence and completion rules.
 
 ---

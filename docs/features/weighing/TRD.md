@@ -1,9 +1,9 @@
 # Weighing — Technical Requirements / Design (TRD)
 
-**Status:** Draft v1 · **Date:** 2026-07-27  
-**Companion:** [PRD.md](./PRD.md)  
+**Status:** Draft v1 · **Date:** 2026-07-27
+**Companion:** [PRD.md](./PRD.md)
 **Foundation:** shared operational kernel, proof/media engine, Android offline
-capture stack, and existing Vaccination execution patterns.  
+capture stack, and existing Vaccination execution patterns.
 **Source references:** `context/architecture/operational-kernel.md`,
 `docs/decisions/vaccination-work-session-bundle.md`,
 `docs/decisions/vaccination-shed-ack-not-form.md`,
@@ -161,7 +161,7 @@ before implementation.
 | `cadence_due_date date not null` | Monday for weekly kid work; 15th for monthly adult work; selected date for manual exception. |
 | `animal_group_filter text not null` | `kids_k_f`, `adult_goats`, or `manual_selected`. |
 | `start_business_date date not null` | Day leadership created/scheduled work, e.g. 2026-07-29. |
-| `status text not null` | `draft`, `planned`, `in_progress`, `completed`, `canceled`. |
+| `status text not null` | `draft`, `planned`, `published`, `in_progress`, `delayed`, `completed`, `canceled`. |
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
 | `operator_user_id uuid` | Amit for v1. |
 | `published_at timestamptz` | Set when operator-visible work is created. |
@@ -745,7 +745,11 @@ Projection/update rules:
 
 Campaign creation:
 
-- Key source: client idempotency key plus tenant/week/scope semantic fingerprint.
+- Key source: client idempotency key plus a semantic fingerprint containing
+  tenant, farm/park scope, cadence type, cadence due date/month lane, animal
+  group filter, selected shed/partition ids, expected membership snapshot or
+  source revision, operator id, start business date, planned cap, and requested
+  publish mode.
 - Same key + same payload returns the existing campaign.
 - Same key + different payload fails.
 
