@@ -363,6 +363,12 @@ interface SyncRepository {
             is AppResult.Err -> r
         }
 
+    /** Deletes a server-side proof that has already synced but has not been attached to a
+     *  submitted record. Used by proof X/remove; callers should keep the local row visible if this
+     *  returns Err so the app never hides backend media. */
+    suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> =
+        AppResult.Err("Uploaded proof delete is not available.")
+
     /** Deletes a terminal FAILED row by idempotency key so a corrected payload can be rebuilt
      *  after process recreation. Never removes QUEUED, IN_FLIGHT, or SUCCEEDED writes. */
     suspend fun deleteFailedOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<Unit> =
@@ -916,6 +922,17 @@ class DefaultSyncRepository(
             throw cancellation
         } catch (e: Throwable) {
             AppResult.Err("Couldn't cancel outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> = withContext(dispatchers.io) {
+        try {
+            engine.deleteProof(proofId)
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't delete uploaded proof: ${e.message}", e)
         }
     }
 

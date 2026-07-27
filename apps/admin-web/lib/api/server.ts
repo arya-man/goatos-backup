@@ -841,7 +841,7 @@ export async function getVaccinationActionCenter(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<ActionCenterResponse>("/vaccination/action-center", {
       cache: "no-store",
       query: compactQuery({
@@ -856,6 +856,8 @@ export async function getVaccinationActionCenter(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeActionCenterMedia(result.data, config.data.baseUrl) };
 }
 
 export async function getVaccinationActionCenterCounts(
@@ -901,7 +903,7 @@ export async function getVaccinationAdherence(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<ProtocolAdherenceResponse>("/vaccination/adherence", {
       cache: "no-store",
       query: compactQuery({
@@ -915,6 +917,8 @@ export async function getVaccinationAdherence(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeAdherenceMedia(result.data, config.data.baseUrl) };
 }
 
 // Control Tower — exception-only leadership summary + alerts (real /control-tower/vaccination).
@@ -1417,6 +1421,41 @@ function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: 
       })),
     })),
   };
+}
+
+function absolutizeActionCenterMedia(response: ActionCenterResponse, baseUrl: string): ActionCenterResponse {
+  return {
+    ...response,
+    items: response.items.map((row) => ({
+      ...row,
+      evidence: absolutizeProcessIntegrityEvidenceMedia(row.evidence, baseUrl),
+    })),
+  };
+}
+
+function absolutizeAdherenceMedia(response: ProtocolAdherenceResponse, baseUrl: string): ProtocolAdherenceResponse {
+  return {
+    ...response,
+    rows: response.rows.map((row) => ({
+      ...row,
+      evidence: absolutizeProcessIntegrityEvidenceMedia(row.evidence, baseUrl),
+    })),
+  };
+}
+
+function absolutizeProcessIntegrityEvidenceMedia(evidence: ProcessIntegrityEvidence, baseUrl: string): ProcessIntegrityEvidence {
+  const evidenceWithMedia = evidence as ProcessIntegrityEvidence & {
+    media?: Array<{ download_url: string }>;
+  };
+  if (!evidenceWithMedia.media) return evidence;
+  const normalized: typeof evidenceWithMedia = {
+    ...evidenceWithMedia,
+    media: evidenceWithMedia.media.map((media) => ({
+      ...media,
+      download_url: absolutizeBackendURL(media.download_url, baseUrl),
+    })),
+  };
+  return normalized;
 }
 
 function absolutizeBackendURL(value: string, baseUrl: string): string {

@@ -68,6 +68,28 @@ func TestCompleteUploadRejectsStorageMismatch(t *testing.T) {
 	}
 }
 
+func TestDeleteUploadRemovesRepositoryAcceptedArtifactFromStorage(t *testing.T) {
+	proof := baseProof()
+	repo := &fakeProofRepo{proof: proof}
+	storage := &fakeProofStorage{}
+	service := NewService(repo, storage)
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID); err != nil {
+		t.Fatalf("DeleteUpload() error = %v", err)
+	}
+	if storage.deleted.ProofID != proofTestID {
+		t.Fatalf("storage deleted %#v, want %s", storage.deleted, proofTestID)
+	}
+}
+
+func TestDeleteUploadRefusesInvalidProofID(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, "not-a-uuid"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("DeleteUpload() error = %v, want ErrInvalid", err)
+	}
+}
+
 func TestResolveProofRefsRequiresCompletedTaskBoundProof(t *testing.T) {
 	repo := &fakeProofRepo{proof: baseProof()}
 	service := NewService(repo, &fakeProofStorage{})
@@ -358,6 +380,10 @@ func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUploa
 	return out, nil
 }
 
+func (r *fakeProofRepo) DeleteUnattachedProof(context.Context, string, string) (domain.Artifact, error) {
+	return r.proof, nil
+}
+
 func (r *fakeProofRepo) ApplyRetention(context.Context, string, []string, string, *time.Time) (int, error) {
 	return 0, nil
 }
@@ -378,6 +404,7 @@ type fakeProofStorage struct {
 	stored      domain.StoredObject
 	finalizeErr error
 	finalized   bool
+	deleted     domain.Artifact
 }
 
 func (s *fakeProofStorage) Provider() string { return "local" }
@@ -397,6 +424,11 @@ func (s *fakeProofStorage) FinalizeUpload(context.Context, domain.Artifact, doma
 
 func (s *fakeProofStorage) Store(context.Context, domain.Artifact, io.Reader, string) (domain.StoredObject, error) {
 	return s.stored, nil
+}
+
+func (s *fakeProofStorage) Delete(_ context.Context, proof domain.Artifact) error {
+	s.deleted = proof
+	return nil
 }
 
 func stringPtr(v string) *string { return &v }

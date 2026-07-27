@@ -149,6 +149,10 @@ func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (str
 	return "", nil
 }
 
+func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string) error {
+	return nil
+}
+
 func (s *fakeHTTPProofService) OpenLocalDownload(_ context.Context, tenantID, _ string) (domain.Artifact, ports.ReadSeekCloser, error) {
 	s.openTenant = tenantID
 	return s.proof, s.reader, nil

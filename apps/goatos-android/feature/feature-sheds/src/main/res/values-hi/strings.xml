@@ -16,6 +16,14 @@
     <string name="sheds_num_cell_done">पूर्ण</string>
     <string name="sheds_partition_fmt">भाग %1$s</string>
 
+    <string name="sheds_status_done">पूर्ण</string>
+    <string name="sheds_status_in_progress">प्रगति में</string>
+    <string name="sheds_status_in_review">समीक्षा में</string>
+    <string name="sheds_status_submitted">सबमिट किया गया</string>
+    <string name="sheds_status_open">खुला</string>
+    <string name="sheds_status_overdue">समय से पीछे</string>
+    <string name="sheds_status_complete">पूर्ण</string>
+
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>
 

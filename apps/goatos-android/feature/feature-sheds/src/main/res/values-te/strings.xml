@@ -16,6 +16,14 @@
     <string name="sheds_num_cell_done">పూర్తయింది</string>
     <string name="sheds_partition_fmt">భాగం %1$s</string>
 
+    <string name="sheds_status_done">పూర్తయింది</string>
+    <string name="sheds_status_in_progress">పురోగతిలో ఉంది</string>
+    <string name="sheds_status_in_review">సమీక్షలో ఉంది</string>
+    <string name="sheds_status_submitted">సమర్పించబడింది</string>
+    <string name="sheds_status_open">తెరిచి ఉంది</string>
+    <string name="sheds_status_overdue">గడువు దాటింది</string>
+    <string name="sheds_status_complete">పూర్తి</string>
+
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">సిబ్బంది మార్పులు · ఈ డ్రైవ్ షెడ్యూల్ చేయబడిన తర్వాత</string>
 

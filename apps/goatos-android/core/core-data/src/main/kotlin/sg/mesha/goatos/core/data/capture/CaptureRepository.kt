@@ -520,6 +520,14 @@ class DefaultProofCaptureRepository(
             }
         }
 
+        val serverProofId = entity.serverProofId?.takeIf { it.isNotBlank() }
+        if (serverProofId != null) {
+            when (val deleted = syncRepository.deleteUploadedProof(serverProofId)) {
+                is AppResult.Err -> return@withContext deleted
+                is AppResult.Ok -> Unit
+            }
+        }
+
         // Row + file are removed only after the outbox item is cancelled or proven terminal.
         dao.delete(id, taskId)
         deleteLocalFile(entity.localUri)

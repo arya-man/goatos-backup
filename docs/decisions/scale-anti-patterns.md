@@ -35,6 +35,37 @@ new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
 
+Vaccination submit grain drift is the same class of bug at runtime. Multiple
+sheds can share one hidden park/batch-level `sop_tasks` parent, but operators,
+WF, CT, AC, Calendar, Android, and verifier rows are shed-grained. A first shed
+submission must not make another shed look submitted, proof-uploaded, or
+verification-pending by reading the shared parent task state or by taking the
+latest bare `sop_submissions` row for the parent task. Per-shed surfaces must
+derive those states from shed-scoped `sop_submission_items`,
+`sop_submissions`, `vaccination_completions`, and proof rows joined through the
+current goat/shed grain. The shared parent may advance only as an aggregate
+rollup after every eligible goat item under that parent has a submitted/accepted
+item, and submit idempotency keys must include the active shed scope so Old
+Yashoda, Godel 1, and Godel 2 cannot collide on the same hidden parent. Once the
+shared parent is `accepted`, it is terminal: only exact idempotency replay may be
+read as success, and a fresh submit key must not insert new submissions, fanouts,
+audits, or movement side effects.
+
+The submit write path itself must prove the same grain. A shed-level proof
+upload is one proof artifact for one shed, while scan captures may have been
+loaded from the shared parent drive. `SubmitTask` must filter any supplied
+submission items through `proof_refs[].subject_type='shed'` /
+`proof_refs[].subject_id` and the live `goats.shed_id` before inserting
+`sop_submission_items` or deriving `vaccination_completions`. A UI/sidebar fix,
+status-precedence tweak, or "show overdue as well as in-review" change is not a
+fix if the database still materializes sibling sheds under the first shed's
+submission. Mandatory adversarial fixture: one shared parent task, shed A and
+shed B, a completed shed-A video proof, over-broad scan items containing goats
+from both sheds, and assertions that shed B has zero submission items and zero
+completions. This is the same data source that powers WF, CT, AC, Calendar,
+Android L1/L2/L3, verifier queues, proof drawers, and leadership sidebars; do
+not validate only the screen you happen to be looking at.
+
 Operator-role drift is part of the same failure mode. In CPT operator-drive
 rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
 none of them is support-only, backup-only, or park-head-only. Their week-offs

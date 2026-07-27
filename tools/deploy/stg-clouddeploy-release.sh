@@ -38,7 +38,7 @@ registry="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}"
 backend_image="${registry}/backend:${commit_sha}"
 migration_image="${registry}/migrate:${commit_sha}"
 admin_web_image="${registry}/admin-web:${commit_sha}"
-release_id="${RELEASE_ID:-goatos-stg-${commit_sha}-$(date -u +%Y%m%d%H%M%S)}"
+release_id="${RELEASE_ID:-r-${commit_sha}-$(date -u +%H%M%S)}"
 
 echo "Creating Goat OS staging Cloud Deploy release"
 echo "account=$active_account"

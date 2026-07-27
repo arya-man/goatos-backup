@@ -45,6 +45,7 @@ const (
 	piTodayObl      = "71000000-0000-4000-8000-000000000023"
 	piCodedVersion  = "71000000-0000-4000-8000-000000000024"
 	piCodedRule     = "71000000-0000-4000-8000-000000000025"
+	piSubItem       = "71000000-0000-4000-8000-000000000026"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -102,6 +103,86 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	if countFor(result.CountsByWorkState, domain.WorkStateVerificationPending) != 1 ||
 		countFor(result.CountsByWorkState, domain.WorkStateScheduled) != 1 {
 		t.Fatalf("counts = %+v", result.CountsByWorkState)
+	}
+}
+
+func TestShedScopeStatusDoesNotInheritSharedParentNeedsReview(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	const (
+		otherShed       = "71000000-0000-4000-8000-000000000201"
+		otherGoat       = "71000000-0000-4000-8000-000000000202"
+		otherBatch      = "71000000-0000-4000-8000-000000000203"
+		otherObligation = "71000000-0000-4000-8000-000000000204"
+	)
+	execPI(t, ctx, pool, "other shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-PI-2', 'Process Shed Two', $3, 'active')`,
+		otherShed, piTenant, piPark)
+	execPI(t, ctx, pool, "other shed profile",
+		`INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity)
+		 VALUES ($1, $2, $3, 'mixed', 500)`,
+		otherShed, piTenant, piStage)
+	execPI(t, ctx, pool, "other shed ops",
+		`INSERT INTO location_operational_attributes (tenant_id, location_id, usable_for_vaccination, is_quarantine, is_icu)
+		 VALUES ($1, $2, true, false, false)`,
+		piTenant, otherShed)
+	execPI(t, ctx, pool, "other goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		otherGoat, piTenant, piParty, otherShed, piPark)
+	execPI(t, ctx, pool, "shared parent already in review",
+		`UPDATE sop_tasks
+		 SET state = 'needs_review', scope_type = 'park', scope_id = $3::uuid
+		 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		piTenant, piTask, piPark)
+	execPI(t, ctx, pool, "other shed batch on same parent task",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, sop_task_id, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5, $6)`,
+		otherBatch, piTenant, piVersion, otherShed, piTask, piOperator)
+	execPI(t, ctx, pool, "other shed obligation not submitted",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, sop_task_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'goat', $7, 'shed', $8, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'pi-other-shed-obligation', 1)`,
+		otherObligation, piTenant, piVersion, piRule, otherBatch, piTask, otherGoat, otherShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	submittedShed := rowByBatchSubstr(result.Rows, piBatch)
+	if submittedShed == nil {
+		t.Fatalf("submitted shed row missing: %#v", result.Rows)
+	}
+	if submittedShed.WorkState != domain.WorkStateVerificationPending ||
+		submittedShed.SOPTaskState != domain.SOPStateSubmitted ||
+		submittedShed.ProofState != domain.ProofStateUploaded ||
+		submittedShed.VerificationState != domain.VerificationStatePending {
+		t.Fatalf("submitted shed state drifted: work=%s sop=%s proof=%s verification=%s",
+			submittedShed.WorkState, submittedShed.SOPTaskState, submittedShed.ProofState, submittedShed.VerificationState)
+	}
+	unsubmittedShed := rowByBatchSubstr(result.Rows, otherBatch)
+	if unsubmittedShed == nil {
+		t.Fatalf("unsubmitted shed row missing: %#v", result.Rows)
+	}
+	if unsubmittedShed.WorkState == domain.WorkStateVerificationPending ||
+		unsubmittedShed.SOPTaskState == domain.SOPStateSubmitted ||
+		unsubmittedShed.ProofState == domain.ProofStateUploaded ||
+		unsubmittedShed.VerificationState == domain.VerificationStatePending {
+		t.Fatalf("unsubmitted shed inherited shared parent review state: work=%s sop=%s proof=%s verification=%s",
+			unsubmittedShed.WorkState, unsubmittedShed.SOPTaskState, unsubmittedShed.ProofState, unsubmittedShed.VerificationState)
 	}
 }
 
@@ -1327,6 +1408,10 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		 VALUES ($1, $2, $3, $4, $5, 'pi-submission', '{}'::jsonb,
 		   jsonb_build_array(jsonb_build_object('proof_id', $6::text)), 'submitted', TIMESTAMPTZ '2026-06-24 09:00:00+00')`,
 		piSub, piTenant, piTask, piSOPVersion, piOperator, piProof)
+	execPI(t, ctx, pool, "submission item",
+		`INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state)
+		 VALUES ($1, $2, $3, $4, $5, 'pi-goat-item', 'needs_review')`,
+		piSubItem, piTenant, piSub, piTask, piGoat)
 	execPI(t, ctx, pool, "batch",
 		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, sop_task_id, conducted_by)
 		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5, $6)`,

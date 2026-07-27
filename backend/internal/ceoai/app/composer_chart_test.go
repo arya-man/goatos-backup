@@ -6,28 +6,28 @@ import (
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 )
 
-// A "plot vaccination overdue by park" question over a per-park Cube result
+// A "plot vaccination overdue by shed" question over a per-shed Cube result
 // must emit a bar chart whose x/data match the tool rows verbatim.
-func TestBuildChartPlotByPark(t *testing.T) {
+func TestBuildChartPlotByShed(t *testing.T) {
 	results := []domain.ToolResult{{
 		Route:    domain.RouteCube,
 		ToolName: "vaccination_overdue",
 		Surface:  "Cube · vaccination_overdue",
 		Facts: []domain.Fact{
-			{Label: "Vaccination overdue", Value: "12", Scope: "Castro 1"},
-			{Label: "Vaccination overdue", Value: "7", Scope: "Gandhi 2"},
-			{Label: "Vaccination overdue", Value: "3", Scope: "Nehru 3"},
+			{Label: "Vaccination overdue", Value: "12", Scope: "Shed A"},
+			{Label: "Vaccination overdue", Value: "7", Scope: "Shed B"},
+			{Label: "Vaccination overdue", Value: "3", Scope: "Shed C"},
 		},
 	}}
 
-	chart := buildChart("plot vaccination overdue by park", results)
+	chart := buildChart("plot vaccination overdue by shed", results)
 	if chart == nil {
-		t.Fatal("expected a chart for a plot-by-park question, got nil")
+		t.Fatal("expected a chart for a plot-by-shed question, got nil")
 	}
 	if chart.Type != "bar" {
 		t.Fatalf("expected bar chart, got %q", chart.Type)
 	}
-	wantX := []string{"Castro 1", "Gandhi 2", "Nehru 3"}
+	wantX := []string{"Shed A", "Shed B", "Shed C"}
 	if len(chart.X) != len(wantX) {
 		t.Fatalf("x len = %d, want %d", len(chart.X), len(wantX))
 	}
@@ -71,18 +71,18 @@ func TestBuildChartNoChartForPlainCount(t *testing.T) {
 }
 
 // A dimensioned series alone (no explicit plot ask) still charts, since the
-// result is a real per-park breakdown.
+// result is a real per-shed breakdown.
 func TestBuildChartDimensionedSeriesWithoutPlotWord(t *testing.T) {
 	results := []domain.ToolResult{{
 		Route:   domain.RouteCube,
 		Surface: "Cube · vaccination_overdue",
 		Facts: []domain.Fact{
-			{Label: "Overdue", Value: "5", Scope: "Castro 1"},
-			{Label: "Overdue", Value: "9", Scope: "Gandhi 2"},
+			{Label: "Overdue", Value: "5", Scope: "Shed A"},
+			{Label: "Overdue", Value: "9", Scope: "Shed B"},
 		},
 	}}
-	if chart := buildChart("overdue vaccinations for each park", results); chart == nil {
-		t.Fatal("expected a chart for a dimensioned per-park series")
+	if chart := buildChart("overdue vaccinations for each shed", results); chart == nil {
+		t.Fatal("expected a chart for a dimensioned per-shed series")
 	}
 }
 
@@ -109,12 +109,12 @@ func TestBuildChartSkipsNonNumeric(t *testing.T) {
 		Route:   domain.RouteSQL,
 		Surface: "SQL fallback",
 		Facts: []domain.Fact{
-			{Label: "park", Value: "Castro 1"},
-			{Label: "Castro 1", Value: "12"},
-			{Label: "Gandhi 2", Value: "8"},
+			{Label: "shed", Value: "Shed A"},
+			{Label: "Shed A", Value: "12"},
+			{Label: "Shed B", Value: "8"},
 		},
 	}}
-	chart := buildChart("plot overdue by park", results)
+	chart := buildChart("plot overdue by shed", results)
 	if chart == nil {
 		t.Fatal("expected a chart from the numeric facts")
 	}

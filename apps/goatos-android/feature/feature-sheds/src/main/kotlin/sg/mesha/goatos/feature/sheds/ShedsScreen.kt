@@ -91,6 +91,16 @@ import sg.mesha.goatos.feature.sheds.R
  */
 enum class ShedStatus { DONE, PENDING, DELAYED }
 
+enum class ShedStatusTone { OK, WARN, DANGER, INFO }
+
+enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, COMPLETE }
+
+@Immutable
+data class ShedStatusChip(
+    val key: ShedStatusChipKey,
+    val tone: ShedStatusTone,
+)
+
 /** One vaccine group in a shed's mix-and-match set. Backend-tagged; [full] dims the chip. */
 data class VaccineGroup(
     val label: String,
@@ -130,6 +140,7 @@ data class ProtocolAdherenceSummary(
     val submittedCount: Int,
     val acceptedCount: Int,
     val reviewItemCount: Int,
+    val overdueItemCount: Int = 0,
     val deferredCount: Int,
     val acceptedPercent: Int,
 ) {
@@ -158,6 +169,7 @@ data class ShedRow(
     val scheduleDateLabel: String = "",
     val status: ShedStatus,
     val statusLabel: String,
+    val statusChips: List<ShedStatusChip> = emptyList(),
     val vaccineGroups: List<VaccineGroup>,
     val inShed: String,
     val due: String,
@@ -265,6 +277,13 @@ private fun toneFor(status: ShedStatus): StatusTone = when (status) {
     ShedStatus.DONE -> StatusTone(fg = BrandD, bg = OkBg, edge = Brand)
     ShedStatus.PENDING -> StatusTone(fg = Warn, bg = WarnBg, edge = Warn)
     ShedStatus.DELAYED -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+}
+
+private fun toneFor(tone: ShedStatusTone): StatusTone = when (tone) {
+    ShedStatusTone.OK -> StatusTone(fg = BrandD, bg = OkBg, edge = Brand)
+    ShedStatusTone.WARN -> StatusTone(fg = Warn, bg = WarnBg, edge = Warn)
+    ShedStatusTone.DANGER -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+    ShedStatusTone.INFO -> StatusTone(fg = Info, bg = InfoBg, edge = Info)
 }
 
 private fun changeTone(tone: ChangeTone): Pair<Color, Color> = when (tone) {
@@ -743,12 +762,19 @@ private fun DayProgress(state: ShedsUiState) {
 
 @Composable
 private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: String) {
-    val stateLabel = when {
-        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "Complete"
-        summary.reviewItemCount > 0 -> "In review"
-        summary.submittedCount > 0 -> "Submitted"
-        else -> "Open"
+    val stateChip = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.COMPLETE, ShedStatusTone.OK)
+        summary.reviewItemCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
+        summary.submittedCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.SUBMITTED, ShedStatusTone.WARN)
+        else -> ShedStatusChip(ShedStatusChipKey.OPEN, ShedStatusTone.WARN)
     }
+    val statusChips = listOfNotNull(
+        stateChip,
+        ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER).takeIf { summary.overdueItemCount > 0 },
+    )
     val progressLabel = "${summary.submittedCount}/${summary.expectedCount} goats submitted"
     val progressCaption = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "${summary.acceptedPercent}% accepted"
@@ -791,7 +817,14 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                         fontWeight = FontWeight.Medium,
                     )
                 }
-                StatusPill(label = stateLabel, tone = tone)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    statusChips.forEach { chip ->
+                        StatusPill(label = chip.label(), tone = toneFor(chip.tone))
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -950,17 +983,49 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            val subtitle = listOfNotNull(
-                row.scheduleDateLabel.takeIf { it.isNotBlank() },
-                row.animalStage.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            subtitle.takeIf { it.isNotBlank() }?.let {
+            row.scheduleDateLabel.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Muted, fontSize = 12.sp, maxLines = 1)
+            }
+            row.animalStage.takeIf { it.isNotBlank() }?.let {
+                Text(text = it, color = Muted, fontSize = 11.5f.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.width(8.dp))
-        StatusPill(label = row.statusLabel, tone = tone)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            val chips = row.statusChips.ifEmpty {
+                listOf(ShedStatusChip(row.status.toChipKey(), row.status.toChipTone()))
+            }
+            chips.forEach { chip ->
+                StatusPill(label = chip.label(), tone = toneFor(chip.tone))
+            }
+        }
     }
+}
+
+@Composable
+private fun ShedStatusChip.label(): String = when (key) {
+    ShedStatusChipKey.DONE -> stringResource(R.string.sheds_status_done)
+    ShedStatusChipKey.IN_PROGRESS -> stringResource(R.string.sheds_status_in_progress)
+    ShedStatusChipKey.IN_REVIEW -> stringResource(R.string.sheds_status_in_review)
+    ShedStatusChipKey.SUBMITTED -> stringResource(R.string.sheds_status_submitted)
+    ShedStatusChipKey.OPEN -> stringResource(R.string.sheds_status_open)
+    ShedStatusChipKey.OVERDUE -> stringResource(R.string.sheds_status_overdue)
+    ShedStatusChipKey.COMPLETE -> stringResource(R.string.sheds_status_complete)
+}
+
+private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
+    ShedStatus.DONE -> ShedStatusChipKey.DONE
+    ShedStatus.PENDING -> ShedStatusChipKey.IN_PROGRESS
+    ShedStatus.DELAYED -> ShedStatusChipKey.OVERDUE
+}
+
+private fun ShedStatus.toChipTone(): ShedStatusTone = when (this) {
+    ShedStatus.DONE -> ShedStatusTone.OK
+    ShedStatus.PENDING -> ShedStatusTone.WARN
+    ShedStatus.DELAYED -> ShedStatusTone.DANGER
 }
 
 @Composable

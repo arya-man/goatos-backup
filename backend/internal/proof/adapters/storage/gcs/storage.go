@@ -151,6 +151,29 @@ func (s *Storage) Store(context.Context, domain.Artifact, io.Reader, string) (do
 	return domain.StoredObject{}, ports.ErrUnsupported
 }
 
+func (s *Storage) Delete(ctx context.Context, proof domain.Artifact) error {
+	signed, err := s.signedURL("DELETE", proof.ObjectKey, s.now().UTC().Add(2*time.Minute), nil, nil)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, signed, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return errors.New("gcs proof object delete failed")
+	}
+	return nil
+}
+
 func (s *Storage) signedURL(method, objectKey string, expiresAt time.Time, headers map[string]string, extraQuery map[string]string) (string, error) {
 	now := s.now().UTC()
 	if expiresAt.Before(now) {

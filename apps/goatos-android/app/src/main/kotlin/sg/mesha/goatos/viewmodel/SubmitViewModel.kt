@@ -495,7 +495,17 @@ class SubmitViewModel @Inject constructor(
     private fun removeProof(proofId: String) {
         val task = currentTask ?: return
         if (outboxItemId != null) return
-        viewModelScope.launch { proofCaptureRepository.remove(task.taskId, proofId) }
+        viewModelScope.launch {
+            when (val result = proofCaptureRepository.remove(task.taskId, proofId)) {
+                is AppResult.Ok -> {
+                    _state.update { it.copy(lastError = null) }
+                    repo.refreshShedCompletionSummary(task.taskId, selectedShedId.value)
+                }
+                is AppResult.Err -> _state.update {
+                    it.copy(lastError = result.message.ifBlank { "Could not remove proof video. Try again." })
+                }
+            }
+        }
     }
 
     private fun retryProofUpload(proofId: String) {
