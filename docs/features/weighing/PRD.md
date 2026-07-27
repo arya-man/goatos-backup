@@ -134,9 +134,21 @@ business date and rolls forward until done for the selected cadence lane. It
 should not imply the work must finish inside the calendar week, and it must not
 silently schedule adult monthly sheds every week.
 
+Week tabs must preserve the planning bucket. A campaign created inside a week
+remains visible from that week tab even after open work rolls beyond week end,
+while the operator queue shows the same open work on its current rolled-forward
+business date.
+
 If the same week already has an active weighing campaign for the same farm/park
 and overlapping selected sheds, the UI must show the existing campaign and ask
 for edit/extend/cancel rather than creating a duplicate silent task.
+
+Each week tab must show one backend-owned campaign state: `no_task`, `draft`,
+`planned`, `in_progress`, `delayed`, `completed`, or `canceled`. A leader
+opening a week sees the active campaign card first, including start date,
+cadence lane, selected sheds/partitions, expected count, operator, suggested
+finish, actual progress, and whether the campaign has rolled beyond the
+selected week.
 
 ## 5. Grouping rules
 
@@ -197,6 +209,13 @@ The operator opens the assigned weighing card and sees the current rolling work
 group. The screen should be optimized for repeated RFID scan, weight entry, and
 proof capture.
 
+Android must treat Room as the local source of truth for this flow. The app may
+refresh from network in the background, but the visible work card, scan roster,
+captured observations, video upload state, mismatch rows, and submit/retry state
+must render from principal-scoped Room rows. Process death, app restart, network
+loss, and sign-in refresh must not drop a captured weight/video pair or route
+the operator into the wrong campaign/work group.
+
 For each animal, the operator must capture:
 
 - RFID/Animal ID scan.
@@ -225,6 +244,18 @@ remove/replace a just-captured animal video, edit the weight value, or discard a
 wrong scan. After sync, corrections require an auditable correction/replacement
 flow rather than silent overwrite.
 
+RFID scan state must be explicit:
+
+- `pending_local`: RFID resolved locally and weight/video capture is in progress.
+- `proof_uploading`: video exists locally and upload is running/retryable.
+- `ready_to_submit`: weight is valid and required video proof is durably linked.
+- `sync_failed`: backend or upload rejected; row stays editable/retryable where
+  policy allows.
+- `accepted`: backend accepted the observation; only audited correction can
+  change it.
+- `conflict/review_needed`: duplicate animal, stale campaign, unknown RFID, or
+  backend semantic mismatch requires operator/supervisor recovery.
+
 The operator list must stay usable when a campaign covers thousands of animals.
 The phone shows a paged, shed-grouped worklist with full-task summary counts from
 the backend. It must not download every expected animal in the campaign just to
@@ -232,9 +263,10 @@ render the first screen or compute a progress badge.
 
 ## 7. Wrong-shed animal behavior
 
-In Vaccination, an animal scanned from a different shed is highlighted as a
-problem and may be separated into another table/work item. For Weighing, keep
-the scan in the same execution table but make the mismatch obvious.
+In Vaccination, an animal scanned from a different shed is highlighted and may
+be separated into another table/work item. For Weighing, an animal from another
+shed is an operational mismatch, not a failed clinical rule. Keep the scan in
+the same execution table but make the mismatch obvious.
 
 V1 behavior:
 
@@ -243,11 +275,16 @@ V1 behavior:
 - Add columns such as `Expected/original shed` and `Actual/current shed`.
 - Highlight mismatches.
 - Include mismatch counts in supervisor progress.
+- Keep the expected animal's original/planned shed visible even if current
+  animal location changed after planning.
 - Do not silently change the animal's canonical shed because it appeared during
   weighing. Movement remains a separate authorized workflow.
 - If the scanned animal was not part of the selected sheds at planning time,
   record it as `not in campaign` rather than pretending it satisfied another
   expected animal.
+- If an expected animal shifted to another selected or unselected shed and is
+  weighed there, count that animal as weighed for the campaign only once, while
+  still showing the mismatch/actual shed insight.
 
 ## 8. Missing expected animals and lifecycle exceptions
 
@@ -274,6 +311,17 @@ current canonical herd state:
 This classification is read/display and worklist behavior. Weighing must not
 itself perform movement, death, cull, sale, or health-state changes. Those stay
 owned by their canonical workflows.
+
+Missing animal UX must use three buckets:
+
+| Bucket | Meaning |
+|---|---|
+| Pending | Still active in expected shed and not yet weighed. |
+| Unavailable | Canonical state says ICU, quarantine, dead, culled, sold, transferred, or exited. |
+| Review needed | Current state is unknown, contradictory, or movement/lifecycle projection is stale. |
+
+Only `Pending` counts as remaining operator workload. `Unavailable` and
+`Review needed` stay visible to leadership with reason and source timestamp.
 
 ## 9. Evidence model
 
@@ -321,6 +369,34 @@ expected_at_planning
 Wrong-shed and not-in-campaign scans are shown as separate insight counts. They
 must not inflate the expected completion numerator unless the animal was one of
 the campaign's expected animals.
+
+Leadership progress card contract:
+
+- Header: campaign date range, cadence lane, status, operator, and start date.
+- Primary counts: expected at planning, weighed expected, pending expected,
+  unavailable expected, and closed by leadership.
+- Insight counts: other-shed weighed, not-in-campaign weighed, proof
+  missing/failed, and delayed days.
+- Shed rows: selected shed/partition, planned count, weighed count, pending
+  count, unavailable count, latest activity, and status.
+- Actions: edit pending sheds, close with reason, cancel, view animal rows, and
+  view proof issues.
+
+All labels, tones, disabled reasons, and drilldown routes come from the backend
+contract.
+
+Leadership assistant/reporting must answer:
+
+- Which weighing campaigns are active this week or due this month?
+- Which sheds are delayed and by how many days?
+- How many expected animals were weighed, pending, unavailable, or closed?
+- Which animals from other sheds were weighed during this campaign?
+- Which expected animals are missing because of ICU, death, cull,
+  sale/transfer, or movement?
+- Which weighed animals are missing mandatory proof or have failed upload?
+
+Assistant answers must come from Weighing read models, not raw observation rows
+or frontend-calculated totals.
 
 All progress summaries must be whole-campaign or whole-filter summaries. They
 must remain correct if the UI page size changes from 20 to 10, if a selected
@@ -383,6 +459,10 @@ acceptance includes these visible outcomes:
 - Progress counts remain correct when one work group contains multiple sheds,
   when one shed rolls to the next day, and when an extra animal from another
   shed is scanned.
+- Leadership close/adjust flow is explicit: closing pending expected animals
+  requires a reason code, actor, timestamp, affected count, and animal list
+  snapshot. Closed animals are excluded from operator workload but remain visible
+  in campaign audit and reporting.
 - No Weighing implementation reuses Vaccination's clinical due-window or dose
   obligation logic as the source of grouping truth.
 
