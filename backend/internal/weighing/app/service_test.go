@@ -46,6 +46,12 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListCampaigns(context.Background(), operator); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", 250); err != nil {
+		t.Fatalf("operator roster read errored: %v", err)
+	}
+	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", 250); err == nil {
+		t.Fatal("director read execution roster; want forbidden")
+	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
 		CampaignID: "00000000-0000-4000-8000-000000000501", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
@@ -109,6 +115,13 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
+	}
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, 250)
+	if err != nil {
+		t.Fatalf("operator roster read: %v", err)
+	}
+	if len(roster) != 1 || roster[0].AnimalID != animalOne || roster[0].PrimaryIdentifier != "RFID-ONE" {
+		t.Fatalf("roster = %+v, want animal one with RFID", roster)
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
@@ -181,6 +194,9 @@ func (f fakeRepo) PublishCampaign(context.Context, string, string, string, strin
 	return domain.Campaign{}, nil
 }
 func (f fakeRepo) ListCampaigns(context.Context, string) ([]domain.Campaign, error) { return nil, nil }
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, int) ([]domain.ExpectedAnimal, error) {
+	return []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}, nil
+}
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
 	f.animalWrites++
 	return domain.Observation{}, nil
@@ -269,6 +285,37 @@ func (r *scenarioRepo) PublishCampaign(_ context.Context, tenantID, campaignID, 
 
 func (r *scenarioRepo) ListCampaigns(context.Context, string) ([]domain.Campaign, error) {
 	return []domain.Campaign{r.campaign}, nil
+}
+
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
+	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
+		return nil, ports.ErrNotFound
+	}
+	out := []domain.ExpectedAnimal{}
+	for _, animal := range r.expectedByAnimal {
+		shed := r.shedByLocation[animal.ExpectedLocationID]
+		if shed.CampaignShedID != campaignShedID {
+			continue
+		}
+		switch animal.AnimalID {
+		case animalOne:
+			animal.DisplayAnimalID = "KID-A-001"
+			animal.PrimaryIdentifier = "RFID-ONE"
+		case animalTwo:
+			animal.DisplayAnimalID = "KID-B-001"
+			animal.PrimaryIdentifier = "RFID-TWO"
+		}
+		animal.CampaignShedID = campaignShedID
+		animal.Seq = int64(len(out) + 1)
+		out = append(out, animal)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil, ports.ErrNotFound
+	}
+	return out, nil
 }
 
 func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {

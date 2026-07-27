@@ -128,6 +128,18 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
 		},
 	},
+	"weighing": {
+		key:         "weighing",
+		labelKey:    "module.weighing",
+		landingHref: "/weighing", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    3,
+		contributions: []moduleNavContribution{
+			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredPermission: permissions.WeighingExecute}, //nav-composition:ignore: registry entry
+			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
+		},
+	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
 	// client no longer needs its own hardcoded coming-soon list.
 	"breeding": {
@@ -483,12 +495,14 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction": "Feed Direction",
 		"nav.feed_packing":   "Feed Packing",
 		"nav.feed_transport": "Feed Transport",
+		"nav.weighing":       "Weighing",
 		"nav.videos":         "Videos",
 		"nav.you":            "You",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.counts":         "Counts",
+		"module.weighing":       "Weighing",
 		"module.feed_direction": "Feed direction",
 		"module.breeding":       "Breeding",
 		"queue.assigned":        "Assigned work",
@@ -508,12 +522,14 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction": "फ़ीड दिशा",
 		"nav.feed_packing":   "फ़ीड पैकिंग",
 		"nav.feed_transport": "फ़ीड परिवहन",
+		"nav.weighing":       "वजन",
 		"nav.videos":         "वीडियो",
 		"nav.you":            "आप",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.counts":         "गिनती",
+		"module.weighing":       "वजन",
 		"module.feed_direction": "फ़ीड दिशा",
 		"module.breeding":       "प्रजनन",
 		"queue.assigned":        "सौंपा गया काम",
@@ -533,12 +549,14 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_transport": "ಆಹಾರ ಸಾಗಣೆ",
+		"nav.weighing":       "ತೂಕ",
 		"nav.videos":         "ವೀಡಿಯೊಗಳು",
 		"nav.you":            "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.counts":         "ಎಣಿಕೆ",
+		"module.weighing":       "ತೂಕ",
 		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
@@ -558,12 +576,14 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction": "ఫీడ్ దిశ",
 		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_transport": "ఫీడ్ రవాణా",
+		"nav.weighing":       "బరువు",
 		"nav.videos":         "వీడియోలు",
 		"nav.you":            "మీరు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.counts":         "లెక్కలు",
+		"module.weighing":       "బరువు",
 		"module.feed_direction": "ఫీడ్ దిశ",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"queue.assigned":        "కేటాయించిన పని",

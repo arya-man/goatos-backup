@@ -49,6 +49,22 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor) ([]doma
 	return s.repo.ListCampaigns(ctx, actor.TenantID)
 }
 
+func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+		return nil, ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
+		return nil, ports.ErrInvalidArgument
+	}
+	if limit <= 0 {
+		limit = 250
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, limit)
+}
+
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return domain.Observation{}, ports.ErrForbidden

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +20,7 @@ type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor) ([]domain.Campaign, error)
+	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
 }
@@ -41,6 +43,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /weighing/campaigns", h.CreateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.ListCampaigns)
+	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/shed-observations", h.RecordShedObservation)
 }
@@ -94,6 +97,20 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {
 	c, err := h.service.PublishCampaign(r.Context(), actor(r), r.PathValue("campaign_id"), r.Header.Get("Idempotency-Key"))
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
+	limit := 250
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		var parsed int
+		if _, err := fmt.Sscanf(raw, "%d", &parsed); err != nil || parsed <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	items, err := h.service.ListScopeRoster(r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"), limit)
+	h.respond(w, r, map[string]any{"items": items, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request) {

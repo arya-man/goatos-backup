@@ -417,9 +417,12 @@ object AppModule {
     @Provides
     @Singleton
     fun provideWeighingRepository(
+        api: AppApi,
         database: GoatDatabase,
         syncRepository: SyncRepository,
     ): WeighingRepository = DefaultWeighingRepository(
+        api = api,
+        tenantId = BuildConfig.TENANT_ID,
         rosterDao = database.weighingRosterDao(),
         observationDao = database.weighingObservationDao(),
         shedObservationDao = database.weighingShedObservationDao(),

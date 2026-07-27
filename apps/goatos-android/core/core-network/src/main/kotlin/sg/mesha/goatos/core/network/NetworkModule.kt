@@ -94,6 +94,7 @@ import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
@@ -207,6 +208,13 @@ interface AppApiService {
 
     @GET("app/weighing/campaigns")
     suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster")
+    suspend fun getWeighingRoster(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Query("limit") limit: Int,
+    ): WeighingRosterResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -658,6 +666,12 @@ class RetrofitAppApi(
 
     override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
         service.listWeighingCampaigns()
+
+    override suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        limit: Int,
+    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, limit)
 
     override suspend fun submitAppTask(
         taskId: String,

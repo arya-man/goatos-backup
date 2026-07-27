@@ -265,6 +265,54 @@ ON CONFLICT (location_id) DO UPDATE SET name = EXCLUDED.name, parent_location_id
 
 	operatorID := personaID(fx.Campaign.OperatorCode)
 	creatorID := personaID("ravi_ceo")
+	departmentID := "13131313-1313-4131-8131-131313131313"
+	if _, err := tx.Exec(ctx, `
+INSERT INTO public.departments (department_id, tenant_id, code, label, status)
+VALUES ($1::uuid, $2::uuid, 'weighing_ops', 'Weighing Operations', 'active')
+ON CONFLICT (department_id) DO UPDATE SET label = EXCLUDED.label, status = 'active', updated_at = now()`, departmentID, fx.TenantID); err != nil {
+		return fmt.Errorf("upsert weighing department: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
+VALUES ($1::uuid, $2::uuid, 'weighing', 'active')
+ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE SET status = 'active', updated_at = now()`, fx.TenantID, departmentID); err != nil {
+		return fmt.Errorf("upsert weighing module grant: %w", err)
+	}
+	for _, persona := range fx.Personas {
+		grantRole := dbGrantRole(persona.GrantRole)
+		if grantRole == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO public.user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, created_by)
+SELECT $1::uuid, $2::uuid, $3, 'tenant', $1::uuid, 'active', now(), $4::uuid
+WHERE EXISTS (SELECT 1 FROM public.org_role_catalog WHERE role_key=$3)
+  AND NOT EXISTS (
+    SELECT 1 FROM public.user_scope_grants
+    WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND role=$3 AND scope_type='tenant' AND scope_id=$1::uuid AND status='active'
+  )`,
+			fx.TenantID, personaID(persona.Code), grantRole, creatorID); err != nil {
+			return fmt.Errorf("upsert persona grant %s: %w", persona.Code, err)
+		}
+		var grantExists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM public.user_scope_grants
+  WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND role=$3 AND scope_type='tenant' AND scope_id=$1::uuid AND status='active'
+)`, fx.TenantID, personaID(persona.Code), grantRole).Scan(&grantExists); err != nil {
+			return fmt.Errorf("verify persona grant %s: %w", persona.Code, err)
+		}
+		if !grantExists {
+			return fmt.Errorf("persona grant %s role %s did not match org_role_catalog", persona.Code, grantRole)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO public.workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, department_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'active', $6, $7::uuid, $8::uuid, $9::uuid)
+ON CONFLICT (workforce_member_id) DO UPDATE SET user_id = EXCLUDED.user_id, display_name = EXCLUDED.display_name, status = 'active', primary_role_hint = EXCLUDED.primary_role_hint, primary_location_id = EXCLUDED.primary_location_id, department_id = EXCLUDED.department_id, updated_at = now()`,
+			personaID(persona.Code), fx.TenantID, personaID(persona.Code), persona.Code, persona.DisplayName, primaryRoleHint(grantRole), fx.ParkID, departmentID, creatorID); err != nil {
+			return fmt.Errorf("upsert workforce member %s: %w", persona.Code, err)
+		}
+	}
 	for _, animal := range fx.Animals {
 		currentLocationID := locationIDs[animal.CurrentLocationLabel]
 		if currentLocationID == "" {
@@ -363,6 +411,28 @@ func dbLocationType(locationType string) string {
 		return "pen"
 	default:
 		return ""
+	}
+}
+
+func dbGrantRole(role string) string {
+	switch strings.TrimSpace(role) {
+	case "", "viewer":
+		return ""
+	case "field_operator":
+		return "operator"
+	default:
+		return role
+	}
+}
+
+func primaryRoleHint(role string) string {
+	switch role {
+	case "operator", "pc_director":
+		return role
+	case "ceo_internal":
+		return "other"
+	default:
+		return "operator"
 	}
 }
 
