@@ -43,29 +43,35 @@ func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campa
 	return s.repo.PublishCampaign(ctx, actor.TenantID, campaignID, actor.UserID, idempotencyKey)
 }
 
-func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor) ([]domain.Campaign, error) {
+func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error) {
 	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
 	if !canMonitor && !canExecute {
-		return nil, ports.ErrForbidden
-	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID)
-}
-
-func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
-		return nil, ports.ErrForbidden
-	}
-	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
-		return nil, ports.ErrInvalidArgument
+		return domain.CampaignPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
-		limit = 250
+		limit = 20
 	}
-	if limit > 5000 {
-		limit = 5000
+	if limit > 100 {
+		limit = 100
 	}
-	return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, limit)
+	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
+}
+
+func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+		return domain.RosterPage{}, ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
+		return domain.RosterPage{}, ports.ErrInvalidArgument
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
 }
 
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {

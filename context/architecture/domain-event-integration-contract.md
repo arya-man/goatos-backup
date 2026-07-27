@@ -61,7 +61,9 @@ and the event exists solely as durable lineage/audit trail. Requirements:
   packet above, including the real-consumer E2E proof.
 
 Current audit-only events: `goat.obligations_canceled`, `obligation.rescoped`,
-`obligation.in_progress`.
+`obligation.in_progress`, `weighing.campaign_created`,
+`weighing.campaign_published`, `weighing.observation_accepted`,
+`weighing.shed_observation_accepted`.
 
 The machine registry is `context/architecture/domain-event-registry.json`.
 `make domain-event-architecture-guard` must pass before landing.

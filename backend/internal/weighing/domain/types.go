@@ -38,6 +38,11 @@ type Campaign struct {
 	Progress          Progress       `json:"progress"`
 }
 
+type CampaignPage struct {
+	Items      []Campaign `json:"items"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
 type CampaignShed struct {
 	CampaignShedID      string `json:"campaign_shed_id"`
 	CampaignID          string `json:"campaign_id"`
@@ -64,6 +69,11 @@ type ExpectedAnimal struct {
 	CurrentLocationLabel   string `json:"current_location_label,omitempty"`
 	CurrentLifecycleStatus string `json:"current_lifecycle_status,omitempty"`
 	Seq                    int64  `json:"seq"`
+}
+
+type RosterPage struct {
+	Items      []ExpectedAnimal `json:"items"`
+	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
 type Observation struct {

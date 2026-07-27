@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { createWeighingCampaign, publishWeighingCampaign } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -12,7 +13,7 @@ async function createWeighingCampaignAction(formData: FormData) {
   "use server";
   if (String(formData.get("duplicate_blocked") || "") === "true") {
     revalidatePath("/weighing");
-    return;
+    redirect("/weighing?notice=duplicate-blocked");
   }
   const selectedShedIds = formData.getAll("shed_id").map(String);
   const categoryByShed = new Map(formData.getAll("shed_category").map((value) => {
@@ -38,10 +39,17 @@ async function createWeighingCampaignAction(formData: FormData) {
     operator_user_id: String(formData.get("operator_user_id") || ""),
     sheds,
   });
-  if (result.ok && formData.get("publish") === "true") {
-    await publishWeighingCampaign(result.data.campaign.campaign_id);
+  if (!result.ok) {
+    revalidatePath("/weighing");
+    redirect("/weighing?notice=create-failed");
+  }
+  if (formData.get("publish") === "true") {
+    const publishResult = await publishWeighingCampaign(result.data.campaign.campaign_id);
+    revalidatePath("/weighing");
+    redirect(`/weighing?notice=${publishResult.ok ? "published" : "publish-failed"}`);
   }
   revalidatePath("/weighing");
+  redirect("/weighing?notice=draft-saved");
 }
 
 const statusTone: Record<WeighingCampaignState | WeighingScopeStatus | "no_task", Tone> = {
@@ -94,6 +102,43 @@ function pct(done: number, total: number): number {
   return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
 }
 
+function noticeFromSearch(value: string | undefined): { tone: "ok" | "warn" | "err"; title: string; body: string } | null {
+  switch (value) {
+    case "published":
+      return {
+        tone: "ok",
+        title: "Task published",
+        body: "Amit now sees the selected shed work. The campaign stays published until the first capture starts it.",
+      };
+    case "draft-saved":
+      return {
+        tone: "ok",
+        title: "Draft saved",
+        body: "The weekly kids plan is saved without opening operator work yet.",
+      };
+    case "duplicate-blocked":
+      return {
+        tone: "warn",
+        title: "Create blocked",
+        body: "This park already has a task for the selected week. Use Edit existing task so captures and history stay attached.",
+      };
+    case "create-failed":
+      return {
+        tone: "err",
+        title: "Task was not created",
+        body: "The backend rejected the create request. No duplicate task was created.",
+      };
+    case "publish-failed":
+      return {
+        tone: "err",
+        title: "Draft saved, publish failed",
+        body: "The task exists as a draft. Publish again after checking backend validation.",
+      };
+    default:
+      return null;
+  }
+}
+
 function CapabilityButton({
   enabled,
   children,
@@ -126,11 +171,13 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
   }
 
   const { campaign, weeks, planner } = result.data;
+  const notice = noticeFromSearch(one(searchParams ?? {}, "notice"));
   const individualPct = pct(campaign.individualCompleted, campaign.individualExpected);
   const shedPct = pct(campaign.shedPartitionCompleted, campaign.shedPartitionExpected);
 
   return (
     <div className="screen on weighing-page">
+      {notice ? <WeighingNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
       <div className="phead">
         <div>
           <div className="crumb">Preventive Care (PC) / Weighing</div>
@@ -350,10 +397,20 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
   );
 }
 
+function WeighingNotice({ tone, title, body }: { tone: "ok" | "warn" | "err"; title: string; body: string }) {
+  return (
+    <div className={`weighing-toast ${tone}`} role={tone === "err" ? "alert" : "status"} aria-live="polite">
+      <b>{title}</b>
+      <span>{body}</span>
+    </div>
+  );
+}
+
 function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
   const duplicateBlocked = planner.duplicateBlocked && planner.existingCampaignId;
   const title = duplicateBlocked ? "Edit weekly kids weighing task" : "Create weekly kids weighing task";
   const taskLabel = duplicateBlocked ? "Scheduled task" : "New task";
+  const selectedPark = planner.parks.find((park) => park.id === planner.selectedParkId);
   return (
     <section className="card weighing-planner">
       <div className="hd">
@@ -393,7 +450,26 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             </div>
           </div>
 
-          <div className="weighing-builder-grid">
+          {duplicateBlocked ? (
+            <div className="weighing-duplicate-grid">
+              <div className="weighing-duplicate-card">
+                <Tag tone="warn">task already exists</Tag>
+                <h3>{selectedPark?.label.split(" · ")[0] || "This park"} · {planner.weekLabel.split(" · ")[0]}</h3>
+                <p>This park already has a weighing task for this week. One task per park per week; create is blocked.</p>
+              </div>
+              <div className="weighing-existing-task">
+                <span>Existing task</span><b>{planner.existingCampaignWeekLabel || planner.weekLabel}</b>
+                <span>Status</span><b><Tag tone={statusTone[planner.existingCampaignState || "draft"]}>{statusLabel[planner.existingCampaignState || "draft"]}</Tag></b>
+                <span>Operator</span><b>{planner.existingCampaignOperatorName || "Operator not reported by API"}</b>
+                <span>Sheds</span><b>{planner.existingCampaignShedCount ?? planner.sheds.filter((shed) => shed.selected).length}</b>
+              </div>
+              <div className="weighing-duplicate-note">
+                Editing keeps the same campaign, its history, and every accepted capture. It never creates a second task for {selectedPark?.label.split(" · ")[0] || "this park"}.
+              </div>
+            </div>
+          ) : null}
+
+          <div className={`weighing-builder-grid${duplicateBlocked ? " muted" : ""}`}>
             <div className="weighing-builder-step">
               <div className="weighing-step-label">Step 1 · Lane</div>
               <h3>Confirm the lane</h3>
@@ -423,6 +499,10 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               <div className="weighing-step-label">Step 3 · Sheds</div>
               <h3>Sheds & category</h3>
               <p className="muted small">Category decides the operator capture screen and required proof.</p>
+              <div className="weighing-proof-note">
+                <b>Proof rule</b>
+                <span>Individual needs RFID + weight + per-animal video. Lumpsum records one shed total with one scope video and never updates kid latest trusted weights.</span>
+              </div>
               {planner.sheds.map((shed) => (
                 <div className={`weighing-shed-choice${shed.selected ? " on" : ""}`} key={shed.id}>
                   <span className="weighing-check">{shed.selected ? "✓" : ""}</span>
@@ -447,9 +527,14 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             </div>
 
             <div className="weighing-builder-step">
-              <div className="weighing-step-label">Step 5 · Assign</div>
+              <div className="weighing-step-label">Step 4 · Plan / Step 5 · Assign</div>
               <h3>Assign operator</h3>
               <p className="muted small">Publishing creates open work. Director personas stay monitor-only.</p>
+              <div className="weighing-plan-preview">
+                <span>Day 1</span><b>Lumpsum scopes first</b>
+                <span>Day 2</span><b>Individual RFID rows</b>
+                <span>Day 3</span><b>Rollover and remaining sheds</b>
+              </div>
               {planner.operators.map((operator) => (
                 <div className={`weighing-choice${operator.selected ? " on" : ""}${operator.disabled ? " disabled" : ""}`} key={operator.id}>
                   <span className="weighing-radio" />
@@ -466,11 +551,14 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
           <div className="weighing-planner-actions">
             {duplicateBlocked ? (
               <>
-                <Link className="btn ghost" href={`/weighing?campaign=${planner.existingCampaignId}`}>Edit task</Link>
-                <button className="btn" type="button" disabled>New task blocked</button>
+                <Link className="btn ghost" href="/weighing">Cancel</Link>
+                <Link className="btn primary" href={`/weighing?campaign=${planner.existingCampaignId}`}>Edit existing task</Link>
               </>
             ) : (
               <>
+                <div className="weighing-action-note" aria-live="polite">
+                  Publish opens Amit&apos;s work queue. Save draft keeps it invisible to operators.
+                </div>
                 <button className="btn ghost" type="submit" name="publish" value="false">Save draft</button>
                 <button className="btn primary" type="submit" name="publish" value="true"><Send className="ic" aria-hidden="true" /> Publish</button>
               </>

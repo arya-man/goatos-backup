@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -43,6 +46,8 @@ class WeighingViewModel @Inject constructor(
     private val reader: RfidReaderPort,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
@@ -62,7 +67,7 @@ class WeighingViewModel @Inject constructor(
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
-    private val loadingAssignments = MutableStateFlow(scopeKey == null)
+    private val loadingAssignments = MutableStateFlow(false)
     private var readerRefreshJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -86,17 +91,15 @@ class WeighingViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
+        analytics.track(
+            AnalyticsEvents.WEIGHING_VIEWED,
+            buildMap {
+                put(AnalyticsEvents.Params.CATEGORY, category.ifBlank { "root" })
+                scopeKey?.let { put(AnalyticsEvents.Params.ITEM_ID, it) }
+            },
+        )
         if (scopeKey != null) {
-            viewModelScope.launch {
-                when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_LIMIT)) {
-                    is AppResult.Ok -> {
-                        if (refreshed.value == 0 && category != PER_SHED_PARTITION_CATEGORY) {
-                            message.value = "No animals are assigned to this weighing scope."
-                        }
-                    }
-                    is AppResult.Err -> message.value = refreshed.message
-                }
-            }
+            refreshScope()
             viewModelScope.launch {
                 reader.reads.collect { read -> matchTag(read.tag) }
             }
@@ -115,15 +118,46 @@ class WeighingViewModel @Inject constructor(
                 }
             }
         } else {
-            viewModelScope.launch {
-                try {
-                    when (val loaded = repository.listAssignments()) {
-                        is AppResult.Ok -> assignments.value = loaded.value
-                        is AppResult.Err -> message.value = loaded.message
+            refreshAssignments()
+        }
+    }
+
+    fun refresh() {
+        if (scopeKey == null) {
+            refreshAssignments()
+        } else {
+            refreshScope()
+        }
+    }
+
+    fun refreshAssignments() {
+        if (scopeKey != null) return
+        if (loadingAssignments.value) return
+        loadingAssignments.value = true
+        viewModelScope.launch {
+            try {
+                when (val loaded = repository.listAssignments()) {
+                    is AppResult.Ok -> {
+                        assignments.value = loaded.value
+                        message.value = null
                     }
-                } finally {
-                    loadingAssignments.value = false
+                    is AppResult.Err -> reportReadFailure(loaded.message)
                 }
+            } finally {
+                loadingAssignments.value = false
+            }
+        }
+    }
+
+    private fun refreshScope() {
+        viewModelScope.launch {
+            when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_LIMIT)) {
+                is AppResult.Ok -> {
+                    if (refreshed.value == 0 && category != PER_SHED_PARTITION_CATEGORY) {
+                        message.value = "No animals are assigned to this weighing scope."
+                    }
+                }
+                is AppResult.Err -> reportReadFailure(refreshed.message)
             }
         }
     }
@@ -167,6 +201,7 @@ class WeighingViewModel @Inject constructor(
         val row = selectedRow.value ?: return
         val weightKg = weightInput.value.toDoubleOrNull()?.takeIf { it > 0.0 } ?: return
         if (actionInFlight.value) return
+        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY))
         actionInFlight.value = true
         viewModelScope.launch {
             try {
@@ -185,6 +220,7 @@ class WeighingViewModel @Inject constructor(
                         val captured = proofCaptureSource.captureVideo()
                         if (captured == null) {
                             message.value = "Weight saved locally. Video proof is still required."
+                            reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, "missing_video")
                             return@launch
                         }
                         val proof = proofCaptureRepository.capture(
@@ -205,14 +241,22 @@ class WeighingViewModel @Inject constructor(
                         if (proof is AppResult.Ok) {
                             repository.attachIndividualProof(key, row.animalId, proof.value.id, proof.value.serverProofId)
                             message.value = "Weight and proof saved locally for ${row.displayAnimalId}."
+                            analytics.track(
+                                AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
+                                weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                            )
                             weightInput.value = ""
                             scanInput.value = ""
                         } else {
                             message.value = "Weight saved locally. Proof could not be stored."
+                            reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, "proof_store_failed")
                         }
                         recorded.value
                     }
-                    is AppResult.Err -> message.value = recorded.message
+                    is AppResult.Err -> {
+                        message.value = recorded.message
+                        reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, recorded.message)
+                    }
                 }
             } finally {
                 actionInFlight.value = false
@@ -232,6 +276,7 @@ class WeighingViewModel @Inject constructor(
             message.value = "Shed / partition assignment is missing location details."
             return
         }
+        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(PER_SHED_PARTITION_CATEGORY))
         actionInFlight.value = true
         viewModelScope.launch {
             try {
@@ -256,6 +301,7 @@ class WeighingViewModel @Inject constructor(
                         val captured = proofCaptureSource.captureVideo()
                         if (captured == null) {
                             message.value = "Shed weight saved locally. Video proof is still required."
+                            reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, "missing_video")
                             return@launch
                         }
                         val proof = proofCaptureRepository.capture(
@@ -276,19 +322,54 @@ class WeighingViewModel @Inject constructor(
                         if (proof is AppResult.Ok) {
                             repository.attachShedPartitionProof(key, proof.value.id, proof.value.serverProofId)
                             message.value = "Shed weight and proof saved locally."
+                            analytics.track(
+                                AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
+                                weighingCaptureProps(PER_SHED_PARTITION_CATEGORY),
+                            )
                             weightInput.value = ""
                         } else {
                             message.value = "Shed weight saved locally. Proof could not be stored."
+                            reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, "proof_store_failed")
                         }
                         recorded.value
                     }
-                    is AppResult.Err -> message.value = recorded.message
+                    is AppResult.Err -> {
+                        message.value = recorded.message
+                        reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, recorded.message)
+                    }
                 }
             } finally {
                 actionInFlight.value = false
             }
         }
     }
+
+    private fun reportReadFailure(reason: String) {
+        message.value = reason
+        crashReporter.recordException(IllegalStateException(reason), "weighing refresh failed")
+        analytics.track(
+            AnalyticsEvents.WEIGHING_READ_FAILURE,
+            buildMap {
+                put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
+                put(AnalyticsEvents.Params.CATEGORY, category.ifBlank { "root" })
+            },
+        )
+    }
+
+    private fun reportCaptureFailure(category: String, reason: String) {
+        crashReporter.recordException(IllegalStateException(reason), "weighing capture failed")
+        analytics.track(
+            AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
+            weighingCaptureProps(category) + (AnalyticsEvents.Params.REASON to reason.take(MAX_ANALYTICS_REASON_CHARS)),
+        )
+    }
+
+    private fun weighingCaptureProps(captureCategory: String): Map<String, String> =
+        buildMap {
+            put(AnalyticsEvents.Params.CATEGORY, captureCategory)
+            put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
+            put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+        }
 
     override fun onCleared() {
         readerRefreshJob?.cancel()
@@ -383,7 +464,9 @@ class WeighingViewModel @Inject constructor(
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
         const val SHED_PARTITION_PROOF_FIELD_KEY = "weighing_shed_partition_video"
+        const val INDIVIDUAL_ANIMAL_CATEGORY = "individual_animal"
         const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
+        const val MAX_ANALYTICS_REASON_CHARS = 96
     }
 }
 

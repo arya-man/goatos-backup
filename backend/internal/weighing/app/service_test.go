@@ -40,16 +40,16 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.CreateCampaign(context.Background(), director, cmd); err == nil {
 		t.Fatal("director created weighing campaign; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), director); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), director, "", 20); err != nil {
 		t.Fatalf("director monitor errored: %v", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), operator); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", 250); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", 250); err == nil {
+	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err == nil {
 		t.Fatal("director read execution roster; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
@@ -163,12 +163,12 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
-	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, 250)
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", 50)
 	if err != nil {
 		t.Fatalf("operator roster read: %v", err)
 	}
-	if len(roster) != 1 || roster[0].AnimalID != animalOne || roster[0].PrimaryIdentifier != "RFID-ONE" {
-		t.Fatalf("roster = %+v, want animal one with RFID", roster)
+	if len(roster.Items) != 1 || roster.Items[0].AnimalID != animalOne || roster.Items[0].PrimaryIdentifier != "RFID-ONE" {
+		t.Fatalf("roster = %+v, want animal one with RFID", roster.Items)
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
@@ -240,9 +240,11 @@ func (f fakeRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
-func (f fakeRepo) ListCampaigns(context.Context, string) ([]domain.Campaign, error) { return nil, nil }
-func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, int) ([]domain.ExpectedAnimal, error) {
-	return []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}, nil
+func (f fakeRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+	return domain.CampaignPage{}, nil
+}
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
 	f.animalWrites++
@@ -350,13 +352,13 @@ func (r *scenarioRepo) PublishCampaign(_ context.Context, tenantID, campaignID, 
 	return r.campaign, nil
 }
 
-func (r *scenarioRepo) ListCampaigns(context.Context, string) ([]domain.Campaign, error) {
-	return []domain.Campaign{r.campaign}, nil
+func (r *scenarioRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }
 
-func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, limit int) (domain.RosterPage, error) {
 	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
-		return nil, ports.ErrNotFound
+		return domain.RosterPage{}, ports.ErrNotFound
 	}
 	out := []domain.ExpectedAnimal{}
 	for _, animal := range r.expectedByAnimal {
@@ -380,9 +382,9 @@ func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, 
 		}
 	}
 	if len(out) == 0 {
-		return nil, ports.ErrNotFound
+		return domain.RosterPage{}, ports.ErrNotFound
 	}
-	return out, nil
+	return domain.RosterPage{Items: out}, nil
 }
 
 func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {

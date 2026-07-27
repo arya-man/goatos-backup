@@ -709,6 +709,7 @@ fun AppNavHost(
                 onScanSubmit = vm::submitTypedScan,
                 onWeightChange = vm::onWeightInputChange,
                 onRecordIndividual = vm::recordIndividual,
+                onRefresh = vm::refresh,
                 onOpenAssignment = { assignment ->
                     navController.navigate(
                         Routes.weighingScanRoute(
@@ -793,6 +794,7 @@ fun AppNavHost(
                     onWeightChange = vm::onWeightInputChange,
                     onRecordIndividual = vm::recordIndividual,
                     onRecordShedPartition = vm::recordShedPartition,
+                    onRefresh = vm::refresh,
                 )
             }
         }
