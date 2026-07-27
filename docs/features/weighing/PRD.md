@@ -22,7 +22,9 @@ Leadership selects the kid sheds/partitions to cover. The app turns that
 selection into rolling operator work cards spread across about three work days,
 keeps the work open until finished, and records each animal's RFID, weight,
 original expected shed, actual scanned shed context, and mandatory per-animal
-proof video.
+proof video for `individual_animal` rows. For `per_shed_partition` rows, it
+records the selected shed/partition weighing result and required shed/partition
+proof video without creating individual animal weights.
 
 ## 1.1 Vaccination lessons this feature must absorb
 
@@ -380,21 +382,39 @@ Leadership needs to know:
 - Which day the task started.
 - Whether the task has rolled beyond the week or expected finish date.
 - Which animals have fresh trusted weight observations.
+- Which per-shed/partition selected scopes have completed proof-backed weighing
+  results without animal latest-weight updates.
 - Which expected animals are still pending versus unavailable because they
   shifted, entered ICU/quarantine, died, were culled, or exited.
 
 Delay is an operational signal, not a task failure. If a task spills past the
 week, show it as delayed/open and keep it executable.
 
-Progress buckets must be disjoint and explainable:
+Progress buckets must be category-aware, disjoint, and explainable.
+
+For `individual_animal` selected sheds/partitions:
 
 ```text
-expected_at_planning
-= weighed_expected
-+ pending_expected
-+ unavailable_expected
-+ closed_by_leadership
+individual_expected_at_planning
+= individual_weighed_expected
++ individual_pending_expected
++ individual_unavailable_expected
++ individual_closed_by_leadership
 ```
+
+For `per_shed_partition` selected sheds/partitions:
+
+```text
+per_shed_partition_selected_scopes
+= per_shed_partition_completed_scopes
++ per_shed_partition_pending_scopes
++ per_shed_partition_blocked_or_failed_proof_scopes
++ per_shed_partition_closed_by_leadership
+```
+
+Per-shed/partition progress is based on accepted selected-scope observations,
+not expected-animal rows. These rows are excluded from animal latest-weight truth
+and must not mark every expected animal as individually weighed.
 
 Wrong-shed and not-in-campaign scans are shown as separate insight counts. They
 must not inflate the expected completion numerator unless the animal was one of
@@ -528,8 +548,10 @@ acceptance includes these visible outcomes:
   blamed on the operator.
 - The v1 operator capacity calculation counts Amit only. Dinakar is a
   preventive-director planner/supervisor.
-- Per-animal media is mandatory for completed weighing rows. Shed-level proof,
-  generic SOP blobs, or mobile-only transient references are insufficient.
+- Per-animal media is mandatory for completed `individual_animal` rows.
+  Shed/partition proof is mandatory for completed `per_shed_partition` rows.
+  Generic SOP blobs or mobile-only transient references are insufficient for
+  either category.
 - Weighing lists and summaries stay correct past page one and at the 5k-to-50k
   animal envelope.
 - Assignment/reminder/delay notifications are durable and retryable.

@@ -22,7 +22,9 @@ This TRD defines the first Weighing implementation slice:
 2. Shed/partition selection and count snapshot.
 3. Rolling daily work groups driven by a capacity target.
 4. Amit-only operator execution for v1.
-5. RFID scan, weight capture, and mandatory per-animal video proof.
+5. Category-aware capture: RFID, weight, and mandatory per-animal video proof
+   for `individual_animal`; selected-scope result and mandatory shed/partition
+   proof for `per_shed_partition`.
 6. Progress/read models for leadership and operator screens.
 
 The design deliberately borrows Vaccination's work-session execution shape, but
@@ -123,10 +125,18 @@ proof_artifact_id where the fact is proof/media-grain
 ```
 
 `weighing_campaigns.status` is aggregate bookkeeping. It cannot answer whether a
-shed, animal, proof, or operator submission is complete. Expected completion
-comes from `weighing_expected_animals` joined to accepted observations at the
-same campaign + animal grain. Extra scans come from observations with no matching
-expected row and must remain outside the expected numerator.
+shed, animal, proof, or operator submission is complete. Completion is
+category-aware:
+
+- `individual_animal` selected scopes complete from `weighing_expected_animals`
+  joined to accepted `weighing_observations` at the same campaign + animal grain.
+- `per_shed_partition` selected scopes complete from accepted
+  `weighing_shed_observations` at the same campaign + selected shed/partition
+  grain.
+
+Extra scans come from animal observations with no matching expected row and must
+remain outside the individual expected numerator. Per-shed/partition observations
+must not mark expected animals as individually weighed.
 
 ## 4. Proposed backend module
 
@@ -316,6 +326,11 @@ Corrections are explicit audit records, not destructive updates.
 | `reason text not null` | Stable reason code plus optional note. |
 | `requested_by uuid not null` | Actor. |
 | `created_at timestamptz not null` | Audit instant. |
+
+Shed/partition observation corrections follow the same audit pattern with a
+separate `weighing_shed_observation_corrections` table or a shared correction
+table that carries `correction_subject_type`. They must preserve old proof/result
+lineage and must not route through animal observation correction code paths.
 
 ### Durable media linkage
 
@@ -550,6 +565,7 @@ GET  /api/v1/app/weighing/work-groups/{work_group_id}/animals?status=&cursor=&li
 POST /api/v1/app/weighing/observations
 POST /api/v1/app/weighing/shed-observations
 POST /api/v1/app/weighing/observations/{observation_id}/corrections
+POST /api/v1/app/weighing/shed-observations/{shed_observation_id}/corrections
 POST /api/v1/app/weighing/work-groups/{work_group_id}/submit-progress
 ```
 
@@ -744,11 +760,15 @@ Domain events:
 - `weighing.campaign.planned`
 - `weighing.work_group.planned`
 - `weighing.observation.recorded`
+- `weighing.observation.accepted`
+- `weighing.shed_observation.recorded`
+- `weighing.shed_observation.accepted`
 - `weighing.work_group.progressed`
 - `weighing.campaign.completed`
 - `weighing.campaign.delayed`
 - `weighing.expected_animal.availability_changed`
 - `weighing.observation.corrected`
+- `weighing.shed_observation.corrected`
 - `weighing.campaign.canceled`
 
 External/cross-module events to consume:
@@ -783,8 +803,10 @@ exclusion.
 
 Projection grain requirements:
 
-- expected progress source: `weighing_expected_animals`;
-- accepted observation source: `weighing_observations`;
+- individual expected progress source: `weighing_expected_animals`;
+- individual accepted observation source: `weighing_observations`;
+- per-shed/partition accepted observation source:
+  `weighing_shed_observations`;
 - media state source: proof/media tables through the proof port;
 - availability source: current canonical herd/location/lifecycle projections;
 - group membership source: `weighing_work_group_sheds`;
@@ -795,15 +817,20 @@ Projection grain requirements:
 
 Projection/update rules:
 
-- Observation acceptance updates expected-animal status, progress counters,
-  latest-weight candidate state, audit, and outbox in one transaction or through
-  an idempotent outbox consumer with replay-safe aggregate versioning.
+- Animal observation acceptance updates expected-animal status, individual
+  progress counters, latest-weight candidate state, audit, and outbox in one
+  transaction or through an idempotent outbox consumer with replay-safe aggregate
+  versioning.
+- Per-shed/partition observation acceptance updates selected-scope progress,
+  proof state, audit, and outbox. It must not update expected-animal `weighed`
+  status or animal latest-weight projections.
 - Progress projections must be incrementally updated by campaign + shed + work
   group. A fallback full recompute is allowed only as a bounded repair job for a
   named campaign, never as a hot read path.
 - Projection consumers must dedupe by event id and aggregate version. Replay
-  must be safe after partial failure between observation acceptance, proof
-  linkage, notification enqueue, and progress update.
+  must be safe after partial failure between animal observation or
+  per-shed/partition observation acceptance, proof linkage, notification enqueue,
+  and progress update.
 - If no projection table is used for v1, canonical SQL reads must still satisfy
   the same grain proof, page-boundary tests, and 5k-to-50k latency envelope.
 
@@ -828,6 +855,18 @@ Observation submission:
 - Same campaign + same animal duplicate without correction intent fails or
   returns the accepted observation depending on chosen API behavior.
 
+Shed/partition observation submission:
+
+- Key source: device idempotency key per selected-scope proof/result submission.
+- Semantic fingerprint includes campaign, campaign shed, work group, selected
+  weighing category, weighing result payload, observed timestamp bucket or exact
+  device event ID, and proof artifact reference.
+- Same key replay returns existing `weighing_shed_observations` row.
+- Same campaign shed duplicate without correction/replacement intent fails or
+  returns the accepted shed observation depending on chosen API behavior.
+- A shed observation command must fail if the selected campaign shed is not
+  `weighing_category=per_shed_partition`.
+
 Outbox consumers dedupe by event id and aggregate version.
 
 Every idempotent write must have a matching database unique constraint or
@@ -839,7 +878,11 @@ repository SQL, and tests prove:
 - same key with different semantic fingerprint fails before mutation;
 - duplicate same-campaign/same-animal observation fails unless it is an explicit
   correction/replacement;
+- duplicate same-campaign-shed per-shed/partition observation fails unless it is
+  an explicit correction/replacement;
 - retry after partial proof upload recovers the same proof/observation lineage;
+- retry after partial shed/partition proof upload recovers the same shed
+  observation/proof lineage;
 - terminal work-group/campaign states reject fresh side effects while allowing
   exact replay.
 
@@ -847,7 +890,8 @@ Submit-progress command:
 
 - Key source: work group submit idempotency key.
 - Semantic fingerprint includes campaign, work group, operator, completed
-  observation ids, and expected-animal status revisions.
+  animal observation ids, completed shed observation ids, expected-animal status
+  revisions, and selected-shed status revisions.
 - Same key replay returns the same progress response.
 - Same key with a different observation/proof set fails with no side effects.
 - Terminal `completed`/`canceled` work groups reject new side effects except
@@ -868,9 +912,11 @@ Requirements:
 - Progress projections are maintained incrementally by campaign/shed/work group.
 - Summary buckets are computed over the full filtered result, not the current
   page.
-- Projection membership source is `weighing_expected_animals` for expected
-  progress and `weighing_observations` for extra/not-in-campaign scans; do not
-  reconstruct membership from coincidentally equal shed/date fields.
+- Projection membership source is category-aware: `weighing_expected_animals`
+  plus `weighing_observations` for individual expected/extra scans, and
+  `weighing_campaign_sheds` plus `weighing_shed_observations` for
+  per-shed/partition progress. Do not reconstruct membership from coincidentally
+  equal shed/date fields.
 - Indexed predicates keep typed columns bare; do not cast indexed UUID/text
   columns in predicates.
 - Reconciliation after lifecycle/location events must be affected-animal
@@ -1013,6 +1059,14 @@ Minimum tests before implementation is considered done:
 - Per-shed/partition marked rows require one accepted selected-scope observation
   with required shed/partition proof and must not update individual animal latest
   trusted weight.
+- Per-shed/partition completion does not leave its expected animals in ordinary
+  operator pending counts and does not mark those animals as individually
+  weighed; leadership progress shows them under the selected-scope category.
+- `weighing_shed_observations` emit their own recorded/corrected events and
+  update per-shed/partition progress projections.
+- Shed observation idempotency rejects category mismatches, duplicate selected
+  scope submissions without correction intent, and same-key/different-payload
+  replay.
 - Planner allows over-cap single shed/partition.
 - Planner groups `80 + 20` but execution allows `80` today and rolls `20`.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
