@@ -1,5 +1,7 @@
 package sg.mesha.goatos.core.data.capture
 
+import android.database.SQLException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
@@ -687,33 +689,39 @@ class DefaultProofCaptureRepository(
      *  before reaching its terminal state. */
     private fun followOutboxItem(rowId: String, outboxItemId: String) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            syncRepository.observeItem(outboxItemId)
-                .filterNotNull()
-                .distinctUntilChanged()
-                .transformWhile { item ->
-                    emit(item)
-                    item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
-                }
-                .collect { item ->
-                    when {
-                        item.status == SyncItemStatus.IN_FLIGHT ->
-                            dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
-                        item.status == SyncItemStatus.SUCCEEDED -> {
-                            val proofId = decodeServerProofId(item.resultJson)
-                            if (proofId.isNullOrBlank()) {
-                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
-                            } else {
-                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
-                                // R50-028: the video is durably server-side now — reclaim the
-                                // device-local copy so a long shift's captures cannot fill storage.
-                                dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
-                            }
-                        }
-                        item.isDeadLetter || item.conflict ->
-                            dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
-                        else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
+            try {
+                syncRepository.observeItem(outboxItemId)
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .transformWhile { item ->
+                        emit(item)
+                        item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
                     }
-                }
+                    .collect { item ->
+                        when {
+                            item.status == SyncItemStatus.IN_FLIGHT ->
+                                dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
+                            item.status == SyncItemStatus.SUCCEEDED -> {
+                                val proofId = decodeServerProofId(item.resultJson)
+                                if (proofId.isNullOrBlank()) {
+                                    dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                                } else {
+                                    dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                                    // R50-028: the video is durably server-side now — reclaim the
+                                    // device-local copy so a long shift's captures cannot fill storage.
+                                    dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
+                                }
+                            }
+                            item.isDeadLetter || item.conflict ->
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
+                            else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
+                        }
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SQLException) {
+                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+            }
         }
     }
 

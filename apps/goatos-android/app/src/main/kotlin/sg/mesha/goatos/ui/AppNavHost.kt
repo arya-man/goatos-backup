@@ -131,6 +131,8 @@ import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 object Routes {
     const val CALENDAR = "/calendar"
     const val VACCINATION = "/vaccination"
+    const val WEIGHING = "/weighing"
+    const val WEIGHING_SCAN = "/weighing/scan"
     /**
      * Hosted Calendar child destination. It deliberately differs from the
      * top-level Vaccination module route so a Calendar drill never activates
@@ -351,6 +353,9 @@ object Routes {
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
+    const val WEIGHING_CAMPAIGN_ARG = "campaignId"
+    const val WEIGHING_WORK_GROUP_ARG = "workGroupId"
+    const val WEIGHING_CAMPAIGN_SHED_ARG = "campaignShedId"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
@@ -373,6 +378,21 @@ object Routes {
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
     ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
+
+    fun weighingScanRoute(
+        campaignId: String,
+        workGroupId: String,
+        campaignShedId: String,
+        scanTitle: String? = null,
+    ): String {
+        val args = listOfNotNull(
+            WEIGHING_CAMPAIGN_ARG to campaignId,
+            WEIGHING_WORK_GROUP_ARG to workGroupId,
+            WEIGHING_CAMPAIGN_SHED_ARG to campaignShedId,
+            scanTitle?.takeIf { it.isNotBlank() }?.let { EXECUTION_SCAN_TITLE_ARG to it },
+        )
+        return "$WEIGHING_SCAN?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+    }
 
     private fun executionRoute(
         base: String,
@@ -419,6 +439,9 @@ object Routes {
         }
 
 }
+
+internal fun routeAcceptsWeighingRfid(route: String?): Boolean =
+    route?.substringBefore("?") == Routes.WEIGHING_SCAN
 
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])

@@ -57,6 +57,18 @@ class RfidKeyboardCaptureTest {
         collector.cancel()
     }
 
+    @Test
+    fun `non scan route does not swallow enter or tab while capture is disabled`() = runTest {
+        var nowMs = 3_000L
+        val capture = RfidKeyboardCapture(nowMs = { nowMs })
+
+        capture.enabled = false
+        capture.swallowCompletionKeys = false
+
+        assertFalse(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_ENTER, nowMs)))
+        assertFalse(capture.onKeyEvent(keyDown(KeyEvent.KEYCODE_TAB, nowMs)))
+    }
+
     private fun keyEventsFor(text: String): List<KeyEvent> =
         text.map { char ->
             val keyCode = when (char) {

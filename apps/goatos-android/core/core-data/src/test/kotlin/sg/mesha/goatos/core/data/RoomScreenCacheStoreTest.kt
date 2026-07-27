@@ -20,6 +20,8 @@ import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.normalizeWeighingTag
 
 /**
  * Proof for C35-001 that the production [ScreenCacheStore] wiring ([RoomScreenCacheStore]) does
@@ -60,6 +62,32 @@ class RoomScreenCacheStoreTest {
             db.insightsCoverageCacheDao().upsert(InsightsCoverageCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.rosterTimetableCacheDao().upsert(RosterTimetableCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.rosterCoverageCacheDao().upsert(RosterCoverageCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
+            db.weighingRosterDao().upsertAll(
+                listOf(
+                    WeighingRosterRowEntity(
+                        id = "$key#weighing",
+                        scopeKey = key,
+                        tenantId = "tenant",
+                        campaignId = "campaign",
+                        workGroupId = "group",
+                        campaignShedId = "campaign-shed",
+                        expectedLocationId = "shed",
+                        expectedLocationLabel = "Gandhi 1",
+                        actualLocationId = "shed",
+                        actualLocationLabel = "Gandhi 1",
+                        animalId = "animal",
+                        displayAnimalId = "animal",
+                        primaryTag = "TAG",
+                        secondaryTag = null,
+                        normalizedPrimaryTag = normalizeWeighingTag("TAG"),
+                        normalizedSecondaryTag = null,
+                        status = "pending",
+                        availabilityStatus = null,
+                        seq = 1,
+                        updatedAt = 1L,
+                    ),
+                ),
+            )
 
             RoomScreenCacheStore(db).clearAll()
 
@@ -74,6 +102,7 @@ class RoomScreenCacheStoreTest {
             assertNull("insights coverage cache wiped", db.insightsCoverageCacheDao().observe(key).first())
             assertNull("roster timetable cache wiped", db.rosterTimetableCacheDao().observe(key).first())
             assertNull("roster coverage cache wiped", db.rosterCoverageCacheDao().observe(key).first())
+            assertEquals("weighing roster rows wiped", 0, db.weighingRosterDao().observeScopeTotal(key).first())
         } finally {
             db.close()
         }
