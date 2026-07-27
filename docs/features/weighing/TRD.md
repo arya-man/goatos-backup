@@ -186,7 +186,7 @@ before implementation.
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
 | `operator_user_id uuid` | Amit for v1. |
 | `published_at timestamptz` | Set when operator-visible work is created. |
-| `completed_at timestamptz` | Set only when expected animals are weighed/unavailable/closed under policy. |
+| `completed_at timestamptz` | Set only when all selected scopes are complete under their category policy: individual expected animals weighed/unavailable/closed, or per-shed/partition selected scope accepted/closed. |
 | `created_by`, `created_at`, `updated_at`, `row_version` | Audit/optimistic lock. |
 
 ### `weighing_campaign_sheds`
@@ -372,34 +372,45 @@ Required written proof:
 Producer unique key:
   weighing_expected_animals = tenant_id + campaign_id + animal_id
   weighing_observations accepted row = tenant_id + campaign_id + animal_id
+  weighing_shed_observations accepted row = tenant_id + campaign_id + campaign_shed_id
 Consumer group key:
   overview = tenant_id + campaign_id
   shed progress = tenant_id + campaign_id + campaign_shed_id
   work group progress = tenant_id + campaign_id + work_group_id
   animal row = tenant_id + campaign_id + animal_id
+  per-shed/partition row = tenant_id + campaign_id + campaign_shed_id
 Joined side multiplicity:
   expected animal -> accepted observation is 0:1 in v1
   expected animal -> current animal state is 1:1 after tenant + animal filter
   observation -> proof artifact is 1:1 for accepted rows
+  selected per-shed/partition scope -> accepted shed observation is 0:1 in v1
+  shed observation -> proof artifact is 1:1 for accepted rows
 Ratio/cap key set:
-  numerator and denominator both range over campaign expected animals, never
-  over visible page rows, current shed residents, or observations alone
+  individual numerator/denominator range over campaign expected animals
+  per-shed/partition numerator/denominator range over selected campaign_shed_id scopes
+  neither category may use visible page rows, current shed residents, or observations alone
 ```
 
 Projection buckets are disjoint:
 
 ```text
-expected_total
-= weighed_expected
-+ pending_expected
-+ unavailable_expected
-+ closed_by_leadership
+individual_expected_total
+= individual_weighed_expected
++ individual_pending_expected
++ individual_unavailable_expected
++ individual_closed_by_leadership
+
+per_shed_partition_selected_total
+= per_shed_partition_completed
++ per_shed_partition_pending
++ per_shed_partition_proof_blocked
++ per_shed_partition_closed_by_leadership
 ```
 
 Additional counters such as `wrong_shed_expected`, `not_in_campaign_scans`,
 `proof_pending`, and `correction_pending` are insight counters. They may overlap
-with operational states only when the API names that explicitly; they must not
-be silently added into `expected_total`.
+with operational states only when the API names that explicitly; they must not be
+silently added into either progress denominator.
 
 Never use `ORDER BY ... LIMIT 1` to bind an observation to a work group, shed, or
 proof when multiple rows can legitimately exist for the same campaign. Use the
@@ -465,7 +476,8 @@ Vaccination comparison:
 
 At day boundary, a sweeper or read-model update marks incomplete current work as
 still open and delayed/rolled forward. The work remains executable until all
-expected animals are weighed or leadership cancels/closes the campaign.
+selected scopes are complete under their category policy or leadership
+cancels/closes the campaign.
 
 Allowed execution cases:
 
