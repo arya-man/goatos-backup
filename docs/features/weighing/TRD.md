@@ -613,6 +613,10 @@ Android data contract:
 
 - Screen reads are network to Room to Flow to UI. Weighing must not ship a
   network-only read repository.
+- Do not mutate `ScanViewModel` or `feature-scan` in place with Weighing-only
+  assumptions. Extract reusable scan/proof renderer pieces behind neutral models
+  if needed, keep the Vaccination adapter and tests intact, and add a separate
+  Weighing adapter/route/viewmodel contract.
 - Work groups, expected animals, observations, proof upload rows, and sync
   attempts are principal-scoped Room rows and are wiped on sign-out.
 - L1 work groups and L2 animal rows use keyset paging with a phone-sized page.
@@ -819,7 +823,9 @@ Requirements:
 
 Required indexes should cover:
 
-- `(tenant_id, week_start_date, status)`
+- `(tenant_id, period_type, period_start_date, status)`
+- `(tenant_id, display_week_start_date, status)` for week-tab campaign lookup
+- `(tenant_id, display_month, status)` for monthly adult overview lookup
 - `(tenant_id, operator_user_id, planned_business_date, status)`
 - `(campaign_id, location_id)`
 - `(campaign_id, animal_id)`
@@ -840,8 +846,9 @@ Expected cardinality envelope for validation:
 
 Hot query contracts:
 
-- Overview queries filter by `tenant_id + week_start_date/status` and prebuilt or
-  bounded progress buckets.
+- Overview queries filter by `tenant_id + period_type + period_start_date/status`
+  or by the relevant display anchor (`display_week_start_date` /
+  `display_month`) and prebuilt or bounded progress buckets.
 - Operator worklist filters by `tenant_id + operator_user_id + effective_business_date/status`
   and keyset cursor. It does not scan all campaign animals.
 - Animal list filters by `tenant_id + campaign_id + work_group_id/status` or
