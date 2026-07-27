@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownSeriesPointDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownShedFacetDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
@@ -565,6 +566,11 @@ class CountsViewModelFilterTest {
                 ),
             )
         }
+
+        override fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>> =
+            MutableStateFlow(Resource(data = CountsBreedsResponseDto()))
+
+        override suspend fun refreshBirthBreeds(): Result<Unit> = Result.success(Unit)
 
         override fun breakdownRows(query: CountsBreakdownQuery): Flow<PagingData<CountsBreakdownRowDto>> =
             flowOf(PagingData.empty<CountsBreakdownRowDto>()).map { it }

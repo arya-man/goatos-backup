@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
@@ -55,6 +56,13 @@ const val COUNTS_ANIMAL_LOOKUP_PAGE_SIZE = 20
  * scope, so unlike the filter-scoped caches this table holds one row.
  */
 private const val SHIFTING_DESTINATIONS_CACHE_KEY = "shifting-destinations"
+
+/**
+ * Reserved cache key for the birth form's breed vocabulary inside the breakdown-meta blob table.
+ * The two underscores keep it disjoint from every real [CountsBreakdownQuery.roomKey], which is a
+ * `:`-joined filter tuple, so the breeds row can never collide with a breakdown-envelope row.
+ */
+private const val BIRTH_BREEDS_CACHE_KEY = "__birth_breeds__"
 
 /**
  * How many distinct filter scopes keep their cached rows. Bounds the breakdown tables against an
@@ -122,6 +130,23 @@ interface CountsRepository {
      * page — a KPI here is never re-derived by summing the rows currently paged into memory.
      */
     fun observeBreakdownTotals(query: CountsBreakdownQuery): Flow<Resource<CountsBreakdownResponseDto>>
+
+    /**
+     * Cache-first stream of the breed vocabulary for the operator birth form's breed picker (the
+     * breeds present on the live herd).
+     *
+     * Backed by `GET /app/counts/breeds`, which serves this vocabulary on the operator (CountsWrite)
+     * surface. The birth form must NOT source breeds from the Counts Breakdown breed facet: that
+     * screen is CountsRead, which a field operator does not hold (they have CountsWrite to record
+     * births), so the breakdown fetch 403s for them and the picker would render permanently empty.
+     * Room-cached and observed like every other screen-facing read, so the picker opens with real
+     * options even offline.
+     */
+    fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>>
+
+    /** Fetches the birth breed vocabulary and upserts Room on success; on failure returns it and
+     * leaves the cache intact. */
+    suspend fun refreshBirthBreeds(): Result<Unit>
 
     /**
      * The paged breakdown rows: a Room [androidx.paging.PagingSource] filled page-by-page from the
@@ -235,6 +260,37 @@ class DefaultCountsRepository(
                 Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
             }
             .flowOn(Dispatchers.Default)
+    }
+
+    override fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>> =
+        breakdownMetaDao.observe(BIRTH_BREEDS_CACHE_KEY)
+            .map { entity ->
+                val cached = readCachedJson<CountsBreedsResponseDto>(
+                    json = json,
+                    cacheKey = BIRTH_BREEDS_CACHE_KEY,
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { breakdownMetaDao.delete(it) },
+                )
+                Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+            }
+            // Decode off Main: the small vocabulary parses once, here, never on the UI thread.
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshBirthBreeds(): Result<Unit> = runCatching {
+        val dto = api.getAppCountsBreeds()
+        // Reuses the breakdown-meta blob table under a RESERVED key (never a real filter-scope
+        // roomKey), so the birth breed vocabulary is Room-cached without a new table/migration and
+        // cannot collide with or clobber the leadership Counts Breakdown envelope cache.
+        breakdownMetaDao.upsert(
+            CountsBreakdownMetaCacheEntity(
+                cacheKey = BIRTH_BREEDS_CACHE_KEY,
+                dtoJson = json.encodeToString(dto),
+                updatedAt = clock(),
+            ),
+        )
+        breakdownMetaDao.enforceCacheBounds()
     }
 
     @OptIn(ExperimentalPagingApi::class)

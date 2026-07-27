@@ -30,10 +30,10 @@ import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
-import sg.mesha.goatos.core.network.dto.CountsBreakdownFacetsDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownSeriesPointDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
@@ -255,6 +255,29 @@ class BirthDeathViewModelValidationTest {
                 syncRepository.lastBirth?.breed,
             )
         }
+
+    @Test
+    fun `breed options are fetched even when the breed cache is cold`() = runTest(dispatcher) {
+        // A field operator has CountsWrite (to record births) but not the CountsRead the Counts
+        // Breakdown breed facet needs, so sourcing breeds from there 403s and the picker used to stay
+        // disabled (empty options). The ViewModel must fetch the vocabulary from the operator
+        // `/app/counts/breeds` endpoint itself. With the cold cache the picker is disabled at first…
+        countsRepository = FakeBirthDeathCountsRepository(breedCacheColdUntilRefresh = true)
+        val vm = newViewModel()
+
+        // …and becomes usable only because init triggered a breeds refresh that warmed the cache.
+        advanceUntilIdle()
+
+        assertTrue(
+            "The ViewModel fetched the breed vocabulary itself",
+            countsRepository.refreshBreedsCalls >= 1,
+        )
+        assertEquals(
+            "Breed options are populated from the fetched vocabulary, not left empty",
+            listOf(BREED_KEY),
+            vm.state.value.breedOptions.map { it.key },
+        )
+    }
 
     @Test
     fun `future date of birth blocks submit`() = runTest(dispatcher) {
@@ -491,8 +514,32 @@ private class RecordingCountsSyncRepository : SyncRepository {
 /**
  * Mirrors Room: the destinations catalog emits one park with one shed, and a tag lookup resolves to
  * one animal carrying its own row_version — the exact contract the death write round-trips.
+ *
+ * The breed vocabulary models the real cache/refresh split: [observeBirthBreeds] reads a Room-backed
+ * flow, and only [refreshBirthBreeds] (backed by the operator `/app/counts/breeds` endpoint) warms
+ * it. When [breedCacheColdUntilRefresh] is set, the vocabulary starts EMPTY (the dropdown would be
+ * disabled) and appears only once the ViewModel fetches it — modelling a field operator with no
+ * Counts (CountsRead) access whose breed cache was never warmed.
  */
-private class FakeBirthDeathCountsRepository : CountsRepository {
+private class FakeBirthDeathCountsRepository(
+    private val breedCacheColdUntilRefresh: Boolean = false,
+) : CountsRepository {
+    private fun breedsWithBeetal() = CountsBreedsResponseDto(
+        // The birth breed dropdown reuses the herd's OWN breed vocabulary; the fake supplies one.
+        breeds = listOf(
+            CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12),
+        ),
+    )
+
+    private val birthBreeds = MutableStateFlow(
+        Resource(
+            data = if (breedCacheColdUntilRefresh) CountsBreedsResponseDto() else breedsWithBeetal(),
+        ),
+    )
+
+    var refreshBreedsCalls = 0
+        private set
+
     override fun observeHerdSummary(
         lifecycleStatus: String?,
         parkId: String?,
@@ -511,19 +558,16 @@ private class FakeBirthDeathCountsRepository : CountsRepository {
     override fun observeBreakdownTotals(
         query: CountsBreakdownQuery,
     ): Flow<Resource<CountsBreakdownResponseDto>> =
-        MutableStateFlow(
-            Resource(
-                data = CountsBreakdownResponseDto(
-                    // Mirrors the census breakdown facets envelope: the birth breed dropdown reuses
-                    // the herd's OWN breed vocabulary, so the fake supplies one breed facet.
-                    facets = CountsBreakdownFacetsDto(
-                        breeds = listOf(
-                            CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        MutableStateFlow(Resource(data = CountsBreakdownResponseDto()))
+
+    override fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>> = birthBreeds
+
+    override suspend fun refreshBirthBreeds(): Result<Unit> {
+        refreshBreedsCalls++
+        // A real refresh writes the vocabulary into the cache the observe flow reads.
+        birthBreeds.value = Resource(data = breedsWithBeetal())
+        return Result.success(Unit)
+    }
 
     override fun breakdownRows(query: CountsBreakdownQuery): Flow<PagingData<CountsBreakdownRowDto>> =
         flowOf(PagingData.empty<CountsBreakdownRowDto>()).map { it }

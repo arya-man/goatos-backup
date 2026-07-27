@@ -87,6 +87,19 @@ data class CountsBreakdownSeriesPointDto(
     @SerialName("count") val count: Int = 0,
 )
 
+/**
+ * Response of `GET /app/counts/breeds` — the breed vocabulary the operator birth form's breed
+ * picker renders. Same shape as the Counts Breakdown `breeds` facet ([key]=[label]=`goats.breed`,
+ * with a herd head [count]), but served on the operator (CountsWrite) surface: the read-only Counts
+ * Breakdown that also exposes breeds is CountsRead, which a field operator does not hold, so the
+ * birth form must NOT source its breeds from `/counts/breakdown`. Default empty list per this file's
+ * lenient-decode rule, so an older backend degrades the picker to disabled rather than crashing.
+ */
+@Serializable
+data class CountsBreedsResponseDto(
+    @SerialName("breeds") val breeds: List<CountsBreakdownSeriesPointDto> = emptyList(),
+)
+
 @Serializable
 data class CountsBreakdownChartsDto(
     @SerialName("breed") val breed: List<CountsBreakdownSeriesPointDto> = emptyList(),

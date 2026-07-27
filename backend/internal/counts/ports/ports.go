@@ -94,6 +94,11 @@ type Repository interface {
 	// shifting destination from, ordered for a stable dropdown. Bounded config catalog, not a feed.
 	ShiftingDestinationCatalog(ctx context.Context, tenantID string) (domain.ShiftingDestinationCatalog, error)
 
+	// ActiveBreeds lists the breeds present on the tenant's live herd (key=label=goats.breed, with a
+	// head count, most-common first) for the operator birth form's breed picker. Same source/grain as
+	// the Counts Breakdown breed facet, served on the operator surface. Bounded, not a feed.
+	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error)
+
 	// GoatShiftingFacts reads the narrow breed/stage/sex facts needed to derive a shifting impact
 	// for the named animals. It is READ-ONLY: counts never writes goats. It must return exactly one
 	// fact per requested id or the caller fails closed -- see ErrGoatNotFound.

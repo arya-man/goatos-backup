@@ -128,8 +128,11 @@ func navigation() domain.NavigationContract {
 					// captures the mandatory feed-distribution video + water proof per shed-session
 					// and a verifier approves it in the mobile verifier queue. It is deliberately not
 					// a web surface, so no "/feed/direction" left-bar leaf. The /feed/config
-					// authoring screen and the packing worklist remain web surfaces.
-					navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
+					// authoring screen remains a web surface.
+					// Feed Packing is hidden from admin-web for everyone (maintainer decision
+					// 2026-07-27) — the /feed/packing page route stays reachable but is no longer
+					// surfaced in the left-bar nav. Uncomment to restore the leaf.
+					// navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
 				},
 			},
 			{
@@ -1894,30 +1897,30 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "feed-packing":
 		return map[string]string{
-			"crumb":                      "Feed",
-			"section.packing.title":      "Packing worklist",
-			"section.packing.aria":       "Per-shed feed packing worklist",
-			"section.packing.caption":    "What the store weighs out per shed, session and feed item",
-			"section.packing.note":       "This is the same generated day as Feed Direction, rolled up to what actually gets packed: one line per shed × session × feed item. It is not a second generation run.",
+			"crumb":                   "Feed",
+			"section.packing.title":   "Packing worklist",
+			"section.packing.aria":    "Per-shed feed packing worklist",
+			"section.packing.caption": "What the store weighs out per shed, session and feed item",
+			"section.packing.note":    "This is the same generated day as Feed Direction, rolled up to what actually gets packed: one line per shed × session × feed item. It is not a second generation run.",
 			// The picker axis is the PACKING day; this caption states the feed day it is for (packing
 			// day + 1). {date} is filled in by the renderer with the formatted feed day.
-			"caption.feed_for":           "This feed is for {date}",
-			"section.summary.title":      "Pack summary",
-			"section.summary.aria":       "Packing day summary",
-			"section.summary.note":       "Totals cover every line matching the current filters, not only the visible page.",
-			"kpi.total_kg.label":         "Total to pack",
-			"kpi.total_kg.sub":           "kg as-fed across all sessions for the matching lines",
-			"kpi.sheds.label":            "Sheds to pack",
-			"kpi.sheds.sub":              "Sheds with at least one line to weigh out",
-			"kpi.items.label":            "Feed items",
-			"kpi.items.sub":              "Distinct items in this day's pack",
-			"kpi.blocked.label":          "Blocked sheds",
-			"kpi.blocked.sub":            "Sheds with nothing to pack because no ration is configured",
-			"table.packing.aria":         "Feed packing lines",
-			"table.packing.noun":         "line",
-			"table.packing.total_row":    "Total (lines)",
-			"filter.bar_aria":            "Filter packing lines",
-			"filter.drawer.title":        "Filter — Feed Packing",
+			"caption.feed_for":        "This feed is for {date}",
+			"section.summary.title":   "Pack summary",
+			"section.summary.aria":    "Packing day summary",
+			"section.summary.note":    "Totals cover every line matching the current filters, not only the visible page.",
+			"kpi.total_kg.label":      "Total to pack",
+			"kpi.total_kg.sub":        "kg as-fed across all sessions for the matching lines",
+			"kpi.sheds.label":         "Sheds to pack",
+			"kpi.sheds.sub":           "Sheds with at least one line to weigh out",
+			"kpi.items.label":         "Feed items",
+			"kpi.items.sub":           "Distinct items in this day's pack",
+			"kpi.blocked.label":       "Blocked sheds",
+			"kpi.blocked.sub":         "Sheds with nothing to pack because no ration is configured",
+			"table.packing.aria":      "Feed packing lines",
+			"table.packing.noun":      "line",
+			"table.packing.total_row": "Total (lines)",
+			"filter.bar_aria":         "Filter packing lines",
+			"filter.drawer.title":     "Filter — Feed Packing",
 			// The Feed Packing picker selects the PACKING day (the day the sheet is packed), not the
 			// feed day; the caption above states which feed day it is for.
 			"filter.date_label":          "Packing day",

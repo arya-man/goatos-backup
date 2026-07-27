@@ -101,6 +101,7 @@ wiki/
 
 # Claude subagent worktrees (isolation:worktree) — local scratch, never commit
 .claude/worktrees/
+.claude/settings.local.json
 
 # compiled cmd binaries accidentally produced by `go build ./cmd/<x>` (no /...)
 # in the module root — build artifacts, never commit

@@ -75,6 +75,14 @@ const (
 	// counts.read here (leadership-only) would 403 every field operator.
 	appTemporaryTaggedGoatsRoute = "/app/counts/goats/temporary-tagged"
 
+	// appBirthBreedsRoute serves the breed picker on the operator birth form: the breeds present on
+	// the live herd. Like the destinations cascade it is a READ on the write surface, gated on
+	// CountsWrite -- the operator who records a birth is exactly the operator who picks the newborn's
+	// breed, and the read-only Counts Breakdown that also exposes breeds is CountsRead, which a field
+	// operator does not hold. RolesAuthorize ANDs a route's permissions, so naming counts.read here
+	// would 403 every field operator.
+	appBirthBreedsRoute = "/app/counts/breeds"
+
 	appShiftingEventCommand = "counts.app.shifting_event"
 	appBirthEventCommand    = "counts.app.birth_event"
 	appDeathEventCommand    = "counts.app.death_event"
@@ -93,6 +101,9 @@ type ShiftingEventRecorder interface {
 
 	// ShiftingDestinations serves the operator's park -> shed destination cascade.
 	ShiftingDestinations(ctx context.Context, tenantID string) (domain.ShiftingDestinationCatalog, error)
+
+	// ActiveBreeds serves the operator birth form's breed picker: the breeds present on the live herd.
+	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error)
 
 	// DeriveShiftingImpacts builds the impact rows for a single-animal movement that supplied none.
 	DeriveShiftingImpacts(ctx context.Context, tenantID, destinationShedID string, goatIDs []string) ([]domain.ShiftingEventImpact, error)
@@ -155,6 +166,7 @@ func (h *AppWriteHandler) WithApprovalWorkflow(approvals ApprovalWorkflow, valid
 
 func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appShiftingDestinationsRoute, h.ListShiftingDestinations)
+	mux.HandleFunc("GET "+appBirthBreedsRoute, h.ListBirthBreeds)
 	mux.HandleFunc("GET "+appTemporaryTaggedGoatsRoute, h.ListTemporaryTaggedGoats)
 	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
 	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
