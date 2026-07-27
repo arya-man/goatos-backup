@@ -2,6 +2,7 @@ package verificationbridge
 
 import (
 	"context"
+	"fmt"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -33,6 +34,10 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		Vertical: feeddirectiondomain.VerificationVerticalFeed,
 		Module:   feeddirectiondomain.VerificationModuleFeed,
 		Category: feeddirectiondomain.VerificationCategoryPacking,
+		// The verifier's subject for a feed-packing item is the shed-session being packed; surface it
+		// so the detail view shows which session's video is under review (shed/park/operator ride on
+		// their own item fields). Backend owns this display string (dumb-renderer rule).
+		SubjectLabel: packingSubjectLabel(in.SessionNo),
 		Source: verificationdomain.SourceRef{
 			Module:  feeddirectiondomain.VerificationModuleFeed,
 			RefType: feeddirectiondomain.VerificationRefTypePacking,
@@ -47,4 +52,14 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		IdempotencyKey: in.IdempotencyKey,
 	})
 	return err
+}
+
+// packingSubjectLabel is the human subject shown to the verifier for a packing item: the shed-session
+// number. Returns nil when the session is unset so the field stays omitted rather than reading "Session 0".
+func packingSubjectLabel(sessionNo int32) *string {
+	if sessionNo <= 0 {
+		return nil
+	}
+	s := fmt.Sprintf("Session %d", sessionNo)
+	return &s
 }

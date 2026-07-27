@@ -272,6 +272,7 @@ class VerifyDetailViewModel @Inject constructor(
         return VerifyDetailUiState(
             itemId = itemId,
             categoryLabel = humanizeCategory(category),
+            subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
             media = media.map {
                 VerifyMediaItem(
                     signedUrl = absoluteDownloadUrl(it.downloadUrl),
