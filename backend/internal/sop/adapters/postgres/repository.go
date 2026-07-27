@@ -1837,6 +1837,11 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 	if len(keys) == 0 {
 		keys = itemKeys(cmd.Body.Answers)
 	}
+	var err error
+	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, keys)
+	if err != nil {
+		return err
+	}
 	for _, item := range keys {
 		resultMap := map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)}
 		if administeredAt := strings.TrimSpace(item.AdministeredAt); administeredAt != "" {
@@ -1852,6 +1857,76 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 		}
 	}
 	return nil
+}
+
+func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	shedSubjectIDs := shedProofSubjectIDs(refs)
+	if len(shedSubjectIDs) == 0 {
+		return keys, nil
+	}
+	goatIDs := make([]string, 0, len(keys))
+	for _, item := range keys {
+		if goatID := strings.TrimSpace(item.GoatID); goatID != "" {
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	if len(goatIDs) == 0 {
+		return keys, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT goat_id::text
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND shed_id = ANY($3::uuid[])`,
+		tenantID, goatIDs, shedSubjectIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	allowed := map[string]struct{}{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, err
+		}
+		allowed[goatID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	filtered := keys[:0]
+	for _, item := range keys {
+		goatID := strings.TrimSpace(item.GoatID)
+		if goatID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		if _, ok := allowed[goatID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+func shedProofSubjectIDs(refs []domain.ProofReference) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.SubjectType != "shed" || ref.SubjectID == nil || strings.TrimSpace(*ref.SubjectID) == "" {
+			continue
+		}
+		if ref.UploadState != "" && ref.UploadState != "completed" {
+			continue
+		}
+		id := strings.TrimSpace(*ref.SubjectID)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func insertMovementForLatestSubmission(ctx context.Context, tx pgx.Tx, tenantID, taskID string) error {
