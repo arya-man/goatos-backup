@@ -80,7 +80,7 @@ RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4,
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Campaign{}, err
 	}
-	c.Progress = progress(c.Sheds, nil, nil)
+	c.Progress = progress(c.Sheds, 0, 0, 0, 0)
 	return c, nil
 }
 
@@ -381,8 +381,40 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 		}
 		c.Sheds = append(c.Sheds, shed)
 	}
-	c.Progress = progress(c.Sheds, nil, nil)
+	completedAnimals, completedScopes, wrongShed, missing, err := r.progressStats(ctx, tx, tenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	c.Progress = progress(c.Sheds, completedAnimals, completedScopes, wrongShed, missing)
 	return c, rows.Err()
+}
+
+func (r *Repository) progressStats(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (completedAnimals int, completedScopes int, wrongShed int, missing int, err error) {
+	err = tx.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE status = 'weighed')::int AS completed_animals,
+  count(*) FILTER (WHERE availability_status = 'moved_other_shed')::int AS wrong_shed,
+  count(*) FILTER (
+    WHERE availability_status IN ('dead', 'sold_transferred')
+      OR current_lifecycle_status IN ('dead', 'sold', 'transferred')
+  )::int AS missing
+FROM weighing_expected_animals
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&completedAnimals, &wrongShed, &missing)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	err = tx.QueryRow(ctx, `
+SELECT count(DISTINCT wso.campaign_shed_id)::int
+FROM weighing_shed_observations wso
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=wso.tenant_id
+ AND cs.campaign_id=wso.campaign_id
+ AND cs.campaign_shed_id=wso.campaign_shed_id
+ AND cs.weighing_category='per_shed_partition'
+WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&completedScopes)
+	return completedAnimals, completedScopes, wrongShed, missing, err
 }
 
 func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string) (domain.Campaign, bool, error) {
@@ -429,7 +461,7 @@ ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw),
 	return err
 }
 
-func progress(sheds []domain.CampaignShed, _ []domain.ExpectedAnimal, _ []domain.Observation) domain.Progress {
+func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wrongShed, missing int) domain.Progress {
 	p := domain.Progress{}
 	for _, shed := range sheds {
 		switch shed.WeighingCategory {
@@ -437,12 +469,16 @@ func progress(sheds []domain.CampaignShed, _ []domain.ExpectedAnimal, _ []domain
 			p.IndividualExpectedCount += shed.ExpectedAnimalCount
 		case domain.CategoryPerShedPartition:
 			p.PerScopeExpectedCount++
-			if shed.Status == "completed" {
-				p.PerScopeCompletedCount++
-			}
 		}
 	}
+	p.IndividualCompletedCount = completedAnimals
+	p.PerScopeCompletedCount = completedScopes
+	p.WrongShedCount = wrongShed
+	p.MissingCount = missing
 	p.RemainingCount = (p.IndividualExpectedCount - p.IndividualCompletedCount) + (p.PerScopeExpectedCount - p.PerScopeCompletedCount)
+	if p.RemainingCount < 0 {
+		p.RemainingCount = 0
+	}
 	return p
 }
 

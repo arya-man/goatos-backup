@@ -31,7 +31,19 @@ test("weighing UI renders category-aware progress and blocks lumpsum individual 
   assert.match(data, /per_shed_partition/);
   assert.match(page, /RFID \+ animal identity \+ weight \+ mandatory per-animal video/);
   assert.match(page, /Selected-scope result \+ scope proof; no individual weight update/);
-  assert.match(page, /row\.category === "per_shed_partition" \? "lumpsum" : "individual"/);
+  assert.match(page, /categoryLabel\[row\.category\]/);
+});
+
+test("weighing UI uses product labels instead of backend enum or uuid presentation", () => {
+  const data = source("data.ts");
+  const page = source("page.tsx");
+
+  assert.match(page, /In progress/);
+  assert.match(page, /Needs review/);
+  assert.match(page, /Shed total/);
+  assert.doesNotMatch(page, /replaceAll\("_", " "\)/);
+  assert.match(data, /operatorName: "Assigned operator"/);
+  assert.match(data, /parkName: "Selected park"/);
 });
 
 test("weighing UI exposes wrong-shed expected-original and actual-current context", () => {

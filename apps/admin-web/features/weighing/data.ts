@@ -125,7 +125,7 @@ function campaignFromApi(item: ApiWeighingCampaign, role: WeighingRole): Weighin
     startBusinessDate: item.start_business_date,
     state: item.status === "canceled" ? "delayed" : item.status,
     laneLabel: "Weekly kids",
-    operatorName: item.operator_user_id,
+    operatorName: "Assigned operator",
     selectedScopes: scopes.length,
     expectedAnimals,
     individualExpected,
@@ -152,7 +152,7 @@ function scopeFromApi(campaign: ApiWeighingCampaign, shed: ApiWeighingCampaignSh
   const completedCount = shed.status === "completed" ? shed.expected_animal_count : 0;
   return {
     id: shed.campaign_shed_id,
-    parkName: campaign.park_id,
+    parkName: "Selected park",
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,
@@ -163,7 +163,7 @@ function scopeFromApi(campaign: ApiWeighingCampaign, shed: ApiWeighingCampaignSh
     wrongShedCount: 0,
     proofPendingCount: 0,
     status: shed.status === "pending" ? "pending" : shed.status === "canceled" ? "delayed" : shed.status,
-    operatorName: campaign.operator_user_id,
+    operatorName: "Assigned operator",
     plannedDate: campaign.start_business_date,
     effectiveDate: campaign.start_business_date,
   };

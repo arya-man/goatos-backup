@@ -13,6 +13,10 @@ class WeighingRouteIdentityTest {
             campaignId = "campaign A",
             workGroupId = "group B",
             campaignShedId = "shed C",
+            category = "per_shed_partition",
+            tenantId = "tenant T",
+            expectedLocationId = "location L",
+            expectedLocationLabel = "Gandhi 1 - Part 3",
             scanTitle = "Gandhi 1 - Part 3",
         )
 
@@ -20,6 +24,10 @@ class WeighingRouteIdentityTest {
         assertTrue(route.contains("campaignId=campaign%20A"))
         assertTrue(route.contains("workGroupId=group%20B"))
         assertTrue(route.contains("campaignShedId=shed%20C"))
+        assertTrue(route.contains("weighingCategory=per_shed_partition"))
+        assertTrue(route.contains("tenantId=tenant%20T"))
+        assertTrue(route.contains("expectedLocationId=location%20L"))
+        assertTrue(route.contains("expectedLocationLabel=Gandhi%201%20-%20Part%203"))
         assertTrue(route.contains("scanTitle=Gandhi%201%20-%20Part%203"))
     }
 

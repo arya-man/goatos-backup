@@ -30,6 +30,10 @@ type moduleNavContribution struct {
 	// permissions.routePermissions requires the same permission, so an unlisted page is
 	// unreachable rather than merely invisible.
 	requiredPermission string
+	// requiredAnyPermission gates a nav item when any one of several authorities can
+	// use the surface, e.g. Weighing is visible to planners, monitors, and executors
+	// but each command remains route/API-authorized by its own permission.
+	requiredAnyPermission []string
 	// excludedPermission suppresses a field-lens item when the principal holds a
 	// higher-level module lens. This keeps one Vaccination module reusable without
 	// turning the nav builder into a per-role template: the role table grants the
@@ -74,10 +78,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                                          //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},                                                                  //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},                                                              //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},                                                                    //nav-composition:ignore: registry entry
+			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 4, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -126,18 +131,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
-		},
-	},
-	"weighing": {
-		key:         "weighing",
-		labelKey:    "module.weighing",
-		landingHref: "/weighing", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    3,
-		contributions: []moduleNavContribution{
-			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredPermission: permissions.WeighingExecute}, //nav-composition:ignore: registry entry
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -218,12 +211,27 @@ func grantsHavePermission(grants []domain.GrantSummary, permission string) bool 
 	return false
 }
 
+func grantsHaveAnyPermission(grants []domain.GrantSummary, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, permission := range required {
+		if grantsHavePermission(grants, permission) {
+			return true
+		}
+	}
+	return false
+}
+
 // permittedContributions returns the module's nav items this principal may actually
 // reach. A module whose every item is gated away is not renderable for them.
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
 	out := make([]moduleNavContribution, 0, len(def.contributions))
 	for _, contrib := range def.contributions {
 		if !grantsHavePermission(grants, contrib.requiredPermission) {
+			continue
+		}
+		if !grantsHaveAnyPermission(grants, contrib.requiredAnyPermission) {
 			continue
 		}
 		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
@@ -502,7 +510,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.counts":         "Counts",
-		"module.weighing":       "Weighing",
 		"module.feed_direction": "Feed direction",
 		"module.breeding":       "Breeding",
 		"queue.assigned":        "Assigned work",
@@ -529,7 +536,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.counts":         "गिनती",
-		"module.weighing":       "वजन",
 		"module.feed_direction": "फ़ीड दिशा",
 		"module.breeding":       "प्रजनन",
 		"queue.assigned":        "सौंपा गया काम",
@@ -556,7 +562,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.counts":         "ಎಣಿಕೆ",
-		"module.weighing":       "ತೂಕ",
 		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
@@ -583,7 +588,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.counts":         "లెక్కలు",
-		"module.weighing":       "బరువు",
 		"module.feed_direction": "ఫీడ్ దిశ",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"queue.assigned":        "కేటాయించిన పని",
