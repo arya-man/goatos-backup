@@ -803,6 +803,12 @@ Requirements:
   reconstruct membership from coincidentally equal shed/date fields.
 - Indexed predicates keep typed columns bare; do not cast indexed UUID/text
   columns in predicates.
+- Reconciliation after lifecycle/location events must be affected-animal
+  bounded. Do not rebuild all open campaigns for a tenant on every shift/death/
+  cull event.
+- Read models serving Android and admin-web should have query-plan proof at the
+  50k-animal release envelope and keep p90/p95 latency inside the API latency
+  policy.
 
 Required indexes should cover:
 
@@ -869,6 +875,19 @@ lifecycle/location facts.
 
 Notification rows must be durable. Delivery failures belong in the shared
 notification retry/DLQ path.
+
+Notification contracts must name trigger, audience source, cadence/SLA, summary
+copy fields, and tap route. Audience resolution must come from active role
+grants/profile truth and assigned operator rows, not hardcoded names. V1
+specifics:
+
+- Amit receives operator assignment, daily open-work, sync-failed/proof-failed
+  nudges.
+- CEO/CXO and preventive director receive delayed/open summary notifications
+  when a campaign rolls beyond the planned week or has unresolved review-needed
+  animals.
+- Dinakar receives planner/supervisor notifications, not operator execution
+  assignments.
 
 Notification durability contract:
 
