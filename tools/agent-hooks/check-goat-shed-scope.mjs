@@ -5,6 +5,7 @@
 // - goat vaccination obligations are shed-scoped only;
 // - park/tenant fallback scopes are forbidden for goat vaccination obligations.
 // - vaccination drive batches are park-scoped only, even when produced from shed obligations.
+// - shed proof submit writes must never materialize all shared parent-task scan items.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -18,6 +19,8 @@ const files = {
   closeout: "tools/dev/seed-closeout.sh",
   proof: "tools/dev/check-goat-shed-integrity.sh",
   driveProof: "tools/dev/check-vaccination-drive-clubbing-proof.sh",
+  sopRepo: "backend/internal/sop/adapters/postgres/repository.go",
+  sopSubmitTest: "backend/internal/sop/adapters/postgres/shed_submit_state_integration_test.go",
 };
 
 function problemIfMissing(text, pattern, message) {
@@ -41,6 +44,8 @@ export function validate(readText, present = () => true) {
   const closeout = readText(files.closeout);
   const proof = readText(files.proof);
   const driveProof = readText(files.driveProof);
+  const sopRepo = readText(files.sopRepo);
+  const sopSubmitTest = readText(files.sopSubmitTest);
 
   problems.push(
     ...problemIfMissing(seed, /seedFallbackFarm/, `${files.seed}: missing deterministic fallback farm for incomplete source placement`),
@@ -74,6 +79,16 @@ export function validate(readText, present = () => true) {
     ...problemIfMissing(driveProof, /ob\.scope_type <> 'park'/, `${files.driveProof}: DB proof must reject non-park vaccination drive batches`),
   );
 
+  problems.push(
+    ...problemIfMissing(sopRepo, /filterSubmissionItemsToProofSheds/, `${files.sopRepo}: shed-level proof submit must filter over-broad parent-task scan items by proof shed before inserting sop_submission_items`),
+    ...problemIfMissing(sopRepo, /shedProofSubjectIDs/, `${files.sopRepo}: shed-level proof submit must extract shed subject ids from proof_refs instead of trusting parent task state`),
+    ...problemIfMissing(sopRepo, /FROM\s+goats[\s\S]{0,500}goat_id\s*=\s*ANY\(\$2::uuid\[\]\)[\s\S]{0,200}shed_id\s*=\s*ANY\(\$3::uuid\[\]\)/, `${files.sopRepo}: shed-level proof submit filter must constrain candidate goat_id list and keep only proof shed_ids`),
+    ...problemIfMissing(sopSubmitTest, /TestSubmitTaskShedProofFiltersOverBroadScanItemsToThatShed/, `${files.sopSubmitTest}: missing regression where a shed proof submit receives scan items from two sheds and writes only the proof shed`),
+    ...problemIfMissing(sopSubmitTest, /shedOneItems\s*!=\s*1\s*\|\|\s*shedTwoItems\s*!=\s*0/, `${files.sopSubmitTest}: shed proof regression must assert sibling shed items stay zero`),
+    ...problemIfMissing(sopSubmitTest, /TestSubmitTaskAllowsSecondShedSubmitWhenSharedParkTaskAlreadyNeedsReview/, `${files.sopSubmitTest}: missing regression that sibling shed submit remains legal while shared parent task is needs_review`),
+    ...problemIfMissing(sopSubmitTest, /TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted/, `${files.sopSubmitTest}: missing regression that accepted shared parent is terminal for fresh submit keys`),
+  );
+
   return problems;
 }
 
@@ -103,6 +118,23 @@ func vaccinationDriveBatchScope() (string,string,error) {
     [files.closeout]: `bash tools/dev/check-goat-shed-integrity.sh`,
     [files.proof]: `active_goat_shed_invariant vaccination_obligation_shed_scope_invariant`,
     [files.driveProof]: `AND ob.scope_type <> 'park'`,
+    [files.sopRepo]: `
+func insertSubmissionItems() {
+  keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, keys)
+}
+func filterSubmissionItemsToProofSheds() {
+  shedSubjectIDs := shedProofSubjectIDs(refs)
+  rows, err := tx.Query(ctx, "SELECT goat_id::text FROM goats WHERE tenant_id = $1::uuid AND goat_id = ANY($2::uuid[]) AND shed_id = ANY($3::uuid[])", tenantID, goatIDs, shedSubjectIDs)
+}
+func shedProofSubjectIDs() {}
+`,
+    [files.sopSubmitTest]: `
+func TestSubmitTaskShedProofFiltersOverBroadScanItemsToThatShed(t *testing.T) {
+  if shedOneItems != 1 || shedTwoItems != 0 { t.Fatal() }
+}
+func TestSubmitTaskAllowsSecondShedSubmitWhenSharedParkTaskAlreadyNeedsReview(t *testing.T) {}
+func TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted(t *testing.T) {}
+`,
   };
   const clean = validate((path) => good[path]);
   if (clean.length !== 0) throw new Error(`self-test: expected clean fixture, got ${JSON.stringify(clean)}`);
@@ -115,12 +147,16 @@ func seedObligationScope(parkID string) (scopeType, scopeID string, err error) {
 `;
   bad[files.generation] = `func generationScope() { return "tenant", "x", nil }`;
   bad[files.closeout] = `echo no proof`;
+  bad[files.sopRepo] = `func insertSubmissionItems() { /* inserts all parent scan items */ }`;
+  bad[files.sopSubmitTest] = `func TestSubmitTaskAllowsSecondShedSubmitWhenSharedParkTaskAlreadyNeedsReview(t *testing.T) {}`;
   const findings = validate((path) => bad[path]);
   for (const expected of [
     "missing deterministic fallback farm",
     "must not fall back to park scope",
     "must not create tenant-scoped",
     "must run goat-shed-integrity proof",
+    "must filter over-broad parent-task scan items",
+    "missing regression where a shed proof submit receives scan items from two sheds",
   ]) {
     if (!findings.some((f) => f.includes(expected))) {
       throw new Error(`self-test: missing expected finding ${expected}; got ${JSON.stringify(findings)}`);

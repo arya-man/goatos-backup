@@ -57,6 +57,14 @@ and page boundary independently.
    every join, prove `1:1`, pre-aggregate the many side, use a semijoin, or
    explicitly deduplicate by the fact's stable id. A comment saying "one row per
    obligation" is not proof if a selector/dimension table can contain many rows.
+   Vaccination shed proof has a hard write-path version of this rule: the hidden
+   park/batch `sop_tasks` row is not the submitted/proof/verification grain for
+   WF, CT, AC, Calendar, Android, verifier queues, proof drawers, or leadership
+   sidebars. A shed-level submit may receive scan items collected from the shared
+   parent task, but before inserting `sop_submission_items` it must filter by the
+   completed proof's shed `subject_id` and the live goat `shed_id`. Do not approve
+   a display/status fix unless the write path and the read projection both prove
+   this shed grain.
 4. **Hierarchy resolution** — resolve farm/park/shed/cohort with an explicit
    scope-type matrix. Generic `COALESCE(parent_id, self_id)` is invalid unless
    every supported scope has the same depth.
@@ -87,6 +95,10 @@ Use realistic fixtures and names that make the broken dimension obvious:
 - `...StatusMatrix...`, `...EveryStatus...`, or `...StatusBuckets...`: when
   status buckets are present, exercise every live DB-constrained status and
   prove `total = sum(disjoint buckets)` without relying on duplicated rows.
+- `...ShedProofFiltersOverBroadScanItems...` or `...SiblingShed...`: one shared
+  vaccination parent task, two sheds, one completed shed-level video proof, and
+  over-broad scan items containing both sheds. The proof shed must get items and
+  completions; the sibling shed must get zero.
 
 The current status set must be read from the latest migration `CHECK`
 constraint and state-machine docs. Never copy a remembered list into the test.
