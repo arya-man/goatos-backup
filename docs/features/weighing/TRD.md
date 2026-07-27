@@ -458,7 +458,7 @@ Forbidden behavior:
 - Auto-cancel because week end passed.
 - Auto-split shed/partition rows to force daily cap.
 - Auto-move animal location because the animal was scanned in another shed.
-- Accept a completed observation without mandatory proof video.
+- Accept a completed individual observation without mandatory proof video.
 - Keep animals that are now dead, culled, sold/transferred, ICU, quarantine, or
   shifted elsewhere in the same "operator missed it" bucket forever.
 - Change completion counts by reading only the visible/paginated rows.
@@ -672,20 +672,21 @@ Android data contract:
 
 ## 12. Proof/media
 
-Use the shared proof artifact/media system through a weighing-specific policy:
+Use the shared proof artifact/media system through weighing-specific policies.
+Individual and lumpsum modes are separate:
 
-- `subject_scope = animal`
-- `proof_mode = per_animal_video`
-- exactly one mandatory video for each accepted weighing observation in v1
-- capture source should prefer in-app camera where existing mobile policy
-  requires it
+| Observation type | Proof policy |
+|---|---|
+| `weighing_observations` | `subject_scope=animal`, `proof_mode=per_animal_video`, exactly one mandatory video for each accepted individual observation. Capture source should prefer in-app camera where existing mobile policy requires it. |
+| `weighing_lumpsum_observations` | Separate shed/partition-level coverage proof policy. Proof is optional in v1 unless product makes it mandatory for lumpsum; if captured, it must not be treated as per-animal proof. |
 
-Shed-level proof is not sufficient for Weighing v1.
+Shed-level proof is not sufficient for individual weighing rows. It may be valid
+coverage proof only for approved lumpsum scopes.
 
 Backend completion rule:
 
 ```text
-accepted_weighing_observation
+accepted_individual_weighing_observation
 requires weight_kg > 0
 and resolved animal_id
 and proof_artifact_id with subject_scope=animal
