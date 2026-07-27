@@ -536,10 +536,12 @@ acceptance includes these visible outcomes:
 - Progress counts remain correct when one work group contains multiple sheds,
   when one shed rolls to the next day, and when an extra animal from another
   shed is scanned.
-- Leadership close/adjust flow is explicit: closing pending expected animals
-  requires a reason code, actor, timestamp, affected count, and animal list
-  snapshot. Closed animals are excluded from operator workload but remain visible
-  in campaign audit and reporting.
+- Leadership close/adjust flow is explicit and category-aware: every close
+  requires a reason code, actor, timestamp, affected count, and affected-grain
+  snapshot. Closing `individual_animal` pending work requires an animal list
+  snapshot. Closing `per_shed_partition` pending work requires the selected
+  `campaign_shed_id`/scope snapshot. Closed rows are excluded from operator
+  workload but remain visible in campaign audit and reporting.
 - No Weighing implementation reuses Vaccination's clinical due-window or dose
   obligation logic as the source of grouping truth.
 

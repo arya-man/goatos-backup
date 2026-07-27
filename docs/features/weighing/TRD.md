@@ -1111,8 +1111,10 @@ Minimum tests before implementation is considered done:
 - Backend-owned contract supplies labels/disabled reasons for leadership and
   Android; clients do not hardcode bucket semantics.
 - Leadership close/adjust command requires reason code, actor, timestamp,
-  affected count, and animal list snapshot; closed animals leave operator
-  workload but remain in audit/reporting.
+  affected count, and affected-grain snapshot: animal list snapshot for
+  `individual_animal`, or selected `campaign_shed_id`/scope snapshot for
+  `per_shed_partition`. Closed rows leave operator workload but remain in
+  audit/reporting.
 - Domain event registry covers every weighing producer and consumer.
 - Leadership assistant coverage is updated or an explicit exclusion is
   documented.
