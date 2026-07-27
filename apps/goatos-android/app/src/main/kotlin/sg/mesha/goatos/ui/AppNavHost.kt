@@ -321,11 +321,16 @@ private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Strin
 }
 
 private fun ShedRow.scanDisplayTitle(): String {
+    return scanDisplayTitle(name = name, physicalShed = physicalShed, partition = partition)
+}
+
+internal fun scanDisplayTitle(name: String, physicalShed: String, partition: String): String {
     val base = name.takeIf { it.isNotBlank() }
         ?: physicalShed.takeIf { it.isNotBlank() }
         ?: return ""
     val partitionLabel = partition
         .takeIf { it.isNotBlank() }
+        .takeUnless { it.equals("whole", ignoreCase = true) }
         ?.let { if (it.startsWith("Part ", ignoreCase = true)) it else "Part $it" }
     val shouldAppendPartition = partitionLabel != null && !base.contains(partitionLabel, ignoreCase = true)
     return if (shouldAppendPartition) "$base - $partitionLabel" else base
