@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import java.time.LocalDate
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,10 @@ fun FeedPackingScreen(
     onEvent: (FeedPackingEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Refresh-on-open (docs/decisions/android-offline-first.md): cached Room rows show instantly
+    // and a background refresh fires on every resume, including when the operator pops back here
+    // after submitting a feed-packing session, so it shows as pending verification.
+    RefreshOnResume { onEvent(FeedPackingEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         FeedHeader(
             title = state.title,

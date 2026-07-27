@@ -46,6 +46,7 @@ import sg.mesha.goatos.feature.feed.FeedCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedPackingCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
@@ -1203,6 +1204,20 @@ fun AppNavHost(
                 when (event) {
                     FeedPackingCompleteEvent.Back -> navController.popBackStack()
                     else -> vm.onEvent(event)
+                }
+            }
+            // On a successful submission the packing video is durably enqueued (QUEUED) or already
+            // SYNCED. Don't strand the operator on the capture screen: show the success tone
+            // briefly, then pop back to the Feed Packing list (which is RefreshOnResume, so it
+            // refreshes once on landing and shows the session as pending verification).
+            val submitted = state.result?.status == FeedPackingCompleteStatus.SYNCED ||
+                state.result?.status == FeedPackingCompleteStatus.QUEUED
+            LaunchedEffect(submitted) {
+                if (submitted) {
+                    delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
+                    // Pop this exact destination if it is still on top; a no-op if the operator
+                    // already navigated away, so we never pop an extra screen.
+                    navController.popBackStack(Routes.FEED_PACKING_COMPLETE, inclusive = true)
                 }
             }
             CaptureAccessGate {
