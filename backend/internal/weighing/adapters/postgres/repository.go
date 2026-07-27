@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -117,37 +119,73 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	return c, tx.Commit(ctx)
 }
 
-func (r *Repository) ListCampaigns(ctx context.Context, tenantID string) ([]domain.Campaign, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	rows, err := r.pool.Query(ctx, `SELECT campaign_id::text FROM weighing_campaigns WHERE tenant_id=$1::uuid ORDER BY period_start_date DESC, created_at DESC LIMIT 100`, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []domain.Campaign
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		c, err := r.getCampaign(ctx, tenantID, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}
-
-func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error) {
+func (r *Repository) ListCampaigns(ctx context.Context, tenantID string, cursor string, limit int) (domain.CampaignPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
-		limit = 250
+		limit = 20
 	}
-	if limit > 5000 {
-		limit = 5000
+	if limit > 100 {
+		limit = 100
+	}
+	cur, err := decodeCampaignCursor(cursor)
+	if err != nil {
+		return domain.CampaignPage{}, ports.ErrInvalidArgument
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text,
+  start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text,
+  created_at, updated_at, row_version
+FROM weighing_campaigns
+WHERE tenant_id=$1::uuid
+  AND (
+    $2::date IS NULL
+    OR (period_start_date, created_at, campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
+  )
+ORDER BY period_start_date DESC, created_at DESC, campaign_id DESC
+LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	defer rows.Close()
+	out := make([]domain.Campaign, 0, limit)
+	ids := make([]string, 0, limit+1)
+	for rows.Next() {
+		var c domain.Campaign
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion); err != nil {
+			return domain.CampaignPage{}, err
+		}
+		out = append(out, c)
+		ids = append(ids, c.CampaignID)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.CampaignPage{}, err
+	}
+	nextCursor := ""
+	if len(out) > limit {
+		last := out[limit-1]
+		nextCursor = encodeCampaignCursor(campaignCursor{PeriodStartDate: last.PeriodStartDate, CreatedAt: last.CreatedAt, CampaignID: last.CampaignID})
+		out = out[:limit]
+		ids = ids[:limit]
+	}
+	if err := r.hydrateCampaigns(ctx, tenantID, ids, out); err != nil {
+		return domain.CampaignPage{}, err
+	}
+	return domain.CampaignPage{Items: out, NextCursor: nextCursor}, nil
+}
+
+func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	cur, err := decodeRosterCursor(cursor)
+	if err != nil {
+		return domain.RosterPage{}, ports.ErrInvalidArgument
 	}
 	rows, err := r.pool.Query(ctx, `
 WITH scoped AS (
@@ -163,14 +201,19 @@ WITH scoped AS (
     ea.current_location_id,
     ea.current_location_label,
     ea.current_lifecycle_status,
+    ea.created_at,
     row_number() OVER (ORDER BY ea.created_at, ea.animal_id) AS seq
   FROM weighing_expected_animals ea
   JOIN goats g ON g.tenant_id=ea.tenant_id AND g.goat_id=ea.animal_id
   WHERE ea.tenant_id=$1::uuid
     AND ea.campaign_id=$2::uuid
     AND ea.campaign_shed_id=$3::uuid
+    AND (
+      $4::timestamptz IS NULL
+      OR (ea.created_at, ea.animal_id) > ($4::timestamptz, $5::uuid)
+    )
   ORDER BY ea.created_at, ea.animal_id
-  LIMIT $4
+  LIMIT $6
 )
 SELECT
   scoped.campaign_id::text,
@@ -186,7 +229,8 @@ SELECT
   COALESCE(scoped.current_location_id::text, '') AS current_location_id,
   COALESCE(scoped.current_location_label, '') AS current_location_label,
   COALESCE(scoped.current_lifecycle_status, '') AS current_lifecycle_status,
-  scoped.seq::bigint
+  scoped.seq::bigint,
+  scoped.created_at
 FROM scoped
 LEFT JOIN LATERAL (
   SELECT identifier_value
@@ -208,14 +252,16 @@ LEFT JOIN LATERAL (
   ORDER BY gi.is_primary_for_goat DESC, gi.created_at DESC, gi.identifier_id
   LIMIT 1
 ) secondary_id ON true
-ORDER BY scoped.seq`, tenantID, campaignID, campaignShedID, limit)
+ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShedID, nullableTime(cur.CreatedAt), nullableString(cur.AnimalID), limit+1)
 	if err != nil {
-		return nil, err
+		return domain.RosterPage{}, err
 	}
 	defer rows.Close()
 	out := make([]domain.ExpectedAnimal, 0, limit)
+	created := make([]time.Time, 0, limit+1)
 	for rows.Next() {
 		var animal domain.ExpectedAnimal
+		var createdAt time.Time
 		if err := rows.Scan(
 			&animal.CampaignID,
 			&animal.CampaignShedID,
@@ -231,12 +277,23 @@ ORDER BY scoped.seq`, tenantID, campaignID, campaignShedID, limit)
 			&animal.CurrentLocationLabel,
 			&animal.CurrentLifecycleStatus,
 			&animal.Seq,
+			&createdAt,
 		); err != nil {
-			return nil, err
+			return domain.RosterPage{}, err
 		}
 		out = append(out, animal)
+		created = append(created, createdAt)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return domain.RosterPage{}, err
+	}
+	nextCursor := ""
+	if len(out) > limit {
+		last := out[limit-1]
+		nextCursor = encodeRosterCursor(rosterCursor{CreatedAt: created[limit-1], AnimalID: last.AnimalID})
+		out = out[:limit]
+	}
+	return domain.RosterPage{Items: out, NextCursor: nextCursor}, nil
 }
 
 func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -392,7 +449,45 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 func (r *Repository) RefreshAvailability(ctx context.Context, tenantID, campaignID string) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `
+	const chunkLimit = 500
+	var lastCreated time.Time
+	var lastAnimalID string
+	for {
+		rows, err := r.pool.Query(ctx, `
+SELECT ea.animal_id::text, ea.created_at
+FROM weighing_expected_animals ea
+WHERE ea.tenant_id=$1::uuid
+  AND ea.campaign_id=$2::uuid
+  AND (
+    $3::timestamptz IS NULL
+    OR (ea.created_at, ea.animal_id) > ($3::timestamptz, $4::uuid)
+  )
+ORDER BY ea.created_at, ea.animal_id
+LIMIT $5`, tenantID, campaignID, nullableTime(lastCreated), nullableString(lastAnimalID), chunkLimit)
+		if err != nil {
+			return err
+		}
+		animalIDs := make([]string, 0, chunkLimit)
+		for rows.Next() {
+			var animalID string
+			var created time.Time
+			if err := rows.Scan(&animalID, &created); err != nil {
+				rows.Close()
+				return err
+			}
+			animalIDs = append(animalIDs, animalID)
+			lastAnimalID = animalID
+			lastCreated = created
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		if len(animalIDs) == 0 {
+			return nil
+		}
+		if _, err := r.pool.Exec(ctx, `
 UPDATE weighing_expected_animals ea
 SET availability_status = CASE
     WHEN g.lifecycle_status IN ('dead') THEN 'dead'
@@ -408,8 +503,17 @@ SET availability_status = CASE
   updated_at=now()
 FROM goats g
 LEFT JOIN locations l ON l.tenant_id=g.tenant_id AND l.location_id=g.current_location_id
-WHERE ea.tenant_id=$1::uuid AND ea.campaign_id=$2::uuid AND g.tenant_id=ea.tenant_id AND g.goat_id=ea.animal_id`, tenantID, campaignID)
-	return err
+WHERE ea.tenant_id=$1::uuid
+  AND ea.campaign_id=$2::uuid
+  AND ea.animal_id = ANY($3::uuid[])
+  AND g.tenant_id=ea.tenant_id
+  AND g.goat_id=ea.animal_id`, tenantID, campaignID, animalIDs); err != nil {
+			return err
+		}
+		if len(animalIDs) < chunkLimit {
+			return nil
+		}
+	}
 }
 
 func (r *Repository) timeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -456,6 +560,112 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	}
 	c.Progress = progress(c.Sheds, completedAnimals, completedScopes, wrongShed, missing)
 	return c, rows.Err()
+}
+
+func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids []string, campaigns []domain.Campaign) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	byID := make(map[string]int, len(campaigns))
+	for i := range campaigns {
+		byID[campaigns[i].CampaignID] = i
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_id = ANY($2::uuid[])
+ORDER BY campaign_id, display_name`, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var shed domain.CampaignShed
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.Status); err != nil {
+			rows.Close()
+			return err
+		}
+		if idx, ok := byID[shed.CampaignID]; ok {
+			campaigns[idx].Sheds = append(campaigns[idx].Sheds, shed)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	stats := make(map[string]struct {
+		completedAnimals int
+		completedScopes  int
+		wrongShed        int
+		missing          int
+	}, len(campaigns))
+	rows, err = r.pool.Query(ctx, `
+SELECT campaign_id::text,
+  count(*) FILTER (WHERE status = 'weighed')::int AS completed_animals,
+  count(*) FILTER (WHERE availability_status = 'moved_other_shed')::int AS wrong_shed,
+  count(*) FILTER (
+    WHERE availability_status IN ('dead', 'sold_transferred')
+      OR current_lifecycle_status IN ('dead', 'sold', 'transferred')
+  )::int AS missing
+FROM weighing_expected_animals
+WHERE tenant_id=$1::uuid AND campaign_id = ANY($2::uuid[])
+GROUP BY campaign_id`, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var row struct {
+			completedAnimals int
+			completedScopes  int
+			wrongShed        int
+			missing          int
+		}
+		if err := rows.Scan(&id, &row.completedAnimals, &row.wrongShed, &row.missing); err != nil {
+			rows.Close()
+			return err
+		}
+		stats[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	rows, err = r.pool.Query(ctx, `
+SELECT wso.campaign_id::text, count(DISTINCT wso.campaign_shed_id)::int
+FROM weighing_shed_observations wso
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=wso.tenant_id
+ AND cs.campaign_id=wso.campaign_id
+ AND cs.campaign_shed_id=wso.campaign_shed_id
+ AND cs.weighing_category='per_shed_partition'
+WHERE wso.tenant_id=$1::uuid AND wso.campaign_id = ANY($2::uuid[])
+GROUP BY wso.campaign_id`, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var completedScopes int
+		if err := rows.Scan(&id, &completedScopes); err != nil {
+			rows.Close()
+			return err
+		}
+		row := stats[id]
+		row.completedScopes = completedScopes
+		stats[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	for i := range campaigns {
+		row := stats[campaigns[i].CampaignID]
+		campaigns[i].Progress = progress(campaigns[i].Sheds, row.completedAnimals, row.completedScopes, row.wrongShed, row.missing)
+	}
+	return nil
 }
 
 func (r *Repository) progressStats(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (completedAnimals int, completedScopes int, wrongShed int, missing int, err error) {
@@ -680,6 +890,77 @@ func deterministicUUID(s string) string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%s-%s-%s-%s-%s", hex.EncodeToString(b[0:4]), hex.EncodeToString(b[4:6]), hex.EncodeToString(b[6:8]), hex.EncodeToString(b[8:10]), hex.EncodeToString(b[10:16]))
+}
+
+type campaignCursor struct {
+	PeriodStartDate string    `json:"period_start_date"`
+	CreatedAt       time.Time `json:"created_at"`
+	CampaignID      string    `json:"campaign_id"`
+}
+
+type rosterCursor struct {
+	CreatedAt time.Time `json:"created_at"`
+	AnimalID  string    `json:"animal_id"`
+}
+
+func encodeCampaignCursor(cursor campaignCursor) string {
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeCampaignCursor(value string) (campaignCursor, error) {
+	if strings.TrimSpace(value) == "" {
+		return campaignCursor{}, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return campaignCursor{}, err
+	}
+	var cursor campaignCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return campaignCursor{}, err
+	}
+	if cursor.PeriodStartDate == "" || cursor.CreatedAt.IsZero() || cursor.CampaignID == "" {
+		return campaignCursor{}, ports.ErrInvalidArgument
+	}
+	return cursor, nil
+}
+
+func encodeRosterCursor(cursor rosterCursor) string {
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeRosterCursor(value string) (rosterCursor, error) {
+	if strings.TrimSpace(value) == "" {
+		return rosterCursor{}, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return rosterCursor{}, err
+	}
+	var cursor rosterCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return rosterCursor{}, err
+	}
+	if cursor.CreatedAt.IsZero() || cursor.AnimalID == "" {
+		return rosterCursor{}, ports.ErrInvalidArgument
+	}
+	return cursor, nil
+}
+
+func nullableString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
 }
 
 func nullUUID(id string) any {

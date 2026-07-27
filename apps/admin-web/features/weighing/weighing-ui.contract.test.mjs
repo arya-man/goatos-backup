@@ -34,7 +34,7 @@ test("weighing UI renders category-aware progress and blocks lumpsum individual 
   assert.match(page, /categoryLabel\[row\.category\]/);
 });
 
-test("weighing UI uses product labels instead of backend enum or uuid presentation", () => {
+test("weighing UI uses product labels without fabricating live API labels", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
@@ -42,8 +42,10 @@ test("weighing UI uses product labels instead of backend enum or uuid presentati
   assert.match(page, /Needs review/);
   assert.match(page, /Shed total/);
   assert.doesNotMatch(page, /replaceAll\("_", " "\)/);
-  assert.match(data, /operatorName: "Assigned operator"/);
-  assert.match(data, /parkName: "Selected park"/);
+  assert.match(data, /Operator not reported by API/);
+  assert.match(data, /Park not reported by API/);
+  assert.doesNotMatch(data, /operatorName: "Assigned operator"/);
+  assert.doesNotMatch(data, /parkName: "Selected park"/);
 });
 
 test("weighing UI exposes wrong-shed expected-original and actual-current context", () => {
@@ -76,5 +78,20 @@ test("weighing leadership planner covers park-week task creation and duplicate e
   assert.match(page, /Lumpsum/);
   assert.match(page, /Assign operator/);
   assert.match(page, /Already scheduled/);
-  assert.match(page, /New task blocked/);
+  assert.match(page, /task already exists/);
+  assert.match(page, /Existing task/);
+  assert.match(page, /Edit existing task/);
+  assert.match(page, /create is blocked/);
+  assert.match(page, /It never creates a second task/);
+  assert.match(page, /duplicate_blocked/);
+});
+
+test("weighing week strip is derived from campaign response", () => {
+  const data = source("data.ts");
+
+  assert.match(data, /weeksFromCampaigns\(result\.data\.items, campaign\)/);
+  assert.match(data, /sort\(\(a, b\) => a\.period_start_date\.localeCompare\(b\.period_start_date\)\)/);
+  assert.match(data, /weekRangeLabel\(item\.period_start_date, item\.period_end_date\)/);
+  assert.doesNotMatch(data, /key: "2026-07-19"/);
+  assert.doesNotMatch(data, /key: "2026-08-02"/);
 });

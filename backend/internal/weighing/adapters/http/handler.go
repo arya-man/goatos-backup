@@ -19,8 +19,8 @@ import (
 type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
-	ListCampaigns(ctx context.Context, actor domain.Actor) ([]domain.Campaign, error)
-	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, limit int) ([]domain.ExpectedAnimal, error)
+	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
+	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
 }
@@ -78,8 +78,12 @@ type shedObservationRequest struct {
 }
 
 func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
-	items, err := h.service.ListCampaigns(r.Context(), actor(r))
-	h.respond(w, r, map[string]any{"items": items, "trace_id": traceID(r)}, err)
+	limit, ok := h.queryLimit(w, r, 20)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListCampaigns(r.Context(), actor(r), r.URL.Query().Get("cursor"), limit)
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -100,17 +104,25 @@ func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
-	limit := 250
+	limit, ok := h.queryLimit(w, r, 50)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListScopeRoster(r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"), r.URL.Query().Get("cursor"), limit)
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) queryLimit(w http.ResponseWriter, r *http.Request, fallback int) (int, bool) {
+	limit := fallback
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		var parsed int
 		if _, err := fmt.Sscanf(raw, "%d", &parsed); err != nil || parsed <= 0 {
 			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
-			return
+			return 0, false
 		}
 		limit = parsed
 	}
-	items, err := h.service.ListScopeRoster(r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"), limit)
-	h.respond(w, r, map[string]any{"items": items, "trace_id": traceID(r)}, err)
+	return limit, true
 }
 
 func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request) {

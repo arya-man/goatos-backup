@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +43,9 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.R
 
 data class WeighingUiState(
     val title: String = "Weighing",
@@ -115,8 +119,12 @@ fun WeighingScreen(
     onRecordIndividual: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    if (!state.hasScope) {
+        RefreshOnResume(onRefresh = onRefresh)
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MeshaColors.PageBg,
@@ -136,14 +144,22 @@ fun WeighingScreen(
                         eyebrow = "WEIGHING",
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                         actions = {
-                            MeshaIconButton(
-                                icon = MeshaIcons.Refresh,
-                                contentDescription = "Refresh",
-                                onClick = {},
-                            )
+                            if (state.hasScope) {
+                                MeshaIconButton(
+                                    icon = MeshaIcons.Refresh,
+                                    contentDescription = stringResource(R.string.weighing_refresh),
+                                    onClick = onRefresh,
+                                )
+                            } else {
+                                SyncIconButton(
+                                    isSyncing = state.loading,
+                                    onSync = onRefresh,
+                                    contentDescription = stringResource(R.string.weighing_refresh),
+                                )
+                            }
                             MeshaIconButton(
                                 icon = MeshaIcons.Bell,
-                                contentDescription = "Alerts",
+                                contentDescription = stringResource(R.string.weighing_alerts),
                                 onClick = {},
                             )
                         },
@@ -164,17 +180,17 @@ fun WeighingScreen(
                         )
                         if (state.isShedPartition) {
                             Text(
-                            text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MeshaColors.Muted,
-                        )
-                    } else {
-                        Text(
-                            text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MeshaColors.Muted,
-                        )
-                    }
+                                text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MeshaColors.Muted,
+                            )
+                        } else {
+                            Text(
+                                text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MeshaColors.Muted,
+                            )
+                        }
                         WeighingCapturePanel(
                             state = state,
                             onScanInputChange = onScanInputChange,
@@ -313,7 +329,7 @@ private fun StatusPill(status: String) {
 @Composable
 private fun CategoryPill(category: String) {
     Text(
-        text = if (category == "per_shed_partition") "Lumpsum" else "Individual",
+        text = weighingCategoryLabel(category),
         color = MeshaColors.Purple,
         fontSize = 12.sp,
         fontWeight = FontWeight.W800,
@@ -345,18 +361,28 @@ private fun WeighingProgressBar(complete: Boolean, category: String) {
     }
 }
 
+@Composable
 private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
     if (row.category == "per_shed_partition") {
-        "${row.expectedCount} kids in scope · one shed video"
+        stringResource(R.string.weighing_assignment_summary_lumpsum, row.expectedCount)
     } else {
-        "${row.expectedCount} kids in scope · animal videos"
+        stringResource(R.string.weighing_assignment_summary_individual, row.expectedCount)
     }
 
+@Composable
 private fun assignmentAction(row: WeighingAssignmentUiRow): String =
     when {
-        row.status.equals("Completed", ignoreCase = true) -> "View result ->"
-        row.category == "per_shed_partition" -> "Record shed result ->"
-        else -> "Scan animals ->"
+        row.status.equals("Completed", ignoreCase = true) -> stringResource(R.string.weighing_action_view_result)
+        row.category == "per_shed_partition" -> stringResource(R.string.weighing_action_record_shed)
+        else -> stringResource(R.string.weighing_action_scan_animals)
+    }
+
+@Composable
+private fun weighingCategoryLabel(category: String): String =
+    if (category == "per_shed_partition") {
+        stringResource(R.string.weighing_category_lumpsum)
+    } else {
+        stringResource(R.string.weighing_category_individual)
     }
 
 @Composable

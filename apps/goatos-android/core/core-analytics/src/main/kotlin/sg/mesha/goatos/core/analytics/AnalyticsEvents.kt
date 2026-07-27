@@ -104,6 +104,21 @@ object AnalyticsEvents {
     /** A Counts read (summary, breakdown page, or approval queue) failed to refresh. */
     const val COUNTS_READ_FAILURE = "counts_read_failure"
 
+    /** Operator opened the Room-first weighing work list or a weighing capture scope. */
+    const val WEIGHING_VIEWED = "weighing_viewed"
+
+    /** A weighing read refresh failed; cached Room data remains visible when present. */
+    const val WEIGHING_READ_FAILURE = "weighing_read_failure"
+
+    /** Operator attempted to queue a weighing capture locally. */
+    const val WEIGHING_CAPTURE_ATTEMPT = "weighing_capture_attempt"
+
+    /** A weighing capture was durably stored locally with its proof state. */
+    const val WEIGHING_CAPTURE_SUCCESS = "weighing_capture_success"
+
+    /** A weighing capture could not be queued or proof storage failed. */
+    const val WEIGHING_CAPTURE_FAILURE = "weighing_capture_failure"
+
     /** Verifier opened a proof item detail screen that can stream evidence media. */
     const val VERIFY_ITEM_OPENED = "verify_item_opened"
 
@@ -252,6 +267,9 @@ object AnalyticsEvents {
          * scanned", which the name answers and the tag id only bloats.
          */
         const val FIELD = "field"
+
+        /** Weighing scope category (`individual_animal` or `per_shed_partition`). */
+        const val CATEGORY = "category"
 
         /** How an approval request was decided (`approved`/`rejected`). */
         const val DECISION = "decision"

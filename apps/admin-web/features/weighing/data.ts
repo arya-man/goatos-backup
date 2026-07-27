@@ -129,6 +129,9 @@ export type WeighingPlanner = {
   lane: "weekly_kids";
   existingCampaignId?: string;
   existingCampaignState?: WeighingCampaignState;
+  existingCampaignWeekLabel?: string;
+  existingCampaignOperatorName?: string;
+  existingCampaignShedCount?: number;
   duplicateBlocked: boolean;
   parks: WeighingPlannerPark[];
   sheds: WeighingPlannerShed[];
@@ -156,23 +159,53 @@ export async function getWeighingPageData(
       ? campaignFromApi(result.data.items[0], role)
       : emptyCampaign(role);
   const planner = defaultPlanner(campaign);
+  const weeks = weeksFromCampaigns(result.data.items, campaign);
   return {
     ok: true,
     data: {
       role,
       campaign,
       planner,
-      weeks: [
-        { key: "2026-07-19", label: "19-25 Jul", state: "completed" },
-        {
-          key: campaign.weekStart || "empty",
-          label: campaign.weekLabel,
-          state: campaign.id === "empty" ? "no_task" : campaign.state,
-        },
-        { key: "2026-08-02", label: "2-8 Aug", state: "no_task" },
-      ],
+      weeks,
     },
   };
+}
+
+function weeksFromCampaigns(
+  items: ApiWeighingCampaign[],
+  selected: WeighingCampaign,
+): WeighingPageData["weeks"] {
+  const liveWeeks = items
+    .slice()
+    .sort((a, b) => a.period_start_date.localeCompare(b.period_start_date))
+    .map((item) => ({
+      key: item.period_start_date,
+      label: weekRangeLabel(item.period_start_date, item.period_end_date),
+      state: item.status === "canceled" ? "delayed" as const : item.status,
+    }));
+  if (liveWeeks.length > 0) return liveWeeks;
+  return [
+    {
+      key: selected.weekStart || "empty",
+      label: selected.weekLabel,
+      state: "no_task",
+    },
+  ];
+}
+
+function weekRangeLabel(start: string, end: string): string {
+  const startDate = parseYmd(start);
+  const endDate = parseYmd(end);
+  if (!startDate || !endDate) return `${start} to ${end}`;
+  const startLabel = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(startDate);
+  const endLabel = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(endDate);
+  return `${startLabel}-${endLabel}`;
+}
+
+function parseYmd(value: string): Date | null {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 function defaultPlanner(campaign?: WeighingCampaign): WeighingPlanner {
@@ -197,6 +230,9 @@ function defaultPlanner(campaign?: WeighingCampaign): WeighingPlanner {
     lane: "weekly_kids",
     existingCampaignId: campaign && campaign.id !== "empty" ? campaign.id : undefined,
     existingCampaignState: campaign && campaign.id !== "empty" ? campaign.state : undefined,
+    existingCampaignWeekLabel: campaign && campaign.id !== "empty" ? campaign.weekLabel : undefined,
+    existingCampaignOperatorName: campaign && campaign.id !== "empty" ? campaign.operatorName : undefined,
+    existingCampaignShedCount: campaign && campaign.id !== "empty" ? campaign.selectedScopes : undefined,
     duplicateBlocked: Boolean(campaign && campaign.id !== "empty"),
     selectedParkId: "11111111-1111-4111-8111-000000000001",
     selectedOperatorId: "30303030-3030-4303-8303-303030303030",
@@ -233,13 +269,13 @@ function campaignFromApi(
 
   return {
     id: item.campaign_id,
-    weekLabel: `${item.period_start_date} to ${item.period_end_date}`,
+    weekLabel: weekRangeLabel(item.period_start_date, item.period_end_date),
     weekStart: item.period_start_date,
     weekEnd: item.period_end_date,
     startBusinessDate: item.start_business_date,
     state: item.status === "canceled" ? "delayed" : item.status,
     laneLabel: "Weekly kids",
-    operatorName: "Assigned operator",
+    operatorName: "Operator not reported by API",
     selectedScopes: scopes.length,
     expectedAnimals,
     individualExpected,
@@ -270,7 +306,7 @@ function scopeFromApi(
     shed.status === "completed" ? shed.expected_animal_count : 0;
   return {
     id: shed.campaign_shed_id,
-    parkName: "Selected park",
+    parkName: "Park not reported by API",
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,
@@ -286,7 +322,7 @@ function scopeFromApi(
         : shed.status === "canceled"
           ? "delayed"
           : shed.status,
-    operatorName: "Assigned operator",
+    operatorName: "Operator not reported by API",
     plannedDate: campaign.start_business_date,
     effectiveDate: campaign.start_business_date,
   };

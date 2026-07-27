@@ -32,4 +32,13 @@
     <string name="proof_photo_take">ఫోటో తీయండి</string>
     <string name="proof_photo_cancel">ఫోటో క్యాప్చర్‌ను రద్దు చేయండి</string>
     <string name="submit_shed_success_toast">షెడ్ రుజువు సమీక్ష కోసం సమర్పించబడింది</string>
+    <string name="weighing_refresh">బరువు పనిని రిఫ్రెష్ చేయండి</string>
+    <string name="weighing_alerts">అలర్ట్లు</string>
+    <string name="weighing_category_lumpsum">మొత్తం బరువు</string>
+    <string name="weighing_category_individual">వ్యక్తిగతం</string>
+    <string name="weighing_assignment_summary_lumpsum">%1$d పిల్లలు పరిధిలో · ఒక షెడ్ వీడియో</string>
+    <string name="weighing_assignment_summary_individual">%1$d పిల్లలు పరిధిలో · జంతు వీడియోలు</string>
+    <string name="weighing_action_view_result">ఫలితం చూడండి →</string>
+    <string name="weighing_action_record_shed">షెడ్ ఫలితం రికార్డ్ చేయండి →</string>
+    <string name="weighing_action_scan_animals">జంతువులను స్కాన్ చేయండి →</string>
 </resources>
