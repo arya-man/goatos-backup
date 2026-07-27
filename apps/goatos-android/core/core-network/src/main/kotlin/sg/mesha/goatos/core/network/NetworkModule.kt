@@ -91,6 +91,10 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -201,6 +205,9 @@ interface AppApiService {
         @Query("shed_id") shedId: String?,
     ): ShedCompletionSummaryDto
 
+    @GET("app/weighing/campaigns")
+    suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
         @Path("task_id") taskId: String,
@@ -221,6 +228,20 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto
+
+    @POST("app/weighing/campaigns/{campaign_id}/animal-observations")
+    suspend fun recordWeighingAnimalObservation(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    @POST("app/weighing/campaigns/{campaign_id}/shed-observations")
+    suspend fun recordWeighingShedObservation(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto
 
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
@@ -635,6 +656,9 @@ class RetrofitAppApi(
     override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         service.getShedCompletionSummary(taskId, shedId)
 
+    override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns()
+
     override suspend fun submitAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -652,6 +676,18 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto = service.recordScanAttempt(taskId, idempotencyKey, request)
+
+    override suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto = service.recordWeighingAnimalObservation(campaignId, idempotencyKey, request)
+
+    override suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto = service.recordWeighingShedObservation(campaignId, idempotencyKey, request)
 
     override suspend fun verifyAppTask(
         taskId: String,

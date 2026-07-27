@@ -238,6 +238,8 @@ class SyncEngine(
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
+        OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
+        OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -645,6 +647,18 @@ class SyncEngine(
                 proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
             ),
         )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWeighingAnimalObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingAnimalObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingAnimalObservation(payload.campaignId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWeighingShedObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingShedObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingShedObservation(payload.campaignId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

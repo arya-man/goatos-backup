@@ -5,10 +5,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.util.UUID
 
 data class WeighingScanMatch(
@@ -79,6 +86,7 @@ class DefaultWeighingRepository(
     private val rosterDao: WeighingRosterDao,
     private val observationDao: WeighingObservationDao,
     private val shedObservationDao: WeighingShedObservationDao,
+    private val syncRepository: SyncRepository? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : WeighingRepository {
@@ -178,6 +186,19 @@ class DefaultWeighingRepository(
                 WeighingSyncStatus.READY_TO_SUBMIT.name
             },
         )
+        if (!serverProofId.isNullOrBlank()) {
+            syncRepository?.enqueueWeighingAnimalObservation(
+                campaignId = row.campaignId,
+                groupKey = row.scopeKey,
+                idempotencyKey = row.idempotencyKey,
+                request = WeighingAnimalObservationRequestDto(
+                    animalId = row.animalId,
+                    weightKg = row.weightKg,
+                    proofArtifactId = serverProofId,
+                    actualLocationId = row.actualLocationId ?: row.expectedLocationId,
+                ),
+            )
+        }
     }
 
     override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
@@ -226,6 +247,19 @@ class DefaultWeighingRepository(
                 WeighingSyncStatus.READY_TO_SUBMIT.name
             },
         )
+        val resultWeightKg = weighingShedResultWeightKg(existing.resultJson)
+        if (!serverProofId.isNullOrBlank() && resultWeightKg != null) {
+            syncRepository?.enqueueWeighingShedObservation(
+                campaignId = existing.campaignId,
+                groupKey = existing.scopeKey,
+                idempotencyKey = existing.idempotencyKey,
+                request = WeighingShedObservationRequestDto(
+                    campaignShedId = existing.campaignShedId,
+                    weightKg = resultWeightKg,
+                    proofArtifactId = serverProofId,
+                ),
+            )
+        }
     }
 
     override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) = withContext(Dispatchers.IO) {
@@ -269,3 +303,12 @@ fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buil
     put("weight", weightKg)
     put("unit", unit)
 }
+
+private fun weighingShedResultWeightKg(resultJson: String): Double? =
+    runCatching {
+        Json.parseToJsonElement(resultJson)
+            .jsonObject["weight"]
+            ?.jsonPrimitive
+            ?.doubleOrNull
+            ?.takeIf { it > 0.0 }
+    }.getOrNull()

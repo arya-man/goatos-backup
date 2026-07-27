@@ -308,9 +308,9 @@ Explicit exceptions:
 - `features/weighing/*` + `app/(admin)/weighing/page.tsx` (route `/weighing`): a new leadership
   planning and monitoring surface for weekly kids weighing, built from the approved weighing PRD/TRD
   and mock before the generated `AdminWebPageContract` includes a `weighing` route_id. The backend
-  data/API slice is real (`/weighing/campaigns` and `/app/weighing/campaigns/...`), but page chrome,
-  table labels, category labels, disabled reasons, and mock-fidelity fixture rows remain local until
-  the backend admin-ui contract grows this route. Remaining TODO (page-contract only): register the
+  data/API slice is real and generated (`/weighing/campaigns` and `/app/weighing/campaigns/...`),
+  but page chrome, table labels, category labels, and disabled reasons remain local until the
+  backend admin-ui contract grows this route. Remaining TODO (page-contract only): register the
   weighing route contract in `backend/internal/adminui/app/service.go`, move local copy/options into
   backend-owned copy/option groups, remove the `features/weighing/` skip from
   `apps/admin-web/scripts/check-ui-contract-literals.mjs`, and switch the page to

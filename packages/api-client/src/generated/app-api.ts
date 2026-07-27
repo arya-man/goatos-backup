@@ -75,6 +75,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List leadership-visible Weighing campaigns. */
+        get: operations["listWeighingCampaigns"];
+        put?: never;
+        /** Create a weekly kids Weighing campaign draft. */
+        post: operations["createWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/campaigns/{campaign_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a Weighing campaign to operator-visible work. */
+        post: operations["publishWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List operator-visible Weighing campaigns. */
+        get: operations["appListWeighingCampaigns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/animal-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one proof-backed individual animal Weighing observation. */
+        post: operations["recordWeighingAnimalObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/shed-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one proof-backed shed/partition Weighing observation. */
+        post: operations["recordWeighingShedObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/devices/register": {
         parameters: {
             query?: never;
@@ -5178,6 +5264,134 @@ export interface components {
             source: "api";
             rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
+        /** @enum {string} */
+        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "canceled";
+        /** @enum {string} */
+        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "canceled";
+        /** @enum {string} */
+        WeighingCategory: "individual_animal" | "per_shed_partition";
+        /** @enum {string} */
+        WeighingAvailabilityStatus: "expected_shed" | "moved_other_shed" | "icu" | "quarantine" | "dead" | "culled" | "sold_transferred" | "exited" | "unknown_review";
+        WeighingProgress: {
+            individual_expected_count: number;
+            individual_completed_count: number;
+            per_scope_expected_count: number;
+            per_scope_completed_count: number;
+            wrong_shed_count: number;
+            missing_count: number;
+            remaining_count: number;
+        };
+        WeighingCampaignShed: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            location_id: string;
+            /** @enum {string} */
+            location_type: "shed" | "cohort" | "pen";
+            display_name: string;
+            expected_animal_count: number;
+            weighing_category: components["schemas"]["WeighingCategory"];
+            status: components["schemas"]["WeighingCampaignShedStatus"];
+        };
+        WeighingCampaign: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            status: components["schemas"]["WeighingCampaignStatus"];
+            planned_cap_per_day: number;
+            /** Format: uuid */
+            operator_user_id: string;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+            sheds?: components["schemas"]["WeighingCampaignShed"][];
+            progress: components["schemas"]["WeighingProgress"];
+        };
+        WeighingCampaignListResponse: {
+            items: components["schemas"]["WeighingCampaign"][];
+            trace_id?: string;
+        };
+        WeighingCampaignResponse: {
+            campaign: components["schemas"]["WeighingCampaign"];
+            trace_id?: string;
+        };
+        CreateWeighingCampaignShed: {
+            /** Format: uuid */
+            location_id: string;
+            /** @enum {string} */
+            location_type: "shed" | "cohort" | "pen";
+            display_name: string;
+            weighing_category: components["schemas"]["WeighingCategory"];
+        };
+        CreateWeighingCampaignRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            planned_cap_per_day: number;
+            /** Format: uuid */
+            operator_user_id: string;
+            sheds: components["schemas"]["CreateWeighingCampaignShed"][];
+        };
+        RecordWeighingAnimalObservationRequest: {
+            /** Format: uuid */
+            animal_id: string;
+            weight_kg: number;
+            /** Format: uuid */
+            proof_artifact_id: string;
+            /** Format: uuid */
+            actual_location_id: string;
+        };
+        RecordWeighingShedObservationRequest: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            weight_kg: number;
+            /** Format: uuid */
+            proof_artifact_id: string;
+        };
+        WeighingObservation: {
+            /** Format: uuid */
+            observation_id: string;
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id?: string;
+            /** Format: uuid */
+            animal_id?: string;
+            weight_kg: number;
+            /** Format: uuid */
+            proof_artifact_id: string;
+            /** Format: uuid */
+            expected_location_id?: string;
+            /** Format: uuid */
+            actual_location_id?: string;
+            actual_location_label?: string;
+            /** Format: date-time */
+            accepted_at: string;
+        };
+        WeighingObservationResponse: {
+            observation: components["schemas"]["WeighingObservation"];
+            trace_id?: string;
+        };
         VaccinationShedVaccineRow: {
             protocolId: string;
             name: string;
@@ -6311,6 +6525,7 @@ export interface components {
         CalendarEventId: string;
         ProofId: string;
         ObligationId: string;
+        WeighingCampaignId: string;
     };
     requestBodies: never;
     headers: never;
@@ -6417,6 +6632,181 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listWeighingCampaigns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing campaigns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWeighingCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Weighing campaign created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    publishWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing campaign published or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingCampaigns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator Weighing campaigns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordWeighingAnimalObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordWeighingAnimalObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Animal observation accepted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingObservationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordWeighingShedObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordWeighingShedObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Shed/partition observation accepted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingObservationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
         };
     };
     registerAppDevice: {

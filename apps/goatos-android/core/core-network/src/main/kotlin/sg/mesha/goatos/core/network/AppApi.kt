@@ -77,6 +77,10 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
 const val APP_TASK_PAGE_SIZE = 20
@@ -319,6 +323,9 @@ interface AppApi {
      *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
     suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
+    /** GET /app/weighing/campaigns — operator-visible Weighing campaigns. */
+    suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
      *  retry) so a server-committed-but-client-unrecorded replay never duplicates the write. */
@@ -345,6 +352,18 @@ interface AppApi {
         idempotencyKey: String,
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto
+
+    suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
@@ -946,6 +965,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             submitState = "draft",
         )
 
+    override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+
     override suspend fun submitAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -963,6 +984,18 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto = ScanAttemptResponseDto()
+
+    override suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto = WeighingObservationResponseDto()
+
+    override suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto = WeighingObservationResponseDto()
 
     override suspend fun verifyAppTask(
         taskId: String,

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ApiResult } from "@/lib/api/server";
+import { getWeighingCampaigns, type ApiResult, type WeighingCampaign as ApiWeighingCampaign, type WeighingCampaignShed as ApiWeighingCampaignShed } from "@/lib/api/server";
 
 export type WeighingRole = "leadership" | "director" | "operator";
 export type WeighingCampaignState = "draft" | "published" | "in_progress" | "delayed" | "completed";
@@ -88,7 +88,9 @@ export function roleFromSearchParam(value: string | undefined): WeighingRole {
 }
 
 export async function getWeighingPageData(role: WeighingRole): Promise<ApiResult<WeighingPageData>> {
-  const campaign = fixtureCampaign(role);
+  const result = await getWeighingCampaigns();
+  if (!result.ok) return result;
+  const campaign = result.data.items.length > 0 ? campaignFromApi(result.data.items[0], role) : fixtureCampaign(role);
   return {
     ok: true,
     data: {
@@ -100,6 +102,70 @@ export async function getWeighingPageData(role: WeighingRole): Promise<ApiResult
         { key: "2026-08-02", label: "2-8 Aug", state: "no_task" },
       ],
     },
+  };
+}
+
+function campaignFromApi(item: ApiWeighingCampaign, role: WeighingRole): WeighingCampaign {
+  const leadership = role === "leadership";
+  const operator = role === "operator";
+  const progress = item.progress;
+  const scopes = (item.sheds ?? []).map((shed) => scopeFromApi(item, shed));
+  const individualExpected = progress.individual_expected_count;
+  const individualCompleted = progress.individual_completed_count;
+  const shedPartitionExpected = progress.per_scope_expected_count;
+  const shedPartitionCompleted = progress.per_scope_completed_count;
+  const expectedAnimals = individualExpected + shedPartitionExpected;
+  const completed = individualCompleted + shedPartitionCompleted;
+
+  return {
+    id: item.campaign_id,
+    weekLabel: `${item.period_start_date} to ${item.period_end_date}`,
+    weekStart: item.period_start_date,
+    weekEnd: item.period_end_date,
+    startBusinessDate: item.start_business_date,
+    state: item.status === "canceled" ? "delayed" : item.status,
+    laneLabel: "Weekly kids",
+    operatorName: item.operator_user_id,
+    selectedScopes: scopes.length,
+    expectedAnimals,
+    individualExpected,
+    individualCompleted,
+    shedPartitionExpected,
+    shedPartitionCompleted,
+    remaining: progress.remaining_count,
+    rolledForward: item.status === "delayed" ? progress.remaining_count : 0,
+    wrongShedScans: progress.wrong_shed_count,
+    unavailableAnimals: progress.missing_count,
+    proofPending: 0,
+    canCreate: leadership,
+    canEdit: leadership,
+    canPublish: leadership && item.status === "draft",
+    canExecute: operator,
+    reviewOnly: role === "director",
+    scopes,
+    wrongShedRows: [],
+    missingRows: [],
+  };
+}
+
+function scopeFromApi(campaign: ApiWeighingCampaign, shed: ApiWeighingCampaignShed): WeighingScopeRow {
+  const completedCount = shed.status === "completed" ? shed.expected_animal_count : 0;
+  return {
+    id: shed.campaign_shed_id,
+    parkName: campaign.park_id,
+    shedName: shed.display_name,
+    partitionName: shed.location_type,
+    category: shed.weighing_category,
+    expectedCount: shed.expected_animal_count,
+    completedCount,
+    remainingCount: Math.max(0, shed.expected_animal_count - completedCount),
+    unavailableCount: 0,
+    wrongShedCount: 0,
+    proofPendingCount: 0,
+    status: shed.status === "pending" ? "pending" : shed.status === "canceled" ? "delayed" : shed.status,
+    operatorName: campaign.operator_user_id,
+    plannedDate: campaign.start_business_date,
+    effectiveDate: campaign.start_business_date,
   };
 }
 
