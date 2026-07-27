@@ -964,6 +964,20 @@ Minimum tests before implementation is considered done:
 - Domain event registry covers every weighing producer and consumer.
 - Leadership assistant coverage is updated or an explicit exclusion is
   documented.
+- Backend migration constraints reject illegal statuses, impossible foreign
+  grains, duplicate accepted observations, and orphan proof links.
+- API integration tests prove tenant/scope enforcement for campaign, work group,
+  animal, location, and proof ids.
+- Projection tests include a work group with multiple sheds where only one shed
+  submits today and the sibling shed remains pending.
+- Fanout/retry tests prove observation acceptance still reaches progress,
+  latest-weight projection, notification, and media/recovery queues after a
+  transient consumer failure.
+- Android tests cover process death/reopen, sign-out wipe, page-2 animals,
+  O(1) RFID lookup, proof removal after upload but before acceptance, and route
+  identity after scan.
+- Admin-web tests, if leadership screens are added there, prove backend contract
+  labels/media URLs are rendered without local fallback copy.
 - 5k/25k/50k seed fixtures prove hot query plans remain indexed and bounded.
 - Query-count tests prove proof/media and current-location lookups are batched.
 - Multi-page campaign tests prove whole-task summaries are stable across page
@@ -1001,6 +1015,10 @@ Implementation guard targets to add:
   weight projection.
 - Whether the daily cap should be tenant-wide, farm-specific, or operator
   configuration in v1. Product default is 100.
+- Whether accepted weighing immediately updates the canonical latest-weight
+  projection or waits for optional supervisor verification.
+- Which existing proof review/verifier roles, if any, can reject an animal-level
+  weighing video in v1.
 - Whether active campaign membership is immutable after publish or supports
   versioned add/remove edits.
 - Whether v1 stores progress projections or serves canonical indexed SQL only
