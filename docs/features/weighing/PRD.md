@@ -434,12 +434,15 @@ Leadership and operator recovery screens must make incomplete work actionable:
 Leadership progress card contract:
 
 - Header: campaign date range, cadence lane, status, operator, and start date.
-- Primary counts: expected at planning, weighed expected, pending expected,
-  unavailable expected, and closed by leadership.
+- Primary counts: individual expected at planning, individual weighed expected,
+  individual pending expected, individual unavailable expected,
+  per-shed/partition selected scopes completed/pending/proof-blocked, and closed
+  by leadership.
 - Insight counts: other-shed weighed, not-in-campaign weighed, proof
   missing/failed, and delayed days.
-- Shed rows: selected shed/partition, planned count, weighed count, pending
-  count, unavailable count, latest activity, and status.
+- Shed rows: selected shed/partition, category, planned count, individual
+  weighed/pending/unavailable counts where applicable, per-shed/partition
+  observation/proof status where applicable, latest activity, and status.
 - Actions: edit pending sheds, close with reason, cancel, view animal rows, and
   view proof issues.
 
@@ -450,7 +453,10 @@ Leadership assistant/reporting must answer:
 
 - Which kids-only weighing campaigns are active this week?
 - Which sheds are delayed and by how many days?
-- How many expected animals were weighed, pending, unavailable, or closed?
+- How many individual expected animals were weighed, pending, unavailable, or
+  closed?
+- Which per-shed/partition selected scopes are completed, pending,
+  proof-blocked, or closed?
 - Which animals from other sheds were weighed during this campaign?
 - Which expected animals are missing because of ICU, death, cull,
   sale/transfer, or movement?
