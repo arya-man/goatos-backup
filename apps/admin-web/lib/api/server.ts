@@ -95,6 +95,8 @@ export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["Va
 export type WeighingCampaign = AppApiComponents["schemas"]["WeighingCampaign"];
 export type WeighingCampaignShed = AppApiComponents["schemas"]["WeighingCampaignShed"];
 export type WeighingCampaignListResponse = AppApiComponents["schemas"]["WeighingCampaignListResponse"];
+export type CreateWeighingCampaignRequest = AppApiComponents["schemas"]["CreateWeighingCampaignRequest"];
+export type WeighingCampaignResponse = AppApiComponents["schemas"]["WeighingCampaignResponse"];
 
 // CEO vaccination command board read model.
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
@@ -1071,6 +1073,40 @@ export async function getWeighingCampaigns(): Promise<ApiResult<WeighingCampaign
         signal,
       }),
     ),
+  );
+}
+
+export async function createWeighingCampaign(
+  body: CreateWeighingCampaignRequest,
+  idempotencyKey = `weighing-campaign-create-${randomUUID()}`,
+): Promise<ApiResult<WeighingCampaignResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeighingCampaignResponse>("/weighing/campaigns", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function publishWeighingCampaign(
+  campaignId: string,
+  idempotencyKey = `weighing-campaign-publish-${campaignId}-${randomUUID()}`,
+): Promise<ApiResult<WeighingCampaignResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/weighing/campaigns/${campaignId}/publish` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<WeighingCampaignResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
   );
 }
 

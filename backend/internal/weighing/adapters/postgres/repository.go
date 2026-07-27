@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -44,6 +45,10 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy).
 		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "weighing_campaigns_one_active_week_per_park_idx" {
+			return domain.Campaign{}, ports.ErrImmutable
+		}
 		return domain.Campaign{}, err
 	}
 	for _, shed := range cmd.Sheds {
@@ -242,28 +247,62 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 		return domain.Observation{}, err
 	}
 	defer tx.Rollback(ctx)
+	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, cmd.IdempotencyKey); err != nil || ok {
+		if err != nil {
+			return domain.Observation{}, err
+		}
+		return existing, tx.Commit(ctx)
+	}
 	var obs domain.Observation
 	err = tx.QueryRow(ctx, `
-WITH expected AS (
-  SELECT ea.campaign_shed_id, ea.expected_location_id, ea.expected_location_label, g.current_location_id AS actual_location_id, l.name AS actual_location_label
-  FROM goats g
-  LEFT JOIN weighing_expected_animals ea ON ea.tenant_id=$1::uuid AND ea.campaign_id=$2::uuid AND ea.animal_id=g.goat_id
-  LEFT JOIN locations l ON l.tenant_id=g.tenant_id AND l.location_id=g.current_location_id
-  WHERE g.tenant_id=$1::uuid AND g.goat_id=$3::uuid
-), inserted AS (
-  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
-  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
-    CASE WHEN campaign_shed_id IS NULL THEN 'extra_scan' WHEN expected_location_id IS DISTINCT FROM actual_location_id THEN 'wrong_shed' ELSE 'expected_shed' END,
+	WITH campaign AS (
+	  SELECT campaign_id
+	  FROM weighing_campaigns
+	  WHERE tenant_id=$1::uuid
+	    AND campaign_id=$2::uuid
+	    AND status IN ('published','in_progress')
+	    AND operator_user_id=$7::uuid
+	), expected AS (
+	  SELECT
+	    ea.campaign_shed_id,
+	    ea.expected_location_id,
+	    ea.expected_location_label,
+	    COALESCE(NULLIF($8, '')::uuid, g.current_location_id) AS actual_location_id,
+	    actual_location.name AS actual_location_label
+	  FROM campaign c
+	  JOIN goats g ON g.tenant_id=$1::uuid AND g.goat_id=$3::uuid
+	  LEFT JOIN weighing_expected_animals ea ON ea.tenant_id=$1::uuid AND ea.campaign_id=$2::uuid AND ea.animal_id=g.goat_id
+	  LEFT JOIN locations actual_location
+	    ON actual_location.tenant_id=g.tenant_id
+	   AND actual_location.location_id=COALESCE(NULLIF($8, '')::uuid, g.current_location_id)
+	  JOIN proof_artifacts proof
+	    ON proof.tenant_id=$1::uuid
+	   AND proof.proof_id=$5::uuid
+	   AND proof.upload_state='completed'
+	   AND proof.proof_type='video'
+	   AND proof.subject_type='goat'
+	   AND proof.subject_id=$3::uuid
+	   AND (
+	     (proof.scope_type='goat' AND proof.scope_id=$3::uuid)
+	     OR (
+	       proof.scope_type='shed'
+	       AND proof.scope_id IN (ea.expected_location_id, COALESCE(NULLIF($8, '')::uuid, g.current_location_id))
+	     )
+	   )
+	), inserted AS (
+	  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
+	  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
+	    CASE WHEN campaign_shed_id IS NULL THEN 'extra_scan' WHEN expected_location_id IS DISTINCT FROM actual_location_id THEN 'wrong_shed' ELSE 'expected_shed' END,
     $7::uuid, $6
   FROM expected
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
-)
-SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy).
+	)
+	SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
+		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.observationByIdem(ctx, tx, cmd.TenantID, cmd.IdempotencyKey)
+		return domain.Observation{}, r.classifyAnimalObservationRejection(ctx, tx, cmd)
 	}
 	if err != nil {
 		return domain.Observation{}, err
@@ -295,18 +334,48 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 		return domain.Observation{}, err
 	}
 	defer tx.Rollback(ctx)
+	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, cmd.IdempotencyKey); err != nil || ok {
+		if err != nil {
+			return domain.Observation{}, err
+		}
+		return existing, tx.Commit(ctx)
+	}
 	var obs domain.Observation
 	err = tx.QueryRow(ctx, `
-INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
-SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $7::uuid, $6
-FROM weighing_campaign_sheds cs
-WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=$3::uuid AND cs.weighing_category='per_shed_partition'
-ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text, weight_kg::float8, proof_artifact_id::text, accepted_at`,
+	WITH campaign AS (
+	  SELECT campaign_id
+	  FROM weighing_campaigns
+	  WHERE tenant_id=$1::uuid
+	    AND campaign_id=$2::uuid
+	    AND status IN ('published','in_progress')
+	    AND operator_user_id=$7::uuid
+	), scope AS (
+	  SELECT cs.campaign_shed_id, cs.location_id
+	  FROM campaign c
+	  JOIN weighing_campaign_sheds cs
+	    ON cs.tenant_id=$1::uuid
+	   AND cs.campaign_id=c.campaign_id
+	   AND cs.campaign_shed_id=$3::uuid
+	   AND cs.weighing_category='per_shed_partition'
+	  JOIN proof_artifacts proof
+	    ON proof.tenant_id=$1::uuid
+	   AND proof.proof_id=$5::uuid
+	   AND proof.upload_state='completed'
+	   AND proof.proof_type='video'
+	   AND proof.scope_type='shed'
+	   AND proof.scope_id=cs.location_id
+	   AND proof.subject_type='shed'
+	   AND proof.subject_id=cs.location_id
+	)
+	INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
+	SELECT $1::uuid, $2::uuid, campaign_shed_id, $4, $5::uuid, $7::uuid, $6
+	FROM scope
+	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+	RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text, weight_kg::float8, proof_artifact_id::text, accepted_at`,
 		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.ProofArtifactID, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.observationByIdem(ctx, tx, cmd.TenantID, cmd.IdempotencyKey)
+		return domain.Observation{}, r.classifyShedObservationRejection(ctx, tx, cmd)
 	}
 	if err != nil {
 		return domain.Observation{}, err
@@ -431,21 +500,144 @@ func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenan
 }
 
 func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID, idem string) (domain.Observation, error) {
+	obs, ok, err := r.observationByIdemTx(ctx, tx, tenantID, idem)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if !ok {
+		return domain.Observation{}, ports.ErrNotFound
+	}
+	return obs, tx.Commit(ctx)
+}
+
+func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, idem string) (domain.Observation, bool, error) {
 	var obs domain.Observation
 	err := tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if err == nil {
-		return obs, tx.Commit(ctx)
+		return obs, true, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Observation{}, false, err
 	}
 	err = tx.QueryRow(ctx, `SELECT shed_observation_id::text, campaign_id::text, campaign_shed_id::text, weight_kg::float8, proof_artifact_id::text, accepted_at FROM weighing_shed_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.ProofArtifactID, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, ports.ErrNotFound
+		return domain.Observation{}, false, nil
 	}
 	if err != nil {
-		return domain.Observation{}, err
+		return domain.Observation{}, false, err
 	}
-	return obs, tx.Commit(ctx)
+	return obs, true, nil
+}
+
+func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
+	var status, operatorID string
+	err := tx.QueryRow(ctx, `SELECT status, operator_user_id::text FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID).
+		Scan(&status, &operatorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != domain.StatusPublished && status != domain.StatusInProgress {
+		return ports.ErrImmutable
+	}
+	if operatorID != cmd.RecordedBy {
+		return ports.ErrForbidden
+	}
+	var animalExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid)`, cmd.TenantID, cmd.AnimalID).Scan(&animalExists); err != nil {
+		return err
+	}
+	if !animalExists {
+		return ports.ErrNotFound
+	}
+	var proofOK bool
+	err = tx.QueryRow(ctx, `
+	SELECT EXISTS (
+	  SELECT 1
+	  FROM goats g
+	  LEFT JOIN weighing_expected_animals ea
+	    ON ea.tenant_id=$1::uuid
+	   AND ea.campaign_id=$2::uuid
+	   AND ea.animal_id=g.goat_id
+	  JOIN proof_artifacts proof
+	    ON proof.tenant_id=$1::uuid
+	   AND proof.proof_id=$3::uuid
+	   AND proof.upload_state='completed'
+	   AND proof.proof_type='video'
+	   AND proof.subject_type='goat'
+	   AND proof.subject_id=g.goat_id
+	   AND (
+	     (proof.scope_type='goat' AND proof.scope_id=g.goat_id)
+	     OR (
+	       proof.scope_type='shed'
+	       AND proof.scope_id IN (ea.expected_location_id, COALESCE(NULLIF($4, '')::uuid, g.current_location_id))
+	     )
+	   )
+	  WHERE g.tenant_id=$1::uuid AND g.goat_id=$5::uuid
+	)`, cmd.TenantID, cmd.CampaignID, cmd.ProofArtifactID, cmd.ActualLocationID, cmd.AnimalID).Scan(&proofOK)
+	if err != nil {
+		return err
+	}
+	if !proofOK {
+		return ports.ErrInvalidArgument
+	}
+	return ports.ErrNotFound
+}
+
+func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordShedObservation) error {
+	var status, operatorID string
+	err := tx.QueryRow(ctx, `SELECT status, operator_user_id::text FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID).
+		Scan(&status, &operatorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != domain.StatusPublished && status != domain.StatusInProgress {
+		return ports.ErrImmutable
+	}
+	if operatorID != cmd.RecordedBy {
+		return ports.ErrForbidden
+	}
+	var category string
+	var proofOK bool
+	err = tx.QueryRow(ctx, `
+	SELECT cs.weighing_category,
+	  EXISTS (
+	    SELECT 1
+	    FROM proof_artifacts proof
+	    WHERE proof.tenant_id=$1::uuid
+	      AND proof.proof_id=$4::uuid
+	      AND proof.upload_state='completed'
+	      AND proof.proof_type='video'
+	      AND proof.scope_type='shed'
+	      AND proof.scope_id=cs.location_id
+	      AND proof.subject_type='shed'
+	      AND proof.subject_id=cs.location_id
+	  ) AS proof_ok
+	FROM weighing_campaign_sheds cs
+	WHERE cs.tenant_id=$1::uuid
+	  AND cs.campaign_id=$2::uuid
+	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactID).
+		Scan(&category, &proofOK)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if category != domain.CategoryPerShedPartition {
+		return ports.ErrNotFound
+	}
+	if !proofOK {
+		return ports.ErrInvalidArgument
+	}
+	return ports.ErrNotFound
 }
 
 func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggregateID, idem string, payload any) error {

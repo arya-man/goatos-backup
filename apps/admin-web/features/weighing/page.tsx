@@ -1,10 +1,48 @@
 import Link from "@/components/no-prefetch-link";
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
+import { revalidatePath } from "next/cache";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { createWeighingCampaign, publishWeighingCampaign } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
-import { getWeighingPageData, roleFromSearchParam, type WeighingCampaignState, type WeighingCategory, type WeighingScopeStatus } from "./data";
+import { getWeighingPageData, roleFromSearchParam, type WeighingCampaignState, type WeighingCategory, type WeighingPlanner, type WeighingScopeStatus } from "./data";
+
+async function createWeighingCampaignAction(formData: FormData) {
+  "use server";
+  if (String(formData.get("duplicate_blocked") || "") === "true") {
+    revalidatePath("/weighing");
+    return;
+  }
+  const selectedShedIds = formData.getAll("shed_id").map(String);
+  const categoryByShed = new Map(formData.getAll("shed_category").map((value) => {
+    const [id, category] = String(value).split(":");
+    return [id, category as WeighingCategory];
+  }));
+  const labelByShed = new Map(formData.getAll("shed_label").map((value) => {
+    const [id, label] = String(value).split(":", 2);
+    return [id, label];
+  }));
+  const sheds = selectedShedIds.map((id) => ({
+    location_id: id,
+    location_type: "shed" as const,
+    display_name: labelByShed.get(id) || "Selected shed",
+    weighing_category: categoryByShed.get(id) || "individual_animal",
+  }));
+  const result = await createWeighingCampaign({
+    park_id: String(formData.get("park_id") || ""),
+    period_start_date: String(formData.get("period_start_date") || ""),
+    period_end_date: String(formData.get("period_end_date") || ""),
+    start_business_date: String(formData.get("start_business_date") || ""),
+    planned_cap_per_day: Number(formData.get("planned_cap_per_day") || 100),
+    operator_user_id: String(formData.get("operator_user_id") || ""),
+    sheds,
+  });
+  if (result.ok && formData.get("publish") === "true") {
+    await publishWeighingCampaign(result.data.campaign.campaign_id);
+  }
+  revalidatePath("/weighing");
+}
 
 const statusTone: Record<WeighingCampaignState | WeighingScopeStatus | "no_task", Tone> = {
   no_task: "mut",
@@ -87,7 +125,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
     );
   }
 
-  const { campaign, weeks } = result.data;
+  const { campaign, weeks, planner } = result.data;
   const individualPct = pct(campaign.individualCompleted, campaign.individualExpected);
   const shedPct = pct(campaign.shedPartitionCompleted, campaign.shedPartitionExpected);
 
@@ -158,6 +196,8 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
           </div>
         </div>
       </section>
+
+      {campaign.canCreate ? <WeighingPlannerCard planner={planner} /> : null}
 
       <section className="weighing-metrics">
         <div className="card pad weighing-metric">
@@ -307,5 +347,137 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
         </div>
       </section>
     </div>
+  );
+}
+
+function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
+  const duplicateBlocked = planner.duplicateBlocked && planner.existingCampaignId;
+  const title = duplicateBlocked ? "Edit weekly kids weighing task" : "Create weekly kids weighing task";
+  const taskLabel = duplicateBlocked ? "Scheduled task" : "New task";
+  return (
+    <section className="card weighing-planner">
+      <div className="hd">
+        <Edit3 className="ic" aria-hidden="true" />
+        <h3>{title}</h3>
+        <div className="sp" />
+        {duplicateBlocked ? <Tag tone="warn">Already scheduled</Tag> : <Tag tone="ok">CEO / CXO</Tag>}
+      </div>
+      <div className="bd">
+        <form action={createWeighingCampaignAction} className="weighing-plan-form">
+          <input type="hidden" name="duplicate_blocked" value={duplicateBlocked ? "true" : "false"} />
+          <input type="hidden" name="park_id" value={planner.selectedParkId} />
+          <input type="hidden" name="period_start_date" value={planner.periodStartDate} />
+          <input type="hidden" name="period_end_date" value={planner.periodEndDate} />
+          <input type="hidden" name="start_business_date" value={planner.startBusinessDate} />
+          <input type="hidden" name="planned_cap_per_day" value={planner.plannedCapPerDay} />
+          <input type="hidden" name="operator_user_id" value={planner.selectedOperatorId} />
+          {planner.sheds.map((shed) => (
+            <span key={shed.id}>
+              {shed.selected ? <input type="hidden" name="shed_id" value={shed.id} /> : null}
+              <input type="hidden" name="shed_category" value={`${shed.id}:${shed.category}`} />
+              <input type="hidden" name="shed_label" value={`${shed.id}:${shed.label}`} />
+            </span>
+          ))}
+          <div className="weighing-wizard-head">
+            <div>
+              <div className="crumb">{planner.weekLabel}</div>
+              <h2>{taskLabel}</h2>
+              <p className="muted">
+                {duplicateBlocked
+                  ? "This park already has a weekly kids weighing task for the selected week. Edit that task instead of creating a duplicate."
+                  : "Leadership chooses the park, shed partitions, category per selected scope, and the operator before publishing."}
+              </p>
+            </div>
+            <div className="weighing-step-bars" aria-label="Planner progress">
+              <i /><i /><i /><i /><i />
+            </div>
+          </div>
+
+          <div className="weighing-builder-grid">
+            <div className="weighing-builder-step">
+              <div className="weighing-step-label">Step 1 · Lane</div>
+              <h3>Confirm the lane</h3>
+              <div className="weighing-choice on">
+                <span className="weighing-radio" />
+                <div><b>Weekly · Kids</b><small>category is set per shed in step 3</small></div>
+              </div>
+              <div className="weighing-choice disabled">
+                <span className="weighing-radio" />
+                <div><b>Monthly · Adults</b><small>excluded in v1</small></div>
+              </div>
+            </div>
+
+            <div className="weighing-builder-step">
+              <div className="weighing-step-label">Step 2 · Park</div>
+              <h3>Select one park</h3>
+              {planner.parks.map((park) => (
+                <div className={`weighing-choice${park.selected ? " on" : ""}`} key={park.id}>
+                  <span className="weighing-radio" />
+                  <div><b>{park.label}</b><small>{park.subtitle}</small></div>
+                  <strong>{park.kidCount}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="weighing-builder-step weighing-shed-step">
+              <div className="weighing-step-label">Step 3 · Sheds</div>
+              <h3>Sheds & category</h3>
+              <p className="muted small">Category decides the operator capture screen and required proof.</p>
+              {planner.sheds.map((shed) => (
+                <div className={`weighing-shed-choice${shed.selected ? " on" : ""}`} key={shed.id}>
+                  <span className="weighing-check">{shed.selected ? "✓" : ""}</span>
+                  <div className="weighing-shed-main">
+                    <b>{shed.label}</b>
+                    <small>{shed.subtitle}</small>
+                    {shed.selected ? (
+                      <div className="weighing-segment" aria-label={`${shed.label} category`}>
+                        <span className={shed.category === "individual_animal" ? "on individual" : ""}>Individual</span>
+                        <span className={shed.category === "per_shed_partition" ? "on lumpsum" : ""}>Lumpsum</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <strong>{shed.kidCount}</strong>
+                </div>
+              ))}
+              <div className="weighing-total-card">
+                <span>{planner.individualShedCount} individual · {planner.lumpsumShedCount} lumpsum</span>
+                <b>{planner.individualKidCount}</b>
+                <small>weighed individually</small>
+              </div>
+            </div>
+
+            <div className="weighing-builder-step">
+              <div className="weighing-step-label">Step 5 · Assign</div>
+              <h3>Assign operator</h3>
+              <p className="muted small">Publishing creates open work. Director personas stay monitor-only.</p>
+              {planner.operators.map((operator) => (
+                <div className={`weighing-choice${operator.selected ? " on" : ""}${operator.disabled ? " disabled" : ""}`} key={operator.id}>
+                  <span className="weighing-radio" />
+                  <div><b>{operator.name}</b><small>{operator.capabilityLabel}</small></div>
+                </div>
+              ))}
+              <div className="weighing-assign-summary">
+                <span>Individual</span><b>{planner.individualShedCount} sheds · {planner.individualKidCount} kids</b>
+                <span>Lumpsum</span><b>{planner.lumpsumShedCount} sheds · {planner.lumpsumKidCount} in scope</b>
+              </div>
+            </div>
+          </div>
+
+          <div className="weighing-planner-actions">
+            {duplicateBlocked ? (
+              <>
+                <Link className="btn ghost" href={`/weighing?campaign=${planner.existingCampaignId}`}>Edit task</Link>
+                <button className="btn" type="button" disabled>New task blocked</button>
+              </>
+            ) : (
+              <>
+                <button className="btn ghost" type="submit" name="publish" value="false">Save draft</button>
+                <button className="btn primary" type="submit" name="publish" value="true"><Send className="ic" aria-hidden="true" /> Publish</button>
+              </>
+            )}
+          </div>
+        </form>
+      </div>
+    </section>
   );
 }

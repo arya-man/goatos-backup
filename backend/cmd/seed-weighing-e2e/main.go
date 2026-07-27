@@ -272,11 +272,13 @@ VALUES ($1::uuid, $2::uuid, 'weighing_ops', 'Weighing Operations', 'active')
 ON CONFLICT (department_id) DO UPDATE SET label = EXCLUDED.label, status = 'active', updated_at = now()`, departmentID, fx.TenantID); err != nil {
 		return fmt.Errorf("upsert weighing department: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
+	for _, moduleKey := range []string{"vaccination", "weighing"} {
+		if _, err := tx.Exec(ctx, `
 INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
-VALUES ($1::uuid, $2::uuid, 'vaccination', 'active')
-ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE SET status = 'active', updated_at = now()`, fx.TenantID, departmentID); err != nil {
-		return fmt.Errorf("upsert vaccination module grant: %w", err)
+VALUES ($1::uuid, $2::uuid, $3, 'active')
+ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE SET status = 'active', updated_at = now()`, fx.TenantID, departmentID, moduleKey); err != nil {
+			return fmt.Errorf("upsert %s module grant: %w", moduleKey, err)
+		}
 	}
 	for _, persona := range fx.Personas {
 		grantRole := dbGrantRole(persona.GrantRole)

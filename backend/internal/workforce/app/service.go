@@ -639,7 +639,6 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor decides the nav chrome from the COMPOSED drawer, following the
 // nav-composition rule "1 available module -> clean bottom bar, >=2 -> module
 // switcher drawer". This applies uniformly to field operators and leadership:
 // a preventive-care leader whose only drawer entry is the vaccination home, or

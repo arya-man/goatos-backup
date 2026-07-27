@@ -77,6 +77,9 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.AnimalID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || cmd.WeightKg <= 0 || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
+		return domain.Observation{}, ports.ErrInvalidArgument
+	}
 	return s.repo.RecordAnimalObservation(ctx, cmd)
 }
 

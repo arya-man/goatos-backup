@@ -85,7 +85,6 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -116,7 +115,6 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
-		{Key: "weighing", Label: "वजन", Href: "/weighing"},
 		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
@@ -164,7 +162,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		}
 	}
 	if got.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + feed)", got.NavChrome, domain.NavChromeExpanded)
+		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + weighing + feed)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -208,7 +206,6 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -272,7 +269,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -294,7 +290,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -318,7 +313,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
-				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -331,7 +325,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -406,15 +399,15 @@ func TestNavChromeFor(t *testing.T) {
 			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:           "pc director single module stays minimal",
+			name:           "pc director with preventive care verticals expands",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
-			grantedModules: []string{"vaccination", "counts"},
-			want:           domain.NavChromeMinimal,
+			grantedModules: []string{"vaccination", "weighing", "counts"},
+			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:           "park head with vaccination + feed gets expanded",
+			name:           "park head with vaccination + weighing + feed gets expanded",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
-			grantedModules: []string{"vaccination", "counts", "feed_direction"},
+			grantedModules: []string{"vaccination", "weighing", "counts", "feed_direction"},
 			want:           domain.NavChromeExpanded,
 		},
 		{
@@ -439,6 +432,12 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
+			name:           "operator with vaccination + weighing expands",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination", "weighing"},
+			want:           domain.NavChromeExpanded,
+		},
+		{
 			name:   "verifier minimal",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			want:   domain.NavChromeMinimal,
@@ -458,7 +457,7 @@ func TestNavChromeFor(t *testing.T) {
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
 // 2. Operator drawer chrome expands once the operator holds >=2 modules (rollout enabled)
-// 3. Leadership principals use the shared Vaccination module after Overview removal
+// 3. Leadership principals get separate module bars after Overview removal
 // 4. Nav items are deduplicated by shared_key
 func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
@@ -471,39 +470,57 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
+	t.Run("operator vaccination module gets only vaccination tabs", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
-		if len(nav) != 4 {
-			t.Fatalf("operator nav length=%d want 4 (drives + weighing + alerts + you)", len(nav))
+		if len(nav) != 3 {
+			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
 		}
-		if nav[1].Key != "weighing" || nav[1].Href != "/weighing" {
-			t.Fatalf("second nav item=%#v want weighing inside the Vaccination module bar", nav[1])
+		if nav[1].Key != "alerts" || nav[1].Href != "/alerts" {
+			t.Fatalf("second nav item=%#v want alerts inside the Vaccination module bar", nav[1])
+		}
+		if nav[2].Key != "you" || nav[2].Href != "/you" {
+			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[2])
 		}
 		for _, item := range nav {
-			if item.Key == "calendar" || item.Href == "/calendar" {
-				t.Fatalf("operator vaccination nav must not include Calendar/week/month/history; got %#v", nav)
-			}
-		}
-		// "You" is a BACKEND contribution now, not client-static chrome the shell appends.
-		// The client renders the composed bar verbatim, so if this item stops being emitted the
-		// profile/settings surface silently disappears from the bottom bar.
-		if nav[3].Key != "you" || nav[3].Href != "/you" {
-			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[3])
-		}
-		// Verify shared nav items are not duplicated (dedupe by shared_key)
-		seen := make(map[string]int)
-		for _, item := range nav {
-			seen[item.Key]++
-			if seen[item.Key] > 1 {
-				t.Fatalf("nav item %q appears %d times (should be deduplicated)", item.Key, seen[item.Key])
+			if item.Key == "calendar" || item.Href == "/calendar" || item.Key == "weighing" || item.Href == "/weighing" {
+				t.Fatalf("operator vaccination nav must not include Calendar or Weighing; got %#v", nav)
 			}
 		}
 	})
 
-	t.Run("preventive care leader keeps field vaccination bar", func(t *testing.T) {
+	t.Run("operator weighing module gets weighing tabs and expanded sidebar", func(t *testing.T) {
+		modules := modulesFor(operatorGrants, []string{"vaccination", "weighing"}, "")
+		if chrome := navChromeFor(operatorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(operator vaccination+weighing)=%q want expanded", chrome)
+		}
+		var weighing *domain.BootstrapModule
+		for i := range modules {
+			if modules[i].Key == "weighing" {
+				weighing = &modules[i]
+			}
+		}
+		if weighing == nil {
+			t.Fatalf("operator must receive separate weighing module; modules=%#v", modules)
+		}
+		want := []domain.BootstrapNavigationItem{
+			{Key: "weighing", Label: "Weighing", Href: "/weighing"},
+			{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(weighing.NavItems) != len(want) {
+			t.Fatalf("weighing nav=%#v want %#v", weighing.NavItems, want)
+		}
+		for i := range want {
+			if weighing.NavItems[i] != want[i] {
+				t.Fatalf("weighing nav[%d]=%#v want %#v", i, weighing.NavItems[i], want[i])
+			}
+		}
+	})
+
+	t.Run("preventive care leader keeps field vaccination bar without weighing tab", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
 		if len(nav) != 4 {
 			t.Fatalf("pc leader nav length=%d want 4 (calendar + videos + alerts + you)", len(nav))
@@ -513,14 +530,15 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("pc director gets weighing monitor inside vaccination bar", func(t *testing.T) {
+	t.Run("pc director gets separate weighing module", func(t *testing.T) {
 		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)}
-		nav := visibleNavigationFor(directorGrants, nil, "")
-		if len(nav) != 5 {
-			t.Fatalf("pc director nav length=%d want 5 (calendar + videos + weighing + alerts + you)", len(nav))
+		modules := modulesFor(directorGrants, nil, "")
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("pc director chrome=%q want expanded", chrome)
 		}
-		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "weighing" || nav[3].Key != "alerts" || nav[4].Key != "you" {
-			t.Fatalf("pc director nav should include weighing in the vaccination bar; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key, nav[4].Key})
+		keys := moduleKeySet(modules)
+		if keys["vaccination"] != moduleStatusAvailable || keys["weighing"] != moduleStatusAvailable {
+			t.Fatalf("pc director must get vaccination and weighing modules; got %v", keys)
 		}
 	})
 
@@ -532,8 +550,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("park head (vaccination + feed) gets expanded nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "counts", "feed_direction"}, ""))
+	t.Run("park head with weighing and feed gets expanded nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "weighing", "counts", "feed_direction"}, ""))
 		if chrome != domain.NavChromeExpanded {
 			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeExpanded)
 		}

@@ -102,6 +102,19 @@ data class WeighingShedObservationEntity(
     val lastError: String?,
 )
 
+data class WeighingIndividualReadyProofRow(
+    val scopeKey: String,
+    val animalId: String,
+    val proofCaptureId: String,
+    val serverProofId: String,
+)
+
+data class WeighingShedReadyProofRow(
+    val scopeKey: String,
+    val proofCaptureId: String,
+    val serverProofId: String,
+)
+
 @Dao
 interface WeighingRosterDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -147,6 +160,26 @@ interface WeighingObservationDao {
     suspend fun findByAnimal(scopeKey: String, animalId: String): WeighingObservationEntity?
 
     @Query(
+        "SELECT o.scopeKey AS scopeKey, o.animalId AS animalId, o.proofCaptureId AS proofCaptureId, " +
+            "p.serverProofId AS serverProofId FROM weighing_observation o " +
+            "JOIN proof_capture p ON p.id = o.proofCaptureId " +
+            "WHERE o.syncStatus = 'PROOF_UPLOADING' AND o.proofCaptureId IS NOT NULL " +
+            "AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "ORDER BY o.capturedAtMs ASC LIMIT :limit",
+    )
+    fun observeReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): Flow<List<WeighingIndividualReadyProofRow>>
+
+    @Query(
+        "SELECT o.scopeKey AS scopeKey, o.animalId AS animalId, o.proofCaptureId AS proofCaptureId, " +
+            "p.serverProofId AS serverProofId FROM weighing_observation o " +
+            "JOIN proof_capture p ON p.id = o.proofCaptureId " +
+            "WHERE o.syncStatus = 'PROOF_UPLOADING' AND o.proofCaptureId IS NOT NULL " +
+            "AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "ORDER BY o.capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): List<WeighingIndividualReadyProofRow>
+
+    @Query(
         "UPDATE weighing_observation SET proofCaptureId = :proofCaptureId, serverProofId = :serverProofId, " +
             "syncStatus = :syncStatus, lastError = NULL WHERE observationId = :observationId",
     )
@@ -155,8 +188,15 @@ interface WeighingObservationDao {
     @Query("DELETE FROM weighing_observation WHERE observationId = :observationId AND syncStatus != 'ACCEPTED'")
     suspend fun deleteEditable(observationId: String)
 
+    @Query(
+        "UPDATE weighing_observation SET syncStatus = 'ACCEPTED', lastError = NULL " +
+            "WHERE idempotencyKey = :idempotencyKey",
+    )
+    suspend fun markAcceptedByIdempotencyKey(idempotencyKey: String): Int
+
     companion object {
         const val MAX_OBSERVATIONS_PER_SCOPE = 5_000
+        const val READY_PROOF_RECONCILE_LIMIT = 20
     }
 }
 
@@ -175,13 +215,41 @@ interface WeighingShedObservationDao {
     suspend fun findByScope(scopeKey: String): WeighingShedObservationEntity?
 
     @Query(
+        "SELECT s.scopeKey AS scopeKey, s.proofCaptureId AS proofCaptureId, p.serverProofId AS serverProofId " +
+            "FROM weighing_shed_observation s JOIN proof_capture p ON p.id = s.proofCaptureId " +
+            "WHERE s.syncStatus = 'PROOF_UPLOADING' AND s.proofCaptureId IS NOT NULL " +
+            "AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "ORDER BY s.capturedAtMs ASC LIMIT :limit",
+    )
+    fun observeReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): Flow<List<WeighingShedReadyProofRow>>
+
+    @Query(
+        "SELECT s.scopeKey AS scopeKey, s.proofCaptureId AS proofCaptureId, p.serverProofId AS serverProofId " +
+            "FROM weighing_shed_observation s JOIN proof_capture p ON p.id = s.proofCaptureId " +
+            "WHERE s.syncStatus = 'PROOF_UPLOADING' AND s.proofCaptureId IS NOT NULL " +
+            "AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "ORDER BY s.capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): List<WeighingShedReadyProofRow>
+
+    @Query(
         "UPDATE weighing_shed_observation SET proofCaptureId = :proofCaptureId, serverProofId = :serverProofId, " +
             "syncStatus = :syncStatus, lastError = NULL WHERE shedObservationId = :shedObservationId",
     )
     suspend fun attachProof(shedObservationId: String, proofCaptureId: String, serverProofId: String?, syncStatus: String)
 
+    @Query("DELETE FROM weighing_shed_observation WHERE shedObservationId = :shedObservationId AND syncStatus != 'ACCEPTED'")
+    suspend fun deleteEditable(shedObservationId: String)
+
+    @Query(
+        "UPDATE weighing_shed_observation SET syncStatus = 'ACCEPTED', lastError = NULL " +
+            "WHERE idempotencyKey = :idempotencyKey",
+    )
+    suspend fun markAcceptedByIdempotencyKey(idempotencyKey: String): Int
+
     companion object {
         const val MAX_SHED_OBSERVATIONS_PER_SCOPE = 100
+        const val READY_PROOF_RECONCILE_LIMIT = 20
     }
 }
 

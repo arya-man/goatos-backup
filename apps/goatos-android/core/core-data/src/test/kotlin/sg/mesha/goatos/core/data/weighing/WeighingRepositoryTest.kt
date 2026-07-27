@@ -2,6 +2,10 @@ package sg.mesha.goatos.core.data.weighing
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -15,6 +19,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
+import sg.mesha.goatos.core.data.sync.FakeOutboxStore
+import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
@@ -25,11 +35,13 @@ import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 class WeighingRepositoryTest {
     private lateinit var db: GoatDatabase
     private lateinit var repository: WeighingRepository
+    private lateinit var appScope: CoroutineScope
     private val scopeKey = weighingScopeKey("campaign-1", "group-1", "campaign-shed-1")
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         db = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
             .allowMainThreadQueries()
             .build()
@@ -44,6 +56,7 @@ class WeighingRepositoryTest {
 
     @After
     fun tearDown() {
+        appScope.cancel()
         db.close()
     }
 
@@ -168,9 +181,88 @@ class WeighingRepositoryTest {
         assertEquals(1, state.individualDrafts.size)
         assertTrue(state.individualDrafts.single().readyToSubmit)
         assertEquals(
-            "weighing:individual:campaign-1:group-1:campaign-shed-1:animal-1",
+            "weighing:individual:campaign-1:group-1:campaign-shed-1:animal-1:local-1",
             state.individualDrafts.single().idempotencyKey,
         )
+    }
+
+    @Test
+    fun `correcting an editable individual draft creates a fresh idempotency key and cancels stale queued write`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
+
+        val first = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+        assertEquals(first.value.idempotencyKey, store.findByIdempotencyKey(first.value.idempotencyKey)?.idempotencyKey)
+
+        val corrected = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 11.4)) as AppResult.Ok
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+
+        assertEquals(null, store.findByIdempotencyKey(first.value.idempotencyKey))
+        assertEquals(listOf(11.4), state.individualDrafts.map { it.weightKg })
+        assertEquals("weighing:individual:campaign-1:group-1:campaign-shed-1:animal-1:local-2", corrected.value.idempotencyKey)
+    }
+
+    @Test
+    fun `synced proof after screen exit still enqueues individual observation`() = runTest {
+        val store = FakeOutboxStore()
+        val concrete = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository = concrete
+        repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
+        val draft = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = null)
+        db.proofCaptureDao().insert(syncedProof("proof-local-1", subjectId = "animal-1", serverProofId = "proof-server-1"))
+
+        concrete.reconcileReadyProofsOnce()
+
+        val queued = store.findByIdempotencyKey(draft.value.idempotencyKey)
+        assertEquals(draft.value.idempotencyKey, queued?.idempotencyKey)
+        assertTrue(queued?.payloadJson.orEmpty().contains("proof-server-1"))
+    }
+
+    @Test
+    fun `successful weighing animal outbox dispatch marks local row accepted`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
+        val draft = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+
+        val engine = SyncEngine(
+            store = store,
+            api = FakeAppApi(),
+            connectivityGate = { true },
+            clock = { 2000L },
+            weighingObservationDao = db.weighingObservationDao(),
+            weighingShedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        engine.drainOnce()
+
+        val row = db.weighingObservationDao().findByIdempotencyKey(draft.value.idempotencyKey)
+        assertEquals(WeighingSyncStatus.ACCEPTED.name, row?.syncStatus)
     }
 
     @Test
@@ -195,7 +287,18 @@ class WeighingRepositoryTest {
         assertEquals(emptyList<IndividualWeighingDraft>(), state.individualDrafts)
         assertEquals(1, state.shedDrafts.size)
         assertTrue(state.shedDrafts.single().readyToSubmit)
-        assertEquals("weighing:shed:campaign-1:group-1:campaign-shed-1", state.shedDrafts.single().idempotencyKey)
+        assertEquals("weighing:shed:campaign-1:group-1:campaign-shed-1:local-1", state.shedDrafts.single().idempotencyKey)
+    }
+
+    private fun offlineSyncRepository(store: FakeOutboxStore): SyncRepository {
+        val engine = SyncEngine(store, FakeAppApi(), connectivityGate = { false }, clock = { 1000L })
+        return DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { false },
+            appScope = appScope,
+            clock = { 1000L },
+        )
     }
 
     private fun individualCapture(animalId: String, tag: String, weightKg: Double) =
@@ -238,6 +341,22 @@ class WeighingRepositoryTest {
         availabilityStatus = null,
         seq = seq,
         updatedAt = 1L,
+    )
+
+    private fun syncedProof(id: String, subjectId: String, serverProofId: String) = ProofCaptureEntity(
+        id = id,
+        taskId = scopeKey,
+        fieldKey = "weighing_individual_video",
+        proofSubject = "goat",
+        subjectId = subjectId,
+        localUri = "/tmp/$id.mp4",
+        mimeType = "video/mp4",
+        capturedAtMs = 1000L,
+        capturedStartMs = 1000L,
+        capturedEndMs = 2000L,
+        syncStatus = CaptureSyncStatus.SYNCED.name,
+        idempotencyKey = "proof-key-$id",
+        serverProofId = serverProofId,
     )
 
     private fun stableIds(): Sequence<String> = sequence {
