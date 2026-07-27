@@ -37,6 +37,8 @@ class WeighingRouteIdentityTest {
 
         assertTrue(navHost.contains("composable(Routes.WEIGHING)"))
         assertTrue(navHost.contains("route = \"${'$'}{Routes.WEIGHING_SCAN}?"))
-        assertTrue(navHost.contains("WeighingScreen(state = state)"))
+        assertTrue(navHost.contains("WeighingScreen("))
+        assertTrue(navHost.contains("vm.setCaptureActive(true)"))
+        assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(true)"))
     }
 }
