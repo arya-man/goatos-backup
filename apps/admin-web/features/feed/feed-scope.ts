@@ -114,6 +114,91 @@ export function feedOffset(sp: RouteSearchParams, param: string): number {
   return Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Feed PACKING browses by the PACKING day, not the feed day (maintainer decision 2026-07-27).
+// ---------------------------------------------------------------------------
+//
+// A packer works TODAY on the sheet that will be fed TOMORROW, so the Feed Packing picker shows the
+// PACKING day P and the backend is asked for feed day D = P + 1. The picker:
+//   - DEFAULTS to today (the run being packed now), not tomorrow;
+//   - is CAPPED at today — a packer cannot pack tomorrow's run before tomorrow morning generates it;
+//   - reaches PACKING_HISTORY_DAYS back so previously packed sheets stay reviewable. Past days that
+//     were never issued come back blank (beyond_horizon); that is expected, not an error.
+//
+// This is a relabel of the axis only: the backend still keys on the feed day D. Feed DIRECTION keeps
+// the feed-day axis (resolveFeedScope) — only Feed Packing uses the packing-day axis.
+const PACKING_HISTORY_DAYS = 30;
+
+export type FeedPackingScope = {
+  parkId: string;
+  parkLockedByTopBar: boolean;
+  /** The PACKING day shown and selected in the picker (Asia/Kolkata business date). */
+  packingDay: string;
+  /** The FEED day sent to the backend: packingDay + 1 (the day the animals eat). */
+  targetDate: string;
+  /** Picker bounds, in PACKING-day terms: [today - PACKING_HISTORY_DAYS, today]. */
+  minDate: string;
+  maxDate: string;
+};
+
+/** The packing day a Feed Packing page opened right now is for: today, in Asia/Kolkata. */
+export function defaultPackingDay(): string {
+  return todayIso();
+}
+
+/**
+ * The valid packing-day window [today - PACKING_HISTORY_DAYS, today] in Asia/Kolkata.
+ *
+ * The maximum is TODAY: tomorrow's packing run does not exist until it is generated tomorrow morning,
+ * so the picker cannot select a future packing day. The minimum reaches back so an operator can review
+ * previously packed sheets. Both bounds come from the SAME Asia/Kolkata helper the default uses
+ * (todayIso + istDayPlus), resolved server-side — never a raw browser clock or a hardcoded offset.
+ */
+export function packingDayWindow(): { min: string; max: string } {
+  const today = todayIso();
+  return { min: istDayPlus(today, -PACKING_HISTORY_DAYS), max: today };
+}
+
+/**
+ * Clamps a requested packing day into [today - PACKING_HISTORY_DAYS, today]. A future packing day
+ * (e.g. a stale link to tomorrow) is pulled back to today; a day older than the history window is
+ * pulled up to the window floor. An unparseable value falls back to the default (today).
+ */
+export function clampPackingDay(requested: string): string {
+  const { min, max } = packingDayWindow();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) return defaultPackingDay();
+  if (requested < min) return min;
+  if (requested > max) return max;
+  return requested;
+}
+
+/**
+ * Resolves the Feed Packing scope: the park, the PACKING day shown in the picker, and the FEED day
+ * (packingDay + 1) sent to the backend. minDate/maxDate are in packing-day terms so the date input
+ * clamps the packing day directly.
+ */
+export function resolveFeedPackingScope(
+  sp: RouteSearchParams,
+  parkParam: string,
+  dateParam: string,
+  parks: LocationOption[],
+): FeedPackingScope {
+  const { parkId: topBarParkId } = backendScope(parseScope(sp));
+  const pageParkId = one(sp, parkParam);
+  const selected = topBarParkId || pageParkId || parks[0]?.id || "";
+  const { min, max } = packingDayWindow();
+  const requested = one(sp, dateParam);
+  const packingDay = requested ? clampPackingDay(requested) : defaultPackingDay();
+  return {
+    parkId: selected,
+    parkLockedByTopBar: Boolean(topBarParkId),
+    packingDay,
+    targetDate: istDayPlus(packingDay, 1),
+    minDate: min,
+    maxDate: max,
+  };
+}
+
 /**
  * Rewrites one search param while preserving every other (top-bar scope, sibling section paging).
  * Dropping the rest would silently reset the operator's park/day on every page click.

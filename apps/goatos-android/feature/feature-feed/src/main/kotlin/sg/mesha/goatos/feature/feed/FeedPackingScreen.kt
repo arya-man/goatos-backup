@@ -70,12 +70,19 @@ data class FeedPackingSummaryUi(
 @Immutable
 data class FeedPackingUiState(
     val title: String,
+    // The PACKING day shown in the date bar (Asia/Kolkata). A packer works today on the sheet fed
+    // tomorrow, so this axis is the packing day and [feedForDateLabel] states the feed day it is for.
     val targetDateLabel: String = "",
+    // The FEED day (= packing day + 1), shown in the "This feed is for …" caption. The backend is
+    // asked for THIS day; the packing-day axis is display only.
+    val feedForDateLabel: String = "",
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
     val today: String = "",
-    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
-    // capture flow while this is false.
+    // Inclusive lower bound (ISO) for the date bar: the ~30-day history floor. Blank = no floor.
+    val minDate: String = "",
+    // True only when targetDateLabel == today: a past packing day is VIEW ONLY, so rows must not open
+    // the capture flow while this is false.
     val canCapture: Boolean = true,
     // Packing filters are farm + workflow only — the worklist endpoint has no shed filter (a packer
     // draws the whole park's bags), so the shed dropdown is deliberately absent here.
@@ -144,6 +151,14 @@ fun FeedPackingScreen(
                     selectedDate = state.targetDateLabel,
                     today = state.today,
                     onSelectDate = { onEvent(FeedPackingEvent.SelectDate(it)) },
+                    minDate = state.minDate.ifBlank { null },
+                )
+            }
+            // "This feed is for <feed day>" — the packing-day axis maps to feed day = packing day + 1,
+            // so the operator reads "packed today, for tomorrow" without doing the arithmetic.
+            item(key = "feed_for") {
+                FeedSectionCaption(
+                    stringResource(R.string.feed_packing_for_next_day, formatFeedDayLabel(state.feedForDateLabel)),
                 )
             }
             if (!state.canCapture) {

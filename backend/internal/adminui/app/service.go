@@ -1840,7 +1840,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.zero_items_omitted":           "Items authored at 0 g/head are not listed — those animals are fed none of that item, so there is nothing to weigh out. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
 			"empty.nothing_to_feed":              "Nothing to feed this session — every item for this shed is authored at 0 g/head.",
 			"label.overdue_shifting":             "Overdue movement",
-			"label.overdue_shifting_note":        "This projected count includes an approved movement whose feed-effective date has already passed without the animals physically being moved (emergency movements go feed-effective 1 day after approval, all others 2 days). The feed plan already assumes the animals are here. Execute or cancel the movement — it will keep counting toward this shed every day until you do.",
+			"label.overdue_shifting_note":        "This projected count includes an approved movement that has been standing open since before today’s packing day without the animals physically being moved. A movement counts toward the feed plan from the day it is authorized, so the plan already assumes the animals are here. Execute or cancel the movement — it will keep counting toward this shed every day until you do.",
 			"label.overdue_shifting_chip":        "movement overdue",
 			"label.clamped":                      "Negative projection floored",
 			"label.clamped_note":                 "Recorded movements remove more animals than this grain holds, so the projection was floored at zero. That is a data problem to investigate, not a real count.",
@@ -1899,6 +1899,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.packing.aria":       "Per-shed feed packing worklist",
 			"section.packing.caption":    "What the store weighs out per shed, session and feed item",
 			"section.packing.note":       "This is the same generated day as Feed Direction, rolled up to what actually gets packed: one line per shed × session × feed item. It is not a second generation run.",
+			// The picker axis is the PACKING day; this caption states the feed day it is for (packing
+			// day + 1). {date} is filled in by the renderer with the formatted feed day.
+			"caption.feed_for":           "This feed is for {date}",
 			"section.summary.title":      "Pack summary",
 			"section.summary.aria":       "Packing day summary",
 			"section.summary.note":       "Totals cover every line matching the current filters, not only the visible page.",
@@ -1915,7 +1918,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.packing.total_row":    "Total (lines)",
 			"filter.bar_aria":            "Filter packing lines",
 			"filter.drawer.title":        "Filter — Feed Packing",
-			"filter.date_label":          "Feed day",
+			// The Feed Packing picker selects the PACKING day (the day the sheet is packed), not the
+			// feed day; the caption above states which feed day it is for.
+			"filter.date_label":          "Packing day",
 			"filter.park_label":          "Park",
 			"filter.shed_label":          "Shed",
 			"filter.session_label":       "Session",
@@ -1939,7 +1944,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.zero_items_omitted":       "Items authored at 0 g/head are not listed — there is nothing to weigh out for them. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
 			"empty.nothing_to_feed":          "Nothing to pack for this session — every item for this shed is authored at 0 g/head.",
 			"label.overdue_shifting":         "Overdue movement",
-			"label.overdue_shifting_note":    "This shed's pack quantity is based on a projected count that includes an approved movement whose feed-effective date has passed without the animals being moved (emergency movements go feed-effective 1 day after approval, all others 2 days). Pack to the plan, and get the movement executed or cancelled.",
+			"label.overdue_shifting_note":    "This shed's pack quantity is based on a projected count that includes an approved movement standing open since before today’s packing day without the animals being moved. A movement counts toward the feed plan from the day it is authorized. Pack to the plan, and get the movement executed or cancelled.",
 			"label.overdue_shifting_chip":    "movement overdue",
 			"label.workflow_normal":          "Per-head (normal)",
 			"label.workflow_normal_note":     "Quantity derived from projected head count × the authored ration for this shed.",

@@ -113,23 +113,30 @@ func insertFeedProjShifting(
 		appliedAt = approvedAt.Add(24 * time.Hour)
 	}
 
+	// Migration 000031 requires a non-blank proof_ref for a 'pending_verification' row (the operator's
+	// mandatory video). An 'applied' row carries the same proof through approval; other states have none.
+	var proofRef any
+	if eventStatus == "pending_verification" || eventStatus == "applied" {
+		proofRef = key + ":proof"
+	}
+
 	var eventID string
 	if err := pool.QueryRow(ctx, `
 INSERT INTO shifting_events (
   tenant_id, logical_shifting_event_key, priority, category,
   source_park_id, source_shed_id, destination_park_id, destination_shed_id,
-  raised_at, effective_at, authorized_at, authorization_state, event_status, applied_at,
+  raised_at, effective_at, authorized_at, authorization_state, event_status, applied_at, proof_ref,
   source_system, source_ref, payload_hash, idempotency_key, request_fingerprint
 ) VALUES (
   $1::uuid, $2, $3, 'growth',
   $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-  $8, $8, $8, $9, $10, $11,
+  $8, $8, $8, $9, $10, $11, $12,
   'manual_review', $2, $2, $2, $2
 )
 RETURNING shifting_event_id`,
 		countsTenant, key, priority,
 		sourcePark, sourceShedArg, feedProjPark, destShed,
-		approvedAt, authState, eventStatus, appliedAt,
+		approvedAt, authState, eventStatus, appliedAt, proofRef,
 	).Scan(&eventID); err != nil {
 		t.Fatalf("seed shifting event %s: %v", key, err)
 	}
@@ -169,9 +176,11 @@ func feedProjQuery(target time.Time) domain.FeedProjectedCountQuery {
 	return domain.FeedProjectedCountQuery{TenantID: countsTenant, TargetDate: target, Limit: 100}
 }
 
-// TestFeedProjectionTimingRule proves the approval-date + lead-days rule at the SQL layer, and in
-// particular the <= comparison: an overdue movement keeps counting instead of silently dropping
-// out of the projection.
+// TestFeedProjectionTimingRule proves the zero-lead timing rule at the SQL layer (maintainer
+// decision 2026-07-27): a movement counts from its AUTHORIZATION day onward regardless of priority,
+// and is flagged OVERDUE only once it has been standing open since before the packing day
+// (feed day - 1). It also proves the <= comparison: an overdue movement keeps counting instead of
+// silently dropping out and de-feeding a shed whose animals are still expected.
 func TestFeedProjectionTimingRule(t *testing.T) {
 	ctx := context.Background()
 
@@ -183,17 +192,17 @@ func TestFeedProjectionTimingRule(t *testing.T) {
 		wantDelta    int64
 		wantOverdue  bool
 	}{
-		// High: approved day X, feed-effective X+1.
-		{name: "high does not count on the approval day", priority: "high", targetOffset: 0, wantDelta: 0},
-		{name: "high counts on the day after approval", priority: "high", targetOffset: 1, wantDelta: 4},
-		// Low: approved day X, feed-effective X+2.
-		{name: "low does not count on the approval day", priority: "low", targetOffset: 0, wantDelta: 0},
-		{name: "low does not count one day after approval", priority: "low", targetOffset: 1, wantDelta: 0},
-		{name: "low counts two days after approval", priority: "low", targetOffset: 2, wantDelta: 4},
-		// The overdue half of the rule. Under an == comparison these would be 0, and the
-		// destination shed would quietly stop being fed for animals still expected.
-		{name: "an overdue high still counts five days on", priority: "high", targetOffset: 5, wantDelta: 4, wantOverdue: true},
-		{name: "an overdue low still counts five days on", priority: "low", targetOffset: 5, wantDelta: 4, wantOverdue: true},
+		// No lead, no priority branch: high and low behave identically. A movement counts on its
+		// authorization day and every day after.
+		{name: "high counts on the authorization day", priority: "high", targetOffset: 0, wantDelta: 4, wantOverdue: false},
+		{name: "low counts on the authorization day", priority: "low", targetOffset: 0, wantDelta: 4, wantOverdue: false},
+		// Authorized on the packing day (feed day - 1) is on time, not overdue.
+		{name: "high the day after authorization is not overdue", priority: "high", targetOffset: 1, wantDelta: 4, wantOverdue: false},
+		{name: "low the day after authorization is not overdue", priority: "low", targetOffset: 1, wantDelta: 4, wantOverdue: false},
+		// Authorized before the packing day is overdue but keeps counting (the <= half of the rule).
+		{name: "high two days on is overdue and still counts", priority: "high", targetOffset: 2, wantDelta: 4, wantOverdue: true},
+		{name: "low two days on is overdue and still counts", priority: "low", targetOffset: 2, wantDelta: 4, wantOverdue: true},
+		{name: "an overdue movement still counts five days on", priority: "low", targetOffset: 5, wantDelta: 4, wantOverdue: true},
 	}
 
 	for _, tc := range cases {
@@ -240,12 +249,16 @@ func TestFeedProjectionTimingRule(t *testing.T) {
 	}
 }
 
-// TestFeedProjectionExcludesAppliedMovements is the double-count regression.
+// TestFeedProjectionStatusMatrixCountsPendingVerificationExcludesApplied walks the full
+// event_status matrix and is the double-count / under-count regression.
 //
-// A COMPLETED shifting has already relocated its animals in goats, so it is ALREADY inside
+// An APPLIED shifting has already relocated its animals in goats, so it is ALREADY inside
 // current_head_count. Adding its delta again would over-feed the destination shed by exactly the
-// size of the movement — a wrong number that looks entirely plausible on screen.
-func TestFeedProjectionExcludesAppliedMovements(t *testing.T) {
+// size of the movement — a wrong number that looks entirely plausible on screen. Conversely a
+// PENDING_VERIFICATION shifting (operator completed with proof, verifier has not approved) has NOT
+// relocated its animals yet, so it MUST still contribute or the shed is under-fed until approval.
+// This asserts every status bucket resolves to the right side of that line.
+func TestFeedProjectionStatusMatrixCountsPendingVerificationExcludesApplied(t *testing.T) {
 	ctx := context.Background()
 
 	cases := []struct {
@@ -261,6 +274,15 @@ func TestFeedProjectionExcludesAppliedMovements(t *testing.T) {
 			wantDelta:   5,
 		},
 		{
+			// The verification-gate case (maintainer decision 2026-07-27): the operator has completed
+			// with a video, but a verifier has not approved, so the animals are NOT yet relocated in
+			// goats. It must still contribute or the destination shed is under-fed until approval.
+			name:        "a pending_verification movement is not yet relocated and still contributes",
+			authState:   "authorized",
+			eventStatus: "pending_verification",
+			wantDelta:   5,
+		},
+		{
 			// The whole point of this test.
 			name:        "an applied movement is already in the live herd and must not be added again",
 			authState:   "authorized",
@@ -268,8 +290,8 @@ func TestFeedProjectionExcludesAppliedMovements(t *testing.T) {
 			wantDelta:   0,
 		},
 		{
-			// Approval is what starts the feed lead. An unapproved movement may never happen at
-			// all, so feeding for it would waste ration on animals that are not coming.
+			// Authorization is what makes a movement a pending feed input. An unapproved movement may
+			// never happen at all, so feeding for it would waste ration on animals that are not coming.
 			name:        "a pending unapproved movement does not contribute",
 			authState:   "pending",
 			eventStatus: "pending",
@@ -288,7 +310,7 @@ func TestFeedProjectionExcludesAppliedMovements(t *testing.T) {
 			repo, pool := newFeedProjRepo(t, ctx)
 
 			approvedAt := feedProjApproval(2026, time.July, 10, 9)
-			// Well past the two-day lead, so timing can never be the reason a delta is absent.
+			// Well after the authorization day, so timing can never be the reason a delta is absent.
 			target := feedProjDay(2026, time.July, 20)
 
 			for i := 0; i < 10; i++ {
@@ -394,12 +416,12 @@ func TestFeedProjectionClampsSourceGrainAtZeroAndSurfacesIt(t *testing.T) {
 	}
 }
 
-// TestFeedProjectionMultiImpactMovementDoesNotFanOutLiveCount is the join-cardinality regression.
+// TestFeedProjectionOneToManyMultiImpactMovementDoesNotFanOutLiveCount is the join-cardinality regression.
 //
 // shifting_event_impacts is 1:N per event. If the movement legs were joined to the live census
 // BEFORE being aggregated, a three-impact movement would multiply every live grain row it touched
 // by three. The delta CTE pre-aggregates to one row per grain precisely to make that impossible.
-func TestFeedProjectionMultiImpactMovementDoesNotFanOutLiveCount(t *testing.T) {
+func TestFeedProjectionOneToManyMultiImpactMovementDoesNotFanOutLiveCount(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newFeedProjRepo(t, ctx)
 
@@ -545,13 +567,14 @@ func TestFeedProjectionMatchesGrainAcrossLabelFormatting(t *testing.T) {
 // TestFeedProjectionApprovalDateUsesIndiaBusinessCalendar proves the timezone half of the timing
 // rule at the SQL layer.
 //
-// An approval stamped 20:00 UTC is already the NEXT day in India. Deriving the approval business
-// date in UTC would start the lead a day early and feed the destination shed a day late.
+// An approval stamped 20:00 UTC is already the NEXT day in India. With the zero-lead rule the
+// movement is feed-effective on its India authorization day; deriving that day in UTC would put it
+// one day early and feed the destination shed a day too soon.
 func TestFeedProjectionApprovalDateUsesIndiaBusinessCalendar(t *testing.T) {
 	ctx := context.Background()
 
-	// 2026-07-10T20:00:00Z == 2026-07-11T01:30 IST. With the one-day high-priority lead the movement
-	// is feed-effective on the 12th in the India calendar, and NOT on the 11th.
+	// 2026-07-10T20:00:00Z == 2026-07-11T01:30 IST, so the authorization business day is the 11th.
+	// The movement is feed-effective from the 11th in the India calendar, and NOT from the 10th.
 	approvedAt := time.Date(2026, time.July, 10, 20, 0, 0, 0, time.UTC)
 
 	cases := []struct {
@@ -560,13 +583,13 @@ func TestFeedProjectionApprovalDateUsesIndiaBusinessCalendar(t *testing.T) {
 		wantDelta int64
 	}{
 		{
-			name:      "the UTC-derived effective day does not count",
-			target:    feedProjDay(2026, time.July, 11),
+			name:      "the UTC-derived authorization day does not count",
+			target:    feedProjDay(2026, time.July, 10),
 			wantDelta: 0,
 		},
 		{
-			name:      "the India-derived effective day counts",
-			target:    feedProjDay(2026, time.July, 12),
+			name:      "the India-derived authorization day counts",
+			target:    feedProjDay(2026, time.July, 11),
 			wantDelta: 3,
 		},
 	}
@@ -711,7 +734,7 @@ func TestFeedProjectionDestinationLegAdoptsDestinationCohort(t *testing.T) {
 	repo, pool := newFeedProjRepo(t, ctx)
 
 	approvedAt := feedProjApproval(2026, time.July, 10, 9)
-	target := feedProjDay(2026, time.July, 20) // well past the lead, so timing is never the reason.
+	target := feedProjDay(2026, time.July, 20) // well after authorization, so timing is never the reason.
 
 	// Source shed A is a homogeneous K1 shed; destination shed B is a homogeneous K2 shed.
 	for i := 0; i < 8; i++ {
@@ -753,5 +776,64 @@ func TestFeedProjectionDestinationLegAdoptsDestinationCohort(t *testing.T) {
 			t.Fatalf("destination shed B has a K1 grain with delta %d; the destination leg leaked the SOURCE tag: %+v",
 				row.PendingDelta, row)
 		}
+	}
+}
+
+// TestFeedProjectionPageBoundaryTotalRowsInvariantToPaging is the pagination adversarial
+// regression: a projected count total must never move with the page window.
+//
+// TotalRows is a window function over the whole combined grain set, so it must report the same
+// full count on every page regardless of Limit/Offset, and a caller draining the projection under
+// StableOrder must see each grain exactly once — never dropped at a page boundary, never duplicated
+// across two pages. This is the read-model twin of the "totals independent of UI page size" rule.
+func TestFeedProjectionPageBoundaryTotalRowsInvariantToPaging(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	// Five distinct grains in one shed (one live animal per breed), so the projection returns five
+	// grain rows that a small page size must split.
+	breeds := []string{"Beetal", "Sirohi", "Osmanabadi", "Jamunapari", "Barbari"}
+	for i, breed := range breeds {
+		insertFeedProjGoat(t, ctx, pool, i, breed, "female", "K1", feedProjShedB)
+	}
+
+	target := feedProjDay(2026, time.July, 20)
+
+	// Walk the projection two rows at a time under the consistent-snapshot order.
+	seen := map[string]bool{}
+	const pageSize = 2
+	for offset := int32(0); ; offset += pageSize {
+		got, err := repo.ProjectedShedCountsForFeed(ctx, domain.FeedProjectedCountQuery{
+			TenantID:    countsTenant,
+			TargetDate:  target,
+			Limit:       pageSize,
+			Offset:      offset,
+			StableOrder: true,
+		})
+		if err != nil {
+			t.Fatalf("ProjectedShedCountsForFeed offset=%d: %v", offset, err)
+		}
+		// TotalRows is the FULL grain count on every page, never the page's own length.
+		if got.TotalRows != int64(len(breeds)) {
+			t.Fatalf("offset=%d total_rows=%d, want %d (a window-function total must not move with the page)",
+				offset, got.TotalRows, len(breeds))
+		}
+		if len(got.Items) > pageSize {
+			t.Fatalf("offset=%d returned %d rows, want at most page size %d", offset, len(got.Items), pageSize)
+		}
+		for _, row := range got.Items {
+			key := row.Breed
+			if seen[key] {
+				t.Fatalf("grain breed=%q appeared on a second page — a page boundary duplicated it", key)
+			}
+			seen[key] = true
+		}
+		if len(got.Items) < pageSize {
+			break
+		}
+	}
+
+	if len(seen) != len(breeds) {
+		t.Fatalf("drained %d distinct grains across pages, want %d — a page boundary dropped one", len(seen), len(breeds))
 	}
 }

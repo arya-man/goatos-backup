@@ -1,40 +1,51 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 	"testing"
-
-	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 )
 
-// TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays locks the Feed Direction / Feed Packing
-// "overdue movement" copy to the lead-day constants the projection actually enforces.
+// TestFeedOverdueShiftingCopyMatchesEnforcedRule locks the Feed Direction / Feed Packing
+// "overdue movement" copy to the timing rule the projection actually enforces.
 //
-// The copy tells an operator WHEN an approved movement starts counting toward a shed's feed
-// ("emergency ... 1 day after approval, all others 2 days"). Those numbers are enforced by
-// counts/domain.FeedShiftingLeadDays, which is the only definition of the rule (the SQL binds
-// them as parameters rather than re-deriving them). If someone changes a lead day without
-// updating the sentence — or edits the sentence without changing enforcement — an operator would
-// be told the feed plan assumes something it does not, on the exact screen used to decide whether
-// a shed is being fed for animals that have not arrived. This test makes that drift impossible.
-func TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays(t *testing.T) {
+// Maintainer decision 2026-07-27 retired the lead-day model: a movement now counts toward a shed's
+// feed from the day it is AUTHORIZED (no lead, no priority branch — see
+// counts/domain.FeedShiftingEffectiveBusinessDate), and it is flagged OVERDUE only once it has been
+// standing open since before the packing day. The copy on the exact screen an operator uses to
+// decide whether a shed is being fed for animals that have not arrived must state THAT rule, not the
+// retired one. This test forbids the old lead-day sentence from drifting back and requires the copy
+// to name the authorization-day rule, so the words and the engine cannot diverge.
+func TestFeedOverdueShiftingCopyMatchesEnforcedRule(t *testing.T) {
+	// Phrases from the retired lead-day wording. Their reappearance means the copy is describing a
+	// lead the projection no longer applies.
+	bannedRetiredPhrases := []string{
+		"feed-effective date",
+		"1 day after approval",
+		"2 days",
+		"emergency movements",
+	}
 	for _, routeID := range []string{"feed-direction", "feed-packing"} {
 		copyMap := pageSpecificCopy(routeID)
 		note, ok := copyMap["label.overdue_shifting_note"]
 		if !ok || strings.TrimSpace(note) == "" {
 			t.Fatalf("%s page copy is missing key %q", routeID, "label.overdue_shifting_note")
 		}
-		for _, want := range []int{
-			countsdomain.FeedShiftingHighPriorityLeadDays,
-			countsdomain.FeedShiftingStandardLeadDays,
-		} {
-			if !strings.Contains(note, fmt.Sprintf("%d day", want)) {
+		lower := strings.ToLower(note)
+		for _, banned := range bannedRetiredPhrases {
+			if strings.Contains(lower, strings.ToLower(banned)) {
 				t.Errorf(
-					"%s label.overdue_shifting_note = %q but the projection enforces a %d-day feed lead — the screen would state a lead time the engine does not apply",
-					routeID, note, want,
+					"%s label.overdue_shifting_note = %q still contains the retired lead-day phrase %q — the projection no longer applies a lead, so this states a rule the engine does not",
+					routeID, note, banned,
 				)
 			}
+		}
+		// The load-bearing half: the note must name the actual rule — a movement counts from the day
+		// it is authorized. Without it, an operator cannot tell why a not-yet-moved animal is in the count.
+		if !strings.Contains(lower, "authorized") {
+			t.Errorf(
+				"%s label.overdue_shifting_note = %q must say a movement counts toward the feed plan from the day it is authorized",
+				routeID, note,
+			)
 		}
 	}
 }
@@ -159,6 +170,7 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 		"feed-packing": {
 			"crumb",
 			"section.packing.title", "section.packing.aria", "section.packing.caption", "section.packing.note",
+			"caption.feed_for",
 			"table.packing.aria", "table.packing.noun",
 			"filter.all_option",
 			"label.blocked", "label.blocked_note",

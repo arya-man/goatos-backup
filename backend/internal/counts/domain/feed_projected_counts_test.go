@@ -17,94 +17,48 @@ func day(year int, month time.Month, d int) time.Time {
 	return ist(year, month, d, 0)
 }
 
-func TestFeedShiftingLeadDays(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name     string
-		priority string
-		want     int
-	}{
-		// Governing-doc taxonomy (migration 000016): Priority is High/Low. 'high' is the fast lane
-		// (the retired 'emergency' behaviour) and 'low' takes the standard two-day lead.
-		{name: "high moves fast so feed follows one day behind", priority: "high", want: 1},
-		{name: "low takes the standard two day lead", priority: "low", want: 2},
-		{name: "priority is matched case insensitively", priority: "HIGH", want: 1},
-		{name: "surrounding whitespace does not change the lead", priority: "  high  ", want: 1},
-		// Falling back to the SHORTER lead would feed the destination shed early, which is the
-		// direction that feeds the wrong shed. The longer lead only delays a projection that a
-		// later day picks up anyway.
-		{name: "unknown priority falls back to the safer standard lead", priority: "unrecognized", want: 2},
-		{name: "blank priority falls back to the safer standard lead", priority: "", want: 2},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := FeedShiftingLeadDays(tc.priority); got != tc.want {
-				t.Fatalf("FeedShiftingLeadDays(%q) = %d, want %d", tc.priority, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFeedEffectiveBusinessDate(t *testing.T) {
+// TestFeedShiftingEffectiveBusinessDate: an authorized movement is feed-relevant from its
+// authorization business day itself -- no lead, no priority branch (maintainer decision 2026-07-27).
+func TestFeedShiftingEffectiveBusinessDate(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name       string
 		approvedAt time.Time
-		priority   string
 		want       time.Time
 	}{
 		{
-			name:       "high approved on the 10th is feed effective on the 11th",
+			name:       "authorized on the 10th is feed effective on the 10th",
 			approvedAt: ist(2026, time.July, 10, 9),
-			priority:   "high",
-			want:       day(2026, time.July, 11),
-		},
-		{
-			name:       "low approved on the 10th is feed effective on the 12th",
-			approvedAt: ist(2026, time.July, 10, 9),
-			priority:   "low",
-			want:       day(2026, time.July, 12),
+			want:       day(2026, time.July, 10),
 		},
 		{
 			name:       "time of day within the approval day is discarded",
 			approvedAt: ist(2026, time.July, 10, 23),
-			priority:   "low",
-			want:       day(2026, time.July, 12),
+			want:       day(2026, time.July, 10),
 		},
 		{
 			// 20:00 UTC on the 10th is 01:30 IST on the 11th. Deriving the business date from UTC
-			// would start the lead a day early and feed the destination shed late.
+			// would put the movement on the wrong feed day.
 			name:       "a late UTC approval is already the next India business day",
 			approvedAt: time.Date(2026, time.July, 10, 20, 0, 0, 0, time.UTC),
-			priority:   "high",
-			want:       day(2026, time.July, 12),
-		},
-		{
-			name:       "the lead crosses a month boundary",
-			approvedAt: ist(2026, time.July, 31, 8),
-			priority:   "low",
-			want:       day(2026, time.August, 2),
+			want:       day(2026, time.July, 11),
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := FeedEffectiveBusinessDate(tc.approvedAt, tc.priority)
+			got := FeedShiftingEffectiveBusinessDate(tc.approvedAt)
 			if !got.Equal(tc.want) {
-				t.Fatalf("FeedEffectiveBusinessDate(%s, %q) = %s, want %s",
-					tc.approvedAt, tc.priority, got, tc.want)
+				t.Fatalf("FeedShiftingEffectiveBusinessDate(%s) = %s, want %s", tc.approvedAt, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestFeedShiftingCountsToward is the timing rule proper: which feed days an approved-but-
-// unexecuted movement contributes to.
+// TestFeedShiftingCountsToward is the timing rule proper: which feed days an authorized-but-
+// unexecuted movement contributes to. With no lead, it counts from the authorization day onward.
 func TestFeedShiftingCountsToward(t *testing.T) {
 	t.Parallel()
 
@@ -113,105 +67,72 @@ func TestFeedShiftingCountsToward(t *testing.T) {
 	cases := []struct {
 		name       string
 		approvedAt time.Time
-		priority   string
 		target     time.Time
 		want       bool
 	}{
-		// --- high: approval day X, effective X+1 ---
 		{
-			name:       "high does not count on the approval day itself",
+			name:       "does not count before the authorization day",
 			approvedAt: approvedOn10th,
-			priority:   "high",
-			target:     day(2026, time.July, 10),
+			target:     day(2026, time.July, 9),
 			want:       false,
 		},
 		{
-			name:       "high counts on the day after approval",
+			// The change from the retired 2-day-lead rule: a movement counts on its
+			// authorization day, and therefore for tomorrow's feed packed the same day.
+			name:       "counts on the authorization day itself",
 			approvedAt: approvedOn10th,
-			priority:   "high",
+			target:     day(2026, time.July, 10),
+			want:       true,
+		},
+		{
+			name:       "counts on the day after authorization",
+			approvedAt: approvedOn10th,
 			target:     day(2026, time.July, 11),
 			want:       true,
 		},
-
-		// --- low: approval day X, effective X+2 ---
-		{
-			name:       "low does not count on the approval day itself",
-			approvedAt: approvedOn10th,
-			priority:   "low",
-			target:     day(2026, time.July, 10),
-			want:       false,
-		},
-		{
-			name:       "low does not count one day after approval",
-			approvedAt: approvedOn10th,
-			priority:   "low",
-			target:     day(2026, time.July, 11),
-			want:       false,
-		},
-		{
-			name:       "low counts two days after approval",
-			approvedAt: approvedOn10th,
-			priority:   "low",
-			target:     day(2026, time.July, 12),
-			want:       true,
-		},
-
 		// --- the <= half of the rule: an OVERDUE movement never drops out ---
-		//
-		// This is the case an == rule gets wrong. A movement that came due for feed days ago and
-		// still has not been executed must keep counting on every later day; otherwise the
-		// destination shed silently stops being fed for animals still expected to arrive.
 		{
-			name:       "an overdue high still counts five days after approval",
+			name:       "an overdue movement still counts five days after authorization",
 			approvedAt: approvedOn10th,
-			priority:   "high",
-			target:     day(2026, time.July, 15),
-			want:       true,
-		},
-		{
-			name:       "an overdue low still counts five days after approval",
-			approvedAt: approvedOn10th,
-			priority:   "low",
 			target:     day(2026, time.July, 15),
 			want:       true,
 		},
 		{
 			name:       "an overdue movement still counts a month later",
 			approvedAt: approvedOn10th,
-			priority:   "low",
 			target:     day(2026, time.August, 10),
 			want:       true,
 		},
-
 		// --- target dates carrying a time component still resolve to their business day ---
 		{
-			name:       "a target instant late in the day is still that business day",
+			name:       "a target instant late on the authorization day still counts",
 			approvedAt: approvedOn10th,
-			priority:   "high",
 			target:     ist(2026, time.July, 10, 23),
-			want:       false,
+			want:       true,
 		},
 		{
-			name:       "a target instant late on the effective day counts",
+			name:       "a target instant late on the day before authorization does not count",
 			approvedAt: approvedOn10th,
-			priority:   "high",
-			target:     ist(2026, time.July, 11, 23),
-			want:       true,
+			target:     ist(2026, time.July, 9, 23),
+			want:       false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := FeedShiftingCountsToward(tc.approvedAt, tc.priority, tc.target)
+			got := FeedShiftingCountsToward(tc.approvedAt, tc.target)
 			if got != tc.want {
-				t.Fatalf("FeedShiftingCountsToward(approved=%s, priority=%q, target=%s) = %t, want %t",
-					tc.approvedAt, tc.priority, tc.target, got, tc.want)
+				t.Fatalf("FeedShiftingCountsToward(approved=%s, target=%s) = %t, want %t",
+					tc.approvedAt, tc.target, got, tc.want)
 			}
 		})
 	}
 }
 
+// TestFeedShiftingIsOverdue: overdue only when the movement was authorized BEFORE the packing day
+// (feed day - 1) and still is not executed. A move authorized on the packing day (expected to be
+// executed that same day) is NOT overdue -- see the maintainer decision on the overdue signal.
 func TestFeedShiftingIsOverdue(t *testing.T) {
 	t.Parallel()
 
@@ -220,44 +141,35 @@ func TestFeedShiftingIsOverdue(t *testing.T) {
 	cases := []struct {
 		name       string
 		approvedAt time.Time
-		priority   string
 		target     time.Time
 		want       bool
 	}{
 		{
-			name:       "not yet effective is not overdue",
+			// packing day = 9th; authorized on the 10th (after the packing day) -> not overdue.
+			name:       "authorized after the packing day is not overdue",
 			approvedAt: approvedOn10th,
-			priority:   "high",
 			target:     day(2026, time.July, 10),
 			want:       false,
 		},
 		{
-			// Due exactly today is on time, not late. An off-by-one here would flag every
-			// correctly-timed movement as a problem and train operators to ignore the flag.
-			name:       "effective exactly on the target day is on time not overdue",
+			// feed day 11 -> packing day 10; authorized ON the packing day is expected to execute
+			// that day and is on time, not overdue. An off-by-one here would flag every freshly
+			// authorized move and train operators to ignore the flag.
+			name:       "authorized on the packing day is on time not overdue",
 			approvedAt: approvedOn10th,
-			priority:   "high",
 			target:     day(2026, time.July, 11),
 			want:       false,
 		},
 		{
-			name:       "effective before the target day is overdue",
+			// feed day 12 -> packing day 11; authorized on the 10th (before the packing day) is overdue.
+			name:       "authorized before the packing day is overdue",
 			approvedAt: approvedOn10th,
-			priority:   "high",
 			target:     day(2026, time.July, 12),
 			want:       true,
 		},
 		{
-			name:       "low effective exactly on the target day is not overdue",
+			name:       "five days past authorization is overdue",
 			approvedAt: approvedOn10th,
-			priority:   "low",
-			target:     day(2026, time.July, 12),
-			want:       false,
-		},
-		{
-			name:       "low five days past approval is overdue",
-			approvedAt: approvedOn10th,
-			priority:   "low",
 			target:     day(2026, time.July, 15),
 			want:       true,
 		},
@@ -266,10 +178,10 @@ func TestFeedShiftingIsOverdue(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := FeedShiftingIsOverdue(tc.approvedAt, tc.priority, tc.target)
+			got := FeedShiftingIsOverdue(tc.approvedAt, tc.target)
 			if got != tc.want {
-				t.Fatalf("FeedShiftingIsOverdue(approved=%s, priority=%q, target=%s) = %t, want %t",
-					tc.approvedAt, tc.priority, tc.target, got, tc.want)
+				t.Fatalf("FeedShiftingIsOverdue(approved=%s, target=%s) = %t, want %t",
+					tc.approvedAt, tc.target, got, tc.want)
 			}
 		})
 	}
@@ -282,14 +194,12 @@ func TestFeedShiftingOverdueImpliesCounting(t *testing.T) {
 	t.Parallel()
 
 	approvedAt := ist(2026, time.July, 10, 9)
-	for _, priority := range []string{"high", "low", "unknown"} {
-		for offset := 0; offset <= 20; offset++ {
-			target := day(2026, time.July, 10).AddDate(0, 0, offset)
-			overdue := FeedShiftingIsOverdue(approvedAt, priority, target)
-			counts := FeedShiftingCountsToward(approvedAt, priority, target)
-			if overdue && !counts {
-				t.Fatalf("priority %q at +%dd is overdue but not counted", priority, offset)
-			}
+	for offset := 0; offset <= 20; offset++ {
+		target := day(2026, time.July, 10).AddDate(0, 0, offset)
+		overdue := FeedShiftingIsOverdue(approvedAt, target)
+		counts := FeedShiftingCountsToward(approvedAt, target)
+		if overdue && !counts {
+			t.Fatalf("at +%dd movement is overdue but not counted", offset)
 		}
 	}
 }

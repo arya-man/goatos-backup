@@ -447,10 +447,10 @@ func (s *Service) previewLifecycle(ctx context.Context, tenantID, parkID, feedDa
 //
 // The window is exactly two business days: "today" is being fed (packed yesterday) and "tomorrow" is
 // being packed now. The projected shed count that drives a sheet -- live herd + approved-but-
-// unexecuted shiftings (emergency +1 day, normal +2 days) -- is only meaningful across those two
-// days. Beyond tomorrow the counts depend on shiftings not yet approved; before today the herd is no
-// longer what it was. Generating outside the window would silently freeze today's herd onto the
-// wrong day, which is fabrication.
+// unexecuted shiftings (counted from the day each is authorized; maintainer decision 2026-07-27) --
+// is only meaningful across those two days. Beyond tomorrow the counts depend on shiftings not yet
+// approved; before today the herd is no longer what it was. Generating outside the window would
+// silently freeze today's herd onto the wrong day, which is fabrication.
 //
 // "today"/"tomorrow" come from the injected clock (s.now(), in Asia/Kolkata), NOT SQL now(), so a
 // pinned-clock test is deterministic. Business-date strings compare correctly with ==.
@@ -473,7 +473,10 @@ func (s *Service) beyondHorizonLifecycle(feedDay string) domain.Lifecycle {
 	today, tomorrow := s.feedHorizon()
 	var msg string
 	if feedDay < today {
-		msg = fmt.Sprintf("%s is before today (%s); feed counts are only projected for today and tomorrow (through %s), so a feed sheet for a past day cannot be produced from current counts", feedDay, today, tomorrow)
+		// A deliberately-browsed past day: no sheet was ever issued for it, and a past day cannot be
+		// regenerated from current counts (the herd is no longer what it was). This is an honest
+		// "nothing to show", not an error.
+		msg = fmt.Sprintf("no feed sheet was issued for %s; a past day cannot be regenerated from current counts", feedDay)
 	} else {
 		msg = fmt.Sprintf("counts are only projected through %s; a feed sheet for %s cannot be produced yet", tomorrow, feedDay)
 	}

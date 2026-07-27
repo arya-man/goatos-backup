@@ -171,10 +171,15 @@ internal fun FeedDateBar(
     today: String,
     onSelectDate: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
+    // Optional inclusive lower bound (ISO YYYY-MM-DD). Feed Packing passes this so the operator can
+    // browse ~30 days of history but no further; Feed Direction passes null and stays unbounded.
+    minDate: String? = null,
 ) {
     val selected = remember(selectedDate) { selectedDate.toLocalDateOrNull() ?: LocalDate.now() }
     val todayDate = remember(today) { today.toLocalDateOrNull() ?: LocalDate.now() }
+    val minDateParsed = remember(minDate) { minDate?.toLocalDateOrNull() }
     val isToday = selected == todayDate
+    val canGoBack = minDateParsed == null || selected.isAfter(minDateParsed)
     var pickerOpen by remember { mutableStateOf(false) }
 
     Row(
@@ -192,13 +197,13 @@ internal fun FeedDateBar(
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .clickable { onSelectDate(selected.minusDays(1)) },
+                .clickable(enabled = canGoBack) { onSelectDate(selected.minusDays(1)) },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = MeshaIcons.ChevronLeft,
                 contentDescription = stringResource(R.string.feed_date_prev_description),
-                tint = MeshaColors.Muted,
+                tint = if (canGoBack) MeshaColors.Muted else MeshaColors.Faint,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -254,13 +259,17 @@ internal fun FeedDateBar(
 
     if (pickerOpen) {
         val todayEndMillis = todayDate.toEpochMillisUtc()
+        val minMillis = minDateParsed?.toEpochMillisUtc()
+        val minYear = minDateParsed?.year ?: DatePickerDefaults.YearRange.first
         val pickerState = rememberDatePickerState(
             initialSelectedDateMillis = selected.toEpochMillisUtc(),
-            yearRange = IntRange(DatePickerDefaults.YearRange.first, todayDate.year),
+            yearRange = IntRange(minYear, todayDate.year),
             selectableDates = object : SelectableDates {
-                // Never selectable in the future — the same clamp the prev/next arrows apply.
-                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= todayEndMillis
-                override fun isSelectableYear(year: Int): Boolean = year <= todayDate.year
+                // Never selectable in the future — the same clamp the prev/next arrows apply — and
+                // never before the optional lower bound (Feed Packing's ~30-day history floor).
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    utcTimeMillis <= todayEndMillis && (minMillis == null || utcTimeMillis >= minMillis)
+                override fun isSelectableYear(year: Int): Boolean = year in minYear..todayDate.year
             },
         )
         DatePickerDialog(
@@ -314,6 +323,14 @@ internal fun FeedReadOnlyBanner(modifier: Modifier = Modifier) {
 
 private val FEED_DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
 private val FEED_ISO_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+
+/**
+ * Formats an ISO `YYYY-MM-DD` business date as the short "EEE, d MMM" label the Feed date bar uses,
+ * so the "This feed is for …" caption reads the same way as the date chip. Falls back to the raw
+ * string if it cannot be parsed.
+ */
+internal fun formatFeedDayLabel(iso: String): String =
+    iso.toLocalDateOrNull()?.format(FEED_DATE_LABEL_FORMATTER) ?: iso
 
 private fun String.toLocalDateOrNull(): LocalDate? = runCatching { LocalDate.parse(this, FEED_ISO_DATE_FORMATTER) }.getOrNull()
 

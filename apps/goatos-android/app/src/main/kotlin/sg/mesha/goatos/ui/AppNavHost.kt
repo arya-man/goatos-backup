@@ -1077,7 +1077,10 @@ fun AppNavHost(
                                 shedId = event.shedId,
                                 sessionNo = event.sessionNo,
                                 workflow = event.workflow,
-                                targetDate = state.targetDateLabel,
+                                // The completion records the FEED day (= packing day + 1), matching the
+                                // read query; targetDateLabel is the packing-day axis, feedForDateLabel is
+                                // the feed day the backend keys on.
+                                targetDate = state.feedForDateLabel,
                                 shedLabel = event.shedLabel,
                                 sessionLabel = event.sessionLabel,
                             ),

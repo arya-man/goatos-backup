@@ -78,7 +78,9 @@ class FeedPackingViewModel @Inject constructor(
         FeedPackingUiState(
             title = TITLE,
             targetDateLabel = selection.targetDate,
+            feedForDateLabel = feedDayIso(selection.targetDate),
             today = todayIso(),
+            minDate = minPackingDayIso(),
             canCapture = selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
             summary = dto?.toSummaryUi() ?: FeedPackingSummaryUi(),
@@ -101,7 +103,9 @@ class FeedPackingViewModel @Inject constructor(
             title = TITLE,
             emptyMessage = LOADING_MESSAGE,
             targetDateLabel = todayIso(),
+            feedForDateLabel = feedDayIso(todayIso()),
             today = todayIso(),
+            minDate = minPackingDayIso(),
             canCapture = true,
         ),
     )
@@ -187,11 +191,13 @@ class FeedPackingViewModel @Inject constructor(
         trackFilter(DIMENSION_ALL, value = "")
     }
 
-    // Ignore a future date outright — the date bar's next-day arrow already disables itself on
-    // today and the DatePicker's own SelectableDates already blocks it, so reaching here with a
-    // future date would only be a defensive-programming edge case, never the normal path.
+    // Ignore an out-of-window packing day outright — the date bar's arrows and the DatePicker's own
+    // SelectableDates already clamp to [today - PAST_WINDOW_DAYS, today], so reaching here off-window
+    // would only be a defensive-programming edge case, never the normal path. The axis is the PACKING
+    // day: today is capturable, a past day within the window is view-only history, the future is out.
     private fun selectDate(date: LocalDate) {
-        if (date > LocalDate.now(ZoneId.of(INDIA_ZONE))) return
+        val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
+        if (date > today || date < today.minusDays(PAST_WINDOW_DAYS)) return
         val current = _filters.value
         val iso = date.toString()
         if (current.targetDate == iso) return
@@ -200,6 +206,15 @@ class FeedPackingViewModel @Inject constructor(
     }
 
     private fun todayIso(): String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString()
+
+    // The feed day the selected PACKING day is for: packing day + 1 (a packer works today on the sheet
+    // fed tomorrow). This is the day the backend keys on and the caption states.
+    private fun feedDayIso(packingIso: String): String =
+        runCatching { LocalDate.parse(packingIso).plusDays(1).toString() }.getOrDefault(packingIso)
+
+    // The oldest packing day the date bar may reach: today - PAST_WINDOW_DAYS.
+    private fun minPackingDayIso(): String =
+        LocalDate.now(ZoneId.of(INDIA_ZONE)).minusDays(PAST_WINDOW_DAYS).toString()
 
     private fun trackFilter(dimension: String, value: String) {
         analytics.track(
@@ -267,7 +282,11 @@ class FeedPackingViewModel @Inject constructor(
     ) {
         fun toQuery(): FeedPackingQuery = FeedPackingQuery(
             parkId = parkId,
-            targetDate = targetDate,
+            // The backend keys on the FEED day; this selection's axis is the PACKING day, so send
+            // packing day + 1 (a packer works today on the sheet fed tomorrow). The Room cache key is
+            // built from this query's targetDate, so it partitions by feed day automatically.
+            targetDate = runCatching { LocalDate.parse(targetDate).plusDays(1).toString() }
+                .getOrDefault(targetDate),
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
@@ -281,6 +300,8 @@ class FeedPackingViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
+        // How far back the packing-day picker may browse historical sheets.
+        const val PAST_WINDOW_DAYS = 30L
         const val TITLE = "Feed Packing"
         const val LOADING_MESSAGE = "Loading packing worklist…"
         const val EMPTY_MESSAGE = "No packing lines for this farm and day"
