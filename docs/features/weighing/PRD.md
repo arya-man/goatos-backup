@@ -17,13 +17,12 @@ point, but the current operational workflow is manual: leadership tells the
 field team which sheds to cover, and the operator records weights outside a
 first-class Goat OS task.
 
-Weighing v1 adds a kids-only, shed-level execution workflow on Android.
+Weighing v1 adds a kids-only, shed/partition execution workflow on Android.
 Leadership selects the kid sheds/partitions to cover. The app turns that
 selection into rolling operator work cards spread across about three work days,
 keeps the work open until finished, and records each animal's RFID, weight,
 original expected shed, actual scanned shed context, and mandatory per-animal
-proof video. A small named set of Castro/Godel kid sheds uses lumpsum weighing
-for now; the rest use individual animal weighing.
+proof video.
 
 ## 1.1 Vaccination lessons this feature must absorb
 
@@ -34,7 +33,7 @@ avoid from the first build:
 |---|---|
 | Shed submit state leaked across sibling sheds when the parent task was shared. | Every weighing row, proof, progress count, and submit action must keep exact campaign + work group + expected shed/partition + animal grain. |
 | Proof refs could be lost or not recoverable after mobile submit/retry. | A weighed animal is not complete until the weight and its per-animal proof ref are durably linked and recoverable on retry. |
-| Idempotency keys were too broad for shed-level submit. | Weighing idempotency must include campaign, work group, animal, operator, and proof intent. |
+| Idempotency keys were too broad for shed/partition submit. | Weighing idempotency must include campaign, work group, animal, operator, and proof intent. |
 | Android scan screens lost shed/partition identity in titles/routes. | Weighing screens must always display the active work group and expected shed/partition context. |
 | Permission checks allowed scan/submit paths before the correct proof/capability gate. | Weighing submit must be blocked until the user has execution capability and every completed animal has mandatory proof. |
 | Admin/leadership cards drifted from backend contract fields. | Leadership progress, mismatch, unavailable, and delayed labels must be backend-owned contract fields, not hardcoded UI guesses. |
@@ -151,19 +150,22 @@ date, kids-only lane, selected sheds/partitions, expected count, operator,
 suggested finish, actual progress, and whether the campaign has rolled beyond
 the selected week.
 
-## 4.1 Measurement modes
+## 4.1 Individual weighing only
 
-Most kids are weighed individually. The current v1 exception from the field
-conversation is:
+All v1 weighing is individual animal weighing. Sheds/partitions are used only to
+group and assign work to Amit; they are not a weighing unit. Every animal weighed
+inside those assigned groups uses the same execution path:
 
-| Mode | Scope | Product behavior |
-|---|---|---|
-| Lumpsum weighing | Castro 1/2/3 in CBE; Castro 1/2 and Godel 2 Part 1/2 in CPT | Record a shed/partition-level lumpsum measurement and expected coverage count. Do not pretend individual animal weights were captured. |
-| Individual weighing | All other kid sheds/partitions | Scan each animal RFID, enter weight, and attach mandatory per-animal proof video. |
+| Requirement | Product behavior |
+|---|---|
+| RFID | Operator scans each animal RFID or supported animal identifier. |
+| Weight | Operator records the animal's measured weight. |
+| Proof | Operator attaches mandatory per-animal proof video. |
+| Shed context | The row keeps expected/original shed and actual/current shed context. |
 
-Lumpsum rows must be visibly labeled as lumpsum and excluded from per-animal
-latest-weight truth unless a future approved conversion rule is added. Individual
-weighing remains the normal path for the rest of the kids.
+The selected shed/partition tells the operator where to work and which expected
+animals belong in that assignment. It never substitutes for animal-wise RFID,
+weight, and video.
 
 ## 5. Grouping rules
 
@@ -340,24 +342,19 @@ Only `Pending` counts as remaining operator workload. `Unavailable` and
 
 ## 9. Evidence model
 
-Vaccination currently uses SOP-driven proof. For the active shed-level
+Vaccination currently uses SOP-driven proof. For the active shed/partition
 vaccination SOP, one shed video is mandatory and other videos are optional.
-Individual Weighing must instead require **per-animal proof video**.
+Weighing must instead require **per-animal proof video**.
 
-Each completed individual weighing row must have a proof artifact attached to
-that animal and weighing session. A shed-level recap video may be added later,
-but it must not replace per-animal proof for individual rows.
+Each completed weighing row must have a proof artifact attached to
+that animal and weighing session. A shed/partition recap video may be added later,
+but it must not replace per-animal proof for weighing rows.
 
-Per-animal video is mandatory for individual weighing even when the operator
+Per-animal video is mandatory even when the operator
 scans many animals in the same physical shed without moving. A bulk/shed recap
 cannot satisfy missing animal videos, and submit must show exactly which
-accepted/locally completed individual animals are blocked by missing, uploading,
+accepted/locally completed animals are blocked by missing, uploading,
 failed, or detached proof.
-
-Lumpsum weighing has a separate proof policy. A lumpsum proof, if required, is
-shed/partition-level coverage evidence for the approved Castro/Godel scopes. It
-must not be treated as per-animal proof and must not update per-animal latest
-trusted weight.
 
 The proof experience must be designed for poor connectivity. Operators should be
 able to capture weight + video offline, see that the row is pending upload/sync,
@@ -468,9 +465,11 @@ acceptance includes these visible outcomes:
 - Bulk historical Weights DB import, except as source evidence for data model
   alignment.
 - Adult goat weighing, monthly adult scheduling, and adult manual exceptions.
+- Any weighing capture that is not tied to one animal, one RFID/animal identity,
+  one weight, and one per-animal video.
 - Requiring exact 100 animals/day completion.
 - Letting weighing directly mutate animal lifecycle/location state.
-- Reusing Vaccination's shed-level proof policy as a substitute for per-animal
+- Reusing Vaccination's shed/partition proof policy as a substitute for per-animal
   video.
 - Reusing generic SOP task state as the only source of Weighing progress.
 
@@ -480,20 +479,15 @@ acceptance includes these visible outcomes:
   selecting kid sheds/partitions.
 - Adult monthly weighing is not available in v1: adult sheds are excluded from
   the weekly lane and cannot be added as manual exceptions.
-- Castro 1/2/3 in CBE and Castro 1/2 + Godel 2 Part 1/2 in CPT are represented
-  as lumpsum weighing; all remaining kid sheds/partitions use individual
-  weighing.
+- Every selected kid shed/partition uses individual animal weighing.
 - Amit receives the operator execution work; Dinakar does not receive operator
   capacity.
 - Suggested work groups preserve shed/partition atomicity and use the daily cap
   only as planning guidance.
 - Unfinished groups roll forward until complete, including beyond the calendar
   week.
-- For individual weighing, the operator can scan RFID, enter weight, and attach
-  mandatory per-animal video.
-- For approved lumpsum sheds/partitions, the operator can record the
-  shed/partition-level lumpsum measurement and coverage count without pretending
-  every animal was individually scanned/proofed.
+- The operator can scan RFID, enter weight, and attach mandatory per-animal
+  video for each completed weighing row.
 - Wrong-shed scans remain in the table with expected/original shed context and
   visible highlighting.
 - Missing expected animals are classified separately from ordinary pending
