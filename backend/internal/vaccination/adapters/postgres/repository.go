@@ -2054,10 +2054,13 @@ SELECT vc.completion_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
        CASE
-         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')
-         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '') || ' - ' || initcap(gsp.partition_label)
-         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '') || ' - Part ' || gsp.partition_label
-         ELSE COALESCE(shed.name, '') || ' - ' || gsp.partition_label
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')
+         WHEN gsp.partition_label ~* '^part [0-9]+$'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || gsp.partition_label
        END::text AS shed_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),

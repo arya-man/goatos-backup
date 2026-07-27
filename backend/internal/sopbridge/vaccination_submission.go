@@ -116,7 +116,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		}
 		if completion.ShedID != "" {
 			label := strings.TrimSpace(completion.ShedLabel)
-			if label == "" {
+			if label == "" || strings.HasPrefix(label, "-") {
 				label = completion.ShedID
 			}
 			shedLabels[completion.ShedID] = label
