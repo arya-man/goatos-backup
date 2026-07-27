@@ -234,6 +234,35 @@ func TestVaccinationSubmissionBridgeLabelsGroupedShedSubmissionHonestly(t *testi
 	}
 }
 
+func TestVaccinationSubmissionBridgeDoesNotEmitBarePartitionLabel(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 1,
+		completions: []vaccinationdomain.SubmissionCompletion{{
+			CompletionID:   "completion-1",
+			SubmissionID:   "sub-1",
+			GoatID:         "goat-1",
+			ShedID:         "shed-1",
+			ShedLabel:      " - Part 4",
+			ParkID:         "park-1",
+			AdministeredAt: administeredAt,
+		}},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "shed-video", SubjectType: "shed"}},
+	}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "shed-1 · 1 goats" {
+		t.Fatalf("subject label = %v, want shed id fallback instead of bare partition", producer.last.SubjectLabel)
+	}
+}
+
 func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *testing.T) {
 	rec := &captureVaccinationRecorder{
 		count: 1,
