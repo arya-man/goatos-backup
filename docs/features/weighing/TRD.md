@@ -155,10 +155,13 @@ before implementation.
 | `campaign_id uuid pk` | Idempotent campaign identity. |
 | `tenant_id uuid not null` | Tenant boundary. |
 | `farm_id` / `park_id` | Execution scope. Use current location model terminology at implementation time. |
-| `week_start_date date not null` | India business week start, e.g. 2026-07-26. |
-| `week_end_date date not null` | Stored or derived, e.g. 2026-08-01. |
+| `period_type text not null` | `week`, `month`, or `manual_window`. |
+| `period_start_date date not null` | Week start for weekly kid campaigns; month start for monthly adult campaigns; selected window start for manual exceptions. |
+| `period_end_date date not null` | Week end, month end, or selected manual window end. |
 | `cadence_type text not null` | `weekly_kids`, `monthly_adults`, or `manual_exception`. |
 | `cadence_due_date date not null` | Monday for weekly kid work; 15th for monthly adult work; selected date for manual exception. |
+| `display_week_start_date date` | Derived/display anchor for Android week tabs when a monthly/manual campaign appears inside a week view. |
+| `display_month date` | Derived/display anchor for monthly adult overview. |
 | `animal_group_filter text not null` | `kids_k_f`, `adult_goats`, or `manual_selected`. |
 | `start_business_date date not null` | Day leadership created/scheduled work, e.g. 2026-07-29. |
 | `status text not null` | `draft`, `planned`, `published`, `in_progress`, `delayed`, `completed`, `canceled`. |

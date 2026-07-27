@@ -144,11 +144,11 @@ and overlapping selected sheds, the UI must show the existing campaign and ask
 for edit/extend/cancel rather than creating a duplicate silent task.
 
 Each week tab must show one backend-owned campaign state: `no_task`, `draft`,
-`planned`, `in_progress`, `delayed`, `completed`, or `canceled`. A leader
-opening a week sees the active campaign card first, including start date,
-cadence lane, selected sheds/partitions, expected count, operator, suggested
-finish, actual progress, and whether the campaign has rolled beyond the
-selected week.
+`planned`, `published`, `in_progress`, `delayed`, `completed`, or `canceled`.
+A leader opening a week sees the active campaign card first, including start
+date, cadence lane, selected sheds/partitions, expected count, operator,
+suggested finish, actual progress, and whether the campaign has rolled beyond
+the selected week.
 
 ## 5. Grouping rules
 
