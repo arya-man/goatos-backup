@@ -9,4 +9,5 @@
     <string name="proof_camera_stop_recording">ఆపి రుజువు రికార్డింగ్‌ను సేవ్ చేయండి</string>
     <string name="proof_camera_state_ready">రికార్డ్ చేయడానికి సిద్ధం</string>
     <string name="proof_camera_state_recording">రికార్డ్ అవుతోంది</string>
+    <string name="submit_shed_success_toast">షెడ్ రుజువు సమీక్ష కోసం సమర్పించబడింది</string>
 </resources>

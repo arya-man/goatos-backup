@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -25,6 +26,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
 import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
@@ -593,6 +595,8 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            val submitSuccessToast = stringResource(R.string.submit_shed_success_toast)
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
             // Once the submission this operator just enqueued is accepted (ACKED — durably
             // queued/accepted by the backend), return to the vaccination sheds queue instead
@@ -605,6 +609,7 @@ fun AppNavHost(
                     SyncState.QUEUED, SyncState.SYNCING -> sawSubmitInFlight = true
                     SyncState.ACKED -> if (sawSubmitInFlight) {
                         sawSubmitInFlight = false
+                        Toast.makeText(context, submitSuccessToast, Toast.LENGTH_SHORT).show()
                         navController.popBackStack(Routes.VACCINATION, inclusive = false)
                     }
                     else -> Unit
