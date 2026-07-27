@@ -110,6 +110,7 @@ type SubmissionCompletion struct {
 	GoatID         string
 	GoatLabel      string
 	ShedID         string
+	ShedLabel      string
 	ParkID         string
 	ProofRefIDs    []string
 	AdministeredAt time.Time
