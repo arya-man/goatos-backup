@@ -115,6 +115,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /operations/dlq | api + view:ops_exception_queue | Failed-event queue (see gap G5) |
 | GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5); API tier executor wired (operations_kernel_health tool, via processintegrity.Service.ControlTower with OnlyBrokenOrAtRisk) |
 | func:SuppressInvalidRecipient | EXCLUDED | Notification delivery hygiene only: clears FCM tokens that Firebase reports as invalid and suppresses queued rows for that exact token. Leadership delivery health remains covered by `ceo_ai.notification_delivery_health` / `mesha_notification_delivery_health`; this function is not a leadership read surface. |
+| DELETE /app/proofs/{proof_id} (func:DeleteUpload, func:DeleteUnattachedProof, func:Delete, func:FinalizeUpload, func:ResolveProofRefs) | EXCLUDED | Operator pre-submit proof cleanup and binary object lifecycle. It can remove only unattached draft proof artifacts; submitted proof and verification visibility remain covered through `/vaccination/verification-queue`, `view:verification_queue_status`, and process-integrity proof-media resolver coverage. |
 | GET /workflows/{row_id} | EXCLUDED | Row-level workflow detail |
 | GET /protocols | api | Protocol/schedule definitions |
 | GET /protocols/versions/{id}, /protocols/animal-stages | EXCLUDED | Protocol version / reference taxonomy |

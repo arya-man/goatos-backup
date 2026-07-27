@@ -48,8 +48,8 @@ class ShedsExecutionIdentityTest {
 
         assertEquals(324, summary?.expectedCount)
         assertEquals(114, summary?.submittedCount)
-        assertEquals(114, summary?.acceptedCount)
-        assertEquals(35, summary?.acceptedPercent)
+        assertEquals(0, summary?.acceptedCount)
+        assertEquals(0, summary?.acceptedPercent)
     }
 
     @Test
@@ -94,6 +94,36 @@ class ShedsExecutionIdentityTest {
         assertEquals(ExecutionCounts(target = 324, open = 210, done = 114), counts)
         assertEquals(324, summary?.expectedCount)
         assertEquals(114, summary?.submittedCount)
+    }
+
+    @Test
+    fun `overview adherence separates submitted review overdue and accepted states`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 32,
+                openCount = 0,
+                doneCount = 32,
+                sopStatus = "needs_review",
+                workState = "verification_pending",
+                dueDate = "2000-01-01",
+            ),
+            VaccinationExecutionRowDto(
+                targetCount = 11,
+                openCount = 0,
+                doneCount = 11,
+                sopStatus = "accepted",
+                workState = "closed",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(rows)
+
+        assertEquals(43, summary?.expectedCount)
+        assertEquals(43, summary?.submittedCount)
+        assertEquals(11, summary?.acceptedCount)
+        assertEquals(1, summary?.reviewItemCount)
+        assertEquals(1, summary?.overdueItemCount)
+        assertEquals(25, summary?.acceptedPercent)
     }
 
     @Test

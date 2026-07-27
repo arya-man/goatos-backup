@@ -132,15 +132,15 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 
 	var nextAttempt *time.Time
 	invalidRecipient := errors.Is(err, ports.ErrInvalidRecipient)
-	if invalidRecipient {
-		s.suppressInvalidRecipient(ctx, request, err, now)
-	}
 	if !invalidRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
 	}
 	if markErr := s.repo.MarkFailed(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), sanitizeError(err), nextAttempt, now); markErr != nil {
 		return fmt.Errorf("mark notification failed: %w", markErr)
+	}
+	if invalidRecipient {
+		s.suppressInvalidRecipient(ctx, request, err, now)
 	}
 	if nextAttempt == nil {
 		result.ExhaustedCount++
