@@ -622,6 +622,14 @@ Android data contract:
 - L1 work groups and L2 animal rows use keyset paging with a phone-sized page.
 - RFID lookup is O(1) against indexed Room/cache state, not a linear scan of a
   large in-memory list.
+- RFID keyboard-wedge key events, including Enter/Tab terminators, are consumed
+  only while the Weighing scan route is active. They must never fall through to
+  Back, focused buttons, submit actions, navigation, text fields, or unrelated
+  form controls.
+- Scanning an RFID for an animal outside the visible page appends/updates the
+  visible scan feed and local observation state from indexed cache/Room without
+  fetching or rendering every expected animal. Summary totals remain
+  page-independent.
 - UI states distinguish loading, cached/offline, empty, forbidden, backend
   error, sync pending, sync failed, and conflict.
 - Route identity includes campaign id, work group id, selected shed/partition
@@ -990,6 +998,12 @@ Minimum tests before implementation is considered done:
 - Android tests cover process death/reopen, sign-out wipe, page-2 animals,
   O(1) RFID lookup, proof removal after upload but before acceptance, and route
   identity after scan.
+- Android RFID tests prove Enter/Tab terminators are consumed only on the active
+  Weighing scan route and cannot trigger Back, focused buttons, submit,
+  navigation, text fields, or unrelated form controls.
+- Android off-visible-page scan tests prove an RFID for an animal outside the
+  rendered page appends/updates the scan feed and local observation state without
+  fetching/rendering all animals, while totals stay page-independent.
 - Admin-web tests, if leadership screens are added there, prove backend contract
   labels/media URLs are rendered without local fallback copy.
 - 5k/25k/50k seed fixtures prove hot query plans remain indexed and bounded.
