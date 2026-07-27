@@ -122,6 +122,7 @@ type Owner struct {
 type Evidence struct {
 	ProofIDs              []string    `json:"proof_ids"`
 	Media                 []MediaItem `json:"media,omitempty"`
+	MediaResolutionError  *string     `json:"media_resolution_error,omitempty"`
 	EvidenceCount         int         `json:"evidence_count"`
 	LatestEvidenceAt      *time.Time  `json:"latest_evidence_at,omitempty"`
 	LatestRejectionReason *string     `json:"latest_rejection_reason,omitempty"`

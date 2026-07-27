@@ -239,6 +239,12 @@ func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows [
 	}
 	resolved, err := s.media.ResolveMedia(ctx, tenantID, proofIDs)
 	if err != nil {
+		msg := "proof media lookup failed"
+		for i := range rows {
+			if len(rows[i].Evidence.ProofIDs) > 0 {
+				rows[i].Evidence.MediaResolutionError = &msg
+			}
+		}
 		return rows
 	}
 	byID := make(map[string]domain.MediaItem, len(resolved))

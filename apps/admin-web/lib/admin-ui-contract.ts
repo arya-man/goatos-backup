@@ -14,6 +14,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "label.video_proof": "video proof",
     "label.image_proof": "image proof",
     "label.open_proof": "open proof",
+    "label.proof_media_unavailable": "proof media unavailable",
     "tooltip.drive_over_cap_required": "{animals} animals assigned against {slots} planned operator slots; leadership action needed before latest-safe date",
     "tooltip.drive_medical_defer": "Hard medical defer blocks vaccination until cleared",
     "tooltip.drive_terminal_closed": "Terminal animal state closed this vaccination work",
@@ -216,6 +217,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "label.video_proof": "video proof",
     "label.image_proof": "image proof",
     "label.open_proof": "open proof",
+    "label.proof_media_unavailable": "proof media unavailable",
   },
   "goat-passport": {
     "drawer.passport.aria": "Animal Passport",

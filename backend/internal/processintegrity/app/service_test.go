@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -42,9 +43,13 @@ func (f *fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bo
 
 type fakeMediaResolver struct {
 	items []verificationdomain.MediaItem
+	err   error
 }
 
 func (f fakeMediaResolver) ResolveMedia(context.Context, string, []string) ([]verificationdomain.MediaItem, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	return f.items, nil
 }
 
@@ -352,6 +357,27 @@ func TestProtocolAdherenceResolvesProofMedia(t *testing.T) {
 	media := got.Rows[0].Evidence.Media[0]
 	if media.ProofID != row.Evidence.ProofIDs[0] || media.MimeType != "video/mp4" || media.DurationMS == nil || *media.DurationMS != duration {
 		t.Fatalf("media metadata = %+v", media)
+	}
+}
+
+func TestProtocolAdherenceMarksProofMediaResolutionError(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	row := processRow("media-error-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
+	row.Evidence.EvidenceCount = 1
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).
+		WithClock(func() time.Time { return due }).
+		WithMediaResolver(fakeMediaResolver{err: errors.New("signed url unavailable")})
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0].Evidence.MediaResolutionError == nil {
+		t.Fatalf("media resolution error missing: %+v", got.Rows)
+	}
+	if len(got.Rows[0].Evidence.Media) != 0 {
+		t.Fatalf("media should not be populated on resolver error: %+v", got.Rows[0].Evidence.Media)
 	}
 }
 
