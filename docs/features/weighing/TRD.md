@@ -18,7 +18,7 @@ capture stack, and existing Vaccination execution patterns.
 
 This TRD defines the first Weighing implementation slice:
 
-1. Kids-only weekly weighing campaigns created by leadership from Android.
+1. Kids-only weekly weighing campaigns created by CEO/CXO from Android.
 2. Shed/partition selection and count snapshot.
 3. Rolling daily work groups driven by a capacity target.
 4. Amit-only operator execution for v1.
@@ -93,7 +93,7 @@ Canonical grains:
 
 | Grain | Purpose |
 |---|---|
-| Weighing campaign | One kids-only weekly instance created by leadership for a farm/park/week/start date. |
+| Weighing campaign | One kids-only weekly instance created by CEO/CXO for a farm/park/week/start date. |
 | Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work, carries expected animal membership at planning time, and stores the selected weighing category. |
 | Work group | One suggested operator chunk containing one or more whole selected sheds/partitions. It is an assignment container, not a weighing observation. |
 | Animal weighing observation | One animal's RFID, measured weight, proof video, and expected/actual shed context. |
@@ -230,7 +230,7 @@ form.
 Suggested work groups are planner output, not membership authority. The
 membership authority remains `weighing_expected_animals`. A replan may change a
 pending expected row's planned work group, but it must not rewrite which animals
-were expected at campaign publication unless leadership explicitly edits the
+were expected at campaign publication unless CEO/CXO explicitly edits the
 selected sheds and the edit records a new membership snapshot version.
 
 ### `weighing_expected_animals`
@@ -626,12 +626,13 @@ role:
 
 | Capability | Actors |
 |---|---|
-| `weighing.plan` | CEO/CXO, preventive director |
+| `weighing.plan` | CEO/CXO only |
 | `weighing.monitor` | CEO/CXO, preventive director, relevant park leadership |
 | `weighing.execute` | Operator, Amit in v1 |
 | `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
 
-Dinakar has planning/monitoring capability, not execution capacity.
+Dinakar has monitoring/review capability only, not planning, creation, publish,
+edit, or execution capacity.
 
 RBAC must be enforced in backend query predicates, not only by sidebar
 visibility. Every route that accepts `campaign_id`, `work_group_id`,
@@ -644,6 +645,9 @@ mutating the row. Android role gating is UX only.
 Sidebar:
 
 - Add Weighing for CEO/CXO, preventive director, and operator personas.
+- Show create/edit/publish actions only to CEO/CXO with `weighing.plan`.
+- Show review/monitoring surfaces to preventive director/Dinakar with
+  `weighing.monitor`, without create/edit/publish controls.
 
 Leadership screen:
 
@@ -1017,8 +1021,8 @@ specifics:
 - CEO/CXO and preventive director receive delayed/open summary notifications
   when a campaign rolls beyond the planned week or has unresolved review-needed
   animals.
-- Dinakar receives planner/supervisor notifications, not operator execution
-  assignments.
+- Dinakar receives reviewer/supervisor notifications, not task creation,
+  publish/edit, or operator execution assignments.
 
 Notification durability contract:
 
@@ -1026,7 +1030,8 @@ Notification durability contract:
   proof-upload-failed, and leadership summary notifications are created as
   durable notification requests from backend/domain events.
 - Recipient resolution reads active role grants/profile truth. Dinakar receives
-  planning/monitoring notifications, not operator execution pushes.
+  monitoring/review notifications, not task creation, planning, publish, or
+  operator execution pushes.
 - A failed FCM/send does not change campaign/work-group state. It retries through
   the shared notification dispatcher and becomes visible in DLQ/repair tooling if
   exhausted.
@@ -1083,7 +1088,8 @@ Minimum tests before implementation is considered done:
 - Planner groups `80 + 20` but execution allows `80` today and rolls `20`.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
   after 2026-08-01.
-- Dinakar can plan/monitor but is not counted as operator capacity.
+- Dinakar can review/monitor but cannot create, publish, or edit weighing tasks
+  and is not counted as operator capacity.
 - Amit can execute.
 - Wrong-shed animal scan records in same table with mismatch status.
 - Expected animal shifted to another shed is not shown as an ordinary miss; if
