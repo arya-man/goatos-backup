@@ -9,4 +9,5 @@
     <string name="proof_camera_stop_recording">ನಿಲ್ಲಿಸಿ ಮತ್ತು ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ಉಳಿಸಿ</string>
     <string name="proof_camera_state_ready">ರೆಕಾರ್ಡ್ ಮಾಡಲು ಸಿದ್ಧ</string>
     <string name="proof_camera_state_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="submit_shed_success_toast">ಶೆಡ್ ಪುರಾವೆ ಪರಿಶೀಲನೆಗೆ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
 </resources>

@@ -9,4 +9,5 @@
     <string name="proof_camera_stop_recording">रोकें और प्रमाण रिकॉर्डिंग सहेजें</string>
     <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
     <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
+    <string name="submit_shed_success_toast">शेड प्रमाण समीक्षा के लिए जमा हुआ</string>
 </resources>

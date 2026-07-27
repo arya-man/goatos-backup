@@ -9,4 +9,5 @@
     <string name="proof_camera_stop_recording">Stop and save proof recording</string>
     <string name="proof_camera_state_ready">Ready to record</string>
     <string name="proof_camera_state_recording">Recording</string>
+    <string name="submit_shed_success_toast">Shed proof submitted for review</string>
 </resources>
