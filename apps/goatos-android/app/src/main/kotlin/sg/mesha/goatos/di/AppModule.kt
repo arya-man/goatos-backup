@@ -98,6 +98,8 @@ import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.weighing.DefaultWeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
 import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
@@ -411,6 +413,18 @@ object AppModule {
         api: AppApi,
         dao: VerificationQueueCacheDao,
     ): VerificationRepository = DefaultVerificationRepository(api, dao)
+
+    @Provides
+    @Singleton
+    fun provideWeighingRepository(
+        database: GoatDatabase,
+        syncRepository: SyncRepository,
+    ): WeighingRepository = DefaultWeighingRepository(
+        rosterDao = database.weighingRosterDao(),
+        observationDao = database.weighingObservationDao(),
+        shedObservationDao = database.weighingShedObservationDao(),
+        syncRepository = syncRepository,
+    )
 
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
     // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
