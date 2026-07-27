@@ -17,11 +17,13 @@ point, but the current operational workflow is manual: leadership tells the
 field team which sheds to cover, and the operator records weights outside a
 first-class Goat OS task.
 
-Weighing adds a cadence-driven, shed-level execution workflow on Android.
-Leadership selects the sheds/partitions to cover. The app turns that selection
-into rolling operator work cards, keeps the work open until finished, and
-records each animal's RFID, weight, original expected shed, actual scanned shed
-context, and mandatory per-animal proof video.
+Weighing v1 adds a kids-only, shed-level execution workflow on Android.
+Leadership selects the kid sheds/partitions to cover. The app turns that
+selection into rolling operator work cards spread across about three work days,
+keeps the work open until finished, and records each animal's RFID, weight,
+original expected shed, actual scanned shed context, and mandatory per-animal
+proof video. A small named set of Castro/Godel kid sheds uses lumpsum weighing
+for now; the rest use individual animal weighing.
 
 ## 1.1 Vaccination lessons this feature must absorb
 
@@ -59,18 +61,18 @@ execution calculation. Dinakar is supervisor/planner scope.
 
 ## 3. Core product model
 
-Weighing v1 is a **weekly work container for the operator UI**, not a promise
-that every animal type is weighed weekly. The source cadence is:
+Weighing v1 is a **kids-only weekly work container for the operator UI**. Adults
+are not part of this slice. The source/v1 cadence is:
 
 | Animal group | Source weighing cadence | V1 behavior |
 |---|---|---|
-| Kids / K and F kid groups | Every Monday | Primary v1 weekly campaign. A leader may schedule inside that week, and the task rolls until finished. |
-| Adult goats | 15th of every month | Excluded from automatic weekly creation unless leadership explicitly selects adult sheds as a manual campaign. Monthly adult scheduling must be represented as its own due campaign/date, not generated every week. |
+| Kids / K and F kid groups | Every Monday | Only active v1 campaign. All kids are covered across about three operator work days, and the task rolls until finished. |
+| Adult goats | Source says monthly on the 15th, but Aryaman clarified "adults not doing" for this build. | Out of scope for v1. Do not expose an adult monthly lane, do not auto-schedule adults, and do not allow adult sheds as manual exceptions until product reopens the scope. |
 
 A leader may create the week's active task on any day inside the week. From that
-day, the selected sheds become active weighing work. The system should suggest
-daily work groups using a capacity target, but the task stays open and keeps
-rolling until the selected shed/partition work is finished.
+day, the selected kid sheds become active weighing work. The system should
+suggest three practical daily work groups using a capacity target, but the task
+stays open and keeps rolling until the selected shed/partition work is finished.
 
 Example:
 
@@ -78,10 +80,10 @@ Example:
 |---|---|
 | Week | 2026-07-26 to 2026-08-01 |
 | Scheduled/created date | 2026-07-29 |
-| Selected sheds | S1, S2, S3, S4, S5 |
+| Selected sheds | Kid sheds S1, S2, S3, S4, S5 |
 | Total expected animals | 324 |
 | Planning cap | 100 animals/day |
-| Expected plan | 2026-07-29, 2026-07-30, 2026-07-31, 2026-08-01 |
+| Expected plan | About three work days from 2026-07-29 onward, rolling if needed. |
 | Allowed reality | Work may finish later, for example 2026-08-02 or 2026-08-03. |
 
 The cap is a planning guide. It must not force operators to hit exactly 100
@@ -120,19 +122,18 @@ Leadership flow:
 1. Open Weighing.
 2. Select a week tab, matching the Vaccination weekly mental model.
 3. Create or edit that week's weighing task.
-4. Confirm the cadence lane: weekly kids/K/F work, monthly adult work, or a
-   manual exception campaign.
+4. Confirm the v1 lane: weekly kids/K/F work only.
 5. Select one farm/park scope as needed.
-6. Select multiple sheds/partitions.
-7. Review whether selected sheds contain adult monthly animals, weekly animals,
-   or mixed membership.
+6. Select multiple kid sheds/partitions.
+7. Review any shed/partition containing adult or mixed membership as excluded or
+   requiring source-data review; adults are not scheduled in v1.
 8. Review total expected animals and suggested daily groups.
 9. Confirm assignment to the operator.
 
 The UI must say this is a weekly weighing task that starts from the selected
-business date and rolls forward until done for the selected cadence lane. It
-should not imply the work must finish inside the calendar week, and it must not
-silently schedule adult monthly sheds every week.
+business date and rolls forward until done for kids. It should not imply the
+work must finish inside the calendar week, and it must not show or silently
+schedule adult monthly work in v1.
 
 Week tabs must preserve the planning bucket. A campaign created inside a week
 remains visible from that week tab even after open work rolls beyond week end,
@@ -146,9 +147,23 @@ for edit/extend/cancel rather than creating a duplicate silent task.
 Each week tab must show one backend-owned campaign state: `no_task`, `draft`,
 `planned`, `published`, `in_progress`, `delayed`, `completed`, or `canceled`.
 A leader opening a week sees the active campaign card first, including start
-date, cadence lane, selected sheds/partitions, expected count, operator,
+date, kids-only lane, selected sheds/partitions, expected count, operator,
 suggested finish, actual progress, and whether the campaign has rolled beyond
 the selected week.
+
+## 4.1 Measurement modes
+
+Most kids are weighed individually. The current v1 exception from the field
+conversation is:
+
+| Mode | Scope | Product behavior |
+|---|---|---|
+| Lumpsum weighing | Castro 1/2/3 in CBE; Castro 1/2 and Godel 2 Part 1/2 in CPT | Record a shed/partition-level lumpsum measurement and expected coverage count. Do not pretend individual animal weights were captured. |
+| Individual weighing | All other kid sheds/partitions | Scan each animal RFID, enter weight, and attach mandatory per-animal proof video. |
+
+Lumpsum rows must be visibly labeled as lumpsum and excluded from per-animal
+latest-weight truth unless a future approved conversion rule is added. Individual
+weighing remains the normal path for the rest of the kids.
 
 ## 5. Grouping rules
 
@@ -403,7 +418,7 @@ contract.
 
 Leadership assistant/reporting must answer:
 
-- Which weighing campaigns are active this week or due this month?
+- Which kids-only weighing campaigns are active this week?
 - Which sheds are delayed and by how many days?
 - How many expected animals were weighed, pending, unavailable, or closed?
 - Which animals from other sheds were weighed during this campaign?
@@ -446,6 +461,7 @@ acceptance includes these visible outcomes:
 - Live weighing-machine Bluetooth integration.
 - Bulk historical Weights DB import, except as source evidence for data model
   alignment.
+- Adult goat weighing, monthly adult scheduling, and adult manual exceptions.
 - Requiring exact 100 animals/day completion.
 - Letting weighing directly mutate animal lifecycle/location state.
 - Reusing Vaccination's shed-level proof policy as a substitute for per-animal
@@ -454,11 +470,13 @@ acceptance includes these visible outcomes:
 
 ## 12. Acceptance criteria
 
-- CEO/CXO and preventive director can create a weekly weighing task by selecting
-  sheds/partitions.
-- Adult monthly weighing is not auto-scheduled every week. Adult sheds are either
-  excluded from the weekly lane, explicitly selected as a manual exception, or
-  scheduled through the monthly adult lane.
+- CEO/CXO and preventive director can create a weekly kids-only weighing task by
+  selecting kid sheds/partitions.
+- Adult monthly weighing is not available in v1: adult sheds are excluded from
+  the weekly lane and cannot be added as manual exceptions.
+- Castro 1/2/3 in CBE and Castro 1/2 + Godel 2 Part 1/2 in CPT are represented
+  as lumpsum weighing; all remaining kid sheds/partitions use individual
+  weighing.
 - Amit receives the operator execution work; Dinakar does not receive operator
   capacity.
 - Suggested work groups preserve shed/partition atomicity and use the daily cap

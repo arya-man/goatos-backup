@@ -18,8 +18,7 @@ capture stack, and existing Vaccination execution patterns.
 
 This TRD defines the first Weighing implementation slice:
 
-1. Cadence-driven weighing campaigns created by leadership from Android, with
-   weekly kid/K/F work and monthly adult work represented explicitly.
+1. Kids-only weekly weighing campaigns created by leadership from Android.
 2. Shed/partition selection and count snapshot.
 3. Rolling daily work groups driven by a capacity target.
 4. Amit-only operator execution for v1.
@@ -28,10 +27,10 @@ This TRD defines the first Weighing implementation slice:
 
 The design deliberately borrows Vaccination's work-session execution shape, but
 not its clinical scheduler. Weighing is not a vaccine obligation. It is a
-per-animal measurement campaign over selected sheds/partitions. The weekly UI
-container must not erase the source cadence difference: kids/K/F groups weigh
-weekly, adult goats weigh monthly on the 15th unless leadership creates a manual
-exception.
+measurement campaign over selected kid sheds/partitions. Adults are explicitly
+out of scope for v1, even though source material mentions monthly adult weighing.
+Most v1 work is per-animal weighing; a named Castro/Godel subset uses lumpsum
+weighing for now.
 
 ## 1.1 Last-30-commit Vaccination hardening lens
 
@@ -89,10 +88,11 @@ Canonical grains:
 
 | Grain | Purpose |
 |---|---|
-| Weighing campaign | One cadence instance created by leadership for a farm/park/week-or-month/start date. |
+| Weighing campaign | One kids-only weekly instance created by leadership for a farm/park/week/start date. |
 | Selected shed/partition | Atomic planning unit. It carries expected animal membership at planning time. |
 | Work group | One suggested operator chunk containing one or more whole selected sheds/partitions. |
 | Animal weighing observation | One animal's RFID, measured weight, proof video, and expected/actual shed context. |
+| Lumpsum weighing observation | One shed/partition-level weight capture for an approved lumpsum scope; it is coverage evidence, not individual animal latest-weight truth. |
 | Proof artifact | Mandatory per-animal video linked to the observation. |
 | Availability exception | Current herd-state explanation for why an expected animal is not weighable from the planned shed. |
 | Correction | Audited replacement/voiding of an incorrect weight or proof after sync. |
@@ -155,14 +155,14 @@ before implementation.
 | `campaign_id uuid pk` | Idempotent campaign identity. |
 | `tenant_id uuid not null` | Tenant boundary. |
 | `farm_id` / `park_id` | Execution scope. Use current location model terminology at implementation time. |
-| `period_type text not null` | `week`, `month`, or `manual_window`. |
-| `period_start_date date not null` | Week start for weekly kid campaigns; month start for monthly adult campaigns; selected window start for manual exceptions. |
-| `period_end_date date not null` | Week end, month end, or selected manual window end. |
-| `cadence_type text not null` | `weekly_kids`, `monthly_adults`, or `manual_exception`. |
-| `cadence_due_date date not null` | Monday for weekly kid work; 15th for monthly adult work; selected date for manual exception. |
-| `display_week_start_date date` | Derived/display anchor for Android week tabs when a monthly/manual campaign appears inside a week view. |
-| `display_month date` | Derived/display anchor for monthly adult overview. |
-| `animal_group_filter text not null` | `kids_k_f`, `adult_goats`, or `manual_selected`. |
+| `period_type text not null` | `week` for v1. Keep the column generic only to avoid later migration churn; month/manual values are not accepted in v1 commands. |
+| `period_start_date date not null` | Week start for weekly kid campaigns. |
+| `period_end_date date not null` | Week end for weekly kid campaigns. |
+| `cadence_type text not null` | `weekly_kids` only in v1. |
+| `cadence_due_date date not null` | Monday for weekly kid work or the selected in-week start anchor when leadership creates work later in the week. |
+| `display_week_start_date date not null` | Week-tab anchor. |
+| `display_month date` | Reserved for future adult/monthly scope; null in v1. |
+| `animal_group_filter text not null` | `kids_k_f` only in v1. |
 | `start_business_date date not null` | Day leadership created/scheduled work, e.g. 2026-07-29. |
 | `status text not null` | `draft`, `planned`, `published`, `in_progress`, `delayed`, `completed`, `canceled`. |
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
@@ -181,6 +181,7 @@ before implementation.
 | `location_type text not null` | `shed`, `cohort`, or implementation-supported partition grain. |
 | `display_name text not null` | Snapshot label for audit/display. |
 | `expected_animal_count int not null` | Snapshot count at planning time. |
+| `measurement_mode text not null` | `individual` or `lumpsum`. Lumpsum is allowed only for the approved Castro/Godel v1 scopes. |
 | `status text not null` | `pending`, `in_progress`, `completed`, `canceled`. |
 | `completed_at timestamptz` | Closed when expected membership is complete or leadership override closes it. |
 
@@ -263,6 +264,28 @@ rows that make old progress/proof counts impossible to reconstruct.
 Uniqueness should prevent duplicate same-campaign animal observations unless an
 explicit correction/replacement flow is added. V1 can use one accepted
 observation per `(campaign_id, animal_id)`.
+
+### `weighing_lumpsum_observations`
+
+Lumpsum observations are separate from individual observations so they cannot
+accidentally update per-animal latest weight.
+
+| Column | Notes |
+|---|---|
+| `lumpsum_observation_id uuid pk` | Idempotent row identity. |
+| `campaign_id uuid not null` | Parent campaign. |
+| `campaign_shed_id uuid not null` | Approved lumpsum shed/partition row. |
+| `work_group_id uuid` | Work group being executed. |
+| `lumpsum_weight_kg numeric not null` | Positive shed/partition-level measurement. |
+| `expected_coverage_count int not null` | Snapshot count represented by the lumpsum measurement. |
+| `observed_at timestamptz not null` | Device/business timestamp. |
+| `operator_user_id uuid not null` | Field operator. |
+| `proof_artifact_id uuid` | Optional for v1 unless product makes lumpsum proof mandatory. |
+| `status text not null` | `local_pending`, `submitted`, `accepted`, `rejected`, `voided`, `replaced`. |
+
+Lumpsum observations contribute to campaign coverage/progress for their
+approved shed/partition, but they do not create `weighing_observations` rows and
+do not update animal-level latest trusted weight.
 
 Expected-vs-extra counting rule:
 
@@ -364,7 +387,7 @@ exact membership/proof key or reject the ambiguity.
 Inputs:
 
 - Selected shed/partition rows with expected animal counts.
-- Cadence lane and animal group filter.
+- Kids-only cadence lane and animal group filter.
 - `start_business_date`.
 - `planned_cap_per_day`, default 100.
 - Operator assignment, Amit for v1.
@@ -372,10 +395,9 @@ Inputs:
 Algorithm:
 
 1. Sort selected sheds/partitions by stable operational order.
-2. Resolve expected animals using the campaign cadence filter. Weekly campaigns
-   include kids/K/F-group animals only; monthly adult campaigns include adult
-   goats due for that monthly lane; manual exceptions include explicitly
-   selected membership.
+2. Resolve expected animals using the campaign filter. V1 includes kids/K/F
+   group animals only; adult goats and adult sheds are excluded even when they
+   share a physical area or appear in source cadence docs.
 3. Treat each selected shed/partition as an atomic item after filtering.
 4. Build work groups greedily:
    - add the next item if it does not exceed cap;
@@ -497,7 +519,6 @@ Leadership:
 
 ```text
 GET  /api/v1/weighing/weeks?from=&to=
-GET  /api/v1/weighing/months?from=&to=
 POST /api/v1/weighing/campaigns
 GET  /api/v1/weighing/campaigns/{campaign_id}
 GET  /api/v1/weighing/campaigns/{campaign_id}/leadership-contract
@@ -518,6 +539,7 @@ GET  /api/v1/app/weighing/work-groups/{work_group_id}
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/progress-contract
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/animals?status=&cursor=&limit=
 POST /api/v1/app/weighing/observations
+POST /api/v1/app/weighing/lumpsum-observations
 POST /api/v1/app/weighing/observations/{observation_id}/corrections
 POST /api/v1/app/weighing/work-groups/{work_group_id}/submit-progress
 ```
@@ -717,10 +739,11 @@ an unused bus is not accepted.
 Read models:
 
 - Leadership weekly weighing overview.
-- Leadership monthly adult weighing overview.
 - Operator open work groups.
 - Campaign shed progress.
 - Animal weight history / latest trusted weight projection.
+- Lumpsum campaign coverage by approved shed/partition, excluded from
+  animal-level latest trusted weight.
 - Other-shed mismatch summary.
 - Missing/unavailable expected animal summary by reason.
 - Proof recovery/review queue, if a proof upload exists without accepted
@@ -761,10 +784,10 @@ Projection/update rules:
 Campaign creation:
 
 - Key source: client idempotency key plus a semantic fingerprint containing
-  tenant, farm/park scope, cadence type, cadence due date/month lane, animal
+  tenant, farm/park scope, cadence type, cadence due date, weekly period, animal
   group filter, selected shed/partition ids, expected membership snapshot or
-  source revision, operator id, start business date, planned cap, and requested
-  publish mode.
+  source revision, measurement modes, operator id, start business date, planned
+  cap, and requested publish mode.
 - Same key + same payload returns the existing campaign.
 - Same key + different payload fails.
 
@@ -833,12 +856,12 @@ Required indexes should cover:
 
 - `(tenant_id, period_type, period_start_date, status)`
 - `(tenant_id, display_week_start_date, status)` for week-tab campaign lookup
-- `(tenant_id, display_month, status)` for monthly adult overview lookup
 - `(tenant_id, operator_user_id, planned_business_date, status)`
 - `(campaign_id, location_id)`
 - `(campaign_id, animal_id)`
 - `(campaign_id, work_group_id, animal_id)`
 - `(campaign_id, availability_status, status)`
+- `(campaign_id, measurement_mode, status)` for individual/lumpsum progress
 - `(tenant_id, animal_id, status)` for affected-campaign reconciliation
 - proof/media lookup by subject and aggregate id using existing proof patterns
 
@@ -855,8 +878,8 @@ Expected cardinality envelope for validation:
 Hot query contracts:
 
 - Overview queries filter by `tenant_id + period_type + period_start_date/status`
-  or by the relevant display anchor (`display_week_start_date` /
-  `display_month`) and prebuilt or bounded progress buckets.
+  or by the week-tab display anchor (`display_week_start_date`) and prebuilt or
+  bounded progress buckets.
 - Operator worklist filters by `tenant_id + operator_user_id + effective_business_date/status`
   and keyset cursor. It does not scan all campaign animals.
 - Animal list filters by `tenant_id + campaign_id + work_group_id/status` or
@@ -952,9 +975,13 @@ reach Amit or leadership.
 Minimum tests before implementation is considered done:
 
 - Planner preserves shed/partition atomicity under cap.
-- Weekly kid/K/F cadence and monthly adult cadence are represented separately.
-- Adult sheds are not included in weekly campaign membership unless the campaign
-  is a manual exception.
+- V1 accepts only weekly kids/K/F campaigns; monthly adult and manual adult
+  campaign commands are rejected.
+- Adult sheds and adult animals are not included in weekly campaign membership.
+- Castro 1/2/3 in CBE and Castro 1/2 + Godel 2 Part 1/2 in CPT use lumpsum
+  observations; all other kid sheds/partitions use individual observations.
+- Lumpsum observations update campaign coverage only and do not update
+  per-animal latest trusted weight.
 - Planner allows over-cap single shed/partition.
 - Planner groups `80 + 20` but execution allows `80` today and rolls `20`.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
@@ -1051,5 +1078,5 @@ Implementation guard targets to add:
   versioned add/remove edits.
 - Whether v1 stores progress projections or serves canonical indexed SQL only
   under the 5k-to-50k envelope.
-- Whether the adult monthly lane appears as month tabs, a dated 15th card inside
-  the week containing the 15th, or both.
+- Whether/when adult monthly weighing re-enters scope, and whether it appears as
+  month tabs, a dated 15th card inside the week containing the 15th, or both.
