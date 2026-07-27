@@ -53,12 +53,12 @@ accepted.
 | Actor | Product authority |
 |---|---|
 | CEO/CXO | Create and monitor weekly weighing tasks across farms/sheds. |
-| Preventive Director | Create and monitor weighing tasks, similar to Chandrakant-style director supervision. Dinakar belongs here for v1. |
+| Preventive Director | Review and monitor weighing tasks, similar to Chandrakant-style director supervision. Dinakar belongs here for v1, but he does not create tasks. |
 | Operator | Execute assigned weighing work on Android. Amit is the v1 operator. |
 | System | Builds shed/partition work groups, rolls unfinished work forward, records scans/proofs, updates progress/read models, and raises delayed-work visibility. |
 
 V1 must not treat Dinakar as a field operator or add his capacity to the daily
-execution calculation. Dinakar is supervisor/planner scope.
+execution calculation. Dinakar is supervisor/reviewer scope only.
 
 ## 3. Core product model
 
@@ -70,7 +70,7 @@ are not part of this slice. The source/v1 cadence is:
 | Kids / K and F kid groups | Every Monday | Only active v1 campaign. All kids are covered across about three operator work days, and the task rolls until finished. |
 | Adult goats | Source says monthly on the 15th, but Aryaman clarified "adults not doing" for this build. | Out of scope for v1. Do not expose an adult monthly lane, do not auto-schedule adults, and do not allow adult sheds as manual exceptions until product reopens the scope. |
 
-A leader may create the week's active task on any day inside the week. From that
+CEO/CXO may create the week's active task on any day inside the week. From that
 day, the selected kid sheds become active weighing work. The system should
 suggest three practical daily work groups using a capacity target, but the task
 stays open and keeps rolling until the selected shed/partition work is finished.
@@ -111,14 +111,15 @@ director/preventive director, and the operator.
 
 Sidebar visibility is backend-contract and capability driven:
 
-- CEO/CXO and preventive director see planner and monitoring entry points.
+- CEO/CXO sees planner and monitoring entry points.
+- Preventive director/Dinakar sees monitoring and review entry points only.
 - Amit/operator sees execution-only entry points for assigned open work.
-- Dinakar sees planner/monitoring surfaces only; he must never appear as an
-  execution assignee, execution-capacity contributor, or scan/submit actor.
+- Dinakar must never appear as task creator, execution assignee,
+  execution-capacity contributor, or scan/submit actor.
 - Users without `weighing.plan`, `weighing.monitor`, or `weighing.execute` see
   no Weighing sidebar entry and cannot deep-link into Weighing routes.
 
-Leadership flow:
+CEO/CXO planning flow:
 
 1. Open Weighing.
 2. Select a week tab, matching the Vaccination weekly mental model.
@@ -147,10 +148,11 @@ for edit/extend/cancel rather than creating a duplicate silent task.
 
 Each week tab must show one backend-owned campaign state: `no_task`, `draft`,
 `planned`, `published`, `in_progress`, `delayed`, `completed`, or `canceled`.
-A leader opening a week sees the active campaign card first, including start
-date, kids-only lane, selected sheds/partitions, expected count, operator,
-suggested finish, actual progress, and whether the campaign has rolled beyond
-the selected week.
+CEO/CXO opening a week sees create/edit controls. CEO/CXO and preventive
+director/Dinakar both see the active campaign card first, including start date,
+kids-only lane, selected sheds/partitions, expected count, operator, suggested
+finish, actual progress, and whether the campaign has rolled beyond the selected
+week.
 
 ## 4.1 Measurement category per shed/partition
 
@@ -506,8 +508,10 @@ acceptance includes these visible outcomes:
 
 ## 12. Acceptance criteria
 
-- CEO/CXO and preventive director can create a weekly kids-only weighing task by
-  selecting kid sheds/partitions.
+- CEO/CXO can create a weekly kids-only weighing task by selecting kid
+  sheds/partitions.
+- Preventive director/Dinakar can review and monitor weighing tasks but cannot
+  create, publish, or edit the task plan in v1.
 - Adult monthly weighing is not available in v1: adult sheds are excluded from
   the weekly lane and cannot be added as manual exceptions.
 - Leadership can mark each selected kid shed/partition as individual animal
@@ -553,7 +557,7 @@ acceptance includes these visible outcomes:
   transfer must be explained from current canonical herd truth before being
   blamed on the operator.
 - The v1 operator capacity calculation counts Amit only. Dinakar is a
-  preventive-director planner/supervisor.
+  preventive-director reviewer/supervisor.
 - Per-animal media is mandatory for completed `individual_animal` rows.
   Shed/partition proof is mandatory for completed `per_shed_partition` rows.
   Generic SOP blobs or mobile-only transient references are insufficient for
