@@ -686,6 +686,12 @@ Android data contract:
 - L1 work groups and L2 animal rows use keyset paging with a phone-sized page.
 - RFID lookup is O(1) against indexed Room/cache state, not a linear scan of a
   large in-memory list.
+- Physical RFID attempts are append-only audited separately from accepted
+  completion rows, including duplicate, unknown, wrong-category, wrong-shed, and
+  not-in-campaign attempts.
+- Accepted scan/result completion uses Room/outbox rows backed by database
+  unique constraints and idempotency keys. In-memory guards may improve UX, but
+  they are not correctness authority.
 - RFID keyboard-wedge key events, including Enter/Tab terminators, are consumed
   only while the Weighing scan route is active. They must never fall through to
   Back, focused buttons, submit actions, navigation, text fields, or unrelated
@@ -1165,7 +1171,7 @@ Implementation guard targets to add:
 
 - Exact canonical naming: `animal_id`/`herd_animals` target versus current
   `goat_id`/`goats` implementation names during this slice.
-- Whether leadership can manually close remaining pending animals as
+- Whether leadership can manually close remaining pending animals/scopes as
   `closed_by_override` in v1 or only cancel the whole campaign.
 - Whether a wrong-shed weighing observation should trigger a suggested movement
   review item immediately or only appear in weighing mismatch reports.
