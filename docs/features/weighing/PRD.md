@@ -342,16 +342,22 @@ Only `Pending` counts as remaining operator workload. `Unavailable` and
 
 Vaccination currently uses SOP-driven proof. For the active shed-level
 vaccination SOP, one shed video is mandatory and other videos are optional.
-Weighing must instead require **per-animal proof video**.
+Individual Weighing must instead require **per-animal proof video**.
 
-Each completed weighing row must have a proof artifact attached to that animal
-and weighing session. A shed-level recap video may be added later, but it must
-not replace per-animal proof.
+Each completed individual weighing row must have a proof artifact attached to
+that animal and weighing session. A shed-level recap video may be added later,
+but it must not replace per-animal proof for individual rows.
 
-Per-animal video is mandatory even when the operator scans many animals in the
-same physical shed without moving. A bulk/shed recap cannot satisfy missing
-animal videos, and submit must show exactly which accepted/locally completed
-animals are blocked by missing, uploading, failed, or detached proof.
+Per-animal video is mandatory for individual weighing even when the operator
+scans many animals in the same physical shed without moving. A bulk/shed recap
+cannot satisfy missing animal videos, and submit must show exactly which
+accepted/locally completed individual animals are blocked by missing, uploading,
+failed, or detached proof.
+
+Lumpsum weighing has a separate proof policy. A lumpsum proof, if required, is
+shed/partition-level coverage evidence for the approved Castro/Godel scopes. It
+must not be treated as per-animal proof and must not update per-animal latest
+trusted weight.
 
 The proof experience must be designed for poor connectivity. Operators should be
 able to capture weight + video offline, see that the row is pending upload/sync,
@@ -483,7 +489,11 @@ acceptance includes these visible outcomes:
   only as planning guidance.
 - Unfinished groups roll forward until complete, including beyond the calendar
   week.
-- Operator can scan RFID, enter weight, and attach mandatory per-animal video.
+- For individual weighing, the operator can scan RFID, enter weight, and attach
+  mandatory per-animal video.
+- For approved lumpsum sheds/partitions, the operator can record the
+  shed/partition-level lumpsum measurement and coverage count without pretending
+  every animal was individually scanned/proofed.
 - Wrong-shed scans remain in the table with expected/original shed context and
   visible highlighting.
 - Missing expected animals are classified separately from ordinary pending
