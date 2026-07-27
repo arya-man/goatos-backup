@@ -3,6 +3,7 @@
     <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">पुष्टि करें कि प्रत्येक शेड-सत्र को खिलाया गया</string>
     <string name="feed_packing_caption">इस फ़ीड दिन के लिए प्रति-शेड बैग</string>
+    <string name="feed_packing_for_next_day">यह फ़ीड %1$s के लिए है</string>
     <string name="feed_refresh_description">रिफ़्रेश करें</string>
 
     <string name="feed_filters_title">फ़िल्टर</string>

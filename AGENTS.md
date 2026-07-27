@@ -213,6 +213,36 @@ alongside the distribution route, which had been unregistered and would 403).
 Canonical source: `docs/decisions/feed-distribution-verification.md`; migration
 `000033_feed_packing_verification_gate.sql`.
 
+Confirmed feed-direction shifting-projection timing rule (maintainer decision
+2026-07-27, SUPERSEDING the priority-based lead-day rule — normal 2-day /
+high-priority 1-day — that the projection previously applied): the feed sheet's
+projected shed head count = the live herd PLUS every authorized-but-unexecuted
+shifting, with NO lead time and NO priority branch. A shifting is a pending feed
+input the moment a park head AUTHORIZES it, so it counts toward the next feed
+sheet immediately (destination shed +heads, source shed −heads), affecting ONLY
+the feed projection and never the census counts. "Forget high priority": normal
+and high-priority movements are treated identically for feed timing (high still
+completes same-day operationally, so it lands in the live herd quickly anyway).
+A movement stops counting in the projection ONLY when it is `applied`
+(verifier-approved), at which point its animals already sit in the destination
+shed in canonical `goats` — so the delta must count BOTH `authorized` AND
+`pending_verification` (operator completed with proof, not yet approved, animals
+NOT yet relocated) and EXCLUDE `applied`, or the shed is either double-fed
+(counting applied) or under-fed (dropping pending_verification). The "overdue"
+flag fires only when a counted movement was authorized BEFORE the packing day
+(feed day − 1) and is still unexecuted, so a freshly authorized move under the
+zero lead does not spuriously read as overdue. Canonical source: the pure-Go
+spec `backend/internal/counts/domain.FeedShiftingEffectiveBusinessDate` /
+`FeedShiftingCountsToward` / `FeedShiftingIsOverdue` and the SQL it mirrors in
+`counts/adapters/postgres/feed_projected_counts.go` (`event_status IN
+('authorized','pending_verification')`). Proof:
+`counts/domain.TestFeedShifting*` and
+`counts/adapters/postgres.TestFeedProjectionTimingRule` /
+`TestFeedProjectionExcludesAppliedMovements` (includes the pending_verification
+case). This changes ONLY the shifting-aware feed projection; the 7:30-style
+auto-issue scheduler and the calendar surfacing of next-day feed remain
+separate, unbuilt items.
+
 ## Domain Event Integration Is Mandatory
 
 Backend, admin-web, and mobile business mutations all use the same domain-event

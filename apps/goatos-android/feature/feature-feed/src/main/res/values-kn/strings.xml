@@ -3,6 +3,7 @@
     <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">ಪ್ರತಿ ಶೆಡ್-ಸೆಷನ್‌ಗೆ ಆಹಾರ ನೀಡಿದ್ದನ್ನು ಖಚಿತಪಡಿಸಿ</string>
     <string name="feed_packing_caption">ಈ ಆಹಾರ ದಿನಕ್ಕೆ ಪ್ರತಿ-ಶೆಡ್ ಚೀಲಗಳು</string>
+    <string name="feed_packing_for_next_day">ಈ ಆಹಾರ %1$s ಗಾಗಿ</string>
     <string name="feed_refresh_description">ರಿಫ್ರೆಶ್</string>
 
     <string name="feed_filters_title">ಫಿಲ್ಟರ್‌ಗಳು</string>

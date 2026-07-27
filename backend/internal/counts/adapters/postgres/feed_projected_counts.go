@@ -44,13 +44,17 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	               count_base_anchors replay. merged_into_goat_id IS NULL keeps a merged animal
 //	               from being counted under both identities.
 //
-//	               The delta set is deliberately NARROW: only movements that are both authorized
-//	               AND still unexecuted. 'applied' movements are EXCLUDED, and that exclusion is
-//	               the single most important predicate in this statement. A completed shifting has
-//	               already relocated its animals in goats (CompleteShiftingEvent does the
-//	               relocation and the status flip in one transaction), so it is ALREADY reflected
-//	               in current_head_count. Including it would add the same animals a second time
-//	               and over-feed the destination shed.
+//	               The delta set is deliberately NARROW: only movements that are still unexecuted --
+//	               event_status 'authorized' (director-approved, operator has not completed) OR
+//	               'pending_verification' (operator completed with proof, awaiting a verifier). Both
+//	               precede any relocation. 'applied' movements are EXCLUDED, and that exclusion is the
+//	               single most important predicate in this statement. Under the shifting verification
+//	               gate (migration 000031) the animals relocate in goats ONLY at 'applied', inside
+//	               ApplyVerifiedShiftingEvent (the relocation and the status flip in one transaction),
+//	               so an applied movement is ALREADY reflected in current_head_count. Including it
+//	               would add the same animals a second time and over-feed the destination shed.
+//	               Conversely a 'pending_verification' movement is NOT yet in current_head_count, so
+//	               it must stay in the delta or the destination shed is under-fed until approval.
 //	group_key    = park x shed x stage x breed x sex, normalized on both sides. See
 //	               feedGrainNormSQL for why raw equality is not safe here.
 //	join_card    = the danger is shifting_event_impacts: one event has MANY impact rows, so
@@ -72,13 +76,11 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	$3  park_id filter   ('' = all)
 //	$4  shed_id filter   ('' = all)
 //	$5  target feed date D (YYYY-MM-DD, business calendar)
-//	$6  high-priority lead days (domain.FeedShiftingHighPriorityLeadDays)
-//	$7  standard lead days  (domain.FeedShiftingStandardLeadDays)
-//	$8  business timezone   (biztime.DefaultTimezone)
-//	$9  limit
-//	$10 offset
-//	$11 shed_id SET filter (empty array = no set filter)
-//	$12 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
+//	$6  business timezone   (biztime.DefaultTimezone)
+//	$7  limit
+//	$8  offset
+//	$9  shed_id SET filter (empty array = no set filter)
+//	$10 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
 var feedProjectedShedCountsBaseSQL = `
 WITH live AS MATERIALIZED (
   SELECT
@@ -101,22 +103,28 @@ WITH live AS MATERIALIZED (
     -- so the ordinary index on g.shed_id remains usable. Casting the column to
     -- text on the left-hand side instead would disable that index -- the
     -- non-sargable-cast anti-pattern.
-    AND (cardinality($11::uuid[]) = 0 OR g.shed_id = ANY($11::uuid[]))
-    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $12)
+    AND (cardinality($9::uuid[]) = 0 OR g.shed_id = ANY($9::uuid[]))
+    AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $10)
   GROUP BY g.park_id, g.shed_id,
            COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
 ),
--- Approved but NOT yet executed movements, with the feed-effective business date the timing rule
--- gives each one. The lead days arrive as BIND PARAMETERS from domain.FeedShiftingLeadDays rather
--- than as SQL literals, so the business rule has exactly one definition (Go) and this statement
--- only has to know which priority string is the fast one.
+-- Authorized but NOT yet executed movements, feed-effective from the authorization business date.
+-- Maintainer decision 2026-07-27: there is NO lead time and NO priority branch -- a movement is a
+-- pending feed input the moment it is authorized (see domain.FeedShiftingEffectiveBusinessDate).
+--
+-- event_status carries TWO not-yet-executed states, and both must count: 'authorized' (operator has
+-- not completed) and 'pending_verification' (operator completed with proof, awaiting a verifier).
+-- Under the shifting verification gate (migration 000031) the animals relocate in goats ONLY at
+-- 'applied', so 'pending_verification' is NOT yet in the live herd and must stay in the delta or the
+-- destination shed is under-fed until approval. 'applied' is excluded here precisely because it is
+-- already in current_head_count -- see the narrow-delta note in the header.
 --
 -- authorized_at is the approval stamp -- the moment a park head said the movement MAY happen. It
 -- is deliberately NOT raised_at (when someone asked) and NOT effective_at (an authored intent
--- date): the feed lead time runs from the decision, so the clock starts at authorization.
+-- date): the feed clock starts at authorization.
 --
 -- The date is derived in Asia/Kolkata, never UTC. An approval at 20:00 UTC is already the next
--- day in India, and a UTC-derived date would start the lead a day late.
+-- day in India, and a UTC-derived date would put the movement on the wrong feed day.
 pending_event AS (
   SELECT
     se.shifting_event_id,
@@ -124,12 +132,11 @@ pending_event AS (
     se.source_shed_id,
     se.destination_park_id,
     se.destination_shed_id,
-    ((se.authorized_at AT TIME ZONE $8)::date
-       + (CASE WHEN se.priority = 'high' THEN $6::int ELSE $7::int END)) AS feed_effective_date
+    (se.authorized_at AT TIME ZONE $6)::date AS feed_effective_date
   FROM shifting_events se
   WHERE se.tenant_id = $1::uuid
     AND se.authorization_state = 'authorized'
-    AND se.event_status = 'authorized'
+    AND se.event_status IN ('authorized', 'pending_verification')
     AND se.authorized_at IS NOT NULL
 ),
 -- The destination shed's own operational cohort, so the DESTINATION leg of a movement is tagged
@@ -164,9 +171,11 @@ dest_cohort AS (
 ),
 -- One row per (movement, impact, direction). Source loses head_count, destination gains it.
 --
--- feed_effective_date <= D, never = D. An OVERDUE movement -- due for feed days ago and still not
--- executed -- therefore keeps counting on every later day instead of silently dropping out of the
--- projection and quietly de-feeding a shed whose animals are still expected.
+-- feed_effective_date <= D, never = D: a movement counts on its authorization day and every later
+-- day until executed. An OVERDUE movement -- authorized days ago and still not executed -- therefore
+-- keeps counting instead of silently dropping out and quietly de-feeding a shed whose animals are
+-- still expected. (Overdue itself is the tighter < D-1 test in the delta CTE below; counting here is
+-- the wider <= D.)
 pending_leg AS (
   SELECT
     p.shifting_event_id,
@@ -217,10 +226,13 @@ delta AS (
     min(l.breed_label) AS breed_label,
     min(l.sex_label)   AS sex_label,
     sum(l.signed_head) AS pending_delta,
-    bool_or(l.feed_effective_date < $5::date) AS overdue_pending,
+    -- Overdue = authorized BEFORE the packing day (feed day - 1) and still unexecuted, i.e. pending
+    -- across at least one full cycle. A move authorized on the packing day is expected to execute
+    -- that same day and is NOT overdue, so a zero-lead projection does not flag every fresh move.
+    bool_or(l.feed_effective_date < ($5::date - 1)) AS overdue_pending,
     COALESCE(
       array_agg(DISTINCT l.shifting_event_id::text)
-        FILTER (WHERE l.feed_effective_date < $5::date),
+        FILTER (WHERE l.feed_effective_date < ($5::date - 1)),
       ARRAY[]::text[]
     ) AS overdue_event_ids
   FROM pending_leg l
@@ -228,8 +240,8 @@ delta AS (
     AND ($4 = '' OR l.shed_id = NULLIF($4, '')::uuid)
     -- Applied to the movement legs too, on the same terms as the live side: a
     -- shed-set page must not show a delta sourced from a shed the page excluded.
-    AND (cardinality($11::uuid[]) = 0 OR l.shed_id = ANY($11::uuid[]))
-    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $12)
+    AND (cardinality($9::uuid[]) = 0 OR l.shed_id = ANY($9::uuid[]))
+    AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $10)
   GROUP BY 1, 2, 3, 4, 5
 ),
 -- FULL OUTER, not LEFT. A destination shed that holds none of this grain today has no live row at
@@ -322,7 +334,7 @@ var (
 // justification rather than inheriting one from a 150-line statement.
 //
 // scale-guard:ignore: OFFSET walks the PRE-AGGREGATED grain set (distinct park/shed/stage/breed/sex combinations, tens to low thousands at this envelope), never canonical goats rows; the service rejects offset > 5000 outright.
-const feedProjectedCountsPagingSQL = `LIMIT $9 OFFSET $10`
+const feedProjectedCountsPagingSQL = `LIMIT $7 OFFSET $8`
 
 // ProjectedShedCountsForFeed serves the live-herd feed projection: what each shed grain will hold
 // on feed day D, given the movements that are approved but not yet executed.
@@ -376,8 +388,6 @@ func (r *Repository) ProjectedShedCountsForFeed(
 		ptrValue(req.ParkID),
 		ptrValue(req.ShedID),
 		targetDate.Format("2006-01-02"),
-		domain.FeedShiftingHighPriorityLeadDays,
-		domain.FeedShiftingStandardLeadDays,
 		biztime.DefaultTimezone,
 		limit,
 		offset,
