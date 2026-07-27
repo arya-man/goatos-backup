@@ -1,7 +1,7 @@
 # Weighing E2E Seed Fixture
 
-Status: seed/E2E contract plus backend service regression lane for the Weighing
-v1 implementation.
+Status: seed/E2E contract, backend service regression lane, and runnable local
+DB seed importer for the Weighing v1 implementation.
 
 Business date: `2026-07-29`.
 
@@ -16,6 +16,7 @@ machine-readable so the seed lane can fail loudly when required coverage drifts.
 | `weighing-seed.json` | Canonical seed scenario covering roles, campaign, selected sheds/partitions, animals, proof/outbox cases, mobile route expectations, and scale profile. |
 | `weighing-seed.test.mjs` | Node test wrapper for the fixture verifier. |
 | `tools/dev/validate-weighing-e2e-fixture.mjs` | Strict verifier used by local QA and future seed closeout wiring. |
+| `backend/cmd/seed-weighing-e2e` | Idempotent local DB importer for this fixture. |
 | `backend/internal/weighing/app/service_test.go` | Service regression that drives the fixture's core create/publish/execute/RBAC/idempotency/category path. |
 
 ## Coverage
@@ -33,8 +34,22 @@ machine-readable so the seed lane can fail loudly when required coverage drifts.
 
 ## Remaining Integration Notes
 
-The remaining closeout step is a real DB seed/import command plus mobile E2E
-driver. The mobile E2E should point Android at the laptop backend and drive the
-same ids through Room/outbox/proof/RFID paths. The fixture verifier must
-continue to run before DB writes so a missing scenario is caught before a
-partial seed creates misleading evidence.
+Validate without DB writes:
+
+```bash
+cd backend
+go run ./cmd/seed-weighing-e2e -dry-run -fixture ../fixtures/weighing-e2e-2026-07-29/weighing-seed.json
+```
+
+Import into a migrated local database:
+
+```bash
+cd backend
+DATABASE_URL=postgres://... go run ./cmd/seed-weighing-e2e -fixture ../fixtures/weighing-e2e-2026-07-29/weighing-seed.json
+```
+
+The remaining closeout step is the mobile E2E driver. It should point Android
+at the laptop backend after this seed import and drive the same ids through
+Room/outbox/proof/RFID paths. The fixture verifier must continue to run before
+DB writes so a missing scenario is caught before a partial seed creates
+misleading evidence.
