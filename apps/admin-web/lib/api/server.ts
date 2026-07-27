@@ -92,6 +92,9 @@ export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents[
 export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
+export type WeighingCampaign = AppApiComponents["schemas"]["WeighingCampaign"];
+export type WeighingCampaignShed = AppApiComponents["schemas"]["WeighingCampaignShed"];
+export type WeighingCampaignListResponse = AppApiComponents["schemas"]["WeighingCampaignListResponse"];
 
 // CEO vaccination command board read model.
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
@@ -1052,6 +1055,20 @@ export async function getVaccinationDriveAssignments(
         cache: "no-store",
         signal,
         query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit }),
+      }),
+    ),
+  );
+}
+
+export async function getWeighingCampaigns(): Promise<ApiResult<WeighingCampaignListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<WeighingCampaignListResponse>("/weighing/campaigns", {
+        cache: "no-store",
+        signal,
       }),
     ),
   );

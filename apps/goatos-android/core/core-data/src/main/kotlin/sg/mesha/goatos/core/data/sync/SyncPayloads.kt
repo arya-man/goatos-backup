@@ -15,6 +15,8 @@ import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
  *  breaks decode of an already-queued row (mirrors [sg.mesha.goatos.core.data.BootstrapCache]). */
@@ -145,6 +147,18 @@ data class CountsDeathPayload(
 data class CountsApprovalDecisionPayload(
     @SerialName("request_id") val requestId: String,
     @SerialName("request") val request: CountsApprovalDecisionRequestDto,
+)
+
+@Serializable
+data class WeighingAnimalObservationPayload(
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("request") val request: WeighingAnimalObservationRequestDto,
+)
+
+@Serializable
+data class WeighingShedObservationPayload(
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("request") val request: WeighingShedObservationRequestDto,
 )
 
 /**

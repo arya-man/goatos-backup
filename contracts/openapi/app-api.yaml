@@ -31,6 +31,7 @@ tags:
   - name: Herd Register
   - name: Verification
   - name: Counts
+  - name: Weighing
 paths:
   /admin/tasks/review-fanouts/retry:
     post:
@@ -123,6 +124,170 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /weighing/campaigns:
+    get:
+      tags:
+        - Weighing
+      operationId: listWeighingCampaigns
+      summary: List leadership-visible Weighing campaigns.
+      responses:
+        "200":
+          description: Weighing campaigns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Weighing
+      operationId: createWeighingCampaign
+      summary: Create a weekly kids Weighing campaign draft.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWeighingCampaignRequest"
+      responses:
+        "200":
+          description: Weighing campaign created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /weighing/campaigns/{campaign_id}/publish:
+    post:
+      tags:
+        - Weighing
+      operationId: publishWeighingCampaign
+      summary: Publish a Weighing campaign to operator-visible work.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Weighing campaign published or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns:
+    get:
+      tags:
+        - Weighing
+      operationId: appListWeighingCampaigns
+      summary: List operator-visible Weighing campaigns.
+      responses:
+        "200":
+          description: Operator Weighing campaigns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/animal-observations:
+    post:
+      tags:
+        - Weighing
+      operationId: recordWeighingAnimalObservation
+      summary: Record one proof-backed individual animal Weighing observation.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordWeighingAnimalObservationRequest"
+      responses:
+        "200":
+          description: Animal observation accepted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingObservationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/shed-observations:
+    post:
+      tags:
+        - Weighing
+      operationId: recordWeighingShedObservation
+      summary: Record one proof-backed shed/partition Weighing observation.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordWeighingShedObservationRequest"
+      responses:
+        "200":
+          description: Shed/partition observation accepted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingObservationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/devices/register:
     post:
       tags:
@@ -5745,6 +5910,13 @@ components:
         format: uuid
     ObligationId:
       name: obligation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WeighingCampaignId:
+      name: campaign_id
       in: path
       required: true
       schema:
@@ -13682,6 +13854,311 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationDriveAssignmentRow"
+    WeighingCampaignStatus:
+      type: string
+      enum: [draft, published, in_progress, delayed, completed, canceled]
+    WeighingCampaignShedStatus:
+      type: string
+      enum: [pending, in_progress, completed, canceled]
+    WeighingCategory:
+      type: string
+      enum: [individual_animal, per_shed_partition]
+    WeighingAvailabilityStatus:
+      type: string
+      enum: [expected_shed, moved_other_shed, icu, quarantine, dead, culled, sold_transferred, exited, unknown_review]
+    WeighingProgress:
+      type: object
+      additionalProperties: false
+      required:
+        - individual_expected_count
+        - individual_completed_count
+        - per_scope_expected_count
+        - per_scope_completed_count
+        - wrong_shed_count
+        - missing_count
+        - remaining_count
+      properties:
+        individual_expected_count:
+          type: integer
+          minimum: 0
+        individual_completed_count:
+          type: integer
+          minimum: 0
+        per_scope_expected_count:
+          type: integer
+          minimum: 0
+        per_scope_completed_count:
+          type: integer
+          minimum: 0
+        wrong_shed_count:
+          type: integer
+          minimum: 0
+        missing_count:
+          type: integer
+          minimum: 0
+        remaining_count:
+          type: integer
+          minimum: 0
+    WeighingCampaignShed:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_shed_id
+        - campaign_id
+        - location_id
+        - location_type
+        - display_name
+        - expected_animal_count
+        - weighing_category
+        - status
+      properties:
+        campaign_shed_id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        location_id:
+          type: string
+          format: uuid
+        location_type:
+          type: string
+          enum: [shed, cohort, pen]
+        display_name:
+          type: string
+        expected_animal_count:
+          type: integer
+          minimum: 0
+        weighing_category:
+          $ref: "#/components/schemas/WeighingCategory"
+        status:
+          $ref: "#/components/schemas/WeighingCampaignShedStatus"
+    WeighingCampaign:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - tenant_id
+        - park_id
+        - period_start_date
+        - period_end_date
+        - start_business_date
+        - status
+        - planned_cap_per_day
+        - operator_user_id
+        - created_by
+        - created_at
+        - updated_at
+        - row_version
+        - progress
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        park_id:
+          type: string
+          format: uuid
+        period_start_date:
+          type: string
+          format: date
+        period_end_date:
+          type: string
+          format: date
+        start_business_date:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/WeighingCampaignStatus"
+        planned_cap_per_day:
+          type: integer
+          minimum: 1
+        operator_user_id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingCampaignShed"
+        progress:
+          $ref: "#/components/schemas/WeighingProgress"
+    WeighingCampaignListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingCampaign"
+        trace_id:
+          type: string
+    WeighingCampaignResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign
+      properties:
+        campaign:
+          $ref: "#/components/schemas/WeighingCampaign"
+        trace_id:
+          type: string
+    CreateWeighingCampaignShed:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - location_type
+        - display_name
+        - weighing_category
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        location_type:
+          type: string
+          enum: [shed, cohort, pen]
+        display_name:
+          type: string
+          minLength: 1
+        weighing_category:
+          $ref: "#/components/schemas/WeighingCategory"
+    CreateWeighingCampaignRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - period_start_date
+        - period_end_date
+        - start_business_date
+        - planned_cap_per_day
+        - operator_user_id
+        - sheds
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        period_start_date:
+          type: string
+          format: date
+        period_end_date:
+          type: string
+          format: date
+        start_business_date:
+          type: string
+          format: date
+        planned_cap_per_day:
+          type: integer
+          minimum: 1
+        operator_user_id:
+          type: string
+          format: uuid
+        sheds:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreateWeighingCampaignShed"
+    RecordWeighingAnimalObservationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - animal_id
+        - weight_kg
+        - proof_artifact_id
+        - actual_location_id
+      properties:
+        animal_id:
+          type: string
+          format: uuid
+        weight_kg:
+          type: number
+          exclusiveMinimum: 0
+        proof_artifact_id:
+          type: string
+          format: uuid
+        actual_location_id:
+          type: string
+          format: uuid
+    RecordWeighingShedObservationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_shed_id
+        - weight_kg
+        - proof_artifact_id
+      properties:
+        campaign_shed_id:
+          type: string
+          format: uuid
+        weight_kg:
+          type: number
+          exclusiveMinimum: 0
+        proof_artifact_id:
+          type: string
+          format: uuid
+    WeighingObservation:
+      type: object
+      additionalProperties: false
+      required:
+        - observation_id
+        - campaign_id
+        - weight_kg
+        - proof_artifact_id
+        - accepted_at
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        campaign_shed_id:
+          type: string
+          format: uuid
+        animal_id:
+          type: string
+          format: uuid
+        weight_kg:
+          type: number
+        proof_artifact_id:
+          type: string
+          format: uuid
+        expected_location_id:
+          type: string
+          format: uuid
+        actual_location_id:
+          type: string
+          format: uuid
+        actual_location_label:
+          type: string
+        accepted_at:
+          type: string
+          format: date-time
+    WeighingObservationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - observation
+      properties:
+        observation:
+          $ref: "#/components/schemas/WeighingObservation"
+        trace_id:
+          type: string
     VaccinationShedVaccineRow:
       type: object
       additionalProperties: false

@@ -282,9 +282,8 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
         </div>
         <div className="bd">
           <p className="muted small">
-            This admin-web slice is wired through a typed Weighing read-model adapter. The generated OpenAPI
-            client has no Weighing endpoints in this checkout yet, so create/edit/publish buttons are gated UI
-            controls only until backend commands land.
+            This admin-web slice reads Weighing campaigns through the generated OpenAPI client. Command buttons
+            reflect backend roles and remain disabled for director/operator personas.
           </p>
         </div>
       </section>
