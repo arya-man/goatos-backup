@@ -47,6 +47,8 @@ failure patterns before code starts:
 | Android routes chose the wrong task/shed after scan. | Route identity must carry campaign, work group, expected shed/partition, and animal scan context end to end. |
 | Permission/proof gates ran too late. | Backend must reject observation completion without `weighing.execute` and required proof. |
 | Leadership/admin cards used fallback copy/shape. | Backend contracts own progress buckets, disabled reasons, labels, and media URLs. |
+| Notification and projection fanout retries were needed after partial failure. | Observation acceptance, progress projection, media review/recovery, notification, and leadership summaries must be durable retryable consumers with visible degraded states. |
+| Mobile scan/RFID fixes exposed O(n) lookup, lost identity, and permission timing hazards. | Android must use indexed Room/cache lookup, exact route/outbox identity, and backend-first capability/proof gates. |
 
 ## 2. Architecture invariants
 
@@ -75,6 +77,11 @@ business event
 -> proof/verification
 -> read model
 ```
+
+The kernel chain is not optional because Weighing looks simpler than
+Vaccination. Weighing still creates operational work, captures proof, records a
+trusted animal fact, affects leadership answers, and can become delayed or
+blocked by missing animals. Those are kernel concerns.
 
 ## 3. Domain grain
 
@@ -193,6 +200,11 @@ Group membership should be a separate join table:
 weighing_work_group_sheds(work_group_id, campaign_shed_id)
 ```
 
+The join table is the only source of work-group shed membership. Do not infer a
+work group's sheds from planned date, display name, route params, or a generic
+SOP parent task. This is the vaccination sibling-shed bug class in weighing
+form.
+
 Suggested work groups are planner output, not membership authority. The
 membership authority remains `weighing_expected_animals`. A replan may change a
 pending expected row's planned work group, but it must not rewrite which animals
@@ -249,6 +261,15 @@ Uniqueness should prevent duplicate same-campaign animal observations unless an
 explicit correction/replacement flow is added. V1 can use one accepted
 observation per `(campaign_id, animal_id)`.
 
+Expected-vs-extra counting rule:
+
+- if `(campaign_id, animal_id)` exists in `weighing_expected_animals`, the
+  accepted observation may satisfy that expected row;
+- if it does not exist, the observation is `not_in_campaign` and contributes
+  only to extra/mismatch insight counts;
+- a not-in-campaign observation must never increment expected completion or
+  silently create expected membership for another shed.
+
 ### `weighing_observation_corrections`
 
 Corrections are explicit audit records, not destructive updates.
@@ -272,6 +293,24 @@ The proof/media link must be queryable in both directions:
 
 Do not rely on transient Android form state or a generic SOP submission blob as
 the only proof reference.
+
+### Status and constraint requirements
+
+Implementation must define persisted status values in migrations with `CHECK`
+constraints and mirror them in domain value objects. At minimum, the design must
+separate:
+
+- campaign lifecycle: draft/planned/published/in_progress/delayed/completed/
+  canceled;
+- work-group lifecycle: pending/in_progress/delayed/completed/canceled;
+- expected-animal status: pending/weighed/unavailable/missed/closed_by_override/
+  canceled;
+- observation status: pending_upload/submitted/accepted/rejected/voided/replaced.
+
+Exact names should follow current migration conventions, but terminal states
+must be immutable except explicit correction/reopen commands. Display buckets
+such as "open today", "delayed", "moved", or "review needed" must not be
+persisted as ad-hoc statuses unless the migration and state machine define them.
 
 ## 5.1 Count and projection grain
 
@@ -458,17 +497,22 @@ GET  /api/v1/weighing/weeks?from=&to=
 GET  /api/v1/weighing/months?from=&to=
 POST /api/v1/weighing/campaigns
 GET  /api/v1/weighing/campaigns/{campaign_id}
+GET  /api/v1/weighing/campaigns/{campaign_id}/leadership-contract
 PATCH /api/v1/weighing/campaigns/{campaign_id}
 POST /api/v1/weighing/campaigns/{campaign_id}/plan
 POST /api/v1/weighing/campaigns/{campaign_id}/publish
+POST /api/v1/weighing/campaigns/{campaign_id}/close-pending
 POST /api/v1/weighing/campaigns/{campaign_id}/cancel
 ```
 
 Operator/mobile:
 
 ```text
+GET  /api/v1/app/weighing/bootstrap
+GET  /api/v1/app/weighing/weeks?from=&to=
 GET  /api/v1/app/weighing/work-groups?date=&status=&cursor=&limit=
 GET  /api/v1/app/weighing/work-groups/{work_group_id}
+GET  /api/v1/app/weighing/work-groups/{work_group_id}/progress-contract
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/animals?status=&cursor=&limit=
 POST /api/v1/app/weighing/observations
 POST /api/v1/app/weighing/observations/{observation_id}/corrections
@@ -478,6 +522,25 @@ POST /api/v1/app/weighing/work-groups/{work_group_id}/submit-progress
 All mutating routes require idempotency keys and semantic request fingerprints.
 List endpoints must return `items`, `next_cursor`, `total`, and backend-owned
 summary buckets. Android must not infer campaign totals from the current page.
+
+API response contracts must include backend-owned:
+
+- row IDs and row versions for campaign, work group, selected shed/partition,
+  expected animal, observation, and proof artifact;
+- disjoint progress buckets;
+- mismatch and availability reason codes plus display labels;
+- disabled reasons for publish, submit progress, replace proof, correct
+  observation, close remaining, and cancel;
+- media upload/recovery states and signed playback/download URLs where allowed;
+- deep-link/tap targets for Android and admin-web leadership surfaces.
+
+No client should derive these from local enum guesses or from the current page
+of animals.
+
+Backend-owned contracts must include labels, tones, disabled reasons, empty
+states, route targets, proof media URLs, summary buckets, and
+page-size-independent totals. Android and admin-web render these fields; they do
+not hardcode bucket meanings.
 
 API read contracts:
 
@@ -507,6 +570,12 @@ role:
 | `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
 
 Dinakar has planning/monitoring capability, not execution capacity.
+
+RBAC must be enforced in backend query predicates, not only by sidebar
+visibility. Every route that accepts `campaign_id`, `work_group_id`,
+`animal_id`, `location_id`, or `proof_artifact_id` must re-check tenant and
+authorized park/farm/shed scope in SQL or the owning service before returning or
+mutating the row. Android role gating is UX only.
 
 ## 11. Android UX contract
 
@@ -553,6 +622,16 @@ Android data contract:
   a scan or process restart.
 - Per-animal proof capture must survive process death, retry, and offline
   re-entry until synced or explicitly removed by the operator before submit.
+- Weight/proof capture writes Room first, queues an outbox command with a stable
+  device event id, and syncs through the shared retry engine. The UI renders the
+  Room row while upload/acceptance is pending.
+- Uploaded-but-unsubmitted proof can be removed by the operator before final
+  observation acceptance; this must call a real backend/media endpoint when the
+  proof is already uploaded and then update Room.
+- The sign-out wipe inventory must include weighing Room tables, proof/video
+  cache files, upload work, outbox rows, and saved route/draft state.
+- The scan screen must not fetch all expected animals into memory. It should
+  page visible rows and resolve RFID through an indexed lookup/cache path.
 
 ## 12. Proof/media
 
@@ -581,6 +660,18 @@ An uploaded proof may be removed/replaced before final observation acceptance.
 After acceptance, replacement is a correction event with preserved old proof
 lineage.
 
+Media implementation requirements:
+
+- Video capture source, max duration/size, transcoding, upload retry, and signed
+  URL generation must reuse the shared proof/media policy infrastructure.
+- The backend must be able to recover from all partial states: proof uploaded
+  without observation, observation submitted with proof still processing,
+  idempotency replay after app reinstall/process death, and accepted observation
+  whose playback URL needs regeneration.
+- Proof lineage must preserve original and replacement artifacts for audits.
+- Media URLs exposed to admin-web, Android, and leadership assistant surfaces
+  must come from backend contract fields, not hand-built client paths.
+
 ## 13. Events and projections
 
 Domain events:
@@ -594,6 +685,19 @@ Domain events:
 - `weighing.expected_animal.availability_changed`
 - `weighing.observation.corrected`
 - `weighing.campaign.canceled`
+
+External/cross-module events to consume:
+
+- animal location changed;
+- animal lifecycle/status changed;
+- ICU/quarantine admission or release, if modeled separately;
+- identity/RFID corrected or replaced;
+- proof artifact accepted/rejected/removed, if proof uses its own event stream.
+
+Every event added or consumed must be registered in
+`context/architecture/domain-event-registry.json` with durable producer,
+consumer, replay, DLQ, and E2E proof. A handler registered only in test wiring or
+an unused bus is not accepted.
 
 Read models:
 
@@ -610,6 +714,18 @@ Read models:
 The implementation must register producer/consumer relationships in the domain
 event registry and update leadership assistant coverage or document a deliberate
 exclusion.
+
+Projection grain requirements:
+
+- expected progress source: `weighing_expected_animals`;
+- accepted observation source: `weighing_observations`;
+- media state source: proof/media tables through the proof port;
+- availability source: current canonical herd/location/lifecycle projections;
+- group membership source: `weighing_work_group_sheds`;
+- totals are computed or projected over the full filtered set, never from one
+  page of rows;
+- every projection row must carry tenant, campaign, farm/park, work group and,
+  where relevant, shed/partition grain.
 
 Projection/update rules:
 
@@ -643,6 +759,19 @@ Observation submission:
   returns the accepted observation depending on chosen API behavior.
 
 Outbox consumers dedupe by event id and aggregate version.
+
+Every idempotent write must have a matching database unique constraint or
+reservation row. The TRD implementation is incomplete until the migration,
+repository SQL, and tests prove:
+
+- exact replay returns the original response and writes no new audit/outbox/media
+  side effect;
+- same key with different semantic fingerprint fails before mutation;
+- duplicate same-campaign/same-animal observation fails unless it is an explicit
+  correction/replacement;
+- retry after partial proof upload recovers the same proof/observation lineage;
+- terminal work-group/campaign states reject fresh side effects while allowing
+  exact replay.
 
 Submit-progress command:
 
@@ -726,12 +855,17 @@ Performance proof expected in implementation:
 
 V1 notification rules:
 
-- Notify Amit when a weighing campaign/work group is assigned.
-- Remind the operator on open work due today.
-- Surface leadership summary when work rolls beyond week end or expected plan.
-- Include missing/unavailable counts in leadership summaries, without blaming
-  the operator for animals unavailable due to canonical lifecycle/location facts.
-- Avoid noisy per-animal pushes.
+| Trigger | Audience | Route | Dedupe key |
+|---|---|---|---|
+| Campaign published | Amit | Open weighing work group | campaign + operator |
+| Day-start open work | Amit | Today/open weighing work | operator + business date |
+| Proof failed or missing after submit | Amit | Proof repair screen | observation/proof artifact |
+| Campaign delayed after week end or expected finish | CEO/CXO + preventive director | Campaign progress | campaign + delayed date |
+| Review-needed availability | Preventive director | Missing/review bucket | campaign + animal/status revision |
+
+Avoid noisy per-animal pushes. Leadership summaries include missing/unavailable
+counts without blaming the operator for animals unavailable due to canonical
+lifecycle/location facts.
 
 Notification rows must be durable. Delivery failures belong in the shared
 notification retry/DLQ path.
@@ -805,6 +939,9 @@ Minimum tests before implementation is considered done:
   idempotency replay is allowed.
 - Backend-owned contract supplies labels/disabled reasons for leadership and
   Android; clients do not hardcode bucket semantics.
+- Leadership close/adjust command requires reason code, actor, timestamp,
+  affected count, and animal list snapshot; closed animals leave operator
+  workload but remain in audit/reporting.
 - Domain event registry covers every weighing producer and consumer.
 - Leadership assistant coverage is updated or an explicit exclusion is
   documented.
