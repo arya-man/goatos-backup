@@ -508,16 +508,20 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 	operatorHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(operatorMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	for _, path := range []string{
-		"/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures",
-		"/app/proofs/uploads",
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures"},
+		{http.MethodPost, "/app/proofs/uploads"},
+		{http.MethodDelete, "/app/proofs/cc861766-3e4b-42cc-b097-95913391cfa2"},
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req := httptest.NewRequest(route.method, route.path, nil)
 		req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
 		rec := httptest.NewRecorder()
 		operatorHandler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNoContent {
-			t.Fatalf("scoped operator app route POST %s status=%d body=%s", path, rec.Code, rec.Body.String())
+			t.Fatalf("scoped operator app route %s %s status=%d body=%s", route.method, route.path, rec.Code, rec.Body.String())
 		}
 	}
 
