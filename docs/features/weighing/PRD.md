@@ -333,6 +333,11 @@ Each completed weighing row must have a proof artifact attached to that animal
 and weighing session. A shed-level recap video may be added later, but it must
 not replace per-animal proof.
 
+Per-animal video is mandatory even when the operator scans many animals in the
+same physical shed without moving. A bulk/shed recap cannot satisfy missing
+animal videos, and submit must show exactly which accepted/locally completed
+animals are blocked by missing, uploading, failed, or detached proof.
+
 The proof experience must be designed for poor connectivity. Operators should be
 able to capture weight + video offline, see that the row is pending upload/sync,
 retry safely, and remove or replace an unsynced video before final submit. After
@@ -369,6 +374,17 @@ expected_at_planning
 Wrong-shed and not-in-campaign scans are shown as separate insight counts. They
 must not inflate the expected completion numerator unless the animal was one of
 the campaign's expected animals.
+
+Leadership and operator recovery screens must make incomplete work actionable:
+
+- proof missing/uploading/failed by animal;
+- sync pending/failed by animal;
+- unresolved RFID or duplicate scan conflicts;
+- expected animals unavailable because of movement, ICU/quarantine, death,
+  culling, sale/transfer, or unknown state;
+- delayed work groups rolled beyond the suggested date/week; and
+- manual close/cancel decisions with audit reason when leadership chooses not to
+  chase remaining animals.
 
 Leadership progress card contract:
 
