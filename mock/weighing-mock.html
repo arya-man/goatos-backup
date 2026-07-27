@@ -257,6 +257,41 @@ button{font-family:inherit}
 .tl .tsub{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5}
 .tl .tm{font-size:10px;color:var(--faint);font-weight:650;margin-top:6px}
 
+/* header icon buttons */
+.ib{width:36px;height:36px;border-radius:11px;background:var(--surf2);display:grid;place-items:center;color:var(--muted);flex:none;cursor:pointer;border:0;font-size:15px}
+.ib:active{filter:brightness(1.3)}
+.ib.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* module drawer — L0 only */
+.ovl{position:absolute;top:0;right:0;bottom:0;left:0;z-index:60;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
+.ovl.open{opacity:1;visibility:visible}
+.ovl .vl{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(4,8,6,.62)}
+.draw{position:absolute;top:0;left:0;bottom:0;width:262px;max-width:82%;background:var(--surf);border-right:1px solid var(--hair);
+  box-shadow:10px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column;transform:translateX(-102%);transition:transform .26s ease}
+.ovl.open .draw{transform:none}
+.draw .dp{padding:26px 18px 16px;background:linear-gradient(160deg,rgba(138,212,87,.16),transparent);border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:12px}
+.draw .dp .dav{width:44px;height:44px;border-radius:14px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-weight:800;font-size:17px;flex:none}
+.draw .dp b{font-size:15px;font-weight:770;display:block}
+.draw .dp span{font-size:11px;color:var(--muted)}
+.draw .ds{flex:1;overflow-y:auto}
+.draw .ds::-webkit-scrollbar{width:0}
+.dgrp{font-size:10px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:16px 18px 6px}
+.di{display:flex;align-items:center;gap:13px;padding:12px 18px;font-size:14px;font-weight:650;color:var(--ink);cursor:pointer}
+.di .dic{width:20px;text-align:center;color:var(--muted);flex:none;font-size:14px}
+.di .sp{flex:1}
+.di.on{color:var(--brand-d);background:rgba(138,212,87,.1);box-shadow:inset 3px 0 0 var(--brand)}
+.di.on .dic{color:var(--brand)}
+.di.soon{color:var(--faint);cursor:default}
+.di.soon .dic{color:var(--faint)}
+.di .badge{font-size:9px;font-weight:750;padding:3px 8px;border-radius:999px;background:var(--surf3);color:var(--muted)}
+.di .badge.gr{background:var(--okx);color:var(--brand-d)}
+.draw .df{border-top:1px solid var(--hair);padding:6px 0 12px}
+
+/* L1+ drill: no root chrome */
+.scr.drill .vnav{display:none}
+.scr.drill .fab{display:none}
+
 /* floating action button */
 .fab{position:absolute;right:16px;bottom:74px;z-index:20;display:none;align-items:center;gap:8px;
   border:0;border-radius:16px;padding:13px 17px;font-weight:750;font-size:12.5px;cursor:pointer;
@@ -300,8 +335,14 @@ button{font-family:inherit}
 
     <div class="try">
       <h4>Create the week's task</h4>
-      <p>Five steps: kids lane → park → <b>sheds + category per shed</b> → 3-day plan → assign Amit.</p>
-      <button onclick="startWiz()">Open the wizard</button>
+      <p>Five steps: kids lane → park → <b>sheds + category per shed</b> → 3-day plan → assign Amit. Week 33 has no task — the button reads <b>New task</b> there.</p>
+      <button onclick="selWeek('w33');leadHome();startWiz('new')">Create for Week 33</button>
+    </div>
+
+    <div class="try">
+      <h4>One task per park per week</h4>
+      <p>A park that already has a task this week cannot get a second one. The button becomes <b>Edit task</b>, and forcing a create is blocked with the existing task and an Edit action.</p>
+      <button onclick="selWeek('w31');leadHome();startWiz('new')">Try creating a duplicate</button>
     </div>
 
     <p class="foot">Operator submissions update this view. Switch to Operator, submit a shed, then come back — Week 31's counters, shed rows and activity feed all move.</p>
@@ -311,9 +352,11 @@ button{font-family:inherit}
     <div class="sbar"><span>2:15</span><span>••• 🔋</span></div>
     <div class="notch"></div>
     <div class="vhead" id="lHead">
-      <button class="bk" onclick="leadHome()">‹</button>
-      <div><div class="eb" id="lEb">CPT · Channapatna</div><h3 id="lTitle">Weighing</h3></div>
-      <span class="rchip">CEO</span>
+      <button class="ib" id="lLead" onclick="lNavBtn()">☰</button>
+      <div style="min-width:0"><div class="eb" id="lEb">Weighing</div><h3 id="lTitle">Plan</h3></div>
+      <span style="flex:1"></span>
+      <button class="ib" id="lSync" onclick="doSync('lSync')">⟳</button>
+      <button class="ib" onclick="alert('Alerts — delayed sheds, proof-blocked scopes, review-needed kids.')">🔔</button>
     </div>
     <div class="vscroll" id="lScroll">
       <div class="view on" id="l-plan"></div>
@@ -324,10 +367,27 @@ button{font-family:inherit}
     </div>
     <button class="fab" id="lFab" onclick="startWiz()"><span>＋</span>New task</button>
     <div class="vnav">
-      <button class="tab on" onclick="leadTab('l-plan','Weighing','CPT · Channapatna',this)"><span class="tabind">▦</span><span>Plan</span></button>
-      <button class="tab" onclick="leadTab('l-prog','Progress',(WEEKS.find(x=>x.id===CUR)||{}).lbl,this)"><span class="tabind">📈</span><span>Progress</span></button>
+      <button class="tab on" onclick="leadTab('l-plan','Plan','Weighing',this)"><span class="tabind">▦</span><span>Plan</span></button>
+      <button class="tab" onclick="leadTab('l-prog','Progress','Weighing',this)"><span class="tabind">📈</span><span>Progress</span></button>
       <button class="tab" onclick="alert('Alerts — delayed sheds, proof-blocked scopes, review-needed kids.')"><span class="tabind">🔔</span><span>Alerts</span></button>
       <button class="tab" onclick="alert('Profile — role, park scope, capabilities.')"><span class="tabind">👤</span><span>You</span></button>
+    </div>
+    <div class="ovl" id="ovl-l"><div class="vl" onclick="closeDraw()"></div>
+      <div class="draw">
+        <div class="dp"><span class="dav">RT</span><div><b>Ravi Teja</b><span>CEO · Mesha</span></div></div>
+        <div class="ds">
+          <div class="dgrp">Modules</div>
+          <div class="di on"><span class="dic">⚖️</span><span>Weighing</span><span class="sp"></span><span style="color:var(--brand)">✓</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">💉</span><span>Vaccination</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">👥</span><span>People / HRMS</span><span class="sp"></span><span class="badge gr">New</span></div>
+          <div class="di soon"><span class="dic">🌾</span><span>Feed direction</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="di soon"><span class="dic">🐐</span><span>Breeding</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="dgrp">Settings</div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🌐</span><span>Language</span><span class="sp"></span><span class="badge gr">English</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🔔</span><span>Notifications</span></div>
+        </div>
+        <div class="df"><div class="di" style="color:var(--danger)" onclick="closeDraw()"><span class="dic" style="color:var(--danger)">⏻</span><span>Sign out</span></div></div>
+      </div>
     </div>
   </div></div>
 </div>
@@ -359,9 +419,11 @@ button{font-family:inherit}
     <div class="sbar"><span>2:15</span><span>••• 🔋</span></div>
     <div class="notch"></div>
     <div class="vhead" id="oHead">
-      <button class="bk" onclick="opHome()">‹</button>
-      <div><div class="eb" id="oEb">Week 31 · kids</div><h3 id="oTitle">My work</h3></div>
-      <div class="av">A</div>
+      <button class="ib" id="oLead" onclick="oNavBtn()">☰</button>
+      <div style="min-width:0"><div class="eb" id="oEb">Weighing</div><h3 id="oTitle">My work</h3></div>
+      <span style="flex:1"></span>
+      <button class="ib" id="oSync" onclick="doSync('oSync')">⟳</button>
+      <button class="ib" onclick="alert('Alerts — proof upload failures, sync retries, review-needed scans.')">🔔</button>
     </div>
     <div class="vscroll" id="oScroll">
       <div class="view on" id="o-work">
@@ -397,9 +459,26 @@ button{font-family:inherit}
       <div class="view" id="o-done"></div>
     </div>
     <div class="vnav">
-      <button class="tab on" onclick="opTab('o-work','My work','Week 31 · kids',this)"><span class="tabind">▦</span><span>My work</span></button>
+      <button class="tab on" onclick="opTab('o-work','My work','Weighing',this)"><span class="tabind">▦</span><span>My work</span></button>
       <button class="tab" onclick="alert('Alerts — proof upload failures, sync retries, review-needed scans.')"><span class="tabind">🔔</span><span>Alerts</span></button>
       <button class="tab" onclick="alert('Profile — Amit Kumar · weighing.execute')"><span class="tabind">👤</span><span>You</span></button>
+    </div>
+    <div class="ovl" id="ovl-o"><div class="vl" onclick="closeDraw()"></div>
+      <div class="draw">
+        <div class="dp"><span class="dav">AK</span><div><b>Amit Kumar</b><span>Field operator · CPT</span></div></div>
+        <div class="ds">
+          <div class="dgrp">Modules</div>
+          <div class="di on"><span class="dic">⚖️</span><span>Weighing</span><span class="sp"></span><span style="color:var(--brand)">✓</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">💉</span><span>Vaccination</span></div>
+          <div class="di soon"><span class="dic">🌾</span><span>Feed direction</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="di soon"><span class="dic">🐐</span><span>Breeding</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="dgrp">Settings</div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🌐</span><span>Language</span><span class="sp"></span><span class="badge gr">English</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">📡</span><span>RFID reader</span><span class="sp"></span><span class="badge gr">Paired</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🔔</span><span>Notifications</span></div>
+        </div>
+        <div class="df"><div class="di" style="color:var(--danger)" onclick="closeDraw()"><span class="dic" style="color:var(--danger)">⏻</span><span>Sign out</span></div></div>
+      </div>
     </div>
   </div></div>
 </div>
@@ -441,7 +520,7 @@ const WEEKS=[
   sheds:[['Castro 1','lump',80,0,80,0,'—','mut','planned'],['Castro 2','lump',64,0,64,0,'—','mut','planned'],['Godel 2 · Part 1','lump',92,0,92,0,'—','mut','planned'],['Godel 2 · Part 2','lump',88,0,88,0,'—','mut','planned'],['Gandhi 1','ind',78,0,74,4,'—','mut','planned'],['Gandhi 2','ind',64,0,62,2,'—','mut','planned']]},
  {id:'w33',lbl:'Week 33',dt:'10–16 Aug',pill:'mut',state:'no task',phase:'none',noTask:true,days:{},strip:[10,11,12,13,14,15,16],mon:'Aug',sheds:[],iExp:0,iW:0,iP:0,iU:0,lS:0,lD:0,lP:0,off:0,notin:0}
 ];
-const WDN=['M','T','W','T','F','S','S'];
+const WDN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const DOW={27:'Mon',28:'Tue',29:'Wed',30:'Thu',31:'Fri',1:'Sat',2:'Sun',13:'Mon',14:'Tue',15:'Wed',20:'Mon',21:'Tue',22:'Wed',3:'Mon',4:'Tue',5:'Wed'};
 let CUR='w31',SELDAY=29;
 function syncW31(){
@@ -460,23 +539,31 @@ function showRole(r){
   if(r==='lead'){syncW31();renderWkRow();renderLead();}else renderWork();
   window.scrollTo(0,0);
 }
+/* ---- shell: drawer, sync, L0/L1 chrome ---- */
+function openDraw(id){document.getElementById(id).classList.add('open');}
+function closeDraw(){document.querySelectorAll('.ovl').forEach(o=>o.classList.remove('open'));}
+function doSync(id){const b=document.getElementById(id);b.classList.add('spin');setTimeout(()=>b.classList.remove('spin'),1400);}
+function lNavBtn(){document.querySelector('#s-lead .scr').classList.contains('drill')?leadHome():openDraw('ovl-l');}
+function oNavBtn(){document.querySelector('#s-op .scr').classList.contains('drill')?opHome():openDraw('ovl-o');}
 /* leadership */
 function leadTab(v,t,e,btn){
   document.querySelectorAll('#s-lead .view').forEach(x=>x.classList.remove('on'));
   document.getElementById(v).classList.add('on');
   document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
-  document.getElementById('lHead').classList.remove('sub');
+  document.querySelector('#s-lead .scr').classList.remove('drill');
+  document.getElementById('lLead').textContent='☰';
   document.querySelectorAll('#s-lead .tab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
   document.getElementById('lFab').classList.toggle('on',v==='l-plan');
-  document.getElementById('lScroll').scrollTop=0;}
-function leadHome(){leadTab('l-plan','Weighing','CPT · Channapatna',document.querySelector('#s-lead .tab'));}
+  document.getElementById('lScroll').scrollTop=0;closeDraw();}
+function leadHome(){leadTab('l-plan','Plan','Weighing',document.querySelector('#s-lead .tab'));}
 function leadSub(v,t,e){
   document.querySelectorAll('#s-lead .view').forEach(x=>x.classList.remove('on'));
   document.getElementById(v).classList.add('on');
   document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
-  document.getElementById('lHead').classList.add('sub');
+  document.querySelector('#s-lead .scr').classList.add('drill');
+  document.getElementById('lLead').textContent='‹';
   document.getElementById('lFab').classList.remove('on');
-  document.getElementById('lScroll').scrollTop=0;}
+  document.getElementById('lScroll').scrollTop=0;closeDraw();}
 function renderWkRow(){
   const el=document.getElementById('wkrow');if(!el)return;
   el.innerHTML=WEEKS.map(w=>
@@ -484,7 +571,7 @@ function renderWkRow(){
 function selWeek(id){showRole('lead');CUR=id;const w=WEEKS.find(x=>x.id===id);
   const ds=Object.keys(w.days||{}).map(Number);SELDAY=ds.length?ds[0]:w.strip[0];
   renderLead();
-  leadTab('l-prog','Progress',w.lbl,document.querySelectorAll('#s-lead .tab')[1]);}
+  leadTab('l-prog','Progress','Weighing',document.querySelectorAll('#s-lead .tab')[1]);}
 function metric(cat,done,total,unit,legend,lump){
   const pct=total?done/total*100:0;
   return `<div class="metric"><div class="mh"><span class="cat ${cat}">${catLabel(cat)}</span>
@@ -500,7 +587,7 @@ function renderPlan(){
     document.getElementById('l-plan').innerHTML=`<div class="lt" style="padding-top:14px">Week plan</div>
       <div class="card"><h4 style="margin-top:0">No weighing task yet</h4>
       <div class="cs">Kids run once a week over 3 days. Create the task and set each shed's category.</div></div>`;
-    return;
+    setFab();return;
   }
   const days=Object.keys(w.days).map(Number);
   const strip=w.strip.map((d,i)=>`<div class="d${d===SELDAY?' today':''}${days.includes(d)&&d!==SELDAY?' has':''}" onclick="selDay(${d})"><div class="dn">${WDN[i]}</div><div class="dd">${d}</div></div>`).join('');
@@ -520,6 +607,7 @@ function renderPlan(){
      <div class="lt">${SELDAY===29?'Today · ':''}${DOW[SELDAY]||''} ${SELDAY} ${w.mon}</div>
      ${list||`<div class="card" style="text-align:center;color:var(--muted);font-size:12px">No work groups this day</div>`}
      <div style="height:64px"></div>`;
+  setFab();
 }
 function renderProg(){
   if(CUR==='w31')syncW31();
@@ -542,6 +630,7 @@ function renderProg(){
       :w.phase==='done'?['green',`<b>Completed ${w.finish}</b> — ${w.dur} from start. Every shed weighed, unavailable, or closed. Proof complete on all rows.`]
       :['amber',`<b>Delayed ${w.delay} days</b> — still open and executable. One lumpsum scope is proof-blocked.`];
     head+=`<div class="banner ${b[0]}">${b[1]}</div>`;
+    head+=`<div class="btnrow" style="margin:0 0 12px"><button class="btn ghost" style="margin:0 18px;width:calc(100% - 36px)" onclick="startWiz('edit')">\u270e Edit this task</button></div>`;
     if(w.phase==='live')head+=`<div class="card tapc" onclick="openActivity()"><div class="ch"><span class="pill live">live</span><span class="sp"></span></div><h4>Activity feed</h4><div class="cs">Every accepted capture, in order.</div><div class="go">Open →</div></div>`;
     if(w.phase==='done')head+=`<div class="fgrp"><div class="frow"><span class="fk">Duration</span><span class="fv">${w.dur}</span></div>
       <div class="frow"><span class="fk">Rows with proof</span><span class="fv" style="color:var(--brand-d)">${w.iW} / ${w.iW}</span></div>
@@ -553,6 +642,11 @@ function renderProg(){
     `<div class="lt" style="padding-top:6px">Campaign week</div><div class="wkrow" id="wkrow"></div>`+head+`<div style="height:20px"></div>`;
   renderWkRow();
 }
+function setFab(){
+  const f=document.getElementById('lFab');if(!f)return;
+  const ex=hasTask(CUR,'CPT');
+  f.innerHTML=ex?'<span>\u270e</span>Edit task':'<span>\uFF0B</span>New task';
+  f.onclick=()=>startWiz(ex?'edit':'new');}
 function selDay(d){SELDAY=d;renderLead();}
 function openActivity(){
   document.getElementById('l-act').innerHTML=`<div class="lt" style="padding-top:14px">Timeline</div>
@@ -585,44 +679,110 @@ function openShed(nm){
   }
   document.getElementById('l-shed').innerHTML=body+`<button class="btn ghost" onclick="alert('Close pending with reason → reason code, actor, timestamp, affected count, snapshot.')">Close pending w/ reason</button>`;
   leadSub('l-shed',n,stt+' · '+w.lbl);}
-/* wizard */
-let wz={step:0,park:'CPT',sel:{}};
-function startWiz(){showRole('lead');wz={step:0,park:'CPT',sel:{'Castro 1':'lump','Castro 2':'lump','Gandhi 1':'ind'}};renderWiz();leadSub('l-wiz','New task','Week 31 · 27 Jul – 2 Aug');}
+/* wizard — one task per park per week */
+const PARKTASK={w29:['CPT'],w30:['CPT'],w31:['CPT'],w32:['CPT'],w33:[]};
+function hasTask(wk,park){return (PARKTASK[wk]||[]).includes(park);}
+function existingSel(wk){
+  const w=WEEKS.find(x=>x.id===wk);const o={};
+  (w.sheds||[]).forEach(s=>o[s[0]]=s[1]);return o;}
+let wz={step:0,park:'CPT',sel:{},mode:'new',base:{}};
+function startWiz(mode){
+  showRole('lead');
+  const w=WEEKS.find(x=>x.id===CUR);
+  const edit=mode==='edit'||(mode!=='new'&&hasTask(CUR,'CPT'));
+  if(edit){
+    const sel=existingSel(CUR);
+    wz={step:0,park:'CPT',sel:Object.assign({},sel),mode:'edit',base:sel,conflict:null};
+    renderWiz();leadSub('l-wiz','Edit task',w.lbl+' · CPT');
+  }else{
+    wz={step:0,park:null,sel:{},mode:'new',base:{},conflict:null};
+    renderWiz();leadSub('l-wiz','New task',w.lbl+' · '+w.dt);
+  }}
+function pickPark(p){
+  if(wz.mode==='new'&&hasTask(CUR,p)){wz.conflict=p;renderWiz();return;}
+  wz.park=p;wz.conflict=null;renderWiz();}
+function conflictEdit(){startWiz('edit');}
 function wzTog(n){if(wz.sel[n])delete wz.sel[n];else wz.sel[n]=ALLSHEDS.find(s=>s[0]===n)[2];renderWiz();}
 function wzCat(e,n,c){e.stopPropagation();wz.sel[n]=c;renderWiz();}
-function wzNext(){if(wz.step<4){wz.step++;renderWiz();}else{leadHome();alert('Task published ✓\n'+Object.keys(wz.sel).length+' sheds assigned to Amit.\nState → published, waiting for the operator to start.');}}
+function wzNext(){
+  if(wz.step<4){wz.step++;renderWiz();return;}
+  const n=Object.keys(wz.sel).length;
+  if(wz.mode==='edit'){
+    leadHome();
+    alert('Changes saved \u2713\nSame campaign kept \u2014 '+n+' sheds for '+CUR.toUpperCase()+' \u00b7 CPT.\nNo second task was created. Accepted captures preserved.');
+  }else{
+    if(!PARKTASK[CUR])PARKTASK[CUR]=[];
+    if(!PARKTASK[CUR].includes(wz.park))PARKTASK[CUR].push(wz.park);
+    leadHome();
+    alert('Task published \u2713\n'+n+' sheds assigned to Amit for '+wz.park+'.\nThis park now has a task for this week \u2014 further creates are blocked, edit only.');
+  }}
 function wzBack(){if(wz.step>0){wz.step--;renderWiz();}else leadHome();}
 function renderWiz(){
+  const w=WEEKS.find(x=>x.id===CUR);
   const names=Object.keys(wz.sel);
   const indN=names.filter(n=>wz.sel[n]==='ind'),lumpN=names.filter(n=>wz.sel[n]==='lump');
-  const kidsOf=ns=>ns.reduce((a,n)=>a+ALLSHEDS.find(s=>s[0]===n)[1],0);
+  const kidsOf=ns=>ns.reduce((a,n)=>a+((ALLSHEDS.find(s=>s[0]===n)||[0,0])[1]),0);
   const indKids=kidsOf(indN),lumpKids=kidsOf(lumpN);
+  const edit=wz.mode==='edit';
+  const box=document.getElementById('l-wiz');
+
+  /* duplicate blocked */
+  if(wz.conflict){
+    box.innerHTML=`<div class="lt" style="padding-top:14px">Cannot create</div>
+      <div class="card" style="border-color:rgba(240,181,75,.4)">
+        <div class="ch"><span class="pill warn">task already exists</span></div>
+        <h4>${wz.conflict} · ${w.lbl}</h4>
+        <div class="cs">This park already has a weighing task for this week. One task per park per week — create is blocked.</div>
+      </div>
+      <div class="fgrp"><div class="frow"><span class="fk">Existing task</span><span class="fv">${w.lbl} · ${w.dt}</span></div>
+        <div class="frow"><span class="fk">Status</span><span class="fv"><span class="pill ${w.pill}">${w.state}</span></span></div>
+        <div class="frow"><span class="fk">Operator</span><span class="fv">${w.op||'Amit Kumar'}</span></div>
+        <div class="frow"><span class="fk">Sheds</span><span class="fv">${(w.sheds||[]).length}</span></div></div>
+      <div class="banner amber">Editing keeps the same campaign, its history and every accepted capture. It never creates a second task for ${wz.conflict}.</div>
+      <div class="btnrow"><button class="btn ghost" onclick="leadHome()">Cancel</button><button class="btn" onclick="conflictEdit()">Edit existing task</button></div>`;
+    return;
+  }
+
   let b='';
-  if(wz.step===0)b=`<div class="wlab">Step 1 · Lane</div><h2 class="wtit">Confirm the lane</h2><p class="wsub">Kids weigh once a week over 3 days. Adults are monthly and never auto-scheduled here.</p>
+  if(wz.step===0)b=`<div class="wlab">Step 1 · Lane</div><h2 class="wtit">${edit?'Lane':'Confirm the lane'}</h2><p class="wsub">Kids weigh once a week over 3 days. Adults are monthly and never auto-scheduled here.</p>
     <div class="opt sel"><span class="rb"></span><div><div class="ot">Weekly · Kids</div><div class="os">category is set per shed in step 3</div></div></div>
-    <div class="opt dis"><span class="rb"></span><div><div class="ot">Monthly · Adults</div><div class="os">excluded in v1</div></div></div>`;
-  else if(wz.step===1)b=`<div class="wlab">Step 2 · Park</div><h2 class="wtit">Select one park</h2><p class="wsub">A weighing task covers one park's kid sheds.</p>
-    <div class="opt ${wz.park==='CPT'?'sel':''}" onclick="wz.park='CPT';renderWiz()"><span class="rb"></span><div><div class="ot">CPT · Channapatna</div><div class="os">Castro, Gandhi, Godel</div></div><span class="cnt">516</span></div>
-    <div class="opt ${wz.park==='CBE'?'sel':''}" onclick="wz.park='CBE';renderWiz()"><span class="rb"></span><div><div class="ot">CBE · Coimbatore</div><div class="os">Castro 1 / 2 / 3</div></div><span class="cnt">286</span></div>`;
+    <div class="opt dis"><span class="rb"></span><div><div class="ot">Monthly · Adults</div><div class="os">excluded in v1</div></div></div>
+    ${edit?`<div class="banner" style="margin-top:16px">Editing <b>${w.lbl} · CPT</b>. The lane and park are fixed for an existing task.</div>`:''}`;
+  else if(wz.step===1){
+    const parks=[['CPT','CPT · Channapatna','Castro, Gandhi, Godel',516],['CBE','CBE · Coimbatore','Castro 1 / 2 / 3',286]];
+    b=`<div class="wlab">Step 2 · Park</div><h2 class="wtit">${edit?'Park':'Select one park'}</h2><p class="wsub">${edit?'The park cannot change on an existing task.':'One task per park per week. A park that already has a task this week cannot get a second one.'}</p>
+    ${parks.map(([id,nm,sub,c])=>{
+      const taken=hasTask(CUR,id);
+      if(edit)return `<div class="opt ${wz.park===id?'sel':'dis'}"><span class="rb"></span><div><div class="ot">${nm}</div><div class="os">${wz.park===id?'current park · locked':sub}</div></div><span class="cnt">${wz.park===id?'🔒':c}</span></div>`;
+      return `<div class="opt ${wz.park===id?'sel':''}" onclick="pickPark('${id}')"><span class="rb"></span><div><div class="ot">${nm}</div><div class="os">${sub}</div></div>${taken?`<span class="badge" style="font-size:9px;font-weight:750;padding:3px 8px;border-radius:999px;background:var(--warnx);color:var(--warn);white-space:nowrap">Task exists</span>`:`<span class="cnt">${c}</span>`}</div>`;}).join('')}`;}
   else if(wz.step===2)b=`<div class="wlab">Step 3 · Sheds</div><h2 class="wtit">Sheds &amp; category</h2><p class="wsub">Category decides the operator's capture screen and the required proof.</p>
-    ${ALLSHEDS.map(([n,c,def])=>{const on=!!wz.sel[n];const cat=wz.sel[n]||def;
+    ${ALLSHEDS.map(([n,c,def])=>{const on=!!wz.sel[n];const cat=wz.sel[n]||def;const was=!!wz.base[n];
       return `<div class="opt ${on?'sel':''}" onclick="wzTog('${n}')" style="flex-direction:column;align-items:stretch">
-        <div style="display:flex;align-items:center;gap:13px"><span class="cb">✓</span><div><div class="ot">${n}</div><div class="os">kid shed</div></div><span class="cnt">${c}</span></div>
+        <div style="display:flex;align-items:center;gap:13px"><span class="cb">✓</span><div><div class="ot">${n}</div><div class="os">${edit?(was?(on?'in this task':'will be removed'):(on?'will be added':'kid shed')):'kid shed'}</div></div><span class="cnt">${c}</span></div>
         ${on?`<div class="catseg" onclick="event.stopPropagation()"><button class="${cat==='ind'?'on i':''}" onclick="wzCat(event,'${n}','ind')">Individual</button><button class="${cat==='lump'?'on l':''}" onclick="wzCat(event,'${n}','lump')">Lumpsum</button></div>`:''}</div>`;}).join('')}
     <div class="tot"><div><div style="font-size:11px;color:var(--muted);font-weight:650">${indN.length} individual · ${lumpN.length} lumpsum</div></div>
       <div style="text-align:right"><b class="tnum">${indKids}</b><div class="tl2">weighed individually</div></div></div>`;
   else if(wz.step===3){
+    const added=names.filter(n=>!wz.base[n]);
+    const removed=Object.keys(wz.base).filter(n=>!wz.sel[n]);
+    const changed=names.filter(n=>wz.base[n]&&wz.base[n]!==wz.sel[n]);
     const g=[['Day 1 · Wed',lumpN.slice(0,2)],['Day 2 · Thu',indN.slice(0,2)],['Day 3 · Fri',[...lumpN.slice(2),...indN.slice(2)]]];
-    b=`<div class="wlab">Step 4 · Plan</div><h2 class="wtit">3-day plan</h2><p class="wsub">Groups preserve shed atomicity. Unfinished work rolls forward.</p>
-    <div class="banner amber" style="margin-bottom:16px"><b>Heads up</b> — this week already covers Castro 1. Publishing extends the existing campaign rather than duplicating it.</div>
+    b=`<div class="wlab">Step 4 · ${edit?'Changes':'Plan'}</div><h2 class="wtit">${edit?'Review changes':'3-day plan'}</h2><p class="wsub">Groups preserve shed atomicity. Unfinished work rolls forward.</p>
+    ${edit?`<div class="fgrp"><div class="frow"><span class="fk">Sheds added</span><span class="fv" style="color:${added.length?'var(--brand-d)':'var(--muted)'}">${added.length?added.join(', '):'none'}</span></div>
+      <div class="frow"><span class="fk">Sheds removed</span><span class="fv" style="color:${removed.length?'var(--warn)':'var(--muted)'}">${removed.length?removed.join(', '):'none'}</span></div>
+      <div class="frow"><span class="fk">Category changed</span><span class="fv" style="color:${changed.length?'var(--info)':'var(--muted)'}">${changed.length?changed.join(', '):'none'}</span></div></div>
+      <div class="banner">Accepted captures on kept sheds are preserved. Removing a shed only drops its <b>pending</b> work.</div>`:''}
     ${g.filter(x=>x[1].length).map(([d,ns])=>`<div class="dayg"><div class="h">${d}<span class="n">${kidsOf(ns)} kids</span></div><div class="s">${ns.map(n=>`<span class="cat ${wz.sel[n]}">${n}</span>`).join('')}</div></div>`).join('')}`;}
-  else b=`<div class="wlab">Step 5 · Assign</div><h2 class="wtit">Assign operator</h2><p class="wsub">Publishing creates open work. The campaign sits in <b>published</b> until Amit starts.</p>
+  else b=`<div class="wlab">Step 5 · Assign</div><h2 class="wtit">Assign operator</h2><p class="wsub">${edit?'Saving keeps the same campaign — no second task is created.':'Publishing creates open work. The campaign sits in <b>published</b> until Amit starts.'}</p>
     <div class="opt sel"><span class="rb"></span><div style="flex:1"><div class="ot">Amit Kumar</div><div class="os">weighing.execute</div></div></div>
     <div class="opt dis"><span class="rb"></span><div style="flex:1"><div class="ot">Dinakar</div><div class="os">planner / monitor only</div></div></div>
-    <div class="fgrp" style="margin-top:16px"><div class="frow"><span class="fk">Individual</span><span class="fv">${indN.length} sheds · ${indKids} kids</span></div>
+    <div class="fgrp" style="margin-top:16px"><div class="frow"><span class="fk">Week</span><span class="fv">${w.lbl} · CPT</span></div>
+    <div class="frow"><span class="fk">Individual</span><span class="fv">${indN.length} sheds · ${indKids} kids</span></div>
     <div class="frow"><span class="fk">Lumpsum</span><span class="fv">${lumpN.length} sheds · ${lumpKids} in scope</span></div></div>`;
-  document.getElementById('l-wiz').innerHTML=`<div class="stepper">${[0,1,2,3,4].map(i=>`<i class="${i<=wz.step?'on':''}"></i>`).join('')}</div>`+b+
-    `<div class="btnrow"><button class="btn ghost" onclick="wzBack()">Back</button><button class="btn" ${wz.step===2&&!names.length?'disabled':''} onclick="wzNext()">${wz.step===4?'Publish':'Continue'}</button></div>`;}
+
+  const blockNext=(wz.step===1&&!wz.park)||(wz.step===2&&!names.length);
+  box.innerHTML=`<div class="stepper">${[0,1,2,3,4].map(i=>`<i class="${i<=wz.step?'on':''}"></i>`).join('')}</div>`+b+
+    `<div class="btnrow"><button class="btn ghost" onclick="wzBack()">${wz.step===0?'Cancel':'Back'}</button><button class="btn" ${blockNext?'disabled':''} onclick="wzNext()">${wz.step===4?(edit?'Save changes':'Publish'):'Continue'}</button></div>`;}
 
 /* ================= OPERATOR ================= */
 let curShed=null,rows=[],pend={},lumpState={};
@@ -631,15 +791,18 @@ function opTab(v,t,e,btn){
   document.querySelectorAll('#s-op .view').forEach(x=>x.classList.remove('on'));
   document.getElementById(v).classList.add('on');
   document.getElementById('oTitle').textContent=t;document.getElementById('oEb').textContent=e;
-  document.getElementById('oHead').classList.remove('sub');
+  document.querySelector('#s-op .scr').classList.remove('drill');
+  document.getElementById('oLead').textContent='☰';
   document.querySelectorAll('#s-op .tab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
-  document.getElementById('oScroll').scrollTop=0;}
-function opHome(){renderWork();opTab('o-work','My work','Week 31 · kids',document.querySelector('#s-op .tab'));}
+  document.getElementById('oScroll').scrollTop=0;closeDraw();}
+function opHome(){renderWork();opTab('o-work','My work','Weighing',document.querySelector('#s-op .tab'));}
 function opSub(v,t,e){
   document.querySelectorAll('#s-op .view').forEach(x=>x.classList.remove('on'));
   document.getElementById(v).classList.add('on');
   document.getElementById('oTitle').textContent=t;document.getElementById('oEb').textContent=e;
-  document.getElementById('oHead').classList.add('sub');document.getElementById('oScroll').scrollTop=0;}
+  document.querySelector('#s-op .scr').classList.add('drill');
+  document.getElementById('oLead').textContent='‹';
+  document.getElementById('oScroll').scrollTop=0;closeDraw();}
 function opCard(n){
   const s=W31[n],cat=s.cat;let stt,tone,pct,cs;
   if(cat==='lump'){stt=s.done?'completed':(s.day===29?'due now':'day '+(s.day-28));tone=s.done?'ok':(s.day===29?'warn':'mut');

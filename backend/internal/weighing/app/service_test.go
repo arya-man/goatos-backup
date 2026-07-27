@@ -96,6 +96,23 @@ func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	}
 }
 
+func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
+	service := NewService(&fakeRepo{})
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+
+	_, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		AnimalID:         animalOne,
+		WeightKg:         12.3,
+		ProofArtifactID:  proofOne,
+		ActualLocationID: "not-a-uuid",
+		IdempotencyKey:   "scan-bad-location",
+	})
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("malformed actual_location_id err = %v, want invalid argument", err)
+	}
+}
+
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
 	service := NewService(repo)

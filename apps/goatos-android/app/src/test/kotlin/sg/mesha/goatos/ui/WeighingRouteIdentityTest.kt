@@ -34,6 +34,8 @@ class WeighingRouteIdentityTest {
     @Test
     fun `RFID completion key swallowing is scoped to active weighing scan route`() {
         assertTrue(routeAcceptsWeighingRfid("/weighing/scan?campaignId=c&workGroupId=g&campaignShedId=s"))
+        assertTrue(routeAcceptsWeighingRfid("/weighing/scan?weighingCategory=individual_animal"))
+        assertFalse(routeAcceptsWeighingRfid("/weighing/scan?weighingCategory=per_shed_partition"))
         assertFalse(routeAcceptsWeighingRfid("/weighing"))
         assertFalse(routeAcceptsWeighingRfid("/scan?shedId=shed-1"))
         assertFalse(routeAcceptsWeighingRfid(null))
@@ -46,7 +48,7 @@ class WeighingRouteIdentityTest {
         assertTrue(navHost.contains("composable(Routes.WEIGHING)"))
         assertTrue(navHost.contains("route = \"${'$'}{Routes.WEIGHING_SCAN}?"))
         assertTrue(navHost.contains("WeighingScreen("))
-        assertTrue(navHost.contains("vm.setCaptureActive(true)"))
-        assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(true)"))
+        assertTrue(navHost.contains("vm.setCaptureActive(rfidCaptureEnabled)"))
+        assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(rfidCaptureEnabled)"))
     }
 }

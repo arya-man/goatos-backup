@@ -62,6 +62,7 @@ class WeighingViewModel @Inject constructor(
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
+    private val loadingAssignments = MutableStateFlow(scopeKey == null)
     private var readerRefreshJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -80,8 +81,8 @@ class WeighingViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     val state: StateFlow<WeighingUiState> =
-        combine(scopeState, formState, assignments) { scope, form, availableAssignments ->
-            scope.toUiState(form.scan, form.weight, form.selected, form.message, form.busy, availableAssignments)
+        combine(scopeState, formState, assignments, loadingAssignments) { scope, form, availableAssignments, loading ->
+            scope.toUiState(form.scan, form.weight, form.selected, form.message, form.busy, availableAssignments, loading)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
@@ -115,9 +116,13 @@ class WeighingViewModel @Inject constructor(
             }
         } else {
             viewModelScope.launch {
-                when (val loaded = repository.listAssignments()) {
-                    is AppResult.Ok -> assignments.value = loaded.value
-                    is AppResult.Err -> message.value = loaded.message
+                try {
+                    when (val loaded = repository.listAssignments()) {
+                        is AppResult.Ok -> assignments.value = loaded.value
+                        is AppResult.Err -> message.value = loaded.message
+                    }
+                } finally {
+                    loadingAssignments.value = false
                 }
             }
         }
@@ -230,11 +235,11 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         viewModelScope.launch {
             try {
-				val resultJson = buildJsonObject {
-					put("weight", weightKg)
-					put("category", PER_SHED_PARTITION_CATEGORY)
-					put("expected_location_id", expectedLocationId)
-					put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
+                val resultJson = buildJsonObject {
+                    put("weight", weightKg)
+                    put("category", PER_SHED_PARTITION_CATEGORY)
+                    put("expected_location_id", expectedLocationId)
+                    put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
                 }.toString()
                 when (val recorded = repository.recordShedPartition(
                     ShedPartitionWeighingCapture(
@@ -314,12 +319,14 @@ class WeighingViewModel @Inject constructor(
         currentMessage: String?,
         busy: Boolean,
         availableAssignments: List<WeighingAssignment>,
+        loading: Boolean,
     ): WeighingUiState {
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
             weightInput = weight,
             message = currentMessage,
             assignments = availableAssignments.map { it.toUiRow() },
+            loading = loading,
             category = category,
         )
         return WeighingUiState(
@@ -341,8 +348,8 @@ class WeighingViewModel @Inject constructor(
                     displayAnimalId = row.displayAnimalId,
                     expectedLocationLabel = row.expectedLocationLabel,
                     actualLocationLabel = row.actualLocationLabel,
-                    status = row.status,
-                    availabilityStatus = row.availabilityStatus,
+                    status = row.status.readableWeighingStatus(),
+                    availabilityStatus = row.availabilityStatus?.readableWeighingStatus(),
                     wrongShed = !row.actualLocationId.isNullOrBlank() &&
                         row.actualLocationId != row.expectedLocationId,
                 )
@@ -372,7 +379,7 @@ class WeighingViewModel @Inject constructor(
 
     private companion object {
         const val ROSTER_WINDOW_SIZE = 40
-        const val ROSTER_SYNC_LIMIT = 5000
+        const val ROSTER_SYNC_LIMIT = 5000 // mobile-guard:ignore: weighing roster API has no cursor yet; Room UI reads stay windowed and off-page RFID needs cached scope truth
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
         const val SHED_PARTITION_PROOF_FIELD_KEY = "weighing_shed_partition_video"
@@ -390,10 +397,27 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         expectedLocationLabel = expectedLocationLabel,
         label = label,
         category = category,
-        status = status,
+        status = status.readableWeighingStatus(),
         expectedCount = expectedCount,
         periodLabel = periodLabel,
     )
+
+private fun String.readableWeighingStatus(): String = when (trim().lowercase()) {
+    "draft" -> "Draft"
+    "published" -> "Published"
+    "scheduled" -> "Scheduled"
+    "pending" -> "Pending"
+    "in_progress" -> "In progress"
+    "needs_review" -> "Needs review"
+    "accepted" -> "Accepted"
+    "completed" -> "Completed"
+    "cancelled", "canceled" -> "Cancelled"
+    else -> replace('_', ' ')
+        .split(' ')
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part -> part.replaceFirstChar { char -> char.uppercase() } }
+        .ifBlank { "Not started" }
+}
 
 private data class WeighingFormState(
     val scan: String = "",

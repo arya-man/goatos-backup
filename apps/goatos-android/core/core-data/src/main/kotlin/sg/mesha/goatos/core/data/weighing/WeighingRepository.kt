@@ -1,9 +1,11 @@
 package sg.mesha.goatos.core.data.weighing
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -14,6 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -108,9 +111,14 @@ class DefaultWeighingRepository(
     private val observationDao: WeighingObservationDao,
     private val shedObservationDao: WeighingShedObservationDao,
     private val syncRepository: SyncRepository? = null,
+    private val appScope: CoroutineScope? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : WeighingRepository {
+    init {
+        startProofReadyReconciler()
+    }
+
     override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
         combine(
             rosterDao.observeWindow(scopeKey, windowSize.coerceIn(1, 250)),
@@ -181,14 +189,24 @@ class DefaultWeighingRepository(
             val rosterRow = rosterDao.findByAnimal(scopeKey, capture.animalId)
                 ?: return@withContext AppResult.Err("Animal is not in this weighing scope.")
             val observationId = idGenerator()
+            val existing = observationDao.findByAnimal(scopeKey, capture.animalId)
+            if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
+                return@withContext AppResult.Err("This animal's weighing has already synced.")
+            }
+            if (existing != null && existing.matchesDraft(capture) && existing.proofCaptureId.isNullOrBlank()) {
+                return@withContext AppResult.Ok(existing.toDraft())
+            }
+            if (existing != null) {
+                cancelCancellableOutbox(existing.idempotencyKey)
+                observationDao.deleteEditable(existing.observationId)
+            }
             val idempotencyKey = individualIdempotencyKey(
                 campaignId = capture.campaignId,
                 workGroupId = capture.workGroupId,
                 campaignShedId = capture.campaignShedId,
                 animalId = capture.animalId,
+                observationId = observationId,
             )
-            val existing = observationDao.findByIdempotencyKey(idempotencyKey)
-            if (existing != null) return@withContext AppResult.Ok(existing.toDraft())
             val entity = WeighingObservationEntity(
                 observationId = observationId,
                 scopeKey = scopeKey,
@@ -252,11 +270,26 @@ class DefaultWeighingRepository(
                 return@withContext AppResult.Err("Shed/partition weighing result must be structured JSON.")
             }
             val scopeKey = weighingScopeKey(capture.campaignId, capture.workGroupId, capture.campaignShedId)
-            val idempotencyKey = shedIdempotencyKey(capture.campaignId, capture.workGroupId, capture.campaignShedId)
-            val existing = shedObservationDao.findByIdempotencyKey(idempotencyKey)
-            if (existing != null) return@withContext AppResult.Ok(existing.toDraft())
+            val shedObservationId = idGenerator()
+            val existing = shedObservationDao.findByScope(scopeKey)
+            if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
+                return@withContext AppResult.Err("This shed / partition result has already synced.")
+            }
+            if (existing != null && existing.resultJson == capture.resultJson && existing.proofCaptureId.isNullOrBlank()) {
+                return@withContext AppResult.Ok(existing.toDraft())
+            }
+            if (existing != null) {
+                cancelCancellableOutbox(existing.idempotencyKey)
+                shedObservationDao.deleteEditable(existing.shedObservationId)
+            }
+            val idempotencyKey = shedIdempotencyKey(
+                capture.campaignId,
+                capture.workGroupId,
+                capture.campaignShedId,
+                shedObservationId,
+            )
             val entity = WeighingShedObservationEntity(
-                shedObservationId = idGenerator(),
+                shedObservationId = shedObservationId,
                 scopeKey = scopeKey,
                 tenantId = capture.tenantId,
                 campaignId = capture.campaignId,
@@ -309,9 +342,79 @@ class DefaultWeighingRepository(
 
     override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) = withContext(Dispatchers.IO) {
         val row = observationDao.findByAnimal(scopeKey, animalId) ?: return@withContext
+        cancelCancellableOutbox(row.idempotencyKey)
         observationDao.deleteEditable(row.observationId)
     }
+
+    internal suspend fun reconcileReadyProofsOnce() {
+        observationDao.listReadyProofs().forEach { ready ->
+            attachIndividualProof(
+                scopeKey = ready.scopeKey,
+                animalId = ready.animalId,
+                proofCaptureId = ready.proofCaptureId,
+                serverProofId = ready.serverProofId,
+            )
+        }
+        shedObservationDao.listReadyProofs().forEach { ready ->
+            attachShedPartitionProof(
+                scopeKey = ready.scopeKey,
+                proofCaptureId = ready.proofCaptureId,
+                serverProofId = ready.serverProofId,
+            )
+        }
+    }
+
+    private fun startProofReadyReconciler() {
+        val scope = appScope ?: return
+        if (syncRepository == null) return
+        scope.launch(Dispatchers.IO) {
+            reconcileReadyProofsOnce()
+        }
+        scope.launch(Dispatchers.IO) {
+            observationDao.observeReadyProofs().collect { readyRows ->
+                readyRows.forEach { ready ->
+                    attachIndividualProof(
+                        scopeKey = ready.scopeKey,
+                        animalId = ready.animalId,
+                        proofCaptureId = ready.proofCaptureId,
+                        serverProofId = ready.serverProofId,
+                    )
+                }
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            shedObservationDao.observeReadyProofs().collect { readyRows ->
+                readyRows.forEach { ready ->
+                    attachShedPartitionProof(
+                        scopeKey = ready.scopeKey,
+                        proofCaptureId = ready.proofCaptureId,
+                        serverProofId = ready.serverProofId,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun cancelCancellableOutbox(idempotencyKey: String) {
+        val sync = syncRepository ?: return
+        val existing = when (val found = sync.findOutboxItemByIdempotencyKey(idempotencyKey)) {
+            is AppResult.Ok -> found.value
+            is AppResult.Err -> null
+        } ?: return
+        if (existing.status == SyncItemStatus.QUEUED || existing.status == SyncItemStatus.FAILED) {
+            sync.cancelOutboxItemIfPending(existing.id)
+        }
+    }
 }
+
+private fun WeighingObservationEntity.matchesDraft(capture: IndividualWeighingCapture): Boolean =
+    tenantId == capture.tenantId &&
+        campaignId == capture.campaignId &&
+        workGroupId == capture.workGroupId &&
+        campaignShedId == capture.campaignShedId &&
+        animalId == capture.animalId &&
+        scannedIdentifier == capture.scannedIdentifier &&
+        weightKg == capture.weightKg
 
 private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
     IndividualWeighingDraft(
@@ -384,10 +487,11 @@ fun individualIdempotencyKey(
     workGroupId: String,
     campaignShedId: String,
     animalId: String,
-): String = "weighing:individual:$campaignId:$workGroupId:$campaignShedId:$animalId"
+    observationId: String,
+): String = "weighing:individual:$campaignId:$workGroupId:$campaignShedId:$animalId:$observationId"
 
-fun shedIdempotencyKey(campaignId: String, workGroupId: String, campaignShedId: String): String =
-    "weighing:shed:$campaignId:$workGroupId:$campaignShedId"
+fun shedIdempotencyKey(campaignId: String, workGroupId: String, campaignShedId: String, shedObservationId: String): String =
+    "weighing:shed:$campaignId:$workGroupId:$campaignShedId:$shedObservationId"
 
 fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buildJsonObject {
     put("weight", weightKg)

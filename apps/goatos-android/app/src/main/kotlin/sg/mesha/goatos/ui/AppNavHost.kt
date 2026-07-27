@@ -455,7 +455,8 @@ object Routes {
 }
 
 internal fun routeAcceptsWeighingRfid(route: String?): Boolean =
-    route?.substringBefore("?") == Routes.WEIGHING_SCAN
+    route?.substringBefore("?") == Routes.WEIGHING_SCAN &&
+        Uri.parse(route).getQueryParameter(Routes.WEIGHING_CATEGORY_ARG) != "per_shed_partition"
 
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
@@ -769,12 +770,15 @@ fun AppNavHost(
                     defaultValue = null
                 },
             ),
-        ) {
+        ) { entry ->
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            DisposableEffect(vm) {
-                vm.setCompletionKeySwallowActive(true)
-                vm.setCaptureActive(true)
+            val rfidCaptureEnabled = entry.arguments
+                ?.getString(Routes.WEIGHING_CATEGORY_ARG)
+                ?.equals("per_shed_partition", ignoreCase = true) != true
+            DisposableEffect(vm, rfidCaptureEnabled) {
+                vm.setCompletionKeySwallowActive(rfidCaptureEnabled)
+                vm.setCaptureActive(rfidCaptureEnabled)
                 onDispose {
                     vm.setCompletionKeySwallowActive(false)
                     vm.setCaptureActive(false)

@@ -23,6 +23,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -77,6 +79,8 @@ class SyncEngine(
     private val backoff: BackoffPolicy = BackoffPolicy.Default,
     private val maxConcurrentGroups: Int = 3,
     private val retryScheduler: SyncRetryScheduler = SyncRetryScheduler.Noop,
+    private val weighingObservationDao: WeighingObservationDao? = null,
+    private val weighingShedObservationDao: WeighingShedObservationDao? = null,
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -176,7 +180,9 @@ class SyncEngine(
         if (!store.markInFlight(item.id, clock())) return true
         return try {
             val resultJson = dispatch(item)
-            store.markSucceeded(item.id, resultJson, clock())
+            if (store.markSucceeded(item.id, resultJson, clock())) {
+                reconcileFeatureSuccess(item)
+            }
             true
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -240,6 +246,16 @@ class SyncEngine(
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+    }
+
+    private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
+        when (OutboxOpType.valueOf(item.opType)) {
+            OutboxOpType.WEIGHING_ANIMAL_OBSERVATION ->
+                weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SHED_OBSERVATION ->
+                weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            else -> Unit
+        }
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {

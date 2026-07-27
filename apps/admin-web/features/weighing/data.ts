@@ -1,11 +1,18 @@
 import "server-only";
 
-import { getWeighingCampaigns, type ApiResult, type WeighingCampaign as ApiWeighingCampaign, type WeighingCampaignShed as ApiWeighingCampaignShed } from "@/lib/api/server";
+import {
+  getWeighingCampaigns,
+  type ApiResult,
+  type WeighingCampaign as ApiWeighingCampaign,
+  type WeighingCampaignShed as ApiWeighingCampaignShed,
+} from "@/lib/api/server";
 
 export type WeighingRole = "leadership" | "director" | "operator";
-export type WeighingCampaignState = "draft" | "published" | "in_progress" | "delayed" | "completed";
+export type WeighingCampaignState =
+  "draft" | "published" | "in_progress" | "delayed" | "completed";
 export type WeighingCategory = "individual_animal" | "per_shed_partition";
-export type WeighingScopeStatus = "pending" | "in_progress" | "needs_review" | "completed" | "delayed";
+export type WeighingScopeStatus =
+  "pending" | "in_progress" | "needs_review" | "completed" | "delayed";
 
 export type WeighingScopeRow = {
   id: string;
@@ -79,7 +86,59 @@ export type WeighingCampaign = {
 export type WeighingPageData = {
   role: WeighingRole;
   campaign: WeighingCampaign;
-  weeks: Array<{ key: string; label: string; state: WeighingCampaignState | "no_task" }>;
+  planner: WeighingPlanner;
+  weeks: Array<{
+    key: string;
+    label: string;
+    state: WeighingCampaignState | "no_task";
+  }>;
+};
+
+export type WeighingPlannerPark = {
+  id: string;
+  label: string;
+  subtitle: string;
+  kidCount: number;
+  selected: boolean;
+};
+
+export type WeighingPlannerShed = {
+  id: string;
+  locationType: "shed" | "cohort" | "pen";
+  label: string;
+  subtitle: string;
+  kidCount: number;
+  selected: boolean;
+  category: WeighingCategory;
+};
+
+export type WeighingPlannerOperator = {
+  id: string;
+  name: string;
+  capabilityLabel: string;
+  selected: boolean;
+  disabled?: boolean;
+};
+
+export type WeighingPlanner = {
+  weekLabel: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  startBusinessDate: string;
+  plannedCapPerDay: number;
+  lane: "weekly_kids";
+  existingCampaignId?: string;
+  existingCampaignState?: WeighingCampaignState;
+  duplicateBlocked: boolean;
+  parks: WeighingPlannerPark[];
+  sheds: WeighingPlannerShed[];
+  operators: WeighingPlannerOperator[];
+  selectedParkId: string;
+  selectedOperatorId: string;
+  individualShedCount: number;
+  individualKidCount: number;
+  lumpsumShedCount: number;
+  lumpsumKidCount: number;
 };
 
 export function roleFromSearchParam(value: string | undefined): WeighingRole {
@@ -87,25 +146,80 @@ export function roleFromSearchParam(value: string | undefined): WeighingRole {
   return "leadership";
 }
 
-export async function getWeighingPageData(role: WeighingRole): Promise<ApiResult<WeighingPageData>> {
+export async function getWeighingPageData(
+  role: WeighingRole,
+): Promise<ApiResult<WeighingPageData>> {
   const result = await getWeighingCampaigns();
   if (!result.ok) return result;
-  const campaign = result.data.items.length > 0 ? campaignFromApi(result.data.items[0], role) : fixtureCampaign(role);
+  const campaign =
+    result.data.items.length > 0
+      ? campaignFromApi(result.data.items[0], role)
+      : emptyCampaign(role);
+  const planner = defaultPlanner(campaign);
   return {
     ok: true,
     data: {
       role,
       campaign,
+      planner,
       weeks: [
         { key: "2026-07-19", label: "19-25 Jul", state: "completed" },
-        { key: "2026-07-26", label: "26 Jul-1 Aug", state: campaign.state },
+        {
+          key: campaign.weekStart || "empty",
+          label: campaign.weekLabel,
+          state: campaign.id === "empty" ? "no_task" : campaign.state,
+        },
         { key: "2026-08-02", label: "2-8 Aug", state: "no_task" },
       ],
     },
   };
 }
 
-function campaignFromApi(item: ApiWeighingCampaign, role: WeighingRole): WeighingCampaign {
+function defaultPlanner(campaign?: WeighingCampaign): WeighingPlanner {
+  const sheds: WeighingPlannerShed[] = [
+    { id: "11111111-1111-4111-8111-000000000101", locationType: "shed", label: "Castro 1", subtitle: "kid shed", kidCount: 80, selected: true, category: "per_shed_partition" },
+    { id: "11111111-1111-4111-8111-000000000102", locationType: "shed", label: "Castro 2", subtitle: "kid shed", kidCount: 64, selected: true, category: "per_shed_partition" },
+    { id: "11111111-1111-4111-8111-000000000103", locationType: "shed", label: "Godel 2 · Part 1", subtitle: "kid shed", kidCount: 92, selected: false, category: "individual_animal" },
+    { id: "11111111-1111-4111-8111-000000000104", locationType: "shed", label: "Godel 2 · Part 2", subtitle: "kid shed", kidCount: 88, selected: false, category: "individual_animal" },
+    { id: "11111111-1111-4111-8111-000000000105", locationType: "shed", label: "Gandhi 1", subtitle: "kid shed", kidCount: 78, selected: true, category: "individual_animal" },
+    { id: "11111111-1111-4111-8111-000000000106", locationType: "shed", label: "Gandhi 2", subtitle: "kid shed", kidCount: 64, selected: false, category: "individual_animal" },
+    { id: "11111111-1111-4111-8111-000000000107", locationType: "shed", label: "Godel 1 · Part 3", subtitle: "kid shed", kidCount: 50, selected: false, category: "individual_animal" },
+  ];
+  const selected = sheds.filter((shed) => shed.selected);
+  const individual = selected.filter((shed) => shed.category === "individual_animal");
+  const lumpsum = selected.filter((shed) => shed.category === "per_shed_partition");
+  return {
+    weekLabel: "Week 31 · 27 Jul - 2 Aug",
+    periodStartDate: "2026-07-27",
+    periodEndDate: "2026-08-02",
+    startBusinessDate: "2026-07-29",
+    plannedCapPerDay: 100,
+    lane: "weekly_kids",
+    existingCampaignId: campaign && campaign.id !== "empty" ? campaign.id : undefined,
+    existingCampaignState: campaign && campaign.id !== "empty" ? campaign.state : undefined,
+    duplicateBlocked: Boolean(campaign && campaign.id !== "empty"),
+    selectedParkId: "11111111-1111-4111-8111-000000000001",
+    selectedOperatorId: "30303030-3030-4303-8303-303030303030",
+    parks: [
+      { id: "11111111-1111-4111-8111-000000000001", label: "CPT · Channapatna", subtitle: "Castro, Gandhi, Godel", kidCount: 516, selected: true },
+      { id: "11111111-1111-4111-8111-000000000002", label: "CBE · Coimbatore", subtitle: "Castro 1 / 2 / 3", kidCount: 286, selected: false },
+    ],
+    sheds,
+    operators: [
+      { id: "30303030-3030-4303-8303-303030303030", name: "Amit Kumar", capabilityLabel: "weighing.execute", selected: true },
+      { id: "20202020-2020-4202-8202-202020202020", name: "Dinakar", capabilityLabel: "planner / monitor only", selected: false, disabled: true },
+    ],
+    individualShedCount: individual.length,
+    individualKidCount: individual.reduce((sum, shed) => sum + shed.kidCount, 0),
+    lumpsumShedCount: lumpsum.length,
+    lumpsumKidCount: lumpsum.reduce((sum, shed) => sum + shed.kidCount, 0),
+  };
+}
+
+function campaignFromApi(
+  item: ApiWeighingCampaign,
+  role: WeighingRole,
+): WeighingCampaign {
   const leadership = role === "leadership";
   const operator = role === "operator";
   const progress = item.progress;
@@ -148,8 +262,12 @@ function campaignFromApi(item: ApiWeighingCampaign, role: WeighingRole): Weighin
   };
 }
 
-function scopeFromApi(campaign: ApiWeighingCampaign, shed: ApiWeighingCampaignShed): WeighingScopeRow {
-  const completedCount = shed.status === "completed" ? shed.expected_animal_count : 0;
+function scopeFromApi(
+  campaign: ApiWeighingCampaign,
+  shed: ApiWeighingCampaignShed,
+): WeighingScopeRow {
+  const completedCount =
+    shed.status === "completed" ? shed.expected_animal_count : 0;
   return {
     id: shed.campaign_shed_id,
     parkName: "Selected park",
@@ -162,169 +280,48 @@ function scopeFromApi(campaign: ApiWeighingCampaign, shed: ApiWeighingCampaignSh
     unavailableCount: 0,
     wrongShedCount: 0,
     proofPendingCount: 0,
-    status: shed.status === "pending" ? "pending" : shed.status === "canceled" ? "delayed" : shed.status,
+    status:
+      shed.status === "pending"
+        ? "pending"
+        : shed.status === "canceled"
+          ? "delayed"
+          : shed.status,
     operatorName: "Assigned operator",
     plannedDate: campaign.start_business_date,
     effectiveDate: campaign.start_business_date,
   };
 }
 
-function fixtureCampaign(role: WeighingRole): WeighingCampaign {
+function emptyCampaign(role: WeighingRole): WeighingCampaign {
   const leadership = role === "leadership";
   const operator = role === "operator";
   return {
-    id: "weigh-2026-07-26-cpt-kids",
-    weekLabel: "26 Jul-1 Aug",
-    weekStart: "2026-07-26",
-    weekEnd: "2026-08-01",
-    startBusinessDate: "2026-07-29",
-    state: "in_progress",
-    laneLabel: "Weekly kids / K-F",
-    operatorName: "Amit Kumar",
-    selectedScopes: 5,
-    expectedAnimals: 250,
-    individualExpected: 180,
-    individualCompleted: 126,
-    shedPartitionExpected: 2,
-    shedPartitionCompleted: 1,
-    remaining: 55,
-    rolledForward: 20,
-    wrongShedScans: 3,
-    unavailableAnimals: 8,
-    proofPending: 11,
+    id: "empty",
+    weekLabel: "No campaign",
+    weekStart: "",
+    weekEnd: "",
+    startBusinessDate: "",
+    state: "draft",
+    laneLabel: "Weekly kids",
+    operatorName: "Unassigned",
+    selectedScopes: 0,
+    expectedAnimals: 0,
+    individualExpected: 0,
+    individualCompleted: 0,
+    shedPartitionExpected: 0,
+    shedPartitionCompleted: 0,
+    remaining: 0,
+    rolledForward: 0,
+    wrongShedScans: 0,
+    unavailableAnimals: 0,
+    proofPending: 0,
     canCreate: leadership,
-    canEdit: leadership,
-    canPublish: leadership,
+    canEdit: false,
+    canPublish: false,
     canExecute: operator,
     reviewOnly: role === "director",
-    scopes: [
-      {
-        id: "s1",
-        parkName: "Channapatna",
-        shedName: "Gandhi",
-        partitionName: "Part 1",
-        category: "individual_animal",
-        expectedCount: 80,
-        completedCount: 80,
-        remainingCount: 0,
-        unavailableCount: 0,
-        wrongShedCount: 1,
-        proofPendingCount: 0,
-        status: "completed",
-        operatorName: "Amit Kumar",
-        plannedDate: "2026-07-29",
-        effectiveDate: "2026-07-29",
-      },
-      {
-        id: "s2",
-        parkName: "Channapatna",
-        shedName: "Gandhi",
-        partitionName: "Part 2",
-        category: "per_shed_partition",
-        expectedCount: 1,
-        completedCount: 1,
-        remainingCount: 0,
-        unavailableCount: 0,
-        wrongShedCount: 0,
-        proofPendingCount: 0,
-        status: "completed",
-        operatorName: "Amit Kumar",
-        plannedDate: "2026-07-29",
-        effectiveDate: "2026-07-29",
-      },
-      {
-        id: "s3",
-        parkName: "Channapatna",
-        shedName: "Godel",
-        partitionName: "Part 3",
-        category: "individual_animal",
-        expectedCount: 50,
-        completedCount: 36,
-        remainingCount: 14,
-        unavailableCount: 3,
-        wrongShedCount: 2,
-        proofPendingCount: 7,
-        status: "needs_review",
-        operatorName: "Amit Kumar",
-        plannedDate: "2026-07-30",
-        effectiveDate: "2026-07-30",
-      },
-      {
-        id: "s4",
-        parkName: "Channapatna",
-        shedName: "Nandi",
-        partitionName: "Whole shed",
-        category: "individual_animal",
-        expectedCount: 50,
-        completedCount: 10,
-        remainingCount: 40,
-        unavailableCount: 5,
-        wrongShedCount: 0,
-        proofPendingCount: 4,
-        status: "in_progress",
-        operatorName: "Amit Kumar",
-        plannedDate: "2026-07-31",
-        effectiveDate: "2026-08-02",
-      },
-      {
-        id: "s5",
-        parkName: "Channapatna",
-        shedName: "Kaveri",
-        partitionName: "Part 1",
-        category: "per_shed_partition",
-        expectedCount: 1,
-        completedCount: 0,
-        remainingCount: 1,
-        unavailableCount: 0,
-        wrongShedCount: 0,
-        proofPendingCount: 1,
-        status: "delayed",
-        operatorName: "Amit Kumar",
-        plannedDate: "2026-07-31",
-        effectiveDate: "2026-08-02",
-      },
-    ],
-    wrongShedRows: [
-      {
-        id: "w1",
-        animalDisplayId: "CPT-KID-0142",
-        rfid: "CPT-RFID-0142",
-        expectedShed: "Gandhi",
-        originalPartition: "Part 1",
-        actualShed: "Godel",
-        currentPartition: "Part 3",
-        scannedAt: "2026-07-30T10:22:00+05:30",
-        operatorName: "Amit Kumar",
-      },
-      {
-        id: "w2",
-        animalDisplayId: "CPT-KID-0198",
-        rfid: "CPT-RFID-0198",
-        expectedShed: "Godel",
-        originalPartition: "Part 3",
-        actualShed: "Nandi",
-        currentPartition: "Whole shed",
-        scannedAt: "2026-07-30T11:08:00+05:30",
-        operatorName: "Amit Kumar",
-      },
-    ],
-    missingRows: [
-      {
-        id: "m1",
-        animalDisplayId: "CPT-KID-0207",
-        expectedShed: "Godel / Part 3",
-        currentTruth: "ICU shed",
-        classification: "icu",
-        checkedAt: "2026-07-30T18:15:00+05:30",
-      },
-      {
-        id: "m2",
-        animalDisplayId: "CPT-KID-0244",
-        expectedShed: "Nandi / Whole shed",
-        currentTruth: "Sold / transferred",
-        classification: "sold_transferred",
-        checkedAt: "2026-07-30T18:15:00+05:30",
-      },
-    ],
+    scopes: [],
+    wrongShedRows: [],
+    missingRows: [],
   };
 }

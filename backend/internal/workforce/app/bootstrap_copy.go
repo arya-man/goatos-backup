@@ -78,11 +78,25 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                                          //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},                                                                  //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},                                                              //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},                                                                    //nav-composition:ignore: registry entry
-			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 4, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
+			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
+		},
+	},
+	// "weighing" is its own Preventive Care vertical. It is listed beside
+	// Vaccination in the module drawer; its bottom bar is only weighing-owned
+	// destinations, not a Vaccination tab.
+	"weighing": {
+		key:         "weighing",
+		labelKey:    "module.weighing",
+		landingHref: "/weighing", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    2,
+		contributions: []moduleNavContribution{
+			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -273,15 +287,16 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"vaccination", "counts", "feed_direction", "breeding"}
+		return []string{"vaccination", "weighing", "counts", "feed_direction", "breeding"}
 	}
 	if hasRole(grants, permissions.RoleParkHead) {
 		// Park operations include Feed; Counts is excluded (preventive-care leaders
-		// do not run the Counts capture/approval surfaces).
-		return []string{"vaccination", "feed_direction"}
+		// do not run the Counts capture/approval surfaces). Weighing is a separate
+		// preventive-care vertical, not a Vaccination tab.
+		return []string{"vaccination", "weighing", "feed_direction"}
 	}
-	// PC Director: preventive-care specialty, vaccination home only.
-	return []string{"vaccination"}
+	// PC Director: preventive-care specialty verticals.
+	return []string{"vaccination", "weighing"}
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -509,6 +524,7 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
+		"module.weighing":       "Weighing",
 		"module.counts":         "Counts",
 		"module.feed_direction": "Feed direction",
 		"module.breeding":       "Breeding",
@@ -535,6 +551,7 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
+		"module.weighing":       "वजन",
 		"module.counts":         "गिनती",
 		"module.feed_direction": "फ़ीड दिशा",
 		"module.breeding":       "प्रजनन",
@@ -561,6 +578,7 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
+		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಎಣಿಕೆ",
 		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
@@ -587,6 +605,7 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
+		"module.weighing":       "బరువు",
 		"module.counts":         "లెక్కలు",
 		"module.feed_direction": "ఫీడ్ దిశ",
 		"module.breeding":       "సంతానోత్పత్తి",

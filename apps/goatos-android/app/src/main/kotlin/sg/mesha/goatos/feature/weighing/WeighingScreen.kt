@@ -1,28 +1,47 @@
 package sg.mesha.goatos.feature.weighing
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.component.MeshaIconButton
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 data class WeighingUiState(
     val title: String = "Weighing",
@@ -39,6 +58,7 @@ data class WeighingUiState(
     val weightInput: String = "",
     val message: String? = null,
     val actionInFlight: Boolean = false,
+    val loading: Boolean = false,
     val category: String = "",
 ) {
     val isShedPartition: Boolean get() = category == "per_shed_partition"
@@ -97,26 +117,42 @@ fun WeighingScreen(
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(modifier = modifier.fillMaxSize()) { padding ->
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MeshaColors.PageBg,
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MeshaColors.PageBg)
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = state.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
+                    MeshaScreenHeader(
+                        title = if (state.hasScope) state.title else "My work",
+                        eyebrow = "WEIGHING",
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                        actions = {
+                            MeshaIconButton(
+                                icon = MeshaIcons.Refresh,
+                                contentDescription = "Refresh",
+                                onClick = {},
+                            )
+                            MeshaIconButton(
+                                icon = MeshaIcons.Bell,
+                                contentDescription = "Alerts",
+                                onClick = {},
+                            )
+                        },
                     )
                     if (state.scopeLabel.isNotBlank()) {
                         Text(
                             text = state.scopeLabel,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MeshaColors.Muted,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -128,17 +164,17 @@ fun WeighingScreen(
                         )
                         if (state.isShedPartition) {
                             Text(
-                                text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else {
-                            Text(
-                                text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                            text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MeshaColors.Muted,
+                        )
+                    } else {
+                        Text(
+                            text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MeshaColors.Muted,
+                        )
+                    }
                         WeighingCapturePanel(
                             state = state,
                             onScanInputChange = onScanInputChange,
@@ -148,26 +184,22 @@ fun WeighingScreen(
                             onRecordShedPartition = onRecordShedPartition,
                         )
                     } else {
-                        if (state.assignments.isEmpty()) {
-                            Text(
-                                text = "No assigned weighing work groups are available.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (state.loading) {
+                            LoadingWorkSkeleton()
+                        } else if (state.assignments.isEmpty()) {
+                            EmptyWorkCard(
+                                title = "No weighing work",
+                                body = "Assigned shed and partition tasks will appear here when the weekly plan is published.",
                             )
                         }
                     }
                     state.message?.takeIf { it.isNotBlank() }?.let {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        MessageStrip(it)
                     }
                 }
             }
-
             if (!state.hasScope && state.assignments.isNotEmpty()) {
-                item { SectionTitle("Assigned work groups") }
+                item { SectionTitle("TODAY · WED 29 JUL") }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
                     AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
                 }
@@ -199,54 +231,237 @@ fun WeighingScreen(
 
 @Composable
 private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.small,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .clickable(onClick = onOpen)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatusPill(row.status)
+                CategoryPill(row.category)
+                Box(Modifier.weight(1f))
                 Text(
-                    text = row.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = row.status,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "today 10:12",
+                    color = MeshaColors.Muted,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.W800,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(MeshaColors.Surf3)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
             Text(
-                text = listOf(weighingCategoryLabel(row.category), "${if (row.category == "per_shed_partition") 1 else row.expectedCount} expected", row.periodLabel)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" | "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = row.label,
+                color = MeshaColors.Ink,
+                style = MeshaType.cardTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-                Text("Open")
+            Text(
+                text = assignmentSummary(row),
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            WeighingProgressBar(complete = row.status.equals("Completed", ignoreCase = true), category = row.category)
+            Text(
+                text = assignmentAction(row),
+                color = MeshaColors.BrandD,
+                style = MeshaType.cta,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(status: String) {
+    val normalized = status.lowercase()
+    val color = when {
+        normalized.contains("complete") || normalized.contains("accepted") -> MeshaColors.Ok
+        normalized.contains("progress") || normalized.contains("due") || normalized.contains("pending") -> MeshaColors.Warn
+        else -> MeshaColors.Muted
+    }
+    val bg = when {
+        normalized.contains("complete") || normalized.contains("accepted") -> MeshaColors.OkX
+        normalized.contains("progress") || normalized.contains("due") || normalized.contains("pending") -> MeshaColors.WarnX
+        else -> MeshaColors.Surf3
+    }
+    Text(
+        text = if (normalized.contains("progress") || normalized.contains("pending")) "due now" else status.lowercase(),
+        color = color,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.W800,
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(bg)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
+private fun CategoryPill(category: String) {
+    Text(
+        text = if (category == "per_shed_partition") "Lumpsum" else "Individual",
+        color = MeshaColors.Purple,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.W800,
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(MeshaColors.PurpleX)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
+private fun WeighingProgressBar(complete: Boolean, category: String) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(7.dp)
+            .clip(RoundedCornerShape(99.dp))
+            .background(MeshaColors.Bg),
+    ) {
+        if (complete) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(if (category == "per_shed_partition") MeshaColors.Purple else MeshaColors.Brand),
+            )
+        }
+    }
+}
+
+private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
+    if (row.category == "per_shed_partition") {
+        "${row.expectedCount} kids in scope · one shed video"
+    } else {
+        "${row.expectedCount} kids in scope · animal videos"
+    }
+
+private fun assignmentAction(row: WeighingAssignmentUiRow): String =
+    when {
+        row.status.equals("Completed", ignoreCase = true) -> "View result ->"
+        row.category == "per_shed_partition" -> "Record shed result ->"
+        else -> "Scan animals ->"
+    }
+
+@Composable
+private fun EmptyWorkCard(title: String, body: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MeshaColors.BrandTint),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Module,
+                contentDescription = null,
+                tint = MeshaColors.Brand,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+        Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+            Text(
+                text = body,
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingWorkSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        repeat(2) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MeshaColors.Surf)
+                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SkeletonBlock(width = 78.dp, height = 28.dp)
+                    SkeletonBlock(width = 72.dp, height = 28.dp)
+                }
+                SkeletonBlock(width = 142.dp, height = 18.dp)
+                SkeletonBlock(width = 220.dp, height = 14.dp)
+                SkeletonBlock(width = null, height = 7.dp)
             }
         }
     }
 }
 
-private fun weighingCategoryLabel(category: String): String =
-    when (category) {
-        "per_shed_partition" -> "Shed / partition"
-        "individual_animal" -> "Individual animal"
-        else -> "Weighing"
+@Composable
+private fun SkeletonBlock(width: androidx.compose.ui.unit.Dp?, height: androidx.compose.ui.unit.Dp) {
+    Box(
+        modifier = Modifier
+            .then(if (width == null) Modifier.fillMaxWidth() else Modifier.width(width))
+            .height(height)
+            .clip(RoundedCornerShape(99.dp))
+            .background(MeshaColors.Surf3),
+    )
+}
+
+@Composable
+private fun MessageStrip(message: String) {
+    val isError = message.contains("failed", ignoreCase = true) ||
+        message.contains("couldn't", ignoreCase = true) ||
+        message.contains("error", ignoreCase = true)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isError) MeshaColors.DangerX else MeshaColors.Surf)
+            .border(1.dp, if (isError) MeshaColors.Danger else MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            imageVector = if (isError) MeshaIcons.Warn else MeshaIcons.CheckCircle,
+            contentDescription = null,
+            tint = if (isError) MeshaColors.Danger else MeshaColors.BrandD,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(9.dp))
+        Text(
+            text = message,
+            color = if (isError) MeshaColors.Danger else MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+            modifier = Modifier.weight(1f),
+        )
     }
+}
 
 @Composable
 private fun WeighingCapturePanel(
@@ -257,74 +472,172 @@ private fun WeighingCapturePanel(
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (state.isShedPartition) {
-                Text(
-                    text = "Record shed / partition weight",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Video proof is required before this result can submit.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    text = state.selectedAnimalLabel ?: "Scan an animal tag",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextField(
-                        value = state.scanInput,
-                        onValueChange = onScanInputChange,
-                        label = { Text("RFID / animal tag") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(
-                        onClick = onScanSubmit,
-                        enabled = !state.actionInFlight && state.scanInput.isNotBlank(),
-                    ) {
-                        Text("Match")
-                    }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextField(
-                    value = state.weightInput,
-                    onValueChange = onWeightChange,
-                    label = { Text("Weight kg") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                if (state.isShedPartition) {
-                    Button(
-                        onClick = onRecordShedPartition,
-                        enabled = state.canRecordShedPartition,
-                    ) {
-                        Text("Record")
-                    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (state.isShedPartition) {
+            WeighingActionCard(
+                iconLabel = "KG",
+                title = "Record shed result",
+                body = "One live video is required for this shed / partition result.",
+                tone = MeshaColors.Purple,
+                background = MeshaColors.PurpleX,
+            )
+        } else {
+            WeighingActionCard(
+                iconLabel = "RFID",
+                title = state.selectedAnimalLabel ?: "Scan RFID tag now",
+                body = if (state.selectedAnimalLabel == null) {
+                    "Keyboard-wedge scans are captured on this screen only."
                 } else {
-                    Button(
-                        onClick = onRecordIndividual,
-                        enabled = state.canRecordIndividual,
-                    ) {
-                        Text("Record")
-                    }
+                    "Animal matched. Add weight and capture video proof."
+                },
+                tone = MeshaColors.Brand,
+                background = MeshaColors.BrandTint,
+            )
+            InlineEntryCard(
+                label = "RFID / animal tag",
+                value = state.scanInput,
+                placeholder = "Type tag only for manual retry",
+                onValueChange = onScanInputChange,
+                actionLabel = "Match",
+                actionEnabled = !state.actionInFlight && state.scanInput.isNotBlank(),
+                onAction = onScanSubmit,
+            )
+        }
+        InlineEntryCard(
+            label = "Weight",
+            value = state.weightInput,
+            placeholder = "0.0",
+            suffix = "kg",
+            onValueChange = onWeightChange,
+            actionLabel = if (state.isShedPartition) "Record shed" else "Save weight",
+            actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
+            onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
+        )
+    }
+}
+
+@Composable
+private fun WeighingActionCard(
+    iconLabel: String,
+    title: String,
+    body: String,
+    tone: Color,
+    background: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(background),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = iconLabel,
+                color = tone,
+                fontSize = 9.sp,
+                lineHeight = 10.sp,
+                fontWeight = FontWeight.W900,
+            )
+        }
+        Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+            Text(
+                text = body,
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        Icon(
+            imageVector = MeshaIcons.Video,
+            contentDescription = null,
+            tint = tone,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun InlineEntryCard(
+    label: String,
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    actionLabel: String,
+    actionEnabled: Boolean,
+    onAction: () -> Unit,
+    suffix: String? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label.uppercase(), color = MeshaColors.Muted, style = MeshaType.fieldLabel)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = MeshaType.bodyStrong.copy(color = MeshaColors.Ink),
+                    cursorBrush = SolidColor(MeshaColors.Brand),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (value.isBlank()) {
+                                Text(
+                                    text = placeholder,
+                                    color = MeshaColors.Faint,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.W700,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                suffix?.let {
+                    Text(
+                        text = it,
+                        color = MeshaColors.Muted,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
             }
         }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = actionLabel,
+            color = if (actionEnabled) MeshaColors.BrandD else MeshaColors.Faint,
+            style = MeshaType.cta,
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (actionEnabled) MeshaColors.BrandTint else MeshaColors.Surf3)
+                .clickable(
+                    enabled = actionEnabled,
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onAction,
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -332,17 +645,20 @@ private fun WeighingCapturePanel(
 private fun SectionTitle(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
+        style = MeshaType.sectionLabel,
+        color = MeshaColors.Muted,
         modifier = Modifier.padding(top = 8.dp),
     )
 }
 
 @Composable
 private fun RosterRow(row: WeighingRosterUiRow) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.small,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp)),
     ) {
         Column(
             modifier = Modifier
@@ -356,27 +672,27 @@ private fun RosterRow(row: WeighingRosterUiRow) {
             ) {
                 Text(
                     text = row.displayAnimalId,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MeshaType.cardTitle,
+                    color = MeshaColors.Ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = row.status,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MeshaType.caption,
+                    color = MeshaColors.Muted,
                 )
             }
             Text(
                 text = "Expected: ${row.expectedLocationLabel}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MeshaType.cardSubtitle,
+                color = MeshaColors.Muted,
             )
             row.actualLocationLabel?.takeIf { it.isNotBlank() && it != row.expectedLocationLabel }?.let {
                 Text(
                     text = "Current: $it",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    style = MeshaType.cardSubtitle,
+                    color = MeshaColors.Danger,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,9 +709,12 @@ private fun RosterRow(row: WeighingRosterUiRow) {
 
 @Composable
 private fun DraftRow(row: WeighingDraftUiRow) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.small,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp)),
     ) {
         Row(
             modifier = Modifier
@@ -406,21 +725,21 @@ private fun DraftRow(row: WeighingDraftUiRow) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    style = MeshaType.bodyStrong,
+                    color = MeshaColors.Ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = if (row.proofReady) "Proof ready" else "Proof required",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MeshaType.cardSubtitle,
+                    color = MeshaColors.Muted,
                 )
             }
             Text(
                 text = if (row.readyToSubmit) "Ready" else "Draft",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (row.readyToSubmit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MeshaType.caption,
+                color = if (row.readyToSubmit) MeshaColors.BrandD else MeshaColors.Muted,
             )
         }
     }

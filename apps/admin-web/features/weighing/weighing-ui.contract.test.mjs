@@ -57,3 +57,24 @@ test("weighing UI exposes wrong-shed expected-original and actual-current contex
   assert.match(page, /Expected \/ original/);
   assert.match(page, /Actual \/ current/);
 });
+
+test("weighing leadership planner covers park-week task creation and duplicate edit state", () => {
+  const data = source("data.ts");
+  const page = source("page.tsx");
+
+  assert.match(data, /duplicateBlocked/);
+  assert.match(data, /existingCampaignId/);
+  assert.match(data, /CPT · Channapatna/);
+  assert.match(data, /Castro 1/);
+  assert.match(data, /Gandhi 1/);
+  assert.match(data, /Amit Kumar/);
+  assert.match(page, /Create weekly kids weighing task/);
+  assert.match(page, /Edit weekly kids weighing task/);
+  assert.match(page, /Step 2 · Park/);
+  assert.match(page, /Step 3 · Sheds/);
+  assert.match(page, /Individual/);
+  assert.match(page, /Lumpsum/);
+  assert.match(page, /Assign operator/);
+  assert.match(page, /Already scheduled/);
+  assert.match(page, /New task blocked/);
+});

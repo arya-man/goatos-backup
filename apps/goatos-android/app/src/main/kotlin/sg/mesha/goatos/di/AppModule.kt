@@ -420,6 +420,7 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
         syncRepository: SyncRepository,
+        appScope: CoroutineScope,
     ): WeighingRepository = DefaultWeighingRepository(
         api = api,
         tenantId = BuildConfig.TENANT_ID,
@@ -427,6 +428,7 @@ object AppModule {
         observationDao = database.weighingObservationDao(),
         shedObservationDao = database.weighingShedObservationDao(),
         syncRepository = syncRepository,
+        appScope = appScope,
     )
 
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
@@ -558,11 +560,14 @@ object AppModule {
         api: AppApi,
         connectivityGate: ConnectivityGate,
         retryScheduler: SyncRetryScheduler,
+        database: GoatDatabase,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
         connectivityGate = connectivityGate,
         retryScheduler = retryScheduler,
+        weighingObservationDao = database.weighingObservationDao(),
+        weighingShedObservationDao = database.weighingShedObservationDao(),
     )
 
     // Drive/Photos-style background upload foreground service (MOB-002 §3,
