@@ -84,6 +84,13 @@ The script refuses a dirty working tree unless `GOATOS_ALLOW_DIRTY_RELEASE=1`
 is set. Dirty release is for emergency debugging only; do not use it for normal
 staging handoff.
 
+Cloud Deploy appends `-to-<target>-0001` to the release id when it creates a
+rollout. Keep `RELEASE_ID` short enough for that generated rollout id to stay
+under Google Cloud's 63-character resource-id limit. The release helper defaults
+to `r-<12-char-sha>-<HHMMSS>` for this reason. Do not use long manual ids such
+as `goatos-stg-<sha>-manual-<timestamp>`; they can create the release and then
+fail before rollout creation.
+
 ## Forbidden Deploy Detours
 
 Do not use these for Goat OS STG deployment:

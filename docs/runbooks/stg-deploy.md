@@ -30,6 +30,12 @@ tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
 
+Do not hand-write long `RELEASE_ID` values. Cloud Deploy generates rollout ids
+from the release id, target, and attempt suffix, and the final rollout id must
+fit Google Cloud's 63-character resource-id limit. Use the release helper's
+short default (`r-<12-char-sha>-<HHMMSS>`) unless there is a specific reason to
+override it.
+
 Before running any deploy command, verify:
 
 ```bash
