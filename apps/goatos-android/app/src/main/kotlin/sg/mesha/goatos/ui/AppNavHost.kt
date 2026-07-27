@@ -690,7 +690,13 @@ fun AppNavHost(
         composable(Routes.WEIGHING) {
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            WeighingScreen(state = state)
+            WeighingScreen(
+                state = state,
+                onScanInputChange = vm::onScanInputChange,
+                onScanSubmit = vm::submitTypedScan,
+                onWeightChange = vm::onWeightInputChange,
+                onRecordIndividual = vm::recordIndividual,
+            )
         }
 
         composable(
@@ -720,7 +726,24 @@ fun AppNavHost(
         ) {
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            WeighingScreen(state = state)
+            DisposableEffect(vm) {
+                vm.setCompletionKeySwallowActive(true)
+                vm.setCaptureActive(true)
+                onDispose {
+                    vm.setCompletionKeySwallowActive(false)
+                    vm.setCaptureActive(false)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                WeighingScreen(
+                    state = state,
+                    onScanInputChange = vm::onScanInputChange,
+                    onScanSubmit = vm::submitTypedScan,
+                    onWeightChange = vm::onWeightInputChange,
+                    onRecordIndividual = vm::recordIndividual,
+                )
+            }
         }
         composable(
             route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}",

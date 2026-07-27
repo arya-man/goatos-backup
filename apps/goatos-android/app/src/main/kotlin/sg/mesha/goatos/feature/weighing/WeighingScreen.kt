@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,9 +32,17 @@ data class WeighingUiState(
     val totalExpected: Int = 0,
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
     val shedDrafts: List<WeighingDraftUiRow> = emptyList(),
+    val selectedAnimalId: String? = null,
+    val selectedAnimalLabel: String? = null,
+    val scanInput: String = "",
+    val weightInput: String = "",
+    val message: String? = null,
+    val actionInFlight: Boolean = false,
 ) {
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
     val progress: Float get() = if (totalExpected <= 0) 0f else individualCompleted.toFloat() / totalExpected.toFloat()
+    val canRecordIndividual: Boolean get() =
+        hasScope && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
 }
 
 data class WeighingRosterUiRow(
@@ -54,6 +65,10 @@ data class WeighingDraftUiRow(
 @Composable
 fun WeighingScreen(
     state: WeighingUiState,
+    onScanInputChange: (String) -> Unit = {},
+    onScanSubmit: () -> Unit = {},
+    onWeightChange: (String) -> Unit = {},
+    onRecordIndividual: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier.fillMaxSize()) { padding ->
@@ -90,10 +105,24 @@ fun WeighingScreen(
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        WeighingCapturePanel(
+                            state = state,
+                            onScanInputChange = onScanInputChange,
+                            onScanSubmit = onScanSubmit,
+                            onWeightChange = onWeightChange,
+                            onRecordIndividual = onRecordIndividual,
+                        )
                     } else {
                         Text(
                             text = "Open an assigned weighing work group to scan.",
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    state.message?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -118,6 +147,63 @@ fun WeighingScreen(
                 item { SectionTitle("Roster window") }
                 items(state.visibleRows, key = { it.id }) { row ->
                     RosterRow(row)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeighingCapturePanel(
+    state: WeighingUiState,
+    onScanInputChange: (String) -> Unit,
+    onScanSubmit: () -> Unit,
+    onWeightChange: (String) -> Unit,
+    onRecordIndividual: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = state.selectedAnimalLabel ?: "Scan an animal tag",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextField(
+                    value = state.scanInput,
+                    onValueChange = onScanInputChange,
+                    label = { Text("RFID / animal tag") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = onScanSubmit,
+                    enabled = !state.actionInFlight && state.scanInput.isNotBlank(),
+                ) {
+                    Text("Match")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextField(
+                    value = state.weightInput,
+                    onValueChange = onWeightChange,
+                    label = { Text("Weight kg") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = onRecordIndividual,
+                    enabled = state.canRecordIndividual,
+                ) {
+                    Text("Record")
                 }
             }
         }
