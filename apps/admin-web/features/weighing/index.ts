@@ -1,0 +1,1 @@
+export { WeighingPage } from "./page";

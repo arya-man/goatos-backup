@@ -112,6 +112,9 @@ import (
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
+	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -373,6 +376,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
+	weighingService := weighingapp.NewService(weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	weighingHandler := weighinghttp.NewHandler(weighingService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
@@ -762,6 +767,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.Register(protectedMux, procurementHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
+	weighinghttp.Register(protectedMux, weighingHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)

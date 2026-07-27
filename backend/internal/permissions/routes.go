@@ -185,6 +185,12 @@ var protectedRoutes = []Route{
 	// Not yet consumed by the drive scheduler (Phase 5). Same config-authority permission as capacity.
 	{OperationID: "getVaccinationOperatorAssignmentConfig", Method: "GET", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{ProtocolRead}},
 	{OperationID: "putVaccinationOperatorAssignmentConfig", Method: "PUT", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "listWeighingCampaigns", Method: "GET", Pattern: "/weighing/campaigns", Permissions: []string{WeighingMonitor}},
+	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
+	{OperationID: "publishWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns/{campaign_id}/publish", Permissions: []string{WeighingPlan}},
+	{OperationID: "appListWeighingCampaigns", Method: "GET", Pattern: "/app/weighing/campaigns", Permissions: []string{AppBootstrap}},
+	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
+	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator

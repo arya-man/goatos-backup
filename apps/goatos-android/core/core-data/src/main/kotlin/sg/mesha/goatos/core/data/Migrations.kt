@@ -546,3 +546,83 @@ val MIGRATION_18_19: Migration = object : Migration(18, 19) {
         )
     }
 }
+
+/** v21 -> v22: Weighing Room-first local state.
+ *
+ * Adds normalized roster rows for indexed RFID lookup, individual-animal weighing observations,
+ * and per-shed/partition observations. The tables are additive and separate from Vaccination's
+ * scan/proof rows so Weighing cannot update Vaccination completion state or create individual
+ * animal weights for `per_shed_partition` scopes.
+ */
+val MIGRATION_21_22: Migration = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_roster_row` " +
+                "(`id` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, " +
+                "`displayAnimalId` TEXT NOT NULL, `primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, " +
+                "`normalizedPrimaryTag` TEXT NOT NULL, `normalizedSecondaryTag` TEXT, `status` TEXT NOT NULL, " +
+                "`availabilityStatus` TEXT, `seq` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey` ON `weighing_roster_row` (`scopeKey`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_seq` " +
+                "ON `weighing_roster_row` (`scopeKey`, `seq`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedPrimaryTag` " +
+                "ON `weighing_roster_row` (`scopeKey`, `normalizedPrimaryTag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedSecondaryTag` " +
+                "ON `weighing_roster_row` (`scopeKey`, `normalizedSecondaryTag`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_animalId` " +
+                "ON `weighing_roster_row` (`campaignId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_observation` " +
+                "(`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, " +
+                "`scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, " +
+                "`serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, " +
+                "`capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_idempotencyKey` ON `weighing_observation` (`idempotencyKey`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_observation` (`scopeKey`, `capturedAtMs`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_animalId` " +
+                "ON `weighing_observation` (`campaignId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` " +
+                "ON `weighing_observation` (`campaignId`, `workGroupId`, `campaignShedId`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_shed_observation` " +
+                "(`shedObservationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `resultJson` TEXT NOT NULL, " +
+                "`proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, " +
+                "`idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, " +
+                "PRIMARY KEY(`shedObservationId`))",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_idempotencyKey` ON `weighing_shed_observation` (`idempotencyKey`)")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_campaignId_campaignShedId` " +
+                "ON `weighing_shed_observation` (`campaignId`, `campaignShedId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_shed_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_shed_observation` (`scopeKey`, `capturedAtMs`)",
+        )
+    }
+}

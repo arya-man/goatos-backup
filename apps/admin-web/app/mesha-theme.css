@@ -1454,6 +1454,48 @@
   .cond-note{max-width:340px;text-align:right}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
   .btn.ghost:hover{background:var(--brand-soft)}
+
+  .weighing-page{display:grid;gap:16px}
+  .weighing-role-switch{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .weighing-hero .ic,.weighing-page .ic{width:16px;height:16px;flex:0 0 auto}
+  .weighing-hero-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.75fr);gap:16px;align-items:stretch}
+  .weighing-hero-grid>*{min-width:0}
+  .weighing-week-row{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px}
+  .weighing-week{display:flex;align-items:center;gap:9px;min-width:138px;border:1px solid var(--line);background:var(--panel-2);border-radius:12px;padding:10px 12px;text-decoration:none;color:var(--ink);font-size:12.5px;font-weight:700}
+  .weighing-week.on{border-color:color-mix(in srgb,var(--brand) 62%,var(--line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .weighing-week .tag{margin-left:auto}
+  .weighing-meta{margin-top:2px}
+  .weighing-command-panel{border:1px solid var(--line2);background:var(--bg);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .weighing-command-title{display:flex;align-items:center;gap:8px;font-weight:750;font-size:14px}
+  .weighing-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+  .weighing-actions .btn{justify-content:center}
+  .weighing-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .weighing-metric .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:750}
+  .weighing-metric .v{font-size:28px;font-weight:820;letter-spacing:-.9px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .weighing-metric .v span{font-size:13px;color:var(--muted);font-weight:650;margin-left:2px}
+  .weighing-bar{height:8px;border-radius:999px;background:var(--panel-2);margin:11px 0 9px;overflow:hidden}
+  .weighing-bar i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+  .weighing-bar.pur i{background:#a98bf5}
+  .weighing-attention{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+  .main table.weighing-table{min-width:980px}
+  .main table.weighing-table.compact{min-width:620px}
+  .main table.weighing-table th,.main table.weighing-table td{vertical-align:middle}
+  .main table.weighing-table .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .blockish{display:block;margin-top:3px;line-height:1.35}
+  .weighing-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .weighing-integration{border-style:dashed}
+
+  @media(max-width:1040px){
+    .weighing-hero-grid,.weighing-metrics,.weighing-review-grid{grid-template-columns:1fr}
+    .weighing-role-switch{justify-content:flex-start}
+  }
+
+  @media(max-width:640px){
+    .weighing-week{min-width:128px}
+    .weighing-hero>.bd{overflow-x:visible}
+    .weighing-command-panel{padding:12px}
+    .weighing-actions .btn{flex:1 1 92px;padding-inline:9px}
+  }
   .warn-note{border-color:var(--danger)}
   /* operator preview (right column) */
   .pvform{display:flex;flex-direction:column;gap:11px}

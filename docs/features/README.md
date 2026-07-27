@@ -18,6 +18,10 @@ Current feature docs:
 - `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
+- `docs/features/weighing/PRD.md` - weekly shed/partition weighing campaign,
+  rolling operator execution, per-animal proof, and missing-animal semantics.
+- `docs/features/weighing/TRD.md` - weighing module, planner, Android/API,
+  proof/media, lifecycle reconciliation, and read-model technical contract.
 
 Old counts, mortality, counter-family, and operator-management feature specs
 were deleted from the active tree. Do not rebuild their old dashboard/admin
