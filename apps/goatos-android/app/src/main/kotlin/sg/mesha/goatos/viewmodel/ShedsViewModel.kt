@@ -27,6 +27,9 @@ import sg.mesha.goatos.feature.sheds.ProtocolAdherenceSummary
 import sg.mesha.goatos.feature.sheds.ShedParkFilter
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
+import sg.mesha.goatos.feature.sheds.ShedStatusChip
+import sg.mesha.goatos.feature.sheds.ShedStatusChipKey
+import sg.mesha.goatos.feature.sheds.ShedStatusTone
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsUiState
 import sg.mesha.goatos.feature.sheds.VaccineGroup
@@ -269,6 +272,7 @@ class ShedsViewModel @Inject constructor(
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
                 statusLabel = group.reviewAwareStatusLabel(status),
+                statusChips = group.statusChips(status),
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
                 due = counts.open.toString(),
@@ -332,7 +336,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = protocolAdherenceSummary(visibleWindowTotals),
+            adherence = protocolAdherenceSummary(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay), visibleWindowTotals),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
@@ -397,15 +401,26 @@ private data class ShedsTransientState(
     val isLoadingMore: Boolean,
 )
 
-internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? {
+internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? =
+    protocolAdherenceSummary(emptyList(), counts)
+
+internal fun protocolAdherenceSummary(
+    rows: List<VaccinationExecutionRowDto>,
+    counts: ExecutionCounts = executionCounts(rows),
+): ProtocolAdherenceSummary? {
     if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
+    val accepted = rows.sumOf { row ->
+        if (row.isAcceptedForProtocolSummary()) row.doneCount.coerceAtLeast(0) else 0
+    }
+    val review = rows.count { it.isVerificationPending() }
     return ProtocolAdherenceSummary(
         expectedCount = counts.target,
         submittedCount = counts.done,
-        acceptedCount = counts.done,
-        reviewItemCount = 0,
+        acceptedCount = accepted,
+        reviewItemCount = review,
+        overdueItemCount = rows.count { it.isOverdueWork() },
         deferredCount = 0,
-        acceptedPercent = if (counts.target > 0) (counts.done * 100 / counts.target).coerceIn(0, 100) else 0,
+        acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
     )
 }
 
@@ -492,6 +507,29 @@ private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: Shed
     return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
 }
 
+private fun List<VaccinationExecutionRowDto>.statusChips(status: ShedStatus): List<ShedStatusChip> {
+	val primary =
+		if (any { it.isVerificationPending() }) {
+			ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
+		} else {
+			ShedStatusChip(status.toChipKey(), status.toChipTone())
+		}
+	val overdue = ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER)
+	return if (any { it.isOverdueWork() } && primary.key != overdue.key) listOf(primary, overdue) else listOf(primary)
+}
+
+private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
+    ShedStatus.DONE -> ShedStatusChipKey.DONE
+    ShedStatus.PENDING -> ShedStatusChipKey.IN_PROGRESS
+    ShedStatus.DELAYED -> ShedStatusChipKey.OVERDUE
+}
+
+private fun ShedStatus.toChipTone(): ShedStatusTone = when (this) {
+    ShedStatus.DONE -> ShedStatusTone.OK
+    ShedStatus.PENDING -> ShedStatusTone.WARN
+    ShedStatus.DELAYED -> ShedStatusTone.DANGER
+}
+
 private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
     hasOpenOrReviewWork() || doneCount > 0
 
@@ -504,6 +542,27 @@ private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
         sopStatus.equals("submitted", ignoreCase = true) ||
         sopStatus.equals("needs_review", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)
+
+private fun VaccinationExecutionRowDto.isOverdueWork(): Boolean {
+    val work = workState.lowercase()
+    if (work.contains("overdue") || work.contains("missed")) return true
+    if (isFinalClosed()) return false
+    val scheduleDate = currentScheduleDate
+        ?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?: return false
+    return scheduleDate.isBefore(LocalDate.now(ZoneId.systemDefault()))
+}
+
+private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =
+    sopStatus.equals("accepted", ignoreCase = true) ||
+        sopStatus.equals("closed", ignoreCase = true) ||
+        sopStatus.equals("completed", ignoreCase = true) ||
+        verificationStatus.equals("accepted", ignoreCase = true) ||
+        verificationStatus.equals("verified", ignoreCase = true) ||
+        workState.equals("accepted", ignoreCase = true) ||
+        workState.equals("closed", ignoreCase = true) ||
+        workState.equals("completed", ignoreCase = true)
 
 private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
     "accepted", "closed", "completed" -> true

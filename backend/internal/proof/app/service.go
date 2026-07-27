@@ -135,6 +135,22 @@ func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID strin
 	return proof, reader, nil
 }
 
+func (s *Service) DeleteUpload(ctx context.Context, tenantID, proofID string) error {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return ErrInvalid
+	}
+	proof, err := s.repo.DeleteUnattachedProof(ctx, tenantID, proofID)
+	if err != nil {
+		return err
+	}
+	if deleter, ok := s.storage.(ports.DeletingStorage); ok {
+		if err := deleter.Delete(ctx, proof); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding sopdomain.ProofBinding, refs []sopdomain.ProofReference) ([]sopdomain.ProofReference, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(binding.TaskID) {
 		return nil, ErrInvalid

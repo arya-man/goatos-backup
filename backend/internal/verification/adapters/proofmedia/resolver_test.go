@@ -173,6 +173,17 @@ func (r *memoryProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs [
 	return out, nil
 }
 
+func (r *memoryProofRepo) DeleteUnattachedProof(_ context.Context, _ string, proofID string) (proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	proof, ok := r.proofs[proofID]
+	if !ok {
+		return proofdomain.Artifact{}, ports.ErrNotFound
+	}
+	delete(r.proofs, proofID)
+	return proof, nil
+}
+
 func (r *memoryProofRepo) CompleteProof(_ context.Context, in proofdomain.CompleteUpload) (proofdomain.Artifact, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -76,6 +76,10 @@ class SyncEngine(
     // eligibility fresh (so a just-enqueued item is never missed).
     private val drainMutex = Mutex()
 
+    suspend fun deleteProof(proofId: String) = withContext(dispatchers.io) {
+        api.deleteProof(proofId)
+    }
+
     /**
      * Drains every currently-eligible outbox row, in bounded [DRAIN_BATCH_SIZE] batches so a
      * long offline period never materializes the whole table into memory at once.

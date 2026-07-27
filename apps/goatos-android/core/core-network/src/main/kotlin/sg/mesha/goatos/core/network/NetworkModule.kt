@@ -13,6 +13,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -239,6 +240,9 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ProofUploadRequestDto,
     ): ProofUploadResponseDto
+
+    @DELETE("app/proofs/{proof_id}")
+    suspend fun deleteProof(@Path("proof_id") proofId: String)
 
     @POST("app/proofs/{proof_id}/complete")
     suspend fun completeProofUpload(
@@ -542,6 +546,8 @@ class RetrofitAppApi(
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         service.registerProof(idempotencyKey, request.forCreateUpload())
+
+    override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 
     override suspend fun uploadProofBlob(
         proofId: String,

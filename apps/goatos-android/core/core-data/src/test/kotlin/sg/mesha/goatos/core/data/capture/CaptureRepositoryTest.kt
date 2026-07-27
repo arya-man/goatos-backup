@@ -1189,6 +1189,72 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `removing synced proof deletes server artifact before local row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val entity = proofEntity(
+                id = "proof-synced-remove",
+                taskId = "task-remove",
+                fieldKey = "shed_video",
+                idempotencyKey = "proof-upload:task-remove:proof-synced-remove",
+            ).copy(
+                syncStatus = CaptureSyncStatus.SYNCED.name,
+                serverProofId = "server-proof-remove",
+            )
+            db.proofCaptureDao().insert(entity)
+
+            val result = repo.remove("task-remove", "proof-synced-remove")
+
+            assertTrue(result is AppResult.Ok)
+            assertEquals(listOf("server-proof-remove"), sync.deleteUploadedProofCalls)
+            assertEquals(null, db.proofCaptureDao().findById("proof-synced-remove"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `removing synced proof keeps local row when server delete fails`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(deleteUploadedProofFailure = "proof is already attached")
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val entity = proofEntity(
+                id = "proof-synced-keep",
+                taskId = "task-remove",
+                fieldKey = "shed_video",
+                idempotencyKey = "proof-upload:task-remove:proof-synced-keep",
+            ).copy(
+                syncStatus = CaptureSyncStatus.SYNCED.name,
+                serverProofId = "server-proof-keep",
+            )
+            db.proofCaptureDao().insert(entity)
+
+            val result = repo.remove("task-remove", "proof-synced-keep")
+
+            assertTrue(result is AppResult.Err)
+            assertEquals(listOf("server-proof-keep"), sync.deleteUploadedProofCalls)
+            assertEquals(entity, db.proofCaptureDao().findById("proof-synced-keep"))
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(
@@ -1223,6 +1289,7 @@ private fun proofEntity(
 private class FakeSyncRepository(
     private val deleteOutboxItemFailure: String? = null,
     private val cancelOutboxItemFailure: String? = null,
+    private val deleteUploadedProofFailure: String? = null,
     // Simulates the guarded cancel losing the race to the dispatcher (item was IN_FLIGHT at the
     // instant of the DELETE): returns Ok(false) and removes nothing, regardless of observed status.
     private val cancelAlwaysMisses: Boolean = false,
@@ -1241,6 +1308,7 @@ private class FakeSyncRepository(
     val retryCalls = mutableListOf<String>()
     val deleteOutboxCalls = mutableListOf<String>()
     val cancelCalls = mutableListOf<String>()
+    val deleteUploadedProofCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -1364,6 +1432,12 @@ private class FakeSyncRepository(
             status.value = status.value.copy(items = status.value.items.filterNot { it.id == itemId })
         }
         return AppResult.Ok(cancellable)
+    }
+
+    override suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> {
+        deleteUploadedProofCalls += proofId
+        deleteUploadedProofFailure?.let { return AppResult.Err(it) }
+        return AppResult.Ok(Unit)
     }
 
     override suspend fun triggerDrain() = Unit
