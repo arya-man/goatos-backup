@@ -85,6 +85,110 @@ func TestSubmitTaskAllowsSecondShedSubmitWhenSharedParkTaskAlreadyNeedsReview(t 
 	}
 }
 
+func TestSubmitTaskShedProofFiltersOverBroadScanItemsToThatShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		actorID    = "77200000-0000-4000-8000-000000000001"
+		partyID    = "77200000-0000-4000-8000-000000000002"
+		sopID      = "77200000-0000-4000-8000-000000000003"
+		sopVersion = "77200000-0000-4000-8000-000000000004"
+		taskID     = "77200000-0000-4000-8000-000000000005"
+		parkID     = "77200000-0000-4000-8000-000000000006"
+		shedOne    = "77200000-0000-4000-8000-000000000007"
+		shedTwo    = "77200000-0000-4000-8000-000000000008"
+		goatOne    = "77200000-0000-4000-8000-000000000009"
+		goatTwo    = "77200000-0000-4000-8000-000000000010"
+	)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'park', 'PARK-SHED-FILTER', 'Shed Filter Park', 'active')`,
+		parkID, tenantID)
+	execShedSubmitState(t, ctx, pool, "shed one",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'SHED-FILTER-1', 'Shed Filter One', $3::uuid, 'active')`,
+		shedOne, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "shed two",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'SHED-FILTER-2', 'Shed Filter Two', $3::uuid, 'active')`,
+		shedTwo, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "party",
+		`INSERT INTO parties (party_id, party_type, display_name, status)
+		 VALUES ($1::uuid, 'org', 'Shed Filter Custodian', 'active')`,
+		partyID)
+	execShedSubmitState(t, ctx, pool, "goat one",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid, $5::uuid, $4::uuid, 'K1', 'healthy')`,
+		goatOne, tenantID, partyID, shedOne, parkID)
+	execShedSubmitState(t, ctx, pool, "goat two",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid, $5::uuid, $4::uuid, 'K1', 'healthy')`,
+		goatTwo, tenantID, partyID, shedTwo, parkID)
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.shed_filter_regression', 'Shed filter regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"shed","types":["video"],"minimum_count":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "shared task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Shared park task', 'in_progress', 'park', $5::uuid, 1)`,
+		taskID, tenantID, sopID, sopVersion, parkID)
+
+	repo := NewRepository(pool, 5*time.Second)
+	shedOneSubjectID := shedOne
+	_, _, _, err := repo.SubmitTask(ctx, ports.SubmitTaskCommand{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		TaskID:   taskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   sopVersion,
+			IdempotencyKey: "shed-submit:" + taskID + ":scope:" + shedOne + ":rv:1",
+			Answers:        map[string]any{},
+			ProofRefs: []domain.ProofReference{{
+				ProofID:     "shed-one-proof",
+				ProofType:   "video",
+				SubjectType: "shed",
+				SubjectID:   &shedOneSubjectID,
+				UploadState: "completed",
+			}},
+		},
+		TaskState: "needs_review",
+		ItemState: "needs_review",
+		SubmissionItems: []ports.SubmissionItemInput{{
+			GoatID:  goatOne,
+			ItemKey: goatOne,
+		}, {
+			GoatID:  goatTwo,
+			ItemKey: goatTwo,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+
+	var shedOneItems, shedTwoItems int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sop_submission_items WHERE tenant_id=$1::uuid AND task_id=$2::uuid AND goat_id=$3::uuid`, tenantID, taskID, goatOne).Scan(&shedOneItems); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sop_submission_items WHERE tenant_id=$1::uuid AND task_id=$2::uuid AND goat_id=$3::uuid`, tenantID, taskID, goatTwo).Scan(&shedTwoItems); err != nil {
+		t.Fatal(err)
+	}
+	if shedOneItems != 1 || shedTwoItems != 0 {
+		t.Fatalf("shed-scoped proof wrote wrong items: shed one=%d shed two=%d", shedOneItems, shedTwoItems)
+	}
+}
+
 func TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
