@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
@@ -519,6 +520,17 @@ interface AppApi {
      * which is approximately never, so it is cached in Room and re-served offline.
      */
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    /**
+     * GET /app/counts/breeds — the breeds present on the live herd, backing the birth form's breed
+     * picker. Served on the operator (CountsWrite) surface, unlike the Counts Breakdown breed facet
+     * which is CountsRead: a field operator holds CountsWrite (to record births) but not CountsRead,
+     * so the picker must source its vocabulary from here, never from `/counts/breakdown`.
+     *
+     * A bounded picker VOCABULARY (a handful of breeds), not a screen list that grows with the herd,
+     * so it is fetched whole and cached — the same contract as the shifting destinations catalog.
+     */
+    suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
 
     /**
      * GET /app/counts/shifting-events/pending-execution — the operator's Pending tab: movements
@@ -1024,6 +1036,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         CountsShiftingDestinationsResponseDto()
+
+    override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto = CountsBreedsResponseDto()
 
     override suspend fun listCountsShiftingPendingExecution(
         parkId: String?,

@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
@@ -352,6 +353,9 @@ interface AppApiService {
 
     @GET("app/counts/shifting/destinations")
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    @GET("app/counts/breeds")
+    suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
 
     @GET("app/counts/shifting-events/pending-execution")
     suspend fun listCountsShiftingPendingExecution(
@@ -757,6 +761,9 @@ class RetrofitAppApi(
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         service.getCountsShiftingDestinations()
+
+    override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto =
+        service.getAppCountsBreeds()
 
     override suspend fun listCountsShiftingPendingExecution(
         parkId: String?,

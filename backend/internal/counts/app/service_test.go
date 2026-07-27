@@ -41,6 +41,8 @@ type fakeRepo struct {
 	// and the exact goat id set through unchanged.
 	destinations    domain.ShiftingDestinationCatalog
 	destinationsErr error
+	activeBreeds    []domain.CountsBreakdownSeriesPoint
+	activeBreedsErr error
 	goatFacts       []domain.GoatShiftingFact
 	goatFactsErr    error
 	goatFactsReq    []string
@@ -585,6 +587,10 @@ func (f *fakeRepo) ShiftingDestinationCatalog(_ context.Context, _ string) (doma
 		return domain.ShiftingDestinationCatalog{}, f.destinationsErr
 	}
 	return f.destinations, nil
+}
+
+func (f *fakeRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.CountsBreakdownSeriesPoint, error) {
+	return f.activeBreeds, f.activeBreedsErr
 }
 
 func (f *fakeRepo) GoatShiftingFacts(_ context.Context, _ string, goatIDs []string) ([]domain.GoatShiftingFact, error) {

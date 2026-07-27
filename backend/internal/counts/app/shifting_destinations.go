@@ -25,6 +25,17 @@ func (s *Service) ShiftingDestinations(ctx context.Context, tenantID string) (do
 	return s.repo.ShiftingDestinationCatalog(ctx, tenantID)
 }
 
+// ActiveBreeds returns the breeds present on the tenant's live herd for the operator birth form's
+// breed picker. It is the same vocabulary the Counts Breakdown breed facet shows, but reachable on
+// the operator (CountsWrite) surface -- the read-only Counts Breakdown screen is CountsRead, which
+// a field operator does not hold, so the birth form must not source its breed options from there.
+func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrMissingRequiredField
+	}
+	return s.repo.ActiveBreeds(ctx, tenantID)
+}
+
 // DeriveShiftingSource reads the CURRENT park/shed of a single named animal so a shifting event
 // that arrived without an explicit source can still record where the movement started.
 //

@@ -19,7 +19,6 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.CountsBreakdownQuery
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
@@ -104,6 +103,7 @@ class BirthDeathViewModel @Inject constructor(
         observeDestinations()
         refreshDestinations()
         observeBreedOptions()
+        refreshBreedOptions()
         recomputeSubmitGate()
     }
 
@@ -275,17 +275,18 @@ class BirthDeathViewModel @Inject constructor(
     }
 
     /**
-     * Breed is chosen, not typed. The option list is the herd's OWN breed vocabulary — the same
-     * backend-owned, Room-cached Counts breakdown facet the census filter renders — so the app never
-     * invents a breed vocabulary of its own. Cache-first and reactive: it emits from Room immediately
-     * (the Counts landing screen keeps this envelope warm) and re-emits on any background refresh. A
-     * refresh that drops the currently-selected breed clears it so submit can never name a breed the
-     * vocabulary no longer offers. The facet's own `key` is what submits.
+     * Breed is chosen, not typed. The option list is the herd's OWN breed vocabulary, served by
+     * `GET /app/counts/breeds` on the operator surface — so the app never invents a breed vocabulary
+     * of its own, and a field operator (who holds CountsWrite but not the CountsRead the Counts
+     * Breakdown screen needs) still gets real options. Cache-first and reactive: it emits from Room
+     * immediately and re-emits after [refreshBreedOptions]. A refresh that drops the currently-selected
+     * breed clears it so submit can never name a breed the vocabulary no longer offers. The option's
+     * own `key` is what submits.
      */
     private fun observeBreedOptions() {
         viewModelScope.launch {
-            countsRepository.observeBreakdownTotals(CountsBreakdownQuery()).collect { resource ->
-                val options = resource.data?.facets?.breeds
+            countsRepository.observeBirthBreeds().collect { resource ->
+                val options = resource.data?.breeds
                     ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
                     .orEmpty()
                 _state.update { current ->
@@ -297,6 +298,29 @@ class BirthDeathViewModel @Inject constructor(
                 }
                 recomputeSubmitGate()
             }
+        }
+    }
+
+    /**
+     * Warms the breed vocabulary from `GET /app/counts/breeds` so the breed picker is usable even for
+     * a field operator with no Counts page access. [observeBreedOptions] reads only the Room-cached
+     * vocabulary, so without this fetch the picker stays disabled on a cold cache. The operator surface
+     * is deliberate: the Counts Breakdown breed facet is CountsRead and would 403 for the very users
+     * who record births. Failure is non-fatal: the picker falls back to whatever was already cached.
+     */
+    private fun refreshBreedOptions() {
+        viewModelScope.launch {
+            countsRepository.refreshBirthBreeds()
+                .onFailure { error ->
+                    crashReporter.recordException(error, "counts birth-death breed vocabulary refresh failed")
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_READ_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "birth_breed_vocabulary",
+                            AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
+                        ),
+                    )
+                }
         }
     }
 

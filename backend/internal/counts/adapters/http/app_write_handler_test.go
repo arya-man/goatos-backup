@@ -63,6 +63,7 @@ type fakeShiftingRepo struct {
 	// does in Postgres. That is what lets a test prove the handler fails closed instead of
 	// substituting a placeholder impact.
 	destinations   domain.ShiftingDestinationCatalog
+	breeds         []domain.CountsBreakdownSeriesPoint
 	goatFacts      map[string]domain.GoatShiftingFact
 	goatFactsCalls int
 }
@@ -99,6 +100,10 @@ func (f *fakeShiftingRepo) RecordShiftingEvent(_ context.Context, in domain.Shif
 
 func (f *fakeShiftingRepo) ShiftingDestinationCatalog(_ context.Context, _ string) (domain.ShiftingDestinationCatalog, error) {
 	return f.destinations, nil
+}
+
+func (f *fakeShiftingRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.CountsBreakdownSeriesPoint, error) {
+	return f.breeds, nil
 }
 
 // GoatShiftingFacts mirrors the real query's behaviour for a missing animal: it returns FEWER rows
@@ -1636,6 +1641,41 @@ func TestListShiftingDestinationsGroupsShedsUnderTheirPark(t *testing.T) {
 	}
 	if cpt.Sheds[0].ShedID != "shed-cpt-castro1" {
 		t.Fatalf("Channapatna's Castro 1 = %q, want shed-cpt-castro1", cpt.Sheds[0].ShedID)
+	}
+}
+
+// TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface pins the fix for the operator
+// birth form's breed picker. The picker's vocabulary used to come from the Counts Breakdown breed
+// facet, which is gated on CountsRead -- a permission a field operator does not hold -- so the fetch
+// 403'd and the picker rendered permanently empty/disabled. This route serves the identical
+// vocabulary on the CountsWrite surface. The test asserts the operator-reachable route returns the
+// breeds with key/label/count intact, and that an empty herd serializes as [] rather than null.
+func TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	repo.breeds = []domain.CountsBreakdownSeriesPoint{
+		{Key: "Beetal", Label: "Beetal", Count: 420},
+		{Key: "Sirohi", Label: "Sirohi", Count: 51},
+	}
+	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
+
+	rec := get(t, mux, appBirthBreedsRoute)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got appBirthBreedsResponse
+	decodeBody(t, rec, &got)
+	if len(got.Breeds) != 2 {
+		t.Fatalf("len(breeds)=%d, want 2", len(got.Breeds))
+	}
+	if got.Breeds[0].Key != "Beetal" || got.Breeds[0].Label != "Beetal" || got.Breeds[0].Count != 420 {
+		t.Fatalf("first breed = %+v, want {Beetal Beetal 420}", got.Breeds[0])
+	}
+
+	empty := newFakeShiftingRepo()
+	emptyMux := newTestServer(t, countsapp.NewService(empty), newFakeApprovalWorkflow(), newFakeGoatValidator())
+	emptyRec := get(t, emptyMux, appBirthBreedsRoute)
+	if !strings.Contains(emptyRec.Body.String(), `"breeds":[]`) {
+		t.Fatalf("body=%s, want an empty herd to serialize as \"breeds\":[]", emptyRec.Body.String())
 	}
 }
 

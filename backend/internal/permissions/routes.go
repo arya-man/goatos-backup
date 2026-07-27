@@ -328,6 +328,11 @@ var protectedRoutes = []Route{
 	// permissions, so naming LocationsRead here would deny every operator who holds CountsWrite
 	// alone -- leaving them able to submit a movement but unable to see where they may move it to.
 	{OperationID: "listAppCountsShiftingDestinations", Method: "GET", Pattern: "/app/counts/shifting/destinations", Permissions: []string{CountsWrite}},
+	// The birth form's breed picker is a READ on the write surface, gated on CountsWrite for the same
+	// reason as the destinations catalog above: the operator who records a birth is exactly the
+	// operator who picks the newborn's breed, and the read-only Counts Breakdown that also exposes
+	// breeds is CountsRead (leadership-only). Naming CountsRead here would 403 every field operator.
+	{OperationID: "listAppCountsBreeds", Method: "GET", Pattern: "/app/counts/breeds", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsBirthEvent", Method: "POST", Pattern: "/app/counts/birth-events", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsDeathEvent", Method: "POST", Pattern: "/app/counts/death-events", Permissions: []string{CountsWrite}},

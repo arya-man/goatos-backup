@@ -70,3 +70,50 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 
 	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks})
 }
+
+// Breed vocabulary for the operator's birth form.
+//
+// GOLDEN FRONTEND RULE, same as the destinations cascade above: the breeds a birth form offers are
+// backend-owned business data (the breeds present on the live herd), not frontend state. The phone
+// renders what it is given -- it must not hold a hardcoded breed list and must not let an operator
+// type a breed. Every option carries the canonical `key` the birth write stores.
+//
+// WHY A DEDICATED OPERATOR ROUTE. The same breed vocabulary is exposed by the Counts Breakdown
+// `breeds` facet, but that screen is gated on CountsRead, which a field operator does not hold
+// (operators have CountsWrite to record births/deaths, not the read-only census). Sourcing the
+// picker from the breakdown facet therefore 403s for the very users who record births. This route
+// serves the identical vocabulary on the CountsWrite surface so the picker works for operators.
+
+type appBirthBreedsResponse struct {
+	Breeds []appBirthBreedOption `json:"breeds"`
+}
+
+type appBirthBreedOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+// ListBirthBreeds returns the breeds present on the tenant's live herd, most-common first, for the
+// operator birth form's breed picker.
+func (h *AppWriteHandler) ListBirthBreeds(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+
+	points, err := h.shifting.ActiveBreeds(r.Context(), tenantID)
+	if err != nil {
+		h.writeCountsError(w, r, err)
+		return
+	}
+
+	// Non-nil slice so an empty herd serializes as {"breeds":[]}, never JSON null.
+	breeds := make([]appBirthBreedOption, 0, len(points))
+	for _, point := range points {
+		breeds = append(breeds, appBirthBreedOption{Key: point.Key, Label: point.Label, Count: point.Count})
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, appBirthBreedsResponse{Breeds: breeds})
+}
