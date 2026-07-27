@@ -983,12 +983,11 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            val subtitle = listOfNotNull(
-                row.scheduleDateLabel.takeIf { it.isNotBlank() },
-                row.animalStage.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            subtitle.takeIf { it.isNotBlank() }?.let {
+            row.scheduleDateLabel.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Muted, fontSize = 12.sp, maxLines = 1)
+            }
+            row.animalStage.takeIf { it.isNotBlank() }?.let {
+                Text(text = it, color = Muted, fontSize = 11.5f.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.width(8.dp))
