@@ -95,6 +95,10 @@ data class VerifyContextRow(val kind: VerifyContextKind, val value: String)
 data class VerifyDetailUiState(
     val itemId: String = "",
     val categoryLabel: String = "",
+    // Backend-composed subject for this item (e.g. a feed-packing item's shed-session "Session 1").
+    // Shown as a subtitle under the category; null hides it. Category-agnostic — whatever the producer
+    // set as the subject renders verbatim.
+    val subjectLabel: String? = null,
     val media: List<VerifyMediaItem> = emptyList(),
     val context: List<VerifyContextRow> = emptyList(),
     val statusTone: VerifyTone = VerifyTone.PENDING,
@@ -237,6 +241,15 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
                 fontSize = 16.sp,
                 fontWeight = FontWeight.W700,
             )
+            state.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
+                Text(
+                    text = subject,
+                    color = MeshaColors.Muted,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.W600,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
                 lastSyncedAt = state.lastSyncedAt,
