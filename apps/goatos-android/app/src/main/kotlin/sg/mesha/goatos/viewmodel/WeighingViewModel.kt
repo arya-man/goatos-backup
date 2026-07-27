@@ -13,16 +13,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
+import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
@@ -47,6 +48,10 @@ class WeighingViewModel @Inject constructor(
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
     private val workGroupId = savedStateHandle.get<String>(Routes.WEIGHING_WORK_GROUP_ARG).orEmpty()
     private val campaignShedId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_SHED_ARG).orEmpty()
+    private val category = savedStateHandle.get<String>(Routes.WEIGHING_CATEGORY_ARG).orEmpty()
+    private val tenantId = savedStateHandle.get<String>(Routes.WEIGHING_TENANT_ARG).orEmpty()
+    private val expectedLocationId = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_ARG).orEmpty()
+    private val expectedLocationLabel = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG).orEmpty()
     private val routeTitle = savedStateHandle.get<String>(Routes.EXECUTION_SCAN_TITLE_ARG).orEmpty()
     private val scopeKey = listOf(campaignId, workGroupId, campaignShedId)
         .takeIf { parts -> parts.all { it.isNotBlank() } }
@@ -84,7 +89,9 @@ class WeighingViewModel @Inject constructor(
             viewModelScope.launch {
                 when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_LIMIT)) {
                     is AppResult.Ok -> {
-                        if (refreshed.value == 0) message.value = "No animals are assigned to this weighing scope."
+                        if (refreshed.value == 0 && category != PER_SHED_PARTITION_CATEGORY) {
+                            message.value = "No animals are assigned to this weighing scope."
+                        }
                     }
                     is AppResult.Err -> message.value = refreshed.message
                 }
@@ -95,9 +102,14 @@ class WeighingViewModel @Inject constructor(
             viewModelScope.launch {
                 proofCaptureRepository.observeProofs(scopeKey).collect { proofs ->
                     proofs.forEach { proof ->
-                        val animalId = proof.subjectId?.takeIf { it.isNotBlank() } ?: return@forEach
                         val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
-                        repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
+                        when (proof.fieldKey) {
+                            INDIVIDUAL_PROOF_FIELD_KEY -> {
+                                val animalId = proof.subjectId?.takeIf { it.isNotBlank() } ?: return@forEach
+                                repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
+                            }
+                            SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(scopeKey, proof.id, serverProofId)
+                        }
                     }
                 }
             }
@@ -203,6 +215,76 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
+    fun recordShedPartition() {
+        val key = scopeKey ?: return
+        val weightKg = weightInput.value.toDoubleOrNull()?.takeIf { it > 0.0 } ?: return
+        if (actionInFlight.value) return
+        if (category != PER_SHED_PARTITION_CATEGORY) {
+            message.value = "This weighing scope expects animal RFID scans."
+            return
+        }
+        if (tenantId.isBlank() || expectedLocationId.isBlank()) {
+            message.value = "Shed / partition assignment is missing location details."
+            return
+        }
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+				val resultJson = buildJsonObject {
+					put("weight", weightKg)
+					put("category", PER_SHED_PARTITION_CATEGORY)
+					put("expected_location_id", expectedLocationId)
+					put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
+                }.toString()
+                when (val recorded = repository.recordShedPartition(
+                    ShedPartitionWeighingCapture(
+                        tenantId = tenantId,
+                        campaignId = campaignId,
+                        workGroupId = workGroupId,
+                        campaignShedId = campaignShedId,
+                        expectedLocationId = expectedLocationId,
+                        expectedLocationLabel = expectedLocationLabel.ifBlank { routeTitle },
+                        resultJson = resultJson,
+                    ),
+                )) {
+                    is AppResult.Ok -> {
+                        val captured = proofCaptureSource.captureVideo()
+                        if (captured == null) {
+                            message.value = "Shed weight saved locally. Video proof is still required."
+                            return@launch
+                        }
+                        val proof = proofCaptureRepository.capture(
+                            taskId = key,
+                            fieldKey = SHED_PARTITION_PROOF_FIELD_KEY,
+                            subject = ProofSubject.SHED,
+                            subjectId = campaignShedId,
+                            localUri = captured.localUri,
+                            mimeType = captured.mimeType,
+                            caption = null,
+                            scopeType = "shed_partition",
+                            scopeId = campaignShedId,
+                            capturedStartMs = captured.startedAtMs,
+                            capturedEndMs = captured.endedAtMs,
+                            capturedByPrincipalId = null,
+                            proofPolicy = ProofPolicy.Default,
+                        )
+                        if (proof is AppResult.Ok) {
+                            repository.attachShedPartitionProof(key, proof.value.id, proof.value.serverProofId)
+                            message.value = "Shed weight and proof saved locally."
+                            weightInput.value = ""
+                        } else {
+                            message.value = "Shed weight saved locally. Proof could not be stored."
+                        }
+                        recorded.value
+                    }
+                    is AppResult.Err -> message.value = recorded.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
     override fun onCleared() {
         readerRefreshJob?.cancel()
         reader.setCompletionKeySwallowEnabled(false)
@@ -238,10 +320,12 @@ class WeighingViewModel @Inject constructor(
             weightInput = weight,
             message = currentMessage,
             assignments = availableAssignments.map { it.toUiRow() },
+            category = category,
         )
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
-            scopeLabel = "Campaign $campaignId - Work group $workGroupId - Scope $campaignShedId",
+            scopeLabel = expectedLocationLabel
+                .ifBlank { "Campaign $campaignId - Work group $workGroupId - Scope $campaignShedId" },
             hasScope = true,
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
@@ -250,6 +334,7 @@ class WeighingViewModel @Inject constructor(
             weightInput = weight,
             message = currentMessage,
             actionInFlight = busy,
+            category = category,
             visibleRows = scope.rosterWindow.map { row ->
                 WeighingRosterUiRow(
                     id = row.id,
@@ -263,9 +348,13 @@ class WeighingViewModel @Inject constructor(
                 )
             },
             individualDrafts = scope.individualDrafts.map { draft ->
+                val animalLabel = scope.rosterWindow
+                    .firstOrNull { it.animalId == draft.animalId }
+                    ?.displayAnimalId
+                    ?: "Matched animal"
                 WeighingDraftUiRow(
                     id = draft.observationId,
-                    label = "${draft.animalId} - ${draft.weightKg} kg",
+                    label = "$animalLabel - ${draft.weightKg} kg",
                     proofReady = draft.proofReady,
                     readyToSubmit = draft.readyToSubmit,
                 )
@@ -286,14 +375,19 @@ class WeighingViewModel @Inject constructor(
         const val ROSTER_SYNC_LIMIT = 5000
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
+        const val SHED_PARTITION_PROOF_FIELD_KEY = "weighing_shed_partition_video"
+        const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
     }
 }
 
 private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
         campaignId = campaignId,
+        tenantId = tenantId,
         workGroupId = workGroupId,
         campaignShedId = campaignShedId,
+        expectedLocationId = expectedLocationId,
+        expectedLocationLabel = expectedLocationLabel,
         label = label,
         category = category,
         status = status,

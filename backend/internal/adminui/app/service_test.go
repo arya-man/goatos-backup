@@ -594,6 +594,28 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 	}
 }
 
+func TestWeighingIsPublishedInPreventiveCareNavigationAndContract(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	leaf := navLeafByID(t, resp.Navigation.Groups, "preventive-care-weighing")
+	if !leaf.Enabled || leaf.Label != "Weighing" || leaf.Href != "/weighing" || leaf.Domain != "pc.weighing" {
+		t.Fatalf("weighing PC sidebar leaf mismatch: %#v", leaf)
+	}
+	if got := routeLabelByPattern(t, resp.RouteLabels, "/weighing"); got != "Weighing" {
+		t.Fatalf("/weighing route label=%q want Weighing", got)
+	}
+	page := pageByRouteID(t, resp.Pages, "weighing")
+	if page.Href != "/weighing" || len(page.Tables) != 3 {
+		t.Fatalf("weighing page contract mismatch: %#v", page)
+	}
+}
+
 type fakeFamilies struct{}
 
 func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {

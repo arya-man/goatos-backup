@@ -27,6 +27,9 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
+	if cmd.PlannedCapPerDay <= 0 {
+		cmd.PlannedCapPerDay = 100
+	}
 	return s.repo.CreateCampaign(ctx, cmd)
 }
 
@@ -95,9 +98,6 @@ func validateCreate(cmd domain.CreateCampaign) error {
 	}
 	if cmd.PeriodStartDate == "" || cmd.PeriodEndDate == "" || cmd.StartBusinessDate == "" || len(cmd.Sheds) == 0 {
 		return ports.ErrInvalidArgument
-	}
-	if cmd.PlannedCapPerDay <= 0 {
-		cmd.PlannedCapPerDay = 100
 	}
 	for _, shed := range cmd.Sheds {
 		if !uuidutil.IsUUIDString(shed.LocationID) || strings.TrimSpace(shed.DisplayName) == "" {

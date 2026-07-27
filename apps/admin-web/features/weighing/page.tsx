@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
 import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { getWeighingPageData, roleFromSearchParam, type WeighingCampaignState, type WeighingCategory, type WeighingScopeStatus } from "./data";
@@ -21,8 +22,33 @@ const categoryTone: Record<WeighingCategory, Tone> = {
   per_shed_partition: "pur",
 };
 
-function label(value: string): string {
-  return value.replaceAll("_", " ");
+const statusLabel: Record<WeighingCampaignState | WeighingScopeStatus | "no_task", string> = {
+  no_task: "No task",
+  draft: "Draft",
+  published: "Published",
+  in_progress: "In progress",
+  delayed: "Delayed",
+  completed: "Completed",
+  pending: "Pending",
+  needs_review: "Needs review",
+};
+
+const categoryLabel: Record<WeighingCategory, string> = {
+  individual_animal: "Individual",
+  per_shed_partition: "Shed total",
+};
+
+function reviewLabel(value: string): string {
+  switch (value) {
+    case "icu":
+      return "In ICU";
+    case "sold_transferred":
+      return "Sold / transferred";
+    case "dead":
+      return "Dead";
+    default:
+      return "Unavailable";
+  }
 }
 
 function pct(done: number, total: number): number {
@@ -47,7 +73,7 @@ function CapabilityButton({
   );
 }
 
-export async function WeighingPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function WeighingPage({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const role = roleFromSearchParam(one(searchParams ?? {}, "role"));
   const result = await getWeighingPageData(role);
   if (!result.ok) {
@@ -70,17 +96,10 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
       <div className="phead">
         <div>
           <div className="crumb">Preventive Care (PC) / Weighing</div>
-          <h1>Weighing</h1>
-          <div className="sub">Weekly kids work, grouped by shed/partition and category.</div>
+          <h1>{pageContract.title}</h1>
+          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" />
-        <div className="weighing-role-switch" aria-label="Preview persona">
-          {(["leadership", "director", "operator"] as const).map((item) => (
-            <Link key={item} href={`/weighing?role=${item}`} className={`chip${role === item ? " on" : ""}`} scroll={false}>
-              {item === "leadership" ? "CEO/CXO" : item}
-            </Link>
-          ))}
-        </div>
       </div>
 
       <section className="card weighing-hero">
@@ -88,7 +107,7 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
           <Scale className="ic" aria-hidden="true" />
           <h3>{campaign.weekLabel} campaign</h3>
           <div className="sp" />
-          <Tag tone={statusTone[campaign.state]}>{label(campaign.state)}</Tag>
+          <Tag tone={statusTone[campaign.state]}>{statusLabel[campaign.state]}</Tag>
         </div>
         <div className="bd weighing-hero-grid">
           <div>
@@ -96,7 +115,7 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
               {weeks.map((week) => (
                 <Link key={week.key} href={`/weighing?role=${role}&week=${week.key}`} className={`weighing-week${week.key === campaign.weekStart ? " on" : ""}`} scroll={false}>
                   <span>{week.label}</span>
-                  <Tag tone={statusTone[week.state]}>{label(week.state)}</Tag>
+                  <Tag tone={statusTone[week.state]}>{statusLabel[week.state]}</Tag>
                 </Link>
               ))}
             </div>
@@ -194,7 +213,7 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
                     <b>{row.shedName}</b>
                     <span className="muted small blockish">{row.partitionName}</span>
                   </td>
-                  <td><Tag tone={categoryTone[row.category]}>{row.category === "per_shed_partition" ? "lumpsum" : "individual"}</Tag></td>
+                  <td><Tag tone={categoryTone[row.category]}>{categoryLabel[row.category]}</Tag></td>
                   <td>
                     <b>{row.completedCount}</b> / {row.expectedCount}
                     <span className="muted small blockish">{row.remainingCount} remaining · {row.unavailableCount} unavailable</span>
@@ -203,7 +222,7 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
                   <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>
                   <td>{fmtDate(row.plannedDate)}</td>
                   <td>{fmtDate(row.effectiveDate)}</td>
-                  <td><Tag tone={statusTone[row.status]}>{label(row.status)}</Tag></td>
+                  <td><Tag tone={statusTone[row.status]}>{statusLabel[row.status]}</Tag></td>
                 </tr>
               ))}
             </tbody>
@@ -265,7 +284,7 @@ export async function WeighingPage({ searchParams }: { searchParams?: RouteSearc
                   <tr key={row.id}>
                     <td><b>{row.animalDisplayId}</b></td>
                     <td>{row.expectedShed}</td>
-                    <td><Tag tone="pur">{label(row.classification)}</Tag><span className="muted small blockish">{row.currentTruth}</span></td>
+                    <td><Tag tone="pur">{reviewLabel(row.classification)}</Tag><span className="muted small blockish">{row.currentTruth}</span></td>
                     <td>{fmtDate(row.checkedAt)}</td>
                   </tr>
                 ))}

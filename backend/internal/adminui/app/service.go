@@ -96,7 +96,10 @@ func navigation() domain.NavigationContract {
 		Groups: []domain.NavigationGroup{
 			{
 				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true, BadgeKey: "pc_open_work",
-				Leaves: []domain.NavigationItem{navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil)},
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
+					navLeafDomain("preventive-care-weighing", "Weighing", "/weighing", "pc.weighing", nil),
+				},
 			},
 			{
 				ID: "procurement", Label: "Procurement", Icon: "truck", DefaultOpen: false,
@@ -161,6 +164,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
+		{Pattern: "/weighing", Label: "Weighing", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
@@ -288,6 +292,12 @@ func pages() []domain.PageContract {
 				tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100}),
 				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "sheds", "partitions", "animals", "capacity"}, "schedule_row"),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
+			}),
+		page("weighing", "/weighing", "/weighing", "Weighing", "Weekly kids weighing planning, monitoring, shed/partition progress, evidence, wrong-shed scans, and missing-animal review.", "module-surface",
+			[]domain.TableContract{
+				tableP("weighing-scopes", "Shed / partition work groups", "/weighing/campaigns", []string{"park", "shed_partition", "category", "progress", "proof", "wrong_shed", "planned", "current_date", "status"}, "campaign_shed_id", []int{25, 50, 100}),
+				table("weighing-wrong-shed", "Wrong-shed scans", "/weighing/campaigns", []string{"animal", "expected_original", "actual_current", "scan"}, "observation_id"),
+				table("weighing-missing", "Missing / unavailable", "/weighing/campaigns", []string{"animal", "expected", "classification", "checked"}, "animal_id"),
 			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
 			[]domain.TableContract{

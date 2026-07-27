@@ -190,6 +190,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
 | `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, park drive execution with shed/tag breakdowns, supplier warmup context. |
 | `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
+| `/weighing` | `weighing` | Preventive Care (PC) Weighing | `/weighing/campaigns`, `/app/weighing/campaigns/...` | Weekly kids weighing planning and monitoring: scope/category progress, proof state, wrong-shed scans, missing/unavailable review. |
 | `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into Preventive Care (PC) vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
 | `/counts/herd` | `herd-register` | Herd Register | `/goats/search`, admin goat APIs | Vaccination trigger-closure entry point. |
@@ -304,17 +305,6 @@ Explicit exceptions:
   `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`, and switch the
   page/drawer to `requireAdminWebPageContract("verification-review")` + `copy`/`tableLabels`/
   `optionGroup`.
-
-- `features/weighing/*` + `app/(admin)/weighing/page.tsx` (route `/weighing`): a new leadership
-  planning and monitoring surface for weekly kids weighing, built from the approved weighing PRD/TRD
-  and mock before the generated `AdminWebPageContract` includes a `weighing` route_id. The backend
-  data/API slice is real and generated (`/weighing/campaigns` and `/app/weighing/campaigns/...`),
-  but page chrome, table labels, category labels, and disabled reasons remain local until the
-  backend admin-ui contract grows this route. Remaining TODO (page-contract only): register the
-  weighing route contract in `backend/internal/adminui/app/service.go`, move local copy/options into
-  backend-owned copy/option groups, remove the `features/weighing/` skip from
-  `apps/admin-web/scripts/check-ui-contract-literals.mjs`, and switch the page to
-  `requireAdminWebPageContract("weighing")`.
 
 - `features/ceo-ai/*` + `components/ceo-ai-chat.tsx` (leadership CEO/CXO floating assistant):
   the assistant is a leadership-only floating surface (bubble + streaming chat panel + conversation

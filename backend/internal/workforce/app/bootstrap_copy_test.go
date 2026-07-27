@@ -63,6 +63,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/verify/action"},
+					{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}

@@ -257,6 +257,14 @@ button{font-family:inherit}
 .tl .tsub{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5}
 .tl .tm{font-size:10px;color:var(--faint);font-weight:650;margin-top:6px}
 
+/* floating action button */
+.fab{position:absolute;right:16px;bottom:74px;z-index:20;display:none;align-items:center;gap:8px;
+  border:0;border-radius:16px;padding:13px 17px;font-weight:750;font-size:12.5px;cursor:pointer;
+  background:var(--grad);color:#08130B;box-shadow:0 8px 24px rgba(95,181,49,.42),0 2px 6px rgba(0,0,0,.4)}
+.fab.on{display:flex}
+.fab span{font-size:16px;font-weight:600;line-height:1}
+.fab:active{transform:scale(.96)}
+
 .vnav{display:flex;align-items:center;justify-content:space-around;padding:8px 10px 13px;background:rgba(20,27,22,.94);backdrop-filter:blur(12px);border-top:1px solid var(--hair);flex:none}
 .tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:9px;font-weight:700;color:var(--faint);padding:2px 6px;border-radius:12px;cursor:pointer;background:none;border:0}
 .tab .tabind{display:flex;align-items:center;justify-content:center;padding:4px 17px;border-radius:999px;transition:background .18s;font-size:17px}
@@ -308,18 +316,16 @@ button{font-family:inherit}
       <span class="rchip">CEO</span>
     </div>
     <div class="vscroll" id="lScroll">
-      <div class="view on" id="l-over">
-        <div class="lt" style="padding-top:6px">Campaign week</div>
-        <div class="wkrow" id="wkrow"></div>
-        <div id="campCard"></div>
-        <div id="weekPlan"></div>
-      </div>
+      <div class="view on" id="l-plan"></div>
+      <div class="view" id="l-prog"></div>
       <div class="view" id="l-wiz"></div>
       <div class="view" id="l-shed"></div>
       <div class="view" id="l-act"></div>
     </div>
+    <button class="fab" id="lFab" onclick="startWiz()"><span>＋</span>New task</button>
     <div class="vnav">
-      <button class="tab on" onclick="leadTab('l-over','Weighing','CPT · Channapatna',this)"><span class="tabind">⚖️</span><span>Weighing</span></button>
+      <button class="tab on" onclick="leadTab('l-plan','Weighing','CPT · Channapatna',this)"><span class="tabind">▦</span><span>Plan</span></button>
+      <button class="tab" onclick="leadTab('l-prog','Progress',(WEEKS.find(x=>x.id===CUR)||{}).lbl,this)"><span class="tabind">📈</span><span>Progress</span></button>
       <button class="tab" onclick="alert('Alerts — delayed sheds, proof-blocked scopes, review-needed kids.')"><span class="tabind">🔔</span><span>Alerts</span></button>
       <button class="tab" onclick="alert('Profile — role, park scope, capabilities.')"><span class="tabind">👤</span><span>You</span></button>
     </div>
@@ -461,19 +467,24 @@ function leadTab(v,t,e,btn){
   document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
   document.getElementById('lHead').classList.remove('sub');
   document.querySelectorAll('#s-lead .tab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
+  document.getElementById('lFab').classList.toggle('on',v==='l-plan');
   document.getElementById('lScroll').scrollTop=0;}
-function leadHome(){leadTab('l-over','Weighing','CPT · Channapatna',document.querySelector('#s-lead .tab'));}
+function leadHome(){leadTab('l-plan','Weighing','CPT · Channapatna',document.querySelector('#s-lead .tab'));}
 function leadSub(v,t,e){
   document.querySelectorAll('#s-lead .view').forEach(x=>x.classList.remove('on'));
   document.getElementById(v).classList.add('on');
   document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
-  document.getElementById('lHead').classList.add('sub');document.getElementById('lScroll').scrollTop=0;}
+  document.getElementById('lHead').classList.add('sub');
+  document.getElementById('lFab').classList.remove('on');
+  document.getElementById('lScroll').scrollTop=0;}
 function renderWkRow(){
-  document.getElementById('wkrow').innerHTML=WEEKS.map(w=>
+  const el=document.getElementById('wkrow');if(!el)return;
+  el.innerHTML=WEEKS.map(w=>
     `<div class="wkc ${w.id===CUR?'on':''}" onclick="selWeek('${w.id}')"><div class="l">${w.lbl}</div><div class="d">${w.dt}</div><span class="pill ${w.pill}">${w.state}</span></div>`).join('');}
 function selWeek(id){showRole('lead');CUR=id;const w=WEEKS.find(x=>x.id===id);
   const ds=Object.keys(w.days||{}).map(Number);SELDAY=ds.length?ds[0]:w.strip[0];
-  leadHome();renderWkRow();renderLead();}
+  renderLead();
+  leadTab('l-prog','Progress',w.lbl,document.querySelectorAll('#s-lead .tab')[1]);}
 function metric(cat,done,total,unit,legend,lump){
   const pct=total?done/total*100:0;
   return `<div class="metric"><div class="mh"><span class="cat ${cat}">${catLabel(cat)}</span>
@@ -481,7 +492,36 @@ function metric(cat,done,total,unit,legend,lump){
     <div class="mbar"><i class="${lump?'b-lump':'b-ok'}" style="width:${pct}%"></i></div>
     <div class="mleg">${legend}</div></div>`;
 }
-function renderLead(){
+function renderLead(){renderPlan();renderProg();}
+function renderPlan(){
+  if(CUR==='w31')syncW31();
+  const w=WEEKS.find(x=>x.id===CUR);
+  if(w.noTask){
+    document.getElementById('l-plan').innerHTML=`<div class="lt" style="padding-top:14px">Week plan</div>
+      <div class="card"><h4 style="margin-top:0">No weighing task yet</h4>
+      <div class="cs">Kids run once a week over 3 days. Create the task and set each shed's category.</div></div>`;
+    return;
+  }
+  const days=Object.keys(w.days).map(Number);
+  const strip=w.strip.map((d,i)=>`<div class="d${d===SELDAY?' today':''}${days.includes(d)&&d!==SELDAY?' has':''}" onclick="selDay(${d})"><div class="dn">${WDN[i]}</div><div class="dd">${d}</div></div>`).join('');
+  const list=(w.days[SELDAY]||[]).map(n=>{
+    const s=w.sheds.find(x=>x[0]===n);if(!s)return'';
+    const[nm,cat,pl,dn,pd,un,lt,tone,stt]=s;
+    return `<div class="card tapc" onclick="openShed('${nm}')">
+      <div class="ch"><span class="pill ${tone}">${stt}</span><span class="cat ${cat}">${catLabel(cat)}</span>${lt!=='—'?`<span class="sp"></span><span class="pill mut">${lt}</span>`:''}</div>
+      <h4>${nm}</h4>
+      <div class="cs">${cat==='lump'?`${pl} kids in scope · one shed video`:`${dn} of ${pl-un} kids · ${pd} pending`}</div>
+      <div class="mbar" style="margin-top:14px"><i class="${cat==='lump'?'b-lump':'b-ok'}" style="width:${cat==='lump'?(dn?100:0):Math.round(dn/(pl-un)*100)}%"></i></div>
+      <div class="go">View rows →</div></div>`;}).join('');
+  document.getElementById('l-plan').innerHTML=
+    `<div class="lt" style="padding-top:6px;display:flex;align-items:center">Week plan
+      <span style="margin-left:auto;text-transform:none;letter-spacing:0;font-size:10.5px;color:var(--muted)">${w.lbl} · ${w.dt}</span></div>
+     <div class="week">${strip}</div>
+     <div class="lt">${SELDAY===29?'Today · ':''}${DOW[SELDAY]||''} ${SELDAY} ${w.mon}</div>
+     ${list||`<div class="card" style="text-align:center;color:var(--muted);font-size:12px">No work groups this day</div>`}
+     <div style="height:64px"></div>`;
+}
+function renderProg(){
   if(CUR==='w31')syncW31();
   const w=WEEKS.find(x=>x.id===CUR);
   let head='';
@@ -509,23 +549,9 @@ function renderLead(){
       <div class="frow"><span class="fk">Off-shed weighed</span><span class="fv">${w.off}</span></div>
       <div class="frow"><span class="fk">Closed by leadership</span><span class="fv">${w.closed}</span></div></div>`;
   }
-  document.getElementById('campCard').innerHTML=head;
-  if(w.noTask){document.getElementById('weekPlan').innerHTML='';return;}
-  const days=Object.keys(w.days).map(Number);
-  const strip=w.strip.map((d,i)=>`<div class="d${d===SELDAY?' today':''}${days.includes(d)&&d!==SELDAY?' has':''}" onclick="selDay(${d})"><div class="dn">${WDN[i]}</div><div class="dd">${d}</div></div>`).join('');
-  const list=(w.days[SELDAY]||[]).map(n=>{
-    const s=w.sheds.find(x=>x[0]===n);if(!s)return'';
-    const[nm,cat,pl,dn,pd,un,lt,tone,stt]=s;
-    return `<div class="card tapc" onclick="openShed('${nm}')">
-      <div class="ch"><span class="pill ${tone}">${stt}</span><span class="cat ${cat}">${catLabel(cat)}</span><span class="sp"></span><span class="pill mut">${lt}</span></div>
-      <h4>${nm}</h4>
-      <div class="cs">${cat==='lump'?`${pl} kids in scope · one shed video`:`${dn} of ${pl-un} kids · ${pd} pending`}</div>
-      <div class="mbar" style="margin-top:14px"><i class="${cat==='lump'?'b-lump':'b-ok'}" style="width:${cat==='lump'?(dn?100:0):Math.round(dn/(pl-un)*100)}%"></i></div>
-      <div class="go">View rows →</div></div>`;}).join('');
-  document.getElementById('weekPlan').innerHTML=`<div class="lt">Week plan</div><div class="week">${strip}</div>
-    <div class="lt">${SELDAY===29?'Today · ':''}${DOW[SELDAY]||''} ${SELDAY} ${w.mon}</div>
-    ${list||`<div class="card" style="text-align:center;color:var(--muted);font-size:12px">No work groups this day</div>`}
-    <button class="btn ghost" onclick="startWiz()">New weighing task</button>`;
+  document.getElementById('l-prog').innerHTML=
+    `<div class="lt" style="padding-top:6px">Campaign week</div><div class="wkrow" id="wkrow"></div>`+head+`<div style="height:20px"></div>`;
+  renderWkRow();
 }
 function selDay(d){SELDAY=d;renderLead();}
 function openActivity(){
@@ -751,7 +777,8 @@ function showDone(title,sub,facts,foot){
     <button class="btn ghost" onclick="selWeek('w31')">See it on Leadership</button>`;
   opSub('o-done','Submitted',curShed);}
 window.addEventListener('DOMContentLoaded',()=>{
-  syncW31();renderWkRow();renderLead();renderWork();
+  syncW31();renderLead();renderWork();
+  document.getElementById('lFab').classList.add('on');
   document.getElementById('vBtn').addEventListener('click',capVid);
   document.getElementById('wgIn').addEventListener('input',chkSave);
   document.getElementById('saveBtn').addEventListener('click',saveKid);

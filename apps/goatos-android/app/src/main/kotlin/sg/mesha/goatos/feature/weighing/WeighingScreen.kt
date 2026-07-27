@@ -39,11 +39,20 @@ data class WeighingUiState(
     val weightInput: String = "",
     val message: String? = null,
     val actionInFlight: Boolean = false,
+    val category: String = "",
 ) {
+    val isShedPartition: Boolean get() = category == "per_shed_partition"
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
-    val progress: Float get() = if (totalExpected <= 0) 0f else individualCompleted.toFloat() / totalExpected.toFloat()
+    val shedCompleted: Int get() = shedDrafts.count { it.readyToSubmit }
+    val progress: Float get() = when {
+        isShedPartition -> if (shedCompleted > 0) 1f else 0f
+        totalExpected <= 0 -> 0f
+        else -> individualCompleted.toFloat() / totalExpected.toFloat()
+    }
     val canRecordIndividual: Boolean get() =
-        hasScope && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+        hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+    val canRecordShedPartition: Boolean get() =
+        hasScope && isShedPartition && !actionInFlight && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
 }
 
 data class WeighingRosterUiRow(
@@ -58,8 +67,11 @@ data class WeighingRosterUiRow(
 
 data class WeighingAssignmentUiRow(
     val campaignId: String,
+    val tenantId: String,
     val workGroupId: String,
     val campaignShedId: String,
+    val expectedLocationId: String,
+    val expectedLocationLabel: String,
     val label: String,
     val category: String,
     val status: String,
@@ -81,6 +93,7 @@ fun WeighingScreen(
     onScanSubmit: () -> Unit = {},
     onWeightChange: (String) -> Unit = {},
     onRecordIndividual: () -> Unit = {},
+    onRecordShedPartition: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -113,17 +126,26 @@ fun WeighingScreen(
                             progress = { state.progress },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Text(
-                            text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (state.isShedPartition) {
+                            Text(
+                                text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         WeighingCapturePanel(
                             state = state,
                             onScanInputChange = onScanInputChange,
                             onScanSubmit = onScanSubmit,
                             onWeightChange = onWeightChange,
                             onRecordIndividual = onRecordIndividual,
+                            onRecordShedPartition = onRecordShedPartition,
                         )
                     } else {
                         if (state.assignments.isEmpty()) {
@@ -206,7 +228,7 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
                 )
             }
             Text(
-                text = listOf(row.category, "${row.expectedCount} expected", row.periodLabel)
+                text = listOf(weighingCategoryLabel(row.category), "${if (row.category == "per_shed_partition") 1 else row.expectedCount} expected", row.periodLabel)
                     .filter { it.isNotBlank() }
                     .joinToString(" | "),
                 style = MaterialTheme.typography.bodySmall,
@@ -219,6 +241,13 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
     }
 }
 
+private fun weighingCategoryLabel(category: String): String =
+    when (category) {
+        "per_shed_partition" -> "Shed / partition"
+        "individual_animal" -> "Individual animal"
+        else -> "Weighing"
+    }
+
 @Composable
 private fun WeighingCapturePanel(
     state: WeighingUiState,
@@ -226,6 +255,7 @@ private fun WeighingCapturePanel(
     onScanSubmit: () -> Unit,
     onWeightChange: (String) -> Unit,
     onRecordIndividual: () -> Unit,
+    onRecordShedPartition: () -> Unit,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -237,24 +267,37 @@ private fun WeighingCapturePanel(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = state.selectedAnimalLabel ?: "Scan an animal tag",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextField(
-                    value = state.scanInput,
-                    onValueChange = onScanInputChange,
-                    label = { Text("RFID / animal tag") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
+            if (state.isShedPartition) {
+                Text(
+                    text = "Record shed / partition weight",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                OutlinedButton(
-                    onClick = onScanSubmit,
-                    enabled = !state.actionInFlight && state.scanInput.isNotBlank(),
-                ) {
-                    Text("Match")
+                Text(
+                    text = "Video proof is required before this result can submit.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = state.selectedAnimalLabel ?: "Scan an animal tag",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = state.scanInput,
+                        onValueChange = onScanInputChange,
+                        label = { Text("RFID / animal tag") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = onScanSubmit,
+                        enabled = !state.actionInFlight && state.scanInput.isNotBlank(),
+                    ) {
+                        Text("Match")
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,11 +308,20 @@ private fun WeighingCapturePanel(
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                Button(
-                    onClick = onRecordIndividual,
-                    enabled = state.canRecordIndividual,
-                ) {
-                    Text("Record")
+                if (state.isShedPartition) {
+                    Button(
+                        onClick = onRecordShedPartition,
+                        enabled = state.canRecordShedPartition,
+                    ) {
+                        Text("Record")
+                    }
+                } else {
+                    Button(
+                        onClick = onRecordIndividual,
+                        enabled = state.canRecordIndividual,
+                    ) {
+                        Text("Record")
+                    }
                 }
             }
         }

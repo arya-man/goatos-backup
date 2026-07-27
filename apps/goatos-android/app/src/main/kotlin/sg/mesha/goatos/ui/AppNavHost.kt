@@ -358,6 +358,10 @@ object Routes {
     const val WEIGHING_CAMPAIGN_ARG = "campaignId"
     const val WEIGHING_WORK_GROUP_ARG = "workGroupId"
     const val WEIGHING_CAMPAIGN_SHED_ARG = "campaignShedId"
+    const val WEIGHING_CATEGORY_ARG = "weighingCategory"
+    const val WEIGHING_TENANT_ARG = "tenantId"
+    const val WEIGHING_EXPECTED_LOCATION_ARG = "expectedLocationId"
+    const val WEIGHING_EXPECTED_LOCATION_LABEL_ARG = "expectedLocationLabel"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
@@ -385,12 +389,20 @@ object Routes {
         campaignId: String,
         workGroupId: String,
         campaignShedId: String,
+        category: String,
+        tenantId: String,
+        expectedLocationId: String,
+        expectedLocationLabel: String,
         scanTitle: String? = null,
     ): String {
         val args = listOfNotNull(
             WEIGHING_CAMPAIGN_ARG to campaignId,
             WEIGHING_WORK_GROUP_ARG to workGroupId,
             WEIGHING_CAMPAIGN_SHED_ARG to campaignShedId,
+            WEIGHING_CATEGORY_ARG to category,
+            WEIGHING_TENANT_ARG to tenantId,
+            WEIGHING_EXPECTED_LOCATION_ARG to expectedLocationId,
+            WEIGHING_EXPECTED_LOCATION_LABEL_ARG to expectedLocationLabel,
             scanTitle?.takeIf { it.isNotBlank() }?.let { EXECUTION_SCAN_TITLE_ARG to it },
         )
         return "$WEIGHING_SCAN?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -702,6 +714,10 @@ fun AppNavHost(
                             campaignId = assignment.campaignId,
                             workGroupId = assignment.workGroupId,
                             campaignShedId = assignment.campaignShedId,
+                            category = assignment.category,
+                            tenantId = assignment.tenantId,
+                            expectedLocationId = assignment.expectedLocationId,
+                            expectedLocationLabel = assignment.expectedLocationLabel,
                             scanTitle = assignment.label,
                         ),
                     ) { launchSingleTop = true }
@@ -710,7 +726,7 @@ fun AppNavHost(
         }
 
         composable(
-            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
+            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_CATEGORY_ARG}={${Routes.WEIGHING_CATEGORY_ARG}}&${Routes.WEIGHING_TENANT_ARG}={${Routes.WEIGHING_TENANT_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
             arguments = listOf(
                 navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
                     type = NavType.StringType
@@ -723,6 +739,26 @@ fun AppNavHost(
                     defaultValue = null
                 },
                 navArgument(Routes.WEIGHING_CAMPAIGN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_CATEGORY_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_TENANT_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_EXPECTED_LOCATION_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -752,6 +788,7 @@ fun AppNavHost(
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
                     onRecordIndividual = vm::recordIndividual,
+                    onRecordShedPartition = vm::recordShedPartition,
                 )
             }
         }

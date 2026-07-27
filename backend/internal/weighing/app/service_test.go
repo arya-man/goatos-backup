@@ -64,6 +64,21 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 }
 
+func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
+	repo := &capDefaultRepo{}
+	service := NewService(repo)
+	cmd := validCreate()
+	cmd.PlannedCapPerDay = 0
+	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+
+	if _, err := service.CreateCampaign(context.Background(), actor, cmd); err != nil {
+		t.Fatalf("create with omitted cap: %v", err)
+	}
+	if repo.received.PlannedCapPerDay != 100 {
+		t.Fatalf("repository received planned cap=%d want default 100", repo.received.PlannedCapPerDay)
+	}
+}
+
 func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
@@ -78,6 +93,21 @@ func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	}
 	if repo.shedWrites != 1 {
 		t.Fatalf("shed writes = %d, want 1", repo.shedWrites)
+	}
+}
+
+func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
+	repo := &captureCreateRepo{}
+	service := NewService(repo)
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	cmd := validCreate()
+	cmd.PlannedCapPerDay = 0
+
+	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
+		t.Fatalf("create campaign with omitted cap errored: %v", err)
+	}
+	if repo.created.PlannedCapPerDay != 100 {
+		t.Fatalf("repository saw planned cap %d, want default 100", repo.created.PlannedCapPerDay)
 	}
 }
 
@@ -206,6 +236,26 @@ func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObser
 	return domain.Observation{}, nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+type captureCreateRepo struct {
+	fakeRepo
+	created domain.CreateCampaign
+}
+
+func (r *captureCreateRepo) CreateCampaign(_ context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {
+	r.created = cmd
+	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
+}
+
+type capDefaultRepo struct {
+	fakeRepo
+	received domain.CreateCampaign
+}
+
+func (r *capDefaultRepo) CreateCampaign(_ context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {
+	r.received = cmd
+	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
+}
 
 type scenarioRepo struct {
 	campaign                 domain.Campaign

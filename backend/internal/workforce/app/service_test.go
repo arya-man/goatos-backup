@@ -85,6 +85,7 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -115,6 +116,7 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
+		{Key: "weighing", Label: "वजन", Href: "/weighing"},
 		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
@@ -206,6 +208,7 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -269,6 +272,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
+		{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -290,6 +294,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -313,6 +318,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
+				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -325,6 +331,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "weighing", Label: "Weighing", Href: "/weighing"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -466,11 +473,14 @@ func TestBootstrapNavComposition(t *testing.T) {
 
 	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
-		if len(nav) != 3 {
-			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
+		if len(nav) != 4 {
+			t.Fatalf("operator nav length=%d want 4 (drives + weighing + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
+		}
+		if nav[1].Key != "weighing" || nav[1].Href != "/weighing" {
+			t.Fatalf("second nav item=%#v want weighing inside the Vaccination module bar", nav[1])
 		}
 		for _, item := range nav {
 			if item.Key == "calendar" || item.Href == "/calendar" {
@@ -480,8 +490,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 		// "You" is a BACKEND contribution now, not client-static chrome the shell appends.
 		// The client renders the composed bar verbatim, so if this item stops being emitted the
 		// profile/settings surface silently disappears from the bottom bar.
-		if nav[2].Key != "you" || nav[2].Href != "/you" {
-			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[2])
+		if nav[3].Key != "you" || nav[3].Href != "/you" {
+			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[3])
 		}
 		// Verify shared nav items are not duplicated (dedupe by shared_key)
 		seen := make(map[string]int)
@@ -500,6 +510,17 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "alerts" || nav[3].Key != "you" {
 			t.Fatalf("pc leader nav should have calendar, videos, alerts, you; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key})
+		}
+	})
+
+	t.Run("pc director gets weighing monitor inside vaccination bar", func(t *testing.T) {
+		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)}
+		nav := visibleNavigationFor(directorGrants, nil, "")
+		if len(nav) != 5 {
+			t.Fatalf("pc director nav length=%d want 5 (calendar + videos + weighing + alerts + you)", len(nav))
+		}
+		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "weighing" || nav[3].Key != "alerts" || nav[4].Key != "you" {
+			t.Fatalf("pc director nav should include weighing in the vaccination bar; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key, nav[4].Key})
 		}
 	})
 
