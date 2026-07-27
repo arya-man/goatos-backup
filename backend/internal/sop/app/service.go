@@ -447,24 +447,27 @@ func (s *Service) RetrySubmissionFanouts(ctx context.Context, tenantID string, l
 		return 0, mapRepoErr(err)
 	}
 	applied := 0
+	var errs []error
 	for _, attempt := range attempts {
 		task, _, submissions, err := s.repo.GetTask(ctx, tenantID, attempt.TaskID)
 		if err != nil {
-			return applied, mapRepoErr(err)
+			errs = append(errs, mapRepoErr(err))
+			continue
 		}
 		submission, ok := findSubmission(submissions, attempt.SubmissionID)
 		if !ok || !submissionFanoutNeeded(task) {
 			if err := s.repo.RecordSubmissionFanoutStatus(ctx, skippedSubmissionFanoutStatus(tenantID, attempt, task)); err != nil {
-				return applied, mapRepoErr(err)
+				errs = append(errs, mapRepoErr(err))
 			}
 			continue
 		}
 		if err := s.applySubmissionFanout(ctx, tenantID, task, submission, true); err != nil {
-			return applied, err
+			errs = append(errs, err)
+			continue
 		}
 		applied++
 	}
-	return applied, nil
+	return applied, errors.Join(errs...)
 }
 
 func (s *Service) ListAgedFailedSubmissionFanouts(ctx context.Context, tenantID string, olderThanMinutes, limit int, traceID string) (*domain.FailedSubmissionFanoutsResponse, error) {
