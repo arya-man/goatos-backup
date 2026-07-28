@@ -711,6 +711,8 @@ fun AppNavHost(
                 onRecordIndividual = vm::recordIndividual,
                 onRecordShedPartition = vm::recordShedPartition,
                 onCreateOrEditTask = vm::createOrEditDefaultPlan,
+                onTogglePlannerShed = vm::togglePlannerShed,
+                onPlannerShedCategory = vm::setPlannerShedCategory,
                 onRefresh = vm::refresh,
                 onOpenAssignment = { assignment ->
                     navController.navigate(
