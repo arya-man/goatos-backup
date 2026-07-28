@@ -148,8 +148,8 @@ func driveScopedAdherenceRows(rows []domain.Row, asOf time.Time) []domain.Row {
 	if len(rows) == 0 {
 		return rows
 	}
-	selectedRule := ""
-	selectedDue := time.Time{}
+	var selectedKey adherenceDriveScopeKey
+	selected := false
 	for _, row := range rows {
 		if row.Category != domain.CategoryVaccination || row.RuleID == "" {
 			continue
@@ -157,32 +157,61 @@ func driveScopedAdherenceRows(rows []domain.Row, asOf time.Time) []domain.Row {
 		if !asOf.IsZero() && row.DueAt.After(asOf) {
 			continue
 		}
-		if selectedRule == "" || row.DueAt.After(selectedDue) {
-			selectedRule = row.RuleID
-			selectedDue = row.DueAt
+		if !selected || row.DueAt.After(selectedKey.dueAt) {
+			selectedKey = adherenceDriveScope(row)
+			selected = true
 		}
 	}
-	if selectedRule == "" {
+	if !selected {
 		for _, row := range rows {
 			if row.Category != domain.CategoryVaccination || row.RuleID == "" {
 				continue
 			}
-			if selectedRule == "" || row.DueAt.Before(selectedDue) {
-				selectedRule = row.RuleID
-				selectedDue = row.DueAt
+			if !selected || row.DueAt.Before(selectedKey.dueAt) {
+				selectedKey = adherenceDriveScope(row)
+				selected = true
 			}
 		}
 	}
-	if selectedRule == "" {
+	if !selected {
 		return rows
 	}
 	scoped := make([]domain.Row, 0, len(rows))
 	for _, row := range rows {
-		if row.Category == domain.CategoryVaccination && row.RuleID != "" && row.DueAt.Equal(selectedDue) {
+		if row.Category == domain.CategoryVaccination && row.RuleID != "" && adherenceDriveScope(row) == selectedKey {
 			scoped = append(scoped, row)
 		}
 	}
 	return scoped
+}
+
+type adherenceDriveScopeKey struct {
+	dueAt          time.Time
+	parkID         string
+	shedID         string
+	batchID        string
+	partitionLabel string
+	operatorID     string
+	driveName      string
+}
+
+func adherenceDriveScope(row domain.Row) adherenceDriveScopeKey {
+	return adherenceDriveScopeKey{
+		dueAt:          row.DueAt,
+		parkID:         row.ParkID,
+		shedID:         row.ShedID,
+		batchID:        stringValue(row.BatchID),
+		partitionLabel: stringValue(row.PartitionLabel),
+		operatorID:     stringValue(row.Owner.OperatorID),
+		driveName:      stringValue(row.DriveName),
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func adherenceSummaryForRows(rows []domain.Row) domain.AdherenceSummary {
