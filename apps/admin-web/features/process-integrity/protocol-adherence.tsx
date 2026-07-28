@@ -166,6 +166,12 @@ function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string)
   return text.replaceAll("_", " ");
 }
 
+function adherenceLocationDetail(row: AdherenceRow): string {
+  return [row.shed_name, row.partition_label && row.partition_label !== "whole" ? row.partition_label : undefined]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function readableScheduleTiming(pageContract: AdminUiPageContract, code: string): string | undefined {
   const match = code.match(/_(\d+)(w|m|yr)$/);
   if (!match) return undefined;
@@ -252,10 +258,11 @@ export async function ProtocolAdherencePage({
     scopeHref(`/workflows/${encodeURIComponent(row.row_id)}`, scope, {}, { from: "protocol-adherence" });
   const drawerRecords: ProtocolAdherenceDrawerRecord[] = rows.map((row) => {
     const expected = readableAdherenceExpected(pageContract, row.expected);
+    const locationDetail = adherenceLocationDetail(row);
     return {
       row,
       expectedTitle: expected.title,
-      expectedDetail: expected.detail,
+      expectedDetail: locationDetail || expected.detail,
       actual: readableAdherenceActual(pageContract, row.actual),
       gap: gapLabel(pageContract, row),
       owner: ownerOf(pageContract, row),
@@ -375,6 +382,7 @@ export async function ProtocolAdherencePage({
                   const href = rowDrawerHref(row);
                   const expected = readableAdherenceExpected(pageContract, row.expected);
                   const actual = readableAdherenceActual(pageContract, row.actual);
+                  const expectedDetail = adherenceLocationDetail(row) || expected.detail;
                   const driveDetail = driveCapacityDetail(row);
                   return (
                     <tr key={row.row_id}>
@@ -383,7 +391,7 @@ export async function ProtocolAdherencePage({
                           <ClipText title={expected.title} className="strong">
                             {expected.title}
                           </ClipText>
-                          <span className="mt">{expected.detail}</span>
+                          <span className="mt">{expectedDetail}</span>
                         </LocalOverlayLink>
                       </td>
                       <td className="muted">

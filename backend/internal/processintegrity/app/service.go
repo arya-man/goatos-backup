@@ -68,18 +68,22 @@ func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domai
 
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
+	category := domain.CategoryVaccination
+	q.Category = &category
 	q.IncludeCompleted = true
 	q.IncludeAdherenceSummary = true
+	q.ScopeLatestDrive = true
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
 	}
 	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
-	summary := result.AdherenceSummary
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
 			RowID:                   row.RowID,
+			ShedName:                row.ShedName,
+			PartitionLabel:          row.PartitionLabel,
 			Expected:                expectedText(row),
 			Actual:                  actualText(row),
 			Gap:                     gapText(row),
@@ -97,12 +101,9 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
 		})
 	}
-	if summary.ExpectedCount > 0 {
-		summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
-	}
 	return domain.ProtocolAdherenceResponse{
 		Source:     domain.SourceAPI,
-		Summary:    summary,
+		Summary:    result.AdherenceSummary,
 		Rows:       rows,
 		TotalCount: result.TotalCount,
 		NextCursor: result.NextCursor,
@@ -163,10 +164,16 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			WorkState:               row.WorkState,
 			Title:                   alertTitle(row),
 			Detail:                  alertDetail(row),
+			ScopeLabel:              scopeLabel(row),
+			EvidenceSummary:         evidenceSummary(row),
+			ProofSummary:            proofSummary(row),
+			ProofState:              row.ProofState,
+			VerificationState:       row.VerificationState,
 			ParkID:                  row.ParkID,
 			ParkName:                row.ParkName,
 			ShedID:                  row.ShedID,
 			ShedName:                row.ShedName,
+			PartitionLabel:          row.PartitionLabel,
 			DriveName:               row.DriveName,
 			Owner:                   row.Owner,
 			NextAction:              row.NextAction,
@@ -239,6 +246,12 @@ func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows [
 	}
 	resolved, err := s.media.ResolveMedia(ctx, tenantID, proofIDs)
 	if err != nil {
+		msg := "proof media lookup failed"
+		for i := range rows {
+			if len(rows[i].Evidence.ProofIDs) > 0 {
+				rows[i].Evidence.MediaResolutionError = &msg
+			}
+		}
 		return rows
 	}
 	byID := make(map[string]domain.MediaItem, len(resolved))
@@ -393,7 +406,7 @@ func humanAlertTitle(raw string) string {
 }
 
 func alertDetail(row domain.Row) string {
-	base := fmt.Sprintf("%s / %s", row.ParkName, row.ShedName)
+	base := scopeLabel(row)
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
 		return fmt.Sprintf("%s: %d animals assigned over %d operator slots; latest safe %s", base, row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap, latestSafeOrDue(row))
@@ -406,7 +419,87 @@ func alertDetail(row domain.Row) string {
 	if row.BlockerReason != nil && *row.BlockerReason != "" {
 		return base + ": " + *row.BlockerReason
 	}
-	return base + ": " + row.GapType
+	return base + ": " + humanGap(row.GapType, row.WorkState)
+}
+
+func evidenceSummary(row domain.Row) string {
+	if row.Evidence.EvidenceCount > 0 {
+		return fmt.Sprintf("%d evidence item(s) attached", row.Evidence.EvidenceCount)
+	}
+	switch row.ProofState {
+	case domain.ProofStateNotRequired:
+		return "No proof required"
+	case domain.ProofStateUploaded, domain.ProofStateAccepted:
+		return "Mobile proof submitted"
+	case domain.ProofStateRejected:
+		return "Submitted proof was rejected"
+	default:
+		return "Mobile proof not submitted"
+	}
+}
+
+func proofSummary(row domain.Row) string {
+	switch row.VerificationState {
+	case domain.VerificationStatePending:
+		return "Awaiting verifier review"
+	case domain.VerificationStateAccepted:
+		return "Verifier accepted proof"
+	case domain.VerificationStateRejected:
+		if row.Evidence.LatestRejectionReason != nil && strings.TrimSpace(*row.Evidence.LatestRejectionReason) != "" {
+			return "Verifier rejected proof: " + strings.TrimSpace(*row.Evidence.LatestRejectionReason)
+		}
+		return "Verifier rejected proof"
+	default:
+		switch row.ProofState {
+		case domain.ProofStateNotRequired:
+			return "Proof not required"
+		case domain.ProofStateMissing:
+			return "Proof missing"
+		default:
+			return strings.ReplaceAll(string(row.ProofState), "_", " ")
+		}
+	}
+}
+
+func scopeLabel(row domain.Row) string {
+	parts := []string{strings.TrimSpace(row.ParkName), strings.TrimSpace(row.ShedName)}
+	if row.PartitionLabel != nil && strings.TrimSpace(*row.PartitionLabel) != "" {
+		parts = append(parts, strings.TrimSpace(*row.PartitionLabel))
+	}
+	return strings.Join(parts, " / ")
+}
+
+func humanGap(gap string, state domain.WorkState) string {
+	switch strings.TrimSpace(gap) {
+	case "verification_pending":
+		return "proof submitted; awaiting verifier review"
+	case "proof_pending":
+		return "proof not submitted yet"
+	case "missed":
+		return "deadline missed"
+	case "overdue":
+		return "past due"
+	case "blocked":
+		return "blocked"
+	case "rejected":
+		return "proof rejected"
+	case "":
+		switch state {
+		case domain.WorkStateVerificationPending:
+			return "proof submitted; awaiting verifier review"
+		case domain.WorkStateProofPending:
+			return "proof not submitted yet"
+		case domain.WorkStateMissed:
+			return "deadline missed"
+		case domain.WorkStateOverdue:
+			return "past due"
+		case domain.WorkStateBlocked:
+			return "blocked"
+		case domain.WorkStateRejected:
+			return "proof rejected"
+		}
+	}
+	return strings.ReplaceAll(gap, "_", " ")
 }
 
 func latestSafeOrDue(row domain.Row) string {

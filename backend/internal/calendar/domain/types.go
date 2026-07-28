@@ -69,12 +69,14 @@ type DriveSummary struct {
 	VaccineLabels    []string           `json:"vaccine_labels"`
 	TotalCount       int                `json:"total_count"`
 	CompletedCount   int                `json:"completed_count"`
+	SubmittedCount   int                `json:"submitted_count"`
 	RemainingCount   int                `json:"remaining_count"`
 	DueCount         int                `json:"due_count"`
 	OverdueCount     int                `json:"overdue_count"`
 	DeferredCount    int                `json:"deferred_count"`
 	TotalAnimals     int                `json:"total_animals"`
 	CompletedAnimals int                `json:"completed_animals"`
+	SubmittedAnimals int                `json:"submitted_animals"`
 	OwnerLabel       string             `json:"owner_label"`
 }
 

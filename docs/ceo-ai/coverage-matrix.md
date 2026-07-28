@@ -62,7 +62,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/capacity-config | api | Capacity behind backlog explanations |
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
-| GET /control-tower/vaccination | api + view:action_center_current | Leadership control tower |
+| GET /control-tower/vaccination (func:ControlTower) | api + view:action_center_current | Leadership control tower |
 | GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/*. Runtime contract: operator execution and scan rosters must filter split-shed work by `vaccination_drive_assignments` plus `goat_shed_partitions`, so one operator cannot see another operator's partition animals inside the same batch/shed. |
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
 | Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
@@ -107,6 +107,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/tasks | api + view:sop_execution_status | SOP execution backlog |
 | GET /admin/tasks/{id} | EXCLUDED | Task detail |
 | GET /admin/tasks/submission-fanouts/failed | api + view:ops_exception_queue | Proof fan-out failures |
+| SOP submission fanout retry worker (func:NewSopSubmissionFanoutRetryStage, func:SopSubmissionFanoutRetryStage.Run, func:SopSubmissionFanoutRetryStage.Name) | api + view:ops_exception_queue | Operational repair surface for submitted proof fanouts that failed before vaccination completions / verification rows materialized. Leadership does not call the worker directly; failures remain visible through `GET /admin/tasks/submission-fanouts/failed` / ops exception coverage, and the kernel worker retries them durably. |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
 | GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
 | GET /verification/action-queue | api + view:verification_queue_status | Actionable proof exceptions |
@@ -163,7 +164,7 @@ tracked as gaps below.
 | shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue |
 | goat_births | EXCLUDED — per-child canonical mother relationship and delivery litter size used by the operator birth workflow; leadership birth/mortality reporting remains on governed Counts aggregates |
 | procurement_loads, procurement_load_goats, arrival_intake_reviews, procurement_source_health_checks, procurement_hf_vaccination_evidence | procurement_pipeline, source_entry_health_status |
-| sop_tasks, sop_submissions | sop_execution_status |
+| sop_tasks, sop_submissions, sop_task_submission_fanouts | sop_execution_status, ops_exception_queue |
 | verification_items | verification_queue_status |
 | inventory_items, inventory_stock, inventory_stock_movements | inventory_stock_position |
 | workforce_members, workforce_positions, workforce_absences, workforce_roster_assignments, org_role_catalog | workforce_coverage_status |

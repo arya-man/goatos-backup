@@ -27,4 +27,5 @@
     <string name="proof_photo_instruction">ನೀರಿನ ವಿತರಣೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_photo_take">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_cancel">ಫೋಟೋ ಕ್ಯಾಪ್ಚರ್ ರದ್ದುಮಾಡಿ</string>
+    <string name="submit_shed_success_toast">ಶೆಡ್ ಪುರಾವೆ ಪರಿಶೀಲನೆಗೆ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
 </resources>

@@ -13,6 +13,7 @@ type EvidenceMediaItem = {
 
 export type EvidenceWithMedia = ProcessIntegrityEvidence & {
   media?: EvidenceMediaItem[];
+  media_resolution_error?: string;
 };
 
 function mediaLabel(pageContract: AdminUiPageContract, media: EvidenceMediaItem): string {
@@ -37,6 +38,14 @@ export function EvidenceMedia({ evidence, pageContract, tone = "ok" }: { evidenc
           </a>
         ))}
       </span>
+    );
+  }
+
+  if (evidence.media_resolution_error) {
+    return (
+      <Tag tone="warn" title={evidence.media_resolution_error}>
+        {copy(pageContract, "label.proof_media_unavailable")}
+      </Tag>
     );
   }
 

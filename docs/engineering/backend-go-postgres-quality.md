@@ -4,6 +4,14 @@ This is the backend implementation and review baseline for Goat OS. It applies
 to `backend/**/*.go`, `backend/internal/**/adapters/postgres/**`,
 `backend/migrations/postgres/**`, and `backend/sqlc.yaml`.
 
+Shared operational read models must follow
+`docs/architecture/operational-read-model-contract.md`. Backend changes that
+feed Calendar, Control Tower, Action Center, Protocol Adherence, Workflows,
+admin-web detail pages, Android execution/proof screens, reporting, or a new
+vertical/module must declare canonical write owner, row/summary grain, stable
+scope identity, bucket disjointness/overlap, whole-result summary behavior, and
+every consumer contract before implementation is complete.
+
 The repository stack is intentionally narrow:
 
 ```text

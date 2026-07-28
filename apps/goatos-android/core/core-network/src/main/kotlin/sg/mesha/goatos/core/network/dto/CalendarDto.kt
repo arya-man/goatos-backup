@@ -87,11 +87,6 @@ data class CalendarDateMarkerDto(
 @Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
-    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
-    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
-    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
-    @SerialName("planned_date") val plannedDate: String? = null,
-    @SerialName("scheduled_date") val scheduledDate: String? = null,
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,
@@ -146,11 +141,6 @@ data class CalendarEventDto(
     @SerialName("summary_tertiary") val summaryTertiary: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("severity") val severity: String = "",
-    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
-    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
-    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
-    @SerialName("planned_date") val plannedDate: String? = null,
-    @SerialName("scheduled_date") val scheduledDate: String? = null,
     @SerialName("due_at") val dueAt: String = "",
     @SerialName("window_start") val windowStart: String? = null,
     @SerialName("window_end") val windowEnd: String? = null,
@@ -201,22 +191,12 @@ data class CalendarEventDto(
  */
 val CalendarEventDto.currentScheduleDate: String
     get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
         driveSummary?.currentScheduleDate,
         dueAt,
     ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
 val DriveSummaryDto.currentScheduleDate: String
     get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
         dueDate,
     ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 

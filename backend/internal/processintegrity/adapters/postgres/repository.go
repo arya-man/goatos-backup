@@ -21,8 +21,8 @@ const (
 	defaultClosedHistoryAge = 14 * 24 * time.Hour
 	defaultLimit            = 100
 	maxLimit                = 500
-	countQueryArgCount      = 15
-	rowsQueryArgCount       = 19
+	countQueryArgCount      = 16
+	rowsQueryArgCount       = 20
 )
 
 type Repository struct {
@@ -109,6 +109,9 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		); err != nil {
 			return domain.ListResult{}, fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
 		}
+		if summary.ExpectedCount > 0 {
+			summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+		}
 		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
 	} else {
 		var err error
@@ -186,7 +189,7 @@ type rowScanner interface {
 
 func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var row domain.Row
-	var batchID, taskID, submissionID, completionID, cohortID, goatID, driveName, sopVersionID pgtype.Text
+	var batchID, taskID, submissionID, completionID, partitionLabel, cohortID, goatID, driveName, sopVersionID pgtype.Text
 	var taskRowVersion pgtype.Int4
 	var windowStart, windowEnd, latestEvidenceAt, driveLatestSafeDate pgtype.Timestamptz
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
@@ -212,6 +215,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&row.ParkName,
 		&row.ShedID,
 		&row.ShedName,
+		&partitionLabel,
 		&cohortID,
 		&goatID,
 		&row.AnimalStage,
@@ -273,6 +277,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.SOPTaskVersion = int32Ptr(taskRowVersion)
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
+	row.PartitionLabel = textPtr(partitionLabel)
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
@@ -390,6 +395,7 @@ func queryArgs(q domain.Query) []any {
 		q.OnlyBrokenOrAtRisk,
 		q.IncludeCompleted,
 		textValue(q.Category),
+		q.ScopeLatestDrive,
 		cursorSort,
 		cursorDue,
 		cursorRow,
@@ -741,6 +747,7 @@ raw AS (
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
+    NULLIF(gsp.partition_label, '') AS goat_partition_label,
     oi.completed_at,
     te.asof_terminal_type,
     te.has_terminal_event,
@@ -915,6 +922,7 @@ grouped AS (
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
+    CASE WHEN COUNT(DISTINCT located.goat_partition_label) = 1 THEN MAX(located.goat_partition_label) ELSE NULL END AS partition_label,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
@@ -1193,7 +1201,13 @@ derived AS (
       ELSE 'assigned'
     END AS owner_state,
     CASE
-      WHEN stateful.batch_id IS NOT NULL THEN 'batch:' || stateful.batch_id::text || ':rule:' || stateful.rule_id::text || ':shed:' || stateful.shed_uuid::text
+      WHEN stateful.batch_id IS NOT NULL THEN
+        'batch:' || stateful.batch_id::text ||
+        ':rule:' || stateful.rule_id::text ||
+        ':protocol_version:' || stateful.protocol_version_id::text ||
+        ':shed:' || stateful.shed_uuid::text ||
+        ':partition:' || COALESCE(NULLIF(stateful.partition_label, ''), 'whole') ||
+        ':date:' || (stateful.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date::text
       ELSE 'obligation:' || stateful.obligation_id
     END AS row_id,
     CASE stateful.work_state
@@ -1465,6 +1479,7 @@ all_rows AS (
     park_name,
     shed_uuid::text AS shed_id,
     shed_name,
+    partition_label,
     cohort_id,
     goat_id,
     animal_stage,
@@ -1563,6 +1578,7 @@ all_rows AS (
     park_name,
     shed_id,
     shed_name,
+    NULL::text AS partition_label,
     cohort_id,
     goat_id,
     animal_stage,
@@ -1627,12 +1643,72 @@ all_rows AS (
 // projector (RecomputeProjection / processIntegrityProjectionInsertSQL) and the process_integrity_
 // projection_rows/_state/_summaries tables it fed were removed (migrations 000187/000188).
 
-// processIntegrityCanonicalRowsSQL is the LIST read: the canonical all_rows reconstruction, keyset-paginated
-// on (sort_priority, due_at, row_id) with LIMIT $19. The base joins are tenant+due_at index-bound and all
+// processIntegrityLatestDriveScopeSQL selects the latest in-scope vaccination drive for Protocol
+// Adherence, then constrains list and aggregate wrappers to the same drive identity. Batched work is
+// keyed by the stable operational drive tuple (park + batch + protocol version + business date), so a
+// multi-shed/multi-rule drive remains together while same-day sibling batches stay separate. Unbatched
+// legacy work falls back to the narrower row-lane tuple (park/shed/partition/protocol version/rule/date).
+// The selected row is the latest non-future row at q.AsOf; if the window has no non-future row, it uses
+// the earliest future row. This is a bounded aggregate/list filter, not service-side page draining.
+const processIntegrityLatestDriveScopeSQL = `,
+selected_adherence_scope AS (
+  SELECT
+    batch_id,
+    park_id,
+    shed_id,
+    COALESCE(NULLIF(partition_label, ''), 'whole') AS partition_label,
+    protocol_version_id,
+    rule_id,
+    (due_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date
+  FROM all_rows
+  WHERE $16::boolean
+    AND category = 'vaccination'
+    AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+  ORDER BY
+    CASE WHEN due_at <= $10::timestamptz THEN 0 ELSE 1 END,
+    CASE WHEN due_at <= $10::timestamptz THEN due_at END DESC NULLS LAST,
+    CASE WHEN due_at > $10::timestamptz THEN due_at END ASC NULLS LAST,
+    row_id ASC
+  LIMIT 1
+),
+scoped_rows AS (
+  SELECT all_rows.*
+  FROM all_rows
+  WHERE (
+    NOT $16::boolean
+    OR category <> 'vaccination'
+    OR EXISTS (
+      SELECT 1
+      FROM selected_adherence_scope s
+      WHERE all_rows.category = 'vaccination'
+        AND (all_rows.due_at AT TIME ZONE 'Asia/Kolkata')::date = s.business_date
+        AND all_rows.park_id = s.park_id
+        AND all_rows.protocol_version_id = s.protocol_version_id
+        AND (
+          (
+            all_rows.batch_id IS NOT NULL
+            AND s.batch_id IS NOT NULL
+            AND all_rows.batch_id = s.batch_id
+          )
+          OR (
+            all_rows.batch_id IS NULL
+            AND s.batch_id IS NULL
+            AND all_rows.shed_id = s.shed_id
+            AND COALESCE(NULLIF(all_rows.partition_label, ''), 'whole') = s.partition_label
+            AND all_rows.rule_id = s.rule_id
+          )
+        )
+    )
+  )
+)
+`
+
+// processIntegrityCanonicalRowsSQL is the LIST read: the canonical scoped_rows reconstruction,
+// keyset-paginated on (sort_priority, due_at, row_id) with LIMIT $20. The base joins are tenant+due_at index-bound and all
 // scope/state/owner/category filters ($2-$15) are applied inside all_rows, so the outer read only advances
 // the cursor and bounds the page.
-// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $19), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + `
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $20), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT
   sort_priority,
   row_id,
@@ -1648,6 +1724,7 @@ SELECT
   park_name,
   shed_id,
   shed_name,
+  scoped_rows.partition_label,
   cohort_id,
   goat_id,
   animal_stage,
@@ -1701,10 +1778,10 @@ SELECT
   latest_evidence_at,
   latest_rejection_reason,
   audit_ref
-FROM all_rows
+FROM scoped_rows
 WHERE (
-  $16::int < 0
-  OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
+  $17::int < 0
+  OR (sort_priority, due_at, row_id) > ($17::int, $18::timestamptz, $19::text)
 )
   -- When IncludeCompleted is off ($14 false), a row that reads 'completed' at as_of but is due before the
   -- closed-history floor ($11 = as_of - closed-history age) is genuine closed history and must not appear in
@@ -1713,19 +1790,19 @@ WHERE (
   -- projection read filter exactly.
   AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
 ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $19;
+LIMIT $20;
 `
 
 // processIntegrityCanonicalCountsSQL is the NON-keyset indexed AGGREGATE: it collapses the whole canonical
 // filtered set into one count per work_state. Membership is one all_rows grain (already GROUP BY'd in the
 // base to park/shed/batch/rule/protocol/business-date), so COUNT(*) here is 1:1 with the LIST rows and the
-// window total never depends on the LIST page size ($19 is not referenced). Args are countQueryArgs (the
-// first 15 = $1..$15); the keyset args $16-$19 are intentionally absent.
-// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=work_state; join_cardinality=base joins pre-aggregated to grains in processIntegrityBaseSQL grouped/all_rows before this COUNT so no fan-out; pagination=full-tenant aggregate independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// window total never depends on the LIST page size ($20 is not referenced). Args are countQueryArgs (the
+// first 16 = $1..$16); the keyset args $17-$20 are intentionally absent.
+// projection-review: membership=scoped_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=work_state; join_cardinality=base joins pre-aggregated to grains in processIntegrityBaseSQL grouped/all_rows before this COUNT so no fan-out; pagination=full selected scope aggregate independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15), optional latest-drive scope via $16.
 // scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalCountsSQL = processIntegrityAllRowsSQL + `
+const processIntegrityCanonicalCountsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT work_state, COUNT(*)::bigint AS row_count
-FROM all_rows
+FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
 GROUP BY work_state
 ORDER BY work_state;
@@ -1735,15 +1812,15 @@ ORDER BY work_state;
 // grains: expected/completed sums plus the process-intact split, all independent of the LIST page. The
 // deferred total mirrors the projector grain (GREATEST(deferred_count, 1) on deferred-state grains) so a
 // canonical read and a projector-built summary agree.
-// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=none (single tenant summary row); join_cardinality=base joins pre-aggregated to grains before this SUM so no fan-out double-count; pagination=window totals independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// projection-review: membership=scoped_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=none (single selected-scope summary row); join_cardinality=base joins pre-aggregated to grains before this SUM so no fan-out double-count; pagination=selected-scope totals independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15), optional latest-drive scope via $16.
 // scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalAdherenceSummarySQL = processIntegrityAllRowsSQL + `
+const processIntegrityCanonicalAdherenceSummarySQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT
   COALESCE(SUM(expected_count), 0)::integer AS expected_count,
   COALESCE(SUM(completed_count), 0)::integer AS completed_count,
   COUNT(*) FILTER (WHERE NOT process_intact)::integer AS open_gap_count,
   COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
   COUNT(*) FILTER (WHERE process_intact)::integer AS process_intact_count
-FROM all_rows
+FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz);
 `

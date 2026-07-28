@@ -73,7 +73,7 @@ function cubesReferenced(query) {
 
 module.exports = {
   checkAuth: (_req, auth) => ({
-    security_context: verifySecurityContext(auth),
+    securityContext: verifySecurityContext(auth),
   }),
 
   queryRewrite: (query, { securityContext }) => {

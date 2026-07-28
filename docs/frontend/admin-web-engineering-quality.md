@@ -5,6 +5,12 @@ TypeScript packages it imports. Product/IA truth remains in
 `context/frontend/**`, `apps/admin-web/AGENTS.md`, and the dashboard mock; this
 document owns framework, runtime, testing, accessibility, and CI practice.
 
+Shared operational read models must follow
+`docs/architecture/operational-read-model-contract.md`. Admin-web renders
+backend-owned facts for Calendar, Control Tower, Action Center, Protocol
+Adherence, Workflows, and detail pages; it must not invent local grain semantics
+or hide mismatched backend/mobile/reporting numbers with a screen-only rule.
+
 ## Source Policy
 
 Use current primary documentation, then confirm the committed versions and

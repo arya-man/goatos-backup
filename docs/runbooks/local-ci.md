@@ -67,10 +67,15 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
 5. Run `make land-main`; it performs fresh-main rebase, exact-SHA CI, race
    recheck, and the Mesha-credential push in the required order.
 
-The common job always runs repository, agent, contract, domain-event architecture,
-large-file, and diff hygiene. In particular, movement/Vaccination producer-to-
-consumer closure is checked by `domain-event-architecture-guard` on every normal
-`make ci-local` run; it is not confined to the legacy compatibility job.
+The common job always runs repository, agent, contract, operational read-model,
+domain-event architecture, large-file, and diff hygiene. In particular,
+movement/Vaccination producer-to-consumer closure is checked by
+`domain-event-architecture-guard` on every normal `make ci-local` run; it is not
+confined to the legacy compatibility job. Pluggable vertical/read-model
+discoverability is checked by `operational-read-model-contract-guard`, which
+keeps `docs/architecture/operational-read-model-contract.md` wired into AGENTS,
+SKILLS, build skills, review lenses, frontend/mobile references, and this
+runbook.
 It also runs `local-stack-service-guard`, which mechanically checks the exact
 origin/main shared FE/BE contract, canonical DB pin, LaunchAgent tool PATH,
 atomic child cleanup, live main-drift watchdog, and the isolated E2E boundary.

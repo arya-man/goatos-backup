@@ -69,6 +69,15 @@ mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
 document an explicit exclusion. `make leadership-assistant-coverage-guard`
 enforces this in local CI.
 
+Operational read model rule: shared command surfaces and mobile/admin/reporting
+reads must follow `docs/architecture/operational-read-model-contract.md`.
+Whenever developing or debugging Calendar, Control Tower, Action Center,
+Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
+screens, OpenAPI/generated clients, or a new vertical/module, first identify the
+canonical write owner, row/summary grain, bucket disjointness, stable scope
+identity, whole-result summary behavior, and every consuming surface. Run
+`make operational-read-model-contract-guard`.
+
 CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
 `ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
 action_center, vaccination_operator_status) that read canonical vaccination/
@@ -130,6 +139,7 @@ docs/protocol-engine/state-machines.md
 docs/protocol-engine/high-scale-kernel-validation-plan.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
+docs/architecture/operational-read-model-contract.md
 docs/preventive-care-vaccination/TRD.md
 docs/feed-direction/TRD.md
 docs/decisions/calendar-ownership.md

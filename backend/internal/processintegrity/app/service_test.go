@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 type fakeRepo struct {
 	result       domain.ListResult
+	results      []domain.ListResult
 	counts       []domain.CountByWorkState
 	row          domain.Row
 	found        bool
@@ -24,6 +26,12 @@ type fakeRepo struct {
 func (f *fakeRepo) ListRows(_ context.Context, q domain.Query) (domain.ListResult, error) {
 	f.listCalls++
 	f.listQueries = append(f.listQueries, q)
+	if len(f.results) > 0 {
+		if f.listCalls-1 < len(f.results) {
+			return f.results[f.listCalls-1], nil
+		}
+		return f.results[len(f.results)-1], nil
+	}
 	return f.result, nil
 }
 
@@ -42,9 +50,13 @@ func (f *fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bo
 
 type fakeMediaResolver struct {
 	items []verificationdomain.MediaItem
+	err   error
 }
 
 func (f fakeMediaResolver) ResolveMedia(context.Context, string, []string) ([]verificationdomain.MediaItem, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	return f.items, nil
 }
 
@@ -202,6 +214,27 @@ func TestVaccinationCommandSurfacesUseHumanDoseLabel(t *testing.T) {
 	}
 }
 
+func TestProtocolAdherenceForcesVaccinationCategory(t *testing.T) {
+	repo := &fakeRepo{result: domain.ListResult{}}
+	svc := NewService(repo)
+	category := domain.CategoryFeedDirection
+
+	if _, err := svc.ProtocolAdherence(context.Background(), domain.Query{
+		TenantID: "tenant-1",
+		Category: &category,
+	}); err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+
+	if len(repo.listQueries) != 1 {
+		t.Fatalf("list calls = %d", len(repo.listQueries))
+	}
+	got := repo.listQueries[0].Category
+	if got == nil || *got != domain.CategoryVaccination {
+		t.Fatalf("category = %v, want vaccination", got)
+	}
+}
+
 func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
 	row := processRow("raw-drive-name", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)
@@ -227,6 +260,38 @@ func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	}
 	if title != "ET+TT adult course dose 2" {
 		t.Fatalf("title = %q, want human dose label", title)
+	}
+}
+
+func TestControlTowerAlertDetailUsesHumanScopeAndGap(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("partition-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	row.ParkName = "Channapatna"
+	row.ShedName = "Godel 2"
+	row.PartitionLabel = strPtr("Part 4")
+	row.GapType = "verification_pending"
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows:              []domain.Row{row},
+		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateVerificationPending, Count: 1}},
+	}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("alerts = %+v", got.Alerts)
+	}
+	alert := got.Alerts[0]
+	if alert.PartitionLabel == nil || *alert.PartitionLabel != "Part 4" {
+		t.Fatalf("partition label = %v, want Part 4", alert.PartitionLabel)
+	}
+	if strings.Contains(alert.Detail, "verification_pending") {
+		t.Fatalf("detail leaked machine gap: %q", alert.Detail)
+	}
+	want := "Channapatna / Godel 2 / Part 4: proof submitted; awaiting verifier review"
+	if alert.Detail != want {
+		t.Fatalf("detail = %q, want %q", alert.Detail, want)
 	}
 }
 
@@ -355,6 +420,27 @@ func TestProtocolAdherenceResolvesProofMedia(t *testing.T) {
 	}
 }
 
+func TestProtocolAdherenceMarksProofMediaResolutionError(t *testing.T) {
+	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
+	row := processRow("media-error-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	row.Evidence.ProofIDs = []string{"70000000-0000-4000-8000-000000000001"}
+	row.Evidence.EvidenceCount = 1
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).
+		WithClock(func() time.Time { return due }).
+		WithMediaResolver(fakeMediaResolver{err: errors.New("signed url unavailable")})
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0].Evidence.MediaResolutionError == nil {
+		t.Fatalf("media resolution error missing: %+v", got.Rows)
+	}
+	if len(got.Rows[0].Evidence.Media) != 0 {
+		t.Fatalf("media should not be populated on resolver error: %+v", got.Rows[0].Evidence.Media)
+	}
+}
+
 func TestControlTowerShowsMedicalDefersDistinctFromOverCapWork(t *testing.T) {
 	due := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
 	reason := "icu"
@@ -380,31 +466,43 @@ func TestControlTowerShowsMedicalDefersDistinctFromOverCapWork(t *testing.T) {
 	}
 }
 
-func TestProtocolAdherenceSummaryUsesFullFilteredSetNotCurrentPage(t *testing.T) {
+func TestProtocolAdherencePreservesPaginationAndWholeResultSummary(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	pageRow := processRow("page-row", domain.WorkStateCompleted, domain.SeverityOK, due)
-	pageRow.ExpectedCount = 1
-	pageRow.CompletedCount = 1
-	fullSummary := domain.AdherenceSummary{
-		ExpectedCount:      1000,
-		CompletedCount:     900,
-		OpenGapCount:       25,
-		DeferredCount:      75,
-		ProcessIntactCount: 975,
-		AdherencePercent:   90,
+	cursor, err := domain.EncodeCursor(domain.Cursor{SortPriority: 1, DueAt: due, RowID: "page-row"})
+	if err != nil {
+		t.Fatalf("encode cursor: %v", err)
 	}
-	svc := NewService(&fakeRepo{result: domain.ListResult{
+	pageRow := processRow("page-row", domain.WorkStateCompleted, domain.SeverityOK, due)
+	wholeSummary := domain.AdherenceSummary{
+		ExpectedCount:      525,
+		CompletedCount:     500,
+		OpenGapCount:       1,
+		ProcessIntactCount: 1,
+		AdherencePercent:   95.23809523809523,
+	}
+	repo := &fakeRepo{result: domain.ListResult{
 		Rows:             []domain.Row{pageRow},
-		TotalCount:       1000,
-		AdherenceSummary: fullSummary,
-	}}).WithClock(func() time.Time { return due })
+		TotalCount:       2,
+		AdherenceSummary: wholeSummary,
+		NextCursor:       &cursor,
+	}}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
 
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", Limit: 1})
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
 	if err != nil {
 		t.Fatalf("adherence: %v", err)
 	}
-	if got.Summary != fullSummary {
-		t.Fatalf("summary=%+v want full filtered summary %+v", got.Summary, fullSummary)
+	if repo.listCalls != 1 {
+		t.Fatalf("repo list calls = %d, want one bounded page", repo.listCalls)
+	}
+	if len(repo.listQueries) != 1 || !repo.listQueries[0].ScopeLatestDrive {
+		t.Fatalf("protocol adherence query must ask repository for latest-drive scope, got %+v", repo.listQueries)
+	}
+	if got.NextCursor == nil || *got.NextCursor != cursor {
+		t.Fatalf("next cursor=%v want %q", got.NextCursor, cursor)
+	}
+	if got.TotalCount != 2 || got.Summary != wholeSummary {
+		t.Fatalf("response total=%d summary=%+v, want repository aggregate %+v", got.TotalCount, got.Summary, wholeSummary)
 	}
 	if len(got.Rows) != 1 || got.Rows[0].RowID != "page-row" {
 		t.Fatalf("rows=%+v, want current page row preserved", got.Rows)

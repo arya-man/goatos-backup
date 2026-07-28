@@ -2053,6 +2053,15 @@ SELECT vc.completion_id::text,
        vc.goat_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')
+         WHEN gsp.partition_label ~* '^part [0-9]+$'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || gsp.partition_label
+       END::text AS shed_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at
@@ -2063,6 +2072,14 @@ JOIN sop_submission_items si
 JOIN goats g
   ON g.tenant_id = vc.tenant_id
  AND g.goat_id = vc.goat_id
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
 LEFT JOIN LATERAL (
   SELECT array_agg(pa.proof_id::text ORDER BY pa.created_at, pa.proof_id) AS proof_ids
   FROM proof_artifacts pa
@@ -2091,6 +2108,7 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatID,
 			&item.GoatLabel,
 			&item.ShedID,
+			&item.ShedLabel,
 			&item.ParkID,
 			&item.ProofRefIDs,
 			&item.AdministeredAt,

@@ -7,7 +7,7 @@ import { Syringe } from "lucide-react";
 import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
-import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
@@ -34,8 +34,14 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
   // status chips below always stay obligation-grain (dose work items).
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
+  const submittedAnimals = "submitted_animals" in summary && typeof summary.submitted_animals === "number" ? summary.submitted_animals : 0;
+  const displayCompleted = Math.max(coverage.completed, submittedAnimals);
+  const hasSubmittedPending = submittedAnimals > coverage.completed;
+  const pct = driveCoveragePct(displayCompleted, coverage.total);
   const chips = driveStatusChips(summary);
+  const vaccineLabels = summary.vaccine_labels.filter((label) => label.trim().length > 0);
+  const visibleVaccines = vaccineLabels.slice(0, 3);
+  const hiddenVaccineCount = Math.max(0, vaccineLabels.length - visibleVaccines.length);
 
   // Completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
   // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
@@ -70,21 +76,35 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         </svg>
         <div className="ptx">
           <div>
-            <span className="big">{coverage.completed}</span>
+            <span className="big">{displayCompleted}</span>
             <span className="u"> / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}</span>
           </div>
+          {hasSubmittedPending ? (
+            <div className="submitted-strip" title={`${submittedAnimals} ${copy(pageContract, "calendar.drive.verification_pending")}`}>
+              <span>{copy(pageContract, "calendar.drive.verification_pending")}</span>
+            </div>
+          ) : null}
           <div className="metric">
             <b>{summary.sheds_completed}</b> {copy(pageContract, "calendar.drive.of")} {summary.shed_count} {copy(pageContract, "calendar.drive.sheds_done_suffix")}
           </div>
-          <span className="pill">{summary.vaccine_labels.length} {copy(pageContract, "calendar.drive.vaccines_suffix")}</span>
         </div>
       </div>
+      {visibleVaccines.length > 0 ? (
+        <div className="vaccine-chip-row" aria-label={vaccineLabels.join(", ")}>
+          {visibleVaccines.map((label) => (
+            <span key={label} className="vaccine-chip" title={label}>{label}</span>
+          ))}
+          {hiddenVaccineCount > 0 ? (
+            <span className="vaccine-chip vaccine-chip-more" title={vaccineLabels.join(", ")}>+{hiddenVaccineCount}</span>
+          ) : null}
+        </div>
+      ) : null}
       {chips.length > 0 ? (
         <div className="chips">
           {chips.map((chip) => (
             <div key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
               <div className={`d c-${driveStatusClass(chip.key)}`} />
-              {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+              {chip.count} {chip.key === "submitted" ? "submitted" : optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
             </div>
           ))}
         </div>

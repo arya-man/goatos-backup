@@ -3011,6 +3011,7 @@ export interface components {
             /** Format: uuid */
             task_id: string;
             shed_name: string;
+            partition_label?: string;
             drive_name: string;
             expected_count: number;
             handled_count: number;
@@ -3668,7 +3669,7 @@ export interface components {
             links: components["schemas"]["CalendarEventLinks"];
             drive_summary?: components["schemas"]["DriveSummary"] | null;
         };
-        /** @description Park-level drive progress. Invariant: total_count = completed_count + due_count + overdue_count + deferred_count (4 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered). Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
+        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
@@ -3689,6 +3690,8 @@ export interface components {
             total_count: number;
             /** @description Completed obligations */
             completed_count: number;
+            /** @description Recorded mobile completions pending verification */
+            submitted_count: number;
             /** @description Remaining obligations */
             remaining_count: number;
             /** @description Active open obligations */
@@ -3701,6 +3704,8 @@ export interface components {
             total_animals: number;
             /** @description Distinct animals where all drive obligations are completed */
             completed_animals: number;
+            /** @description Distinct animals with recorded completion pending verification */
+            submitted_animals: number;
             /** @description Owner/team label */
             owner_label: string;
         };
@@ -4111,6 +4116,8 @@ export interface components {
         };
         AdherenceRow: {
             row_id: string;
+            shed_name: string;
+            partition_label?: string;
             expected: string;
             actual: string;
             gap: string;
@@ -4151,12 +4158,18 @@ export interface components {
             work_state: components["schemas"]["WorkState"];
             title: string;
             detail: string;
+            scope_label: string;
+            evidence_summary: string;
+            proof_summary: string;
+            proof_state: components["schemas"]["ProcessIntegrityProofState"];
+            verification_state: components["schemas"]["ProcessIntegrityVerificationState"];
             /** Format: uuid */
             park_id: string;
             park_name: string;
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            partition_label?: string;
             drive_name?: string;
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;

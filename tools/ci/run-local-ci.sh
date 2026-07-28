@@ -145,6 +145,7 @@ run_common() {
   step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard
+  step "operational-read-model-contract-guard" make operational-read-model-contract-guard
   step "leadership-assistant-coverage-guard" make leadership-assistant-coverage-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "agent: ai-doctor"          make ai-doctor
