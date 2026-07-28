@@ -172,6 +172,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			ParkName:                row.ParkName,
 			ShedID:                  row.ShedID,
 			ShedName:                row.ShedName,
+			PartitionLabel:          row.PartitionLabel,
 			DriveName:               row.DriveName,
 			Owner:                   row.Owner,
 			NextAction:              row.NextAction,
@@ -404,7 +405,7 @@ func humanAlertTitle(raw string) string {
 }
 
 func alertDetail(row domain.Row) string {
-	base := fmt.Sprintf("%s / %s", cleanExecutiveLocationLabel(row.ParkName), cleanExecutiveLocationLabel(row.ShedName))
+	base := scopeLabel(row)
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
 		return fmt.Sprintf("%s: %d animals assigned over %d operator slots; latest safe %s", base, row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap, latestSafeOrDue(row))
@@ -414,7 +415,51 @@ func alertDetail(row domain.Row) string {
 		}
 		return base + ": " + string(row.DriveCapacityState)
 	}
-	return base
+	return base + ": " + humanGap(row.GapType, row.WorkState)
+}
+
+func scopeLabel(row domain.Row) string {
+	parts := []string{
+		cleanExecutiveLocationLabel(row.ParkName),
+		cleanExecutiveLocationLabel(row.ShedName),
+	}
+	if row.PartitionLabel != nil && strings.TrimSpace(*row.PartitionLabel) != "" {
+		parts = append(parts, cleanExecutiveLocationLabel(*row.PartitionLabel))
+	}
+	return strings.Join(parts, " / ")
+}
+
+func humanGap(gap string, state domain.WorkState) string {
+	switch strings.TrimSpace(gap) {
+	case "verification_pending":
+		return "proof submitted; awaiting verifier review"
+	case "proof_pending":
+		return "proof not submitted yet"
+	case "missed":
+		return "deadline missed"
+	case "overdue":
+		return "past due"
+	case "blocked":
+		return "blocked"
+	case "rejected":
+		return "proof rejected"
+	case "":
+		switch state {
+		case domain.WorkStateVerificationPending:
+			return "proof submitted; awaiting verifier review"
+		case domain.WorkStateProofPending:
+			return "proof not submitted yet"
+		case domain.WorkStateMissed:
+			return "deadline missed"
+		case domain.WorkStateOverdue:
+			return "past due"
+		case domain.WorkStateBlocked:
+			return "blocked"
+		case domain.WorkStateRejected:
+			return "proof rejected"
+		}
+	}
+	return strings.ReplaceAll(gap, "_", " ")
 }
 
 func cleanExecutiveLocationLabel(label string) string {

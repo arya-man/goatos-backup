@@ -252,14 +252,40 @@ func TestControlTowerAlertDetailDoesNotLeakRawWorkState(t *testing.T) {
 	if len(got.Alerts) != 1 {
 		t.Fatalf("alerts = %+v", got.Alerts)
 	}
-	if got.Alerts[0].Detail != "Channapatna / Chain Proof Main" {
-		t.Fatalf("detail = %q, want location-only executive copy", got.Alerts[0].Detail)
+	if got.Alerts[0].Detail != "Channapatna / Chain Proof Main: proof submitted; awaiting verifier review" {
+		t.Fatalf("detail = %q, want scoped human proof copy", got.Alerts[0].Detail)
 	}
 	if strings.Contains(got.Alerts[0].Detail, "verification_pending") {
 		t.Fatalf("detail leaked raw work state: %q", got.Alerts[0].Detail)
 	}
 	if strings.Contains(got.Alerts[0].Detail, blocker) {
 		t.Fatalf("detail leaked operational blocker copy: %q", got.Alerts[0].Detail)
+	}
+}
+
+func TestControlTowerAlertDetailIncludesPartitionScope(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("partition-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	row.ParkName = "Channapatna"
+	row.ShedName = "Godel 2"
+	row.PartitionLabel = strPtr("Part 4")
+	row.GapType = "verification_pending"
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("alerts = %+v", got.Alerts)
+	}
+	alert := got.Alerts[0]
+	if alert.PartitionLabel == nil || *alert.PartitionLabel != "Part 4" {
+		t.Fatalf("partition label = %v, want Part 4", alert.PartitionLabel)
+	}
+	want := "Channapatna / Godel 2 / Part 4: proof submitted; awaiting verifier review"
+	if alert.Detail != want {
+		t.Fatalf("detail = %q, want %q", alert.Detail, want)
 	}
 }
 
