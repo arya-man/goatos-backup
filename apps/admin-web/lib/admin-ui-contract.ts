@@ -296,6 +296,59 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
   },
 };
 
+const SHARED_TABLE_FALLBACKS: Record<string, AdminUiTableContract> = {
+  "vaccination-open-obligations": {
+    id: "vaccination-open-obligations",
+    title: "Open obligations",
+    data_source: "/goats/{goat_id}/passport",
+    columns: [
+      { key: "scheduled_for", label: "Scheduled for", sortable: false, visible: true },
+      { key: "vaccine", label: "Vaccine", sortable: false, visible: true },
+      { key: "status", label: "Status", sortable: false, visible: true },
+      { key: "workflow", label: "Workflow", sortable: false, visible: true },
+      { key: "action_center", label: "Action Center", sortable: false, visible: false },
+    ],
+    filters: [],
+    sort_keys: [],
+    page_size_options: [],
+    row_click: {
+      enabled: false,
+      param: "",
+      target_drawer: "",
+      summary_fields: [],
+      detail_fields: [],
+    },
+    summary_fields: [],
+    detail_fields: [],
+  },
+  "vaccination-history": {
+    id: "vaccination-history",
+    title: "Vaccination",
+    data_source: "/goats/{goat_id}/passport",
+    columns: [
+      { key: "administered", label: "Administered", sortable: false, visible: true },
+      { key: "vaccine", label: "Vaccine", sortable: false, visible: true },
+      { key: "route", label: "Route", sortable: false, visible: false },
+      { key: "status", label: "Status", sortable: false, visible: true },
+      { key: "proof", label: "Proof", sortable: false, visible: true },
+      { key: "source_obligation", label: "Source obligation", sortable: false, visible: true },
+      { key: "workflow", label: "Workflow", sortable: false, visible: false },
+    ],
+    filters: [],
+    sort_keys: [],
+    page_size_options: [],
+    row_click: {
+      enabled: false,
+      param: "",
+      target_drawer: "",
+      summary_fields: [],
+      detail_fields: [],
+    },
+    summary_fields: [],
+    detail_fields: [],
+  },
+};
+
 const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
   vaccination: {
     "full-vaccine-schedule": {
@@ -348,7 +401,7 @@ export function actionFeedbackCopy(page: AdminUiPageContract, status: string | u
 export function table(page: AdminUiPageContract, tableId: string): AdminUiTableContract {
   const value = page.tables.find((item) => item.id === tableId);
   if (!value) {
-    const fallback = TABLE_FALLBACKS[page.route_id]?.[tableId];
+    const fallback = TABLE_FALLBACKS[page.route_id]?.[tableId] ?? SHARED_TABLE_FALLBACKS[tableId];
     if (fallback) return fallback;
     throw new Error(`Admin-web page contract ${page.route_id} missing table ${tableId}`);
   }
