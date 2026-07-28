@@ -322,6 +322,7 @@ type ControlTowerAlert struct {
 	ParkName                string             `json:"park_name"`
 	ShedID                  string             `json:"shed_id"`
 	ShedName                string             `json:"shed_name"`
+	PartitionLabel          *string            `json:"partition_label,omitempty"`
 	DriveName               *string            `json:"drive_name,omitempty"`
 	Owner                   Owner              `json:"owner"`
 	NextAction              string             `json:"next_action"`

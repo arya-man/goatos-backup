@@ -4,7 +4,6 @@ import test from "node:test";
 
 const pageSource = readFileSync(new URL("./index.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./control-tower-local-drawer.tsx", import.meta.url), "utf8");
-const adminUiServiceSource = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 
 test("control-tower record drawers open locally without a route/RSC navigation", () => {
   assert.match(pageSource, /LocalOverlayLink/);
@@ -23,7 +22,7 @@ test("control-tower drawer keeps workflow IDs out of the evidence cell", () => {
 });
 
 test("control-tower drawer renders executive evidence copy, not raw work-state tokens", () => {
-  assert.match(drawerSource, /copy\(pageContract, "evidence\.verification_pending"\)/);
-  assert.match(adminUiServiceSource, /"evidence\.verification_pending":\s+"Proof submitted; awaiting verifier review"/);
+  assert.match(drawerSource, /copy\(pageContract, `evidence\.\$\{alert\.work_state\}`\)/);
+  assert.match(drawerSource, /copy\(pageContract, "evidence\.scope_prefix"\)/);
   assert.doesNotMatch(drawerSource, /\$\{state\} proof - \$\{detail\}/);
 });

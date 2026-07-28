@@ -28,22 +28,18 @@ function alertId(record: ControlTowerDrawerRecord): string {
 }
 
 function evidenceSummary(alert: ControlTowerAlert, pageContract: AdminUiPageContract): string {
+  const detail = alert.detail.trim();
+  const scope = detail.split(":")[0]?.trim() ?? "";
+  const evidenceCopy = copy(pageContract, `evidence.${alert.work_state}`);
+  if (evidenceCopy) {
+    const scopePrefix = copy(pageContract, "evidence.scope_prefix");
+    return scope ? `${evidenceCopy}. ${scopePrefix}: ${scope}` : evidenceCopy;
+  }
   switch (alert.work_state) {
-    case "verification_pending":
-      return copy(pageContract, "evidence.verification_pending");
-    case "proof_pending":
-      return copy(pageContract, "evidence.proof_pending");
-    case "rejected":
-      return copy(pageContract, "evidence.rejected");
-    case "blocked":
-      return copy(pageContract, "evidence.blocked");
-    case "overdue":
-    case "missed":
-      return copy(pageContract, "evidence.late");
-    case "completed":
-      return copy(pageContract, "evidence.completed");
-    default:
-      return optionLabel(pageContract, "work_state_filter_chips", alert.work_state) || copy(pageContract, "label.not_ready");
+    default: {
+      const state = optionLabel(pageContract, "work_state_filter_chips", alert.work_state) || copy(pageContract, "label.not_ready");
+      return detail ? `${state}: ${detail}` : state;
+    }
   }
 }
 
