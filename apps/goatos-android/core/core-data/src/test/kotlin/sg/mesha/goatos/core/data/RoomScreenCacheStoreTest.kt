@@ -20,7 +20,9 @@ import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
 import sg.mesha.goatos.core.data.weighing.normalizeWeighingTag
 
 /**
@@ -88,6 +90,48 @@ class RoomScreenCacheStoreTest {
                     ),
                 ),
             )
+            db.weighingObservationDao().insert(
+                WeighingObservationEntity(
+                    observationId = "weighing-observation",
+                    scopeKey = key,
+                    tenantId = "tenant",
+                    campaignId = "campaign",
+                    workGroupId = "group",
+                    campaignShedId = "campaign-shed",
+                    expectedLocationId = "shed",
+                    expectedLocationLabel = "Gandhi 1",
+                    actualLocationId = "shed",
+                    actualLocationLabel = "Gandhi 1",
+                    animalId = "animal",
+                    scannedIdentifier = "TAG",
+                    weightKg = 12.5,
+                    proofCaptureId = null,
+                    serverProofId = null,
+                    syncStatus = "PENDING_LOCAL",
+                    idempotencyKey = "weighing:individual",
+                    capturedAtMs = 1L,
+                    lastError = null,
+                ),
+            )
+            db.weighingShedObservationDao().insert(
+                WeighingShedObservationEntity(
+                    shedObservationId = "weighing-shed-observation",
+                    scopeKey = key,
+                    tenantId = "tenant",
+                    campaignId = "campaign",
+                    workGroupId = "group",
+                    campaignShedId = "campaign-shed-2",
+                    expectedLocationId = "shed-2",
+                    expectedLocationLabel = "Castro 1",
+                    resultJson = """{"total_weight_kg":1560.5}""",
+                    proofCaptureId = null,
+                    serverProofId = null,
+                    syncStatus = "PENDING_LOCAL",
+                    idempotencyKey = "weighing:shed",
+                    capturedAtMs = 1L,
+                    lastError = null,
+                ),
+            )
 
             RoomScreenCacheStore(db).clearAll()
 
@@ -103,6 +147,8 @@ class RoomScreenCacheStoreTest {
             assertNull("roster timetable cache wiped", db.rosterTimetableCacheDao().observe(key).first())
             assertNull("roster coverage cache wiped", db.rosterCoverageCacheDao().observe(key).first())
             assertEquals("weighing roster rows wiped", 0, db.weighingRosterDao().observeScopeTotal(key).first())
+            assertEquals("weighing individual drafts wiped", 0, db.weighingObservationDao().observeForScope(key).first().size)
+            assertEquals("weighing shed drafts wiped", 0, db.weighingShedObservationDao().observeForScope(key).first().size)
         } finally {
             db.close()
         }
