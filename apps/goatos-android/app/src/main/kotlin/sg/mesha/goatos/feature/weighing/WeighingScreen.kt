@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1026,16 +1028,37 @@ private fun WeighingRosterSheet(
     totalExpected: Int,
     onDismiss: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = MeshaColors.Surf,
         contentColor = MeshaColors.Ink,
-        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        dragHandle = { SheetGrip() },
     ) {
         WeighingRosterSheetContent(
             title = title,
             rows = rows,
             totalExpected = totalExpected,
+        )
+    }
+}
+
+@Composable
+private fun SheetGrip() {
+    Box(
+        modifier = Modifier
+            .padding(top = 10.dp, bottom = 6.dp)
+            .fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(38.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(MeshaColors.Surf3),
         )
     }
 }
@@ -1059,33 +1082,17 @@ private fun WeighingRosterSheetContent(
         }
     }
     Surface(color = MeshaColors.Surf, modifier = Modifier.fillMaxWidth()) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(MeshaColors.Surf3),
+        Column(modifier = Modifier.padding(bottom = 22.dp)) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text(title, color = MeshaColors.Ink, fontSize = 16.sp, fontWeight = FontWeight.W700)
+                Text(
+                    text = rosterSheetSubtitle(filtered.size, totalExpected),
+                    color = MeshaColors.Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-            ) {
-                Text(title, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
-                Spacer(Modifier.width(6.dp))
-                Text("· ${filtered.size}", color = MeshaColors.Muted, style = MeshaType.bodyStrong)
-                if (totalExpected > 0) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("/ $totalExpected", color = MeshaColors.Faint, style = MeshaType.caption)
-                }
-            }
+            Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -1104,7 +1111,11 @@ private fun WeighingRosterSheetContent(
                     body = "Try another tag or shed name.",
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp),
+                ) {
                     items(filtered, key = { it.id }, contentType = { "weighing_roster_row" }) { row ->
                         RosterRow(row)
                     }
@@ -1113,6 +1124,9 @@ private fun WeighingRosterSheetContent(
         }
     }
 }
+
+private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
+    if (totalExpected > 0) "$visibleCount rows visible of $totalExpected kids" else "$visibleCount rows visible"
 
 @Composable
 private fun CaptureProgressTiles(state: WeighingUiState) {
