@@ -43,6 +43,41 @@ type CampaignPage struct {
 	NextCursor string     `json:"next_cursor,omitempty"`
 }
 
+type PlannerCatalog struct {
+	Parks     []PlannerPark     `json:"parks"`
+	Operators []PlannerOperator `json:"operators"`
+}
+
+type PlannerPark struct {
+	ParkID           string           `json:"park_id"`
+	Name             string           `json:"name"`
+	KidCount         int              `json:"kid_count"`
+	Sheds            []PlannerShed    `json:"sheds"`
+	ExistingCampaign *CampaignSummary `json:"existing_campaign,omitempty"`
+}
+
+type PlannerShed struct {
+	LocationID string `json:"location_id"`
+	Name       string `json:"name"`
+	KidCount   int    `json:"kid_count"`
+}
+
+type CampaignSummary struct {
+	CampaignID        string `json:"campaign_id"`
+	Status            string `json:"status"`
+	PeriodStartDate   string `json:"period_start_date"`
+	PeriodEndDate     string `json:"period_end_date"`
+	StartBusinessDate string `json:"start_business_date"`
+	OperatorUserID    string `json:"operator_user_id"`
+	ShedCount         int    `json:"shed_count"`
+}
+
+type PlannerOperator struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	DisplayCode string `json:"display_code"`
+}
+
 type CampaignShed struct {
 	CampaignShedID      string `json:"campaign_shed_id"`
 	CampaignID          string `json:"campaign_id"`
@@ -111,6 +146,8 @@ type CreateCampaign struct {
 	Sheds             []CreateCampaignShed
 	CreatedBy         string
 }
+
+type UpdateCampaign = CreateCampaign
 
 type CreateCampaignShed struct {
 	LocationID       string `json:"location_id"`

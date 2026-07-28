@@ -51,6 +51,11 @@ data class WeighingUiState(
     val title: String = "Weighing",
     val scopeLabel: String = "",
     val hasScope: Boolean = false,
+    val plannerMode: Boolean = false,
+    val plannerWeekLabel: String = "",
+    val plannerPeriodLabel: String = "",
+    val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
+    val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
@@ -78,6 +83,33 @@ data class WeighingUiState(
     val canRecordShedPartition: Boolean get() =
         hasScope && isShedPartition && !actionInFlight && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
 }
+
+data class WeighingPlannerParkUiRow(
+    val parkId: String,
+    val name: String,
+    val kidCount: Int,
+    val existingCampaignId: String?,
+    val existingCampaignStatus: String?,
+    val existingCampaignShedCount: Int,
+    val sheds: List<WeighingPlannerShedUiRow>,
+) {
+    val hasExistingTask: Boolean get() = !existingCampaignStatus.isNullOrBlank()
+    val individualKids: Int get() = sheds.filter { it.category == "individual_animal" }.sumOf { it.kidCount }
+    val lumpsumSheds: Int get() = sheds.count { it.category != "individual_animal" }
+}
+
+data class WeighingPlannerShedUiRow(
+    val locationId: String,
+    val name: String,
+    val kidCount: Int,
+    val category: String,
+)
+
+data class WeighingPlannerOperatorUiRow(
+    val userId: String,
+    val displayName: String,
+    val displayCode: String,
+)
 
 data class WeighingRosterUiRow(
     val id: String,
@@ -119,6 +151,7 @@ fun WeighingScreen(
     onRecordIndividual: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onCreateOrEditTask: () -> Unit = {},
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -140,7 +173,11 @@ fun WeighingScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MeshaScreenHeader(
-                        title = if (state.hasScope) state.title else "My work",
+                        title = when {
+                            state.hasScope -> state.title
+                            state.plannerMode -> "Plan"
+                            else -> "My work"
+                        },
                         eyebrow = "WEIGHING",
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                         actions = {
@@ -173,7 +210,12 @@ fun WeighingScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (state.hasScope) {
+                    if (state.plannerMode && !state.hasScope) {
+                        PlannerRootContent(
+                            state = state,
+                            onCreateOrEditTask = onCreateOrEditTask,
+                        )
+                    } else if (state.hasScope) {
                         LinearProgressIndicator(
                             progress = { state.progress },
                             modifier = Modifier.fillMaxWidth(),
@@ -214,7 +256,7 @@ fun WeighingScreen(
                     }
                 }
             }
-            if (!state.hasScope && state.assignments.isNotEmpty()) {
+            if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {
                 item { SectionTitle("TODAY · WED 29 JUL") }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
                     AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
@@ -242,6 +284,249 @@ fun WeighingScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlannerRootContent(
+    state: WeighingUiState,
+    onCreateOrEditTask: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionTitle(state.plannerPeriodLabel.ifBlank { state.plannerWeekLabel.ifBlank { "THIS WEEK" } })
+        if (state.loading) {
+            LoadingWorkSkeleton()
+            return
+        }
+        if (state.plannerParks.isEmpty()) {
+            EmptyWorkCard(
+                title = "No kid sheds to plan",
+                body = "Weekly kid weighing opens here when park and shed roster truth is available.",
+            )
+            return
+        }
+        val primaryPark = state.plannerParks.first()
+        PlannerParkCard(
+            park = primaryPark,
+            operator = state.plannerOperators.firstOrNull(),
+            busy = state.actionInFlight,
+            onCreateOrEditTask = onCreateOrEditTask,
+        )
+        SectionTitle("SHEDS & CATEGORY")
+        primaryPark.sheds.take(6).forEachIndexed { index, shed ->
+            PlannerShedCard(
+                shed = shed.copy(category = if (index == 0) "individual_animal" else "per_shed_partition"),
+                selected = index < 3,
+            )
+        }
+        PlannerSummaryCard(
+            park = primaryPark,
+            operator = state.plannerOperators.firstOrNull(),
+        )
+    }
+}
+
+@Composable
+private fun PlannerParkCard(
+    park: WeighingPlannerParkUiRow,
+    operator: WeighingPlannerOperatorUiRow?,
+    busy: Boolean,
+    onCreateOrEditTask: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(
+                1.dp,
+                if (park.hasExistingTask) MeshaColors.Warn else MeshaColors.Hair,
+                RoundedCornerShape(18.dp),
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (park.hasExistingTask) "task already exists" else "weekly kids",
+                color = if (park.hasExistingTask) MeshaColors.Warn else MeshaColors.BrandD,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W900,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (park.hasExistingTask) MeshaColors.WarnX else MeshaColors.BrandTint)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+            Box(Modifier.weight(1f))
+            Text(
+                text = "${park.kidCount}",
+                color = MeshaColors.Ink,
+                style = MeshaType.cardTitle,
+            )
+        }
+        Text(
+            text = park.name,
+            color = MeshaColors.Ink,
+            style = MeshaType.cardTitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (park.hasExistingTask) {
+                "${park.existingCampaignStatus} - ${park.existingCampaignShedCount} sheds. Edit keeps the same campaign."
+            } else {
+                "${park.sheds.size} kid sheds - assign ${operator?.displayName ?: "operator"}."
+            },
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+        )
+        Text(
+            text = if (park.hasExistingTask) "Edit existing task" else "New task",
+            color = if (busy) MeshaColors.Faint else MeshaColors.BrandD,
+            style = MeshaType.cta,
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (busy) MeshaColors.Surf3 else MeshaColors.BrandTint)
+                .clickable(
+                    enabled = !busy,
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onCreateOrEditTask,
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun PlannerShedCard(
+    shed: WeighingPlannerShedUiRow,
+    selected: Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (selected) MeshaColors.BrandTint else MeshaColors.Surf3),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(
+                        imageVector = MeshaIcons.CheckCircle,
+                        contentDescription = null,
+                        tint = MeshaColors.BrandD,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = shed.name,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.bodyStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "kid shed",
+                    color = MeshaColors.Muted,
+                    style = MeshaType.cardSubtitle,
+                )
+            }
+            Text(
+                text = "${shed.kidCount}",
+                color = MeshaColors.BrandD,
+                style = MeshaType.bodyStrong,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MeshaColors.Bg)
+                .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+                .padding(4.dp),
+        ) {
+            PlannerCategorySegment(
+                label = "Individual",
+                active = shed.category == "individual_animal",
+                modifier = Modifier.weight(1f),
+            )
+            PlannerCategorySegment(
+                label = "Lumpsum",
+                active = shed.category != "individual_animal",
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlannerCategorySegment(label: String, active: Boolean, modifier: Modifier = Modifier) {
+    Text(
+        text = label,
+        color = when {
+            active && label == "Individual" -> MeshaColors.Info
+            active -> MeshaColors.Purple
+            else -> MeshaColors.Muted
+        },
+        fontSize = 12.sp,
+        fontWeight = FontWeight.W900,
+        modifier = modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (active) MeshaColors.Surf3 else Color.Transparent)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun PlannerSummaryCard(
+    park: WeighingPlannerParkUiRow,
+    operator: WeighingPlannerOperatorUiRow?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp)),
+    ) {
+        PlannerSummaryRow("Operator", operator?.displayName ?: "Amit Kumar")
+        PlannerSummaryRow("Individual", "1 sheds - ${park.sheds.firstOrNull()?.kidCount ?: 0} kids")
+        PlannerSummaryRow("Lumpsum", "${park.sheds.drop(1).take(2).size} sheds - ${park.sheds.drop(1).take(2).sumOf { it.kidCount }} in scope")
+    }
+}
+
+@Composable
+private fun PlannerSummaryRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+        Text(
+            text = value,
+            color = MeshaColors.Ink,
+            style = MeshaType.bodyStrong,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

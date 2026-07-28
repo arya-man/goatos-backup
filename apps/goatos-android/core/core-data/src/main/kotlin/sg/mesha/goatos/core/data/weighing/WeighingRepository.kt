@@ -20,6 +20,9 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignShedDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.util.UUID
@@ -69,6 +72,52 @@ data class WeighingAssignment(
     val periodLabel: String,
 )
 
+data class WeighingPlannerCatalog(
+    val parks: List<WeighingPlannerPark>,
+    val operators: List<WeighingPlannerOperator>,
+)
+
+data class WeighingPlannerPark(
+    val parkId: String,
+    val name: String,
+    val kidCount: Int,
+    val sheds: List<WeighingPlannerShed>,
+    val existingCampaign: WeighingCampaignSummary?,
+)
+
+data class WeighingPlannerShed(
+    val locationId: String,
+    val name: String,
+    val kidCount: Int,
+    val category: String = "per_shed_partition",
+)
+
+data class WeighingCampaignSummary(
+    val campaignId: String,
+    val status: String,
+    val periodStartDate: String,
+    val periodEndDate: String,
+    val startBusinessDate: String,
+    val operatorUserId: String,
+    val shedCount: Int,
+)
+
+data class WeighingPlannerOperator(
+    val userId: String,
+    val displayName: String,
+    val displayCode: String,
+)
+
+data class WeighingPlanDraft(
+    val parkId: String,
+    val periodStartDate: String,
+    val periodEndDate: String,
+    val startBusinessDate: String,
+    val plannedCapPerDay: Int,
+    val operatorUserId: String,
+    val sheds: List<WeighingPlannerShed>,
+)
+
 data class IndividualWeighingCapture(
     val tenantId: String,
     val campaignId: String,
@@ -94,6 +143,9 @@ data class ShedPartitionWeighingCapture(
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
     suspend fun listAssignments(): AppResult<List<WeighingAssignment>>
+    suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
+    suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
+    suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
     suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, limit: Int = 5000): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
@@ -144,6 +196,39 @@ class DefaultWeighingRepository(
             val campaigns = client.listWeighingCampaigns().items
             AppResult.Ok(campaigns.flatMap { it.toAssignments() })
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
+    }
+
+    override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        runCatching {
+            AppResult.Ok(client.getWeighingPlannerCatalog(periodStartDate).toPlannerCatalog())
+        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing planner.") }
+    }
+
+    override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
+        runCatching {
+            val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:${draft.sheds.joinToString(",") { it.locationId }}"
+            val created = client.createWeighingCampaign(
+                idempotencyKey = createIdem,
+                request = draft.toCreateRequest(),
+            ).campaign
+            val publishIdem = "weighing:publish:${created.campaignId}"
+            val published = client.publishWeighingCampaign(created.campaignId, publishIdem).campaign
+            AppResult.Ok(published.toAssignments().firstOrNull())
+        }.getOrElse { AppResult.Err(it.message ?: "Could not publish weighing plan.") }
+    }
+
+    override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        if (campaignId.isBlank()) return@withContext AppResult.Err("Existing weighing task is missing.")
+        if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
+        runCatching {
+            val updateIdem = "weighing:update:$campaignId:${draft.periodStartDate}:${draft.sheds.joinToString(",") { "${it.locationId}:${it.category}" }}"
+            val updated = client.updateWeighingCampaign(campaignId, updateIdem, draft.toCreateRequest()).campaign
+            AppResult.Ok(updated.toAssignments().firstOrNull())
+        }.getOrElse { AppResult.Err(it.message ?: "Could not update weighing plan.") }
     }
 
     override suspend fun refreshScope(
@@ -459,6 +544,60 @@ private fun WeighingRosterRowDto.toEntity(scopeKey: String, workGroupId: String,
         availabilityStatus = availabilityStatus,
         seq = seq,
         updatedAt = System.currentTimeMillis(),
+    )
+
+private fun WeighingPlannerCatalogResponseDto.toPlannerCatalog(): WeighingPlannerCatalog =
+    WeighingPlannerCatalog(
+        parks = parks.map { park ->
+            WeighingPlannerPark(
+                parkId = park.parkId,
+                name = park.name,
+                kidCount = park.kidCount,
+                sheds = park.sheds.map { shed ->
+                    WeighingPlannerShed(
+                        locationId = shed.locationId,
+                        name = shed.name,
+                        kidCount = shed.kidCount,
+                    )
+                },
+                existingCampaign = park.existingCampaign?.let { existing ->
+                    WeighingCampaignSummary(
+                        campaignId = existing.campaignId,
+                        status = existing.status,
+                        periodStartDate = existing.periodStartDate,
+                        periodEndDate = existing.periodEndDate,
+                        startBusinessDate = existing.startBusinessDate,
+                        operatorUserId = existing.operatorUserId,
+                        shedCount = existing.shedCount,
+                    )
+                },
+            )
+        },
+        operators = operators.map {
+            WeighingPlannerOperator(
+                userId = it.userId,
+                displayName = it.displayName,
+                displayCode = it.displayCode,
+            )
+        },
+    )
+
+private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDto =
+    WeighingCreateCampaignRequestDto(
+        parkId = parkId,
+        periodStartDate = periodStartDate,
+        periodEndDate = periodEndDate,
+        startBusinessDate = startBusinessDate,
+        plannedCapPerDay = plannedCapPerDay,
+        operatorUserId = operatorUserId,
+        sheds = sheds.map {
+            WeighingCreateCampaignShedDto(
+                locationId = it.locationId,
+                locationType = "shed",
+                displayName = it.name,
+                weighingCategory = it.category,
+            )
+        },
     )
 
 private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =

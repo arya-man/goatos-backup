@@ -78,8 +78,11 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
@@ -326,6 +329,25 @@ interface AppApi {
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns. */
     suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
+    /** GET /app/weighing/planner/catalog — leadership planner vocabulary for weekly kids task creation. */
+    suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto
+
+    suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto
 
     /** GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster — active scope RFID roster. */
     suspend fun getWeighingRoster(
@@ -974,6 +996,25 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         )
 
     override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+
+    override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
+        WeighingPlannerCatalogResponseDto()
+
+    override suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
+
+    override suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
+
+    override suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
 
     override suspend fun getWeighingRoster(
         campaignId: String,

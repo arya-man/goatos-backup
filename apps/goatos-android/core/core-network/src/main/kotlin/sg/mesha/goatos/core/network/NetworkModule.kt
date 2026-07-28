@@ -18,6 +18,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.PUT
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
@@ -92,8 +93,11 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
@@ -208,6 +212,30 @@ interface AppApiService {
 
     @GET("app/weighing/campaigns")
     suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+
+    @GET("app/weighing/planner/catalog")
+    suspend fun getWeighingPlannerCatalog(
+        @Query("period_start_date") periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto
+
+    @POST("weighing/campaigns")
+    suspend fun createWeighingCampaign(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    @PUT("weighing/campaigns/{campaign_id}")
+    suspend fun updateWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    @POST("weighing/campaigns/{campaign_id}/publish")
+    suspend fun publishWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): WeighingCampaignResponseDto
 
     @GET("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster")
     suspend fun getWeighingRoster(
@@ -666,6 +694,25 @@ class RetrofitAppApi(
 
     override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
         service.listWeighingCampaigns()
+
+    override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
+        service.getWeighingPlannerCatalog(periodStartDate)
+
+    override suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = service.createWeighingCampaign(idempotencyKey, request)
+
+    override suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = service.updateWeighingCampaign(campaignId, idempotencyKey, request)
+
+    override suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto = service.publishWeighingCampaign(campaignId, idempotencyKey)
 
     override suspend fun getWeighingRoster(
         campaignId: String,

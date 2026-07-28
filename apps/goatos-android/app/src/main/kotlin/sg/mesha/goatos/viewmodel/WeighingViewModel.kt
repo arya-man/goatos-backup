@@ -22,27 +22,41 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
+import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
+import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
+import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.ui.Routes
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
 class WeighingViewModel @Inject constructor(
     private val repository: WeighingRepository,
+    private val bootstrapRepository: BootstrapRepository,
     private val reader: RfidReaderPort,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
@@ -65,9 +79,12 @@ class WeighingViewModel @Inject constructor(
     private val weightInput = MutableStateFlow("")
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
+    private val plannerMode = MutableStateFlow(false)
+    private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private val loadingAssignments = MutableStateFlow(false)
+    private val plannerWeek = WeighingWeek.current()
     private var readerRefreshJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -85,9 +102,24 @@ class WeighingViewModel @Inject constructor(
             WeighingFormState(scan, weight, selected, currentMessage, busy)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
+    private val rootState: StateFlow<WeighingRootState> =
+        combine(assignments, loadingAssignments, plannerMode, plannerCatalog) { availableAssignments, loading, isPlanner, catalog ->
+            WeighingRootState(availableAssignments, loading, isPlanner, catalog)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
+
     val state: StateFlow<WeighingUiState> =
-        combine(scopeState, formState, assignments, loadingAssignments) { scope, form, availableAssignments, loading ->
-            scope.toUiState(form.scan, form.weight, form.selected, form.message, form.busy, availableAssignments, loading)
+        combine(scopeState, formState, rootState) { scope, form, root ->
+            scope.toUiState(
+                scan = form.scan,
+                weight = form.weight,
+                selected = form.selected,
+                currentMessage = form.message,
+                busy = form.busy,
+                availableAssignments = root.assignments,
+                loading = root.loading,
+                isPlanner = root.plannerMode,
+                catalog = root.catalog,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
@@ -118,13 +150,25 @@ class WeighingViewModel @Inject constructor(
                 }
             }
         } else {
-            refreshAssignments()
+            viewModelScope.launch {
+                val isOperator = runCatching { bootstrapRepository.operatorProfile() != null }.getOrDefault(false)
+                plannerMode.value = !isOperator
+                if (isOperator) {
+                    refreshAssignments()
+                } else {
+                    refreshPlanner()
+                }
+            }
         }
     }
 
     fun refresh() {
         if (scopeKey == null) {
-            refreshAssignments()
+            if (plannerMode.value) {
+                refreshPlanner()
+            } else {
+                refreshAssignments()
+            }
         } else {
             refreshScope()
         }
@@ -139,6 +183,87 @@ class WeighingViewModel @Inject constructor(
                 when (val loaded = repository.listAssignments()) {
                     is AppResult.Ok -> {
                         assignments.value = loaded.value
+                        message.value = null
+                    }
+                    is AppResult.Err -> reportReadFailure(loaded.message)
+                }
+            } finally {
+                loadingAssignments.value = false
+            }
+        }
+    }
+
+    fun createOrEditDefaultPlan() {
+        if (scopeKey != null || actionInFlight.value) return
+        val catalog = plannerCatalog.value
+        if (catalog == null) {
+            message.value = "Planner is still loading."
+            refreshPlanner()
+            return
+        }
+        val park = catalog.parks.firstOrNull()
+        if (park == null) {
+            message.value = "No kid parks are available for this week."
+            return
+        }
+        val operator = catalog.operators.firstOrNull()
+        if (operator == null) {
+            message.value = "No weighing operator is available to assign."
+            return
+        }
+        val selectedSheds = park.sheds
+            .filter { it.kidCount > 0 }
+            .take(3)
+            .mapIndexed { index, shed ->
+                shed.copy(category = if (index == 0) INDIVIDUAL_ANIMAL_CATEGORY else PER_SHED_PARTITION_CATEGORY)
+            }
+        if (selectedSheds.isEmpty()) {
+            message.value = "Select at least one kid shed."
+            return
+        }
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                val draft = WeighingPlanDraft(
+                    parkId = park.parkId,
+                    periodStartDate = plannerWeek.startDate,
+                    periodEndDate = plannerWeek.endDate,
+                    startBusinessDate = plannerWeek.startDate,
+                    plannedCapPerDay = DEFAULT_PLANNED_CAP_PER_DAY,
+                    operatorUserId = operator.userId,
+                    sheds = selectedSheds,
+                )
+                val result = park.existingCampaign?.campaignId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { repository.updatePlan(it, draft) }
+                    ?: repository.createAndPublishPlan(draft)
+                when (result) {
+                    is AppResult.Ok -> {
+                        message.value = if (park.existingCampaign == null) {
+                            "Published ${park.name}: ${selectedSheds.size} shed tasks assigned to ${operator.displayName}."
+                        } else {
+                            "Updated ${park.name}: same campaign, ${selectedSheds.size} shed tasks assigned to ${operator.displayName}."
+                        }
+                        refreshPlanner()
+                        refreshAssignments()
+                    }
+                    is AppResult.Err -> message.value = result.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    private fun refreshPlanner() {
+        if (scopeKey != null) return
+        if (loadingAssignments.value) return
+        loadingAssignments.value = true
+        viewModelScope.launch {
+            try {
+                when (val loaded = repository.plannerCatalog(plannerWeek.startDate)) {
+                    is AppResult.Ok -> {
+                        plannerCatalog.value = loaded.value
                         message.value = null
                     }
                     is AppResult.Err -> reportReadFailure(loaded.message)
@@ -401,6 +526,8 @@ class WeighingViewModel @Inject constructor(
         busy: Boolean,
         availableAssignments: List<WeighingAssignment>,
         loading: Boolean,
+        isPlanner: Boolean,
+        catalog: WeighingPlannerCatalog?,
     ): WeighingUiState {
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
@@ -409,6 +536,34 @@ class WeighingViewModel @Inject constructor(
             assignments = availableAssignments.map { it.toUiRow() },
             loading = loading,
             category = category,
+            plannerMode = isPlanner,
+            plannerWeekLabel = plannerWeek.label,
+            plannerPeriodLabel = plannerWeek.periodLabel,
+            plannerParks = catalog?.parks.orEmpty().map { park ->
+                WeighingPlannerParkUiRow(
+                    parkId = park.parkId,
+                    name = park.name,
+                    kidCount = park.kidCount,
+                    existingCampaignId = park.existingCampaign?.campaignId,
+                    existingCampaignStatus = park.existingCampaign?.status?.readableWeighingStatus(),
+                    existingCampaignShedCount = park.existingCampaign?.shedCount ?: 0,
+                    sheds = park.sheds.map { shed ->
+                        WeighingPlannerShedUiRow(
+                            locationId = shed.locationId,
+                            name = shed.name,
+                            kidCount = shed.kidCount,
+                            category = shed.category,
+                        )
+                    },
+                )
+            },
+            plannerOperators = catalog?.operators.orEmpty().map { operator ->
+                WeighingPlannerOperatorUiRow(
+                    userId = operator.userId,
+                    displayName = operator.displayName,
+                    displayCode = operator.displayCode,
+                )
+            },
         )
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
@@ -467,6 +622,7 @@ class WeighingViewModel @Inject constructor(
         const val INDIVIDUAL_ANIMAL_CATEGORY = "individual_animal"
         const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
         const val MAX_ANALYTICS_REASON_CHARS = 96
+        const val DEFAULT_PLANNED_CAP_PER_DAY = 100
     }
 }
 
@@ -509,3 +665,34 @@ private data class WeighingFormState(
     val message: String? = null,
     val busy: Boolean = false,
 )
+
+private data class WeighingRootState(
+    val assignments: List<WeighingAssignment> = emptyList(),
+    val loading: Boolean = false,
+    val plannerMode: Boolean = false,
+    val catalog: WeighingPlannerCatalog? = null,
+)
+
+private data class WeighingWeek(
+    val startDate: String,
+    val endDate: String,
+    val label: String,
+    val periodLabel: String,
+) {
+    companion object {
+        private val isoFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+        private val shortFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+
+        fun current(today: LocalDate = LocalDate.now(ZoneId.of("Asia/Kolkata"))): WeighingWeek {
+            val start = today.with(DayOfWeek.MONDAY)
+            val end = start.plusDays(6)
+            val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
+            return WeighingWeek(
+                startDate = start.format(isoFormatter),
+                endDate = end.format(isoFormatter),
+                label = "Week $week",
+                periodLabel = "Week $week - ${start.format(shortFormatter)}-${end.format(shortFormatter)}",
+            )
+        }
+    }
+}
