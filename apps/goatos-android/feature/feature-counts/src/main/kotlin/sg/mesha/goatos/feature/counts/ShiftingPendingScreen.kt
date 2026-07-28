@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
@@ -30,6 +33,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
+import kotlinx.coroutines.delay
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -128,6 +133,7 @@ fun ShiftingActionsScreen(
             subtitle = stringResource(R.string.counts_shifting_actions_subtitle),
             onBack = { onEvent(ShiftingPendingEvent.Back) },
             actions = {
+                ShiftingPreviousActionsAlert(state.previousDates, onEvent)
                 SyncIconButton(
                     isSyncing = state.isRefreshing,
                     onSync = { onEvent(ShiftingPendingEvent.Refresh) },
@@ -156,16 +162,6 @@ fun ShiftingActionsScreen(
             isOffline = state.isOffline,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
-        if (state.previousDates.isNotEmpty()) {
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(MeshaIcons.Bell, "Previous shifting actions", tint = MeshaColors.Warn, modifier = Modifier.size(24.dp))
-                state.previousDates.forEach { previous ->
-                    Text("${previous.dateLabel} · ${previous.actionCount}", color = MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.W700,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(MeshaColors.WarnX)
-                            .clickable { onEvent(ShiftingPendingEvent.OpenPreviousDate(previous.dateIso)) }.padding(horizontal = 12.dp, vertical = 5.dp))
-                }
-            }
-        }
         state.submissionNotice?.let {
             Text(
                 text = it,
@@ -200,6 +196,96 @@ fun ShiftingActionsScreen(
                         if (row.primaryActionKey == "execute") onEvent(ShiftingPendingEvent.OpenMovement(row.shiftingEventId))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShiftingPreviousActionsAlert(
+    dates: List<ShiftingPreviousDateUi>,
+    onEvent: (ShiftingPendingEvent) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(5_000)
+            expanded = false
+        }
+    }
+    Box {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MeshaColors.WarnX)
+                .clickable { expanded = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Bell,
+                contentDescription = stringResource(R.string.counts_shifting_previous_actions_open),
+                tint = MeshaColors.Warn,
+                modifier = Modifier.size(21.dp),
+            )
+            if (dates.isNotEmpty()) {
+                Text(
+                    text = dates.sumOf { it.actionCount }.coerceAtMost(99).toString(),
+                    color = MeshaColors.OnBrand,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.W800,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 3.dp, end = 3.dp)
+                        .clip(CircleShape)
+                        .background(MeshaColors.Danger)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Text(
+                text = stringResource(R.string.counts_shifting_previous_actions_title),
+                color = MeshaColors.Ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W800,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (dates.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.counts_shifting_previous_actions_empty),
+                    color = MeshaColors.Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
+            dates.forEach { item ->
+                DropdownMenuItem(
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(item.dateLabel, color = MeshaColors.Ink, fontWeight = FontWeight.W700)
+                            Text(
+                                text = stringResource(
+                                    R.string.counts_shifting_previous_actions_count,
+                                    item.actionCount,
+                                ),
+                                color = MeshaColors.Warn,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onEvent(ShiftingPendingEvent.OpenPreviousDate(item.dateIso))
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = MeshaIcons.Calendar,
+                            contentDescription = null,
+                            tint = MeshaColors.Warn,
+                        )
+                    },
+                )
             }
         }
     }

@@ -42,6 +42,10 @@
     <!-- Shifting screen -->
     <string name="counts_shifting_actions_title">ಸ್ಥಳಾಂತರ</string>
     <string name="counts_shifting_actions_subtitle">ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_open">ಹಿಂದಿನ ದಿನಗಳ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳನ್ನು ತೋರಿಸಿ</string>
+    <string name="counts_shifting_previous_actions_title">ಹಿಂದಿನ ದಿನಗಳ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_count">%1$d ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_empty">ಹಿಂದಿನ ದಿನಗಳ ಯಾವುದೇ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳಿಲ್ಲ.</string>
     <string name="counts_shifting_raise">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_title">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_subtitle">ಒಂದು ಪ್ರಾಣಿಯನ್ನು ಇನ್ನೊಂದು ಶೆಡ್‌ಗೆ ಸ್ಥಳಾಂತರಿಸಿ</string>

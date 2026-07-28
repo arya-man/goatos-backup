@@ -42,6 +42,10 @@
     <!-- Shifting screen -->
     <string name="counts_shifting_actions_title">తరలింపు</string>
     <string name="counts_shifting_actions_subtitle">చర్యలు</string>
+    <string name="counts_shifting_previous_actions_open">గత రోజుల తరలింపు చర్యలను చూపండి</string>
+    <string name="counts_shifting_previous_actions_title">గత రోజుల తరలింపు చర్యలు</string>
+    <string name="counts_shifting_previous_actions_count">%1$d తరలింపు చర్యలు</string>
+    <string name="counts_shifting_previous_actions_empty">గత రోజుల తరలింపు చర్యలు లేవు.</string>
     <string name="counts_shifting_raise">తరలింపును నమోదు చేయండి</string>
     <string name="counts_shifting_title">తరలింపును నమోదు చేయండి</string>
     <string name="counts_shifting_subtitle">ఒక జంతువును మరో షెడ్‌కు తరలించండి</string>
