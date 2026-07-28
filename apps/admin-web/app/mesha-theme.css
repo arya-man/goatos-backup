@@ -1222,13 +1222,20 @@
   .ev:hover{border-color:var(--brand);transform:translateY(-1px)}
   .ev.celllink{text-decoration:none;color:inherit;display:block}
   .drivelink{display:block;width:fit-content;max-width:100%;text-decoration:none;color:inherit;margin-bottom:8px}
-  .drive-card{min-width:min(100%,360px);padding:9px 12px;gap:8px}
-  .drive-card .dhd{padding-bottom:8px;border-bottom:1px solid var(--line2)}
+  .drive-card{min-width:min(100%,360px);padding:10px 12px;gap:8px}
+  .drive-card .dhd{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--line2)}
+  .drive-card .dhd b{min-width:0;overflow-wrap:anywhere;line-height:1.25}
+  .drive-card .dhd span{white-space:nowrap}
   .drive-card .prow{display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px;margin-top:0}
   .drive-card .dring{width:48px;height:48px}
-  .drive-card .ptx{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
-  .drive-card .ptx > div:first-child{grid-column:1/-1}
-  .drive-card .chips{margin-top:0;padding-top:7px;border-top:1px solid var(--line2)}
+  .drive-card .ptx{display:flex;min-width:0;flex-direction:column;gap:5px;align-items:flex-start}
+  .drive-card .ptx > div:first-child{min-width:0;max-width:100%;white-space:nowrap}
+  .drive-card .submitted-strip{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:11.5px;font-weight:800;line-height:1;color:var(--warn)}
+  .drive-card .submitted-strip span{display:inline-flex;align-items:center;min-height:20px;padding:3px 7px;border:1px solid color-mix(in srgb,var(--warn) 34%,var(--line));border-radius:6px;background:var(--warnx)}
+  .drive-card .vaccine-chip-row{display:flex;flex-wrap:wrap;gap:5px;max-width:100%;min-width:0;margin-top:0;padding-top:7px;border-top:1px solid var(--line2)}
+  .drive-card .vaccine-chip{display:inline-flex;align-items:center;max-width:140px;min-height:20px;padding:3px 7px;border:1px solid var(--line2);border-radius:6px;background:#1e2822;color:var(--muted);font-size:10.5px;font-weight:800;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drive-card .vaccine-chip-more{max-width:none;color:var(--brand-d);background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 34%,var(--line2))}
+  .drive-card .chips{margin-top:0;padding-top:0;border-top:0}
   .drive-card .dft{margin-top:0;padding-top:7px}
   .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dhd b{font-size:14px}
