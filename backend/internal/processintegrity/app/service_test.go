@@ -239,8 +239,10 @@ func TestControlTowerAlertDetailDoesNotLeakRawWorkState(t *testing.T) {
 	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
 	row := processRow("raw-gap-type", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)
 	row.ParkName = "Channapatna"
-	row.ShedName = "Godel 1"
+	row.ShedName = "Chain Proof Main 1785220938"
 	row.GapType = "verification_pending"
+	blocker := "Operator assignment required before execution"
+	row.BlockerReason = &blocker
 	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
 
 	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
@@ -250,11 +252,14 @@ func TestControlTowerAlertDetailDoesNotLeakRawWorkState(t *testing.T) {
 	if len(got.Alerts) != 1 {
 		t.Fatalf("alerts = %+v", got.Alerts)
 	}
-	if got.Alerts[0].Detail != "Channapatna / Godel 1" {
+	if got.Alerts[0].Detail != "Channapatna / Chain Proof Main" {
 		t.Fatalf("detail = %q, want location-only executive copy", got.Alerts[0].Detail)
 	}
 	if strings.Contains(got.Alerts[0].Detail, "verification_pending") {
 		t.Fatalf("detail leaked raw work state: %q", got.Alerts[0].Detail)
+	}
+	if strings.Contains(got.Alerts[0].Detail, blocker) {
+		t.Fatalf("detail leaked operational blocker copy: %q", got.Alerts[0].Detail)
 	}
 }
 
