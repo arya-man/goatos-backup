@@ -94,7 +94,7 @@ fun CaptureAccessGate(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "A vaccination drive can't be scanned or proven without these. Grant the access below to continue.",
+            "This work can't be scanned or proven without these. Grant the access below to continue.",
             color = MeshaColors.Muted,
             fontSize = 13.sp,
         )

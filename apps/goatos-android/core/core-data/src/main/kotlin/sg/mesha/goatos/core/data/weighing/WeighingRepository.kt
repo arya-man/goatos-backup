@@ -530,7 +530,7 @@ private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
         observationId = observationId,
         animalId = animalId,
         weightKg = weightKg,
-        proofReady = !serverProofId.isNullOrBlank(),
+        proofReady = !proofCaptureId.isNullOrBlank(),
         readyToSubmit = syncStatus == WeighingSyncStatus.READY_TO_SUBMIT.name ||
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
@@ -540,7 +540,7 @@ private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
     ShedWeighingDraft(
         shedObservationId = shedObservationId,
         resultJson = resultJson,
-        proofReady = !serverProofId.isNullOrBlank(),
+        proofReady = !proofCaptureId.isNullOrBlank(),
         readyToSubmit = syncStatus == WeighingSyncStatus.READY_TO_SUBMIT.name ||
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,

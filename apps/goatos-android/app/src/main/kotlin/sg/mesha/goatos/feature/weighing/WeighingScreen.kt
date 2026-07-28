@@ -84,11 +84,15 @@ data class WeighingUiState(
 ) {
     val isShedPartition: Boolean get() = category == "per_shed_partition"
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
+    val individualResolved: Int get() = maxOf(
+        individualCompleted,
+        visibleRows.count { it.isResolved },
+    )
     val shedCompleted: Int get() = shedDrafts.count { it.readyToSubmit }
     val progress: Float get() = when {
         isShedPartition -> if (shedCompleted > 0) 1f else 0f
         totalExpected <= 0 -> 0f
-        else -> individualCompleted.toFloat() / totalExpected.toFloat()
+        else -> individualResolved.toFloat() / totalExpected.toFloat()
     }
     val canRecordIndividual: Boolean get() =
         hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
@@ -138,7 +142,14 @@ data class WeighingRosterUiRow(
     val status: String,
     val availabilityStatus: String?,
     val wrongShed: Boolean,
-)
+) {
+    val isResolved: Boolean
+        get() = status.equals("weighed", ignoreCase = true) ||
+            status.equals("completed", ignoreCase = true) ||
+            status.equals("accepted", ignoreCase = true) ||
+            availabilityStatus.equals("unavailable", ignoreCase = true) ||
+            !availabilityStatus.isNullOrBlank()
+}
 
 data class WeighingAssignmentUiRow(
     val campaignId: String,
@@ -260,7 +271,7 @@ fun WeighingScreen(
                             )
                         } else {
                             Text(
-                                text = "${state.individualCompleted}/${state.totalExpected} individual weights ready",
+                                text = "${state.individualResolved}/${state.totalExpected} roster rows resolved",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MeshaColors.Muted,
                             )
@@ -1130,10 +1141,10 @@ private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
 
 @Composable
 private fun CaptureProgressTiles(state: WeighingUiState) {
-    val done = if (state.isShedPartition) state.shedCompleted else state.individualCompleted
+    val done = if (state.isShedPartition) state.shedCompleted else state.individualResolved
     val total = if (state.isShedPartition) 1 else state.totalExpected
     val pending = (total - done).coerceAtLeast(0)
-    val proofNeeded = state.individualDrafts.count { !it.proofReady } + state.shedDrafts.count { !it.proofReady }
+    val proofReady = state.individualDrafts.count { it.proofReady } + state.shedDrafts.count { it.proofReady }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1153,10 +1164,10 @@ private fun CaptureProgressTiles(state: WeighingUiState) {
             modifier = Modifier.weight(1f),
         )
         CaptureMetricTile(
-            value = proofNeeded.toString(),
+            value = proofReady.toString(),
             label = "Proof",
-            selected = proofNeeded == 0 && done > 0,
-            tone = if (proofNeeded > 0) MeshaColors.Warn else MeshaColors.BrandD,
+            selected = proofReady > 0,
+            tone = MeshaColors.BrandD,
             modifier = Modifier.weight(1f),
         )
     }
