@@ -600,6 +600,52 @@ func TestProtocolAdherenceKeepsConcurrentRulesOnSelectedDriveDate(t *testing.T) 
 	}
 }
 
+func TestProtocolAdherenceDoesNotMixSameDaySiblingDriveScope(t *testing.T) {
+	due := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	selectedBatch := "70000000-0000-4000-8000-000000000001"
+	selectedPartition := "2"
+	siblingBatch := "70000000-0000-4000-8000-000000000002"
+	siblingPartition := "3"
+	operatorID := "80000000-0000-4000-8000-000000000001"
+	selectedDone := processRow("selected-done", domain.WorkStateCompleted, domain.SeverityOK, due)
+	selectedDone.RuleID = "rule-ppr"
+	selectedDone.BatchID = &selectedBatch
+	selectedDone.PartitionLabel = &selectedPartition
+	selectedDone.Owner.OperatorID = &operatorID
+	selectedDone.ExpectedCount = 80
+	selectedDone.CompletedCount = 80
+	selectedDone.ProcessIntact = true
+	selectedPending := processRow("selected-pending", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
+	selectedPending.RuleID = "rule-booster"
+	selectedPending.BatchID = &selectedBatch
+	selectedPending.PartitionLabel = &selectedPartition
+	selectedPending.Owner.OperatorID = &operatorID
+	selectedPending.ExpectedCount = 40
+	selectedPending.CompletedCount = 0
+	selectedPending.ProcessIntact = false
+	sibling := processRow("same-day-sibling", domain.WorkStateCompleted, domain.SeverityOK, due)
+	sibling.RuleID = "rule-ppr"
+	sibling.BatchID = &siblingBatch
+	sibling.PartitionLabel = &siblingPartition
+	sibling.ExpectedCount = 999
+	sibling.CompletedCount = 999
+	sibling.ProcessIntact = true
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows: []domain.Row{selectedDone, selectedPending, sibling},
+	}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if got.Summary.ExpectedCount != 120 || got.Summary.CompletedCount != 80 || got.Summary.OpenGapCount != 1 {
+		t.Fatalf("summary=%+v, want selected same-day drive scope only", got.Summary)
+	}
+	if len(got.Rows) != 2 || got.Rows[0].RowID != "selected-done" || got.Rows[1].RowID != "selected-pending" {
+		t.Fatalf("rows=%+v, want selected drive rows only", got.Rows)
+	}
+}
+
 func TestProtocolAdherenceAsOfDoesNotSelectFutureDrive(t *testing.T) {
 	asOf := time.Date(2026, 7, 21, 18, 29, 59, 0, time.UTC)
 	historyDue := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
