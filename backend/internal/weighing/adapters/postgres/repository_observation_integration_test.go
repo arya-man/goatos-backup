@@ -136,6 +136,34 @@ func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.
 	}
 }
 
+func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	setCampaignStatus(t, ctx, pool, domain.StatusDelayed)
+	repo := NewRepository(pool, 5*time.Second)
+
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.4,
+		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:delayed", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record delayed animal observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	assertCampaignStatus(t, ctx, pool, domain.StatusDelayed)
+
+	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:delayed", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record delayed shed observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
+}
+
 func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
