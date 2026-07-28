@@ -28,10 +28,23 @@ function alertId(record: ControlTowerDrawerRecord): string {
 }
 
 function evidenceSummary(alert: ControlTowerAlert, pageContract: AdminUiPageContract): string {
-  const state = optionLabel(pageContract, "work_state_filter_chips", alert.work_state);
-  const detail = alert.detail.trim();
-  if (detail) return `${state} proof - ${detail}`;
-  return state || copy(pageContract, "label.not_ready");
+  switch (alert.work_state) {
+    case "verification_pending":
+      return copy(pageContract, "evidence.verification_pending");
+    case "proof_pending":
+      return copy(pageContract, "evidence.proof_pending");
+    case "rejected":
+      return copy(pageContract, "evidence.rejected");
+    case "blocked":
+      return copy(pageContract, "evidence.blocked");
+    case "overdue":
+    case "missed":
+      return copy(pageContract, "evidence.late");
+    case "completed":
+      return copy(pageContract, "evidence.completed");
+    default:
+      return optionLabel(pageContract, "work_state_filter_chips", alert.work_state) || copy(pageContract, "label.not_ready");
+  }
 }
 
 export function ControlTowerLocalDrawer({

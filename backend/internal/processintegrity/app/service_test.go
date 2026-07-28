@@ -235,6 +235,29 @@ func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	}
 }
 
+func TestControlTowerAlertDetailDoesNotLeakRawWorkState(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("raw-gap-type", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)
+	row.ParkName = "Channapatna"
+	row.ShedName = "Godel 1"
+	row.GapType = "verification_pending"
+	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+
+	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	if len(got.Alerts) != 1 {
+		t.Fatalf("alerts = %+v", got.Alerts)
+	}
+	if got.Alerts[0].Detail != "Channapatna / Godel 1" {
+		t.Fatalf("detail = %q, want location-only executive copy", got.Alerts[0].Detail)
+	}
+	if strings.Contains(got.Alerts[0].Detail, "verification_pending") {
+		t.Fatalf("detail leaked raw work state: %q", got.Alerts[0].Detail)
+	}
+}
+
 func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r2", domain.WorkStateDeferred, domain.SeverityWatch, due)
