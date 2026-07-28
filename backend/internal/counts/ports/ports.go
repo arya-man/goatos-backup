@@ -40,6 +40,11 @@ var (
 	// completion transaction is rolled back, so the movement stays authorized for a human rather
 	// than half-applying.
 	ErrShiftingExecutionIncomplete = errors.New("counts: shifting completion did not relocate every named animal")
+	// ErrShiftingDestinationSnapshotMissing is returned when an authorized shifting row predates
+	// destination-profile snapshot columns or otherwise lacks the approval-time destination
+	// profile/stage snapshot. Completion fails closed so the movement can be re-approved against
+	// the current shed profile instead of silently adopting a changed profile.
+	ErrShiftingDestinationSnapshotMissing = errors.New("counts: shifting destination profile snapshot missing; re-approval required")
 
 	// ErrGoatNotFound is returned when a goat id named by a shifting request does not resolve to a
 	// live, non-merged animal in the caller's tenant. It fails the write CLOSED rather than
