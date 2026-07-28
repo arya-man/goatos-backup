@@ -398,11 +398,6 @@ private fun ProfileScreenPreview() {
                         valueEmphasis = true,
                     ),
                     SettingRow(
-                        kind = SettingKind.TIMETABLE,
-                        title = "Timetable",
-                        subtitle = "Shift roster (read-only)",
-                    ),
-                    SettingRow(
                         kind = SettingKind.SIGN_OUT,
                         title = "Sign out",
                     ),

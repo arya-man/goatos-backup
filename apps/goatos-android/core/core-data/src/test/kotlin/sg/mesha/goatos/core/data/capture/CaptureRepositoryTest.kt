@@ -118,6 +118,7 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.ACCEPTED,
                 tagRole = RfidScanTagRole.PRIMARY,
                 reason = null,
+                capturedAtMs = 10_001L,
             )
             repo.recordAttempt(
                 taskId = "task-1",
@@ -128,14 +129,18 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.DUPLICATE,
                 tagRole = RfidScanTagRole.SECONDARY,
                 reason = "goat_already_scanned",
+                capturedAtMs = 10_002L,
             )
 
             val attempts = repo.attemptsForTask("task-1")
             assertEquals(listOf("901007000504418", "901007000504419"), attempts.map { it.tag })
             assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), attempts.map { it.outcome })
+            assertEquals(listOf(10_001L, 10_002L), attempts.map { it.capturedAtMs })
             assertEquals(2, sync.attemptCalls.size)
             assertEquals("scan-attempt:task-1:attempt-0", sync.attemptCalls[0].idempotencyKey)
             assertEquals("scan-attempt:task-1:attempt-1", sync.attemptCalls[1].idempotencyKey)
+            assertEquals(10_001L, sync.attemptCalls[0].request.capturedAtMs)
+            assertEquals(10_002L, sync.attemptCalls[1].request.capturedAtMs)
             assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
             assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {

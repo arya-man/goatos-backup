@@ -223,7 +223,6 @@ fun WeighingScreen(
             onSelectAnimal = onSelectAnimal,
             onRecordIndividual = onRecordIndividual,
             onRecordShedPartition = onRecordShedPartition,
-            onOpenRoster = { rosterSheetOpen = true },
             onRefresh = onRefresh,
             onBack = onBack,
             modifier = modifier,
@@ -1180,46 +1179,41 @@ private fun WeighingExecutionScanScreen(
     onSelectAnimal: (String) -> Unit,
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
-    onOpenRoster: () -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var weightSheetOpen by remember { mutableStateOf(false) }
-    if (weightSheetOpen) {
-        WeighingWeightSheet(
-            state = state,
-            onWeightChange = onWeightChange,
-            onRecordIndividual = {
-                weightSheetOpen = false
-                onRecordIndividual()
-            },
-            onRecordShedPartition = {
-                weightSheetOpen = false
-                onRecordShedPartition()
-            },
-            onDismiss = { weightSheetOpen = false },
-        )
-    }
+    var selectedFilter by remember { mutableStateOf<ScanStatus?>(null) }
+    var rosterExpanded by remember { mutableStateOf(false) }
     ScanScreen(
-        state = state.toScanUiState(),
+        state = state.toScanUiState(
+            selectedFilter = selectedFilter,
+            rosterExpanded = rosterExpanded,
+        ),
         onEvent = { event ->
             when (event) {
                 ScanEvent.Back -> onBack()
                 ScanEvent.Tap -> {
                     if (state.isShedPartition) {
-                        weightSheetOpen = true
+                        onRecordShedPartition()
                     } else {
                         onScanSubmit()
                     }
                 }
-                ScanEvent.OpenList -> onOpenRoster()
-                is ScanEvent.OpenTile -> onOpenRoster()
-                ScanEvent.Submit -> weightSheetOpen = true
+                ScanEvent.OpenList -> rosterExpanded = !rosterExpanded
+                is ScanEvent.OpenTile -> {
+                    selectedFilter = if (selectedFilter == event.status) null else event.status
+                }
+                ScanEvent.Submit -> {
+                    if (state.isShedPartition) {
+                        onRecordShedPartition()
+                    } else {
+                        onRecordIndividual()
+                    }
+                }
                 ScanEvent.ReconnectReader -> onRefresh()
                 is ScanEvent.CaptureProof -> {
                     onSelectAnimal(event.goatId)
-                    weightSheetOpen = true
                 }
                 else -> Unit
             }
@@ -1228,38 +1222,47 @@ private fun WeighingExecutionScanScreen(
     )
 }
 
-private fun WeighingUiState.toScanUiState(): ScanUiState {
-    val done = if (isShedPartition) shedCompleted else individualResolved
+private fun WeighingUiState.toScanUiState(
+    selectedFilter: ScanStatus? = null,
+    rosterExpanded: Boolean = false,
+): ScanUiState {
     val total = if (isShedPartition) 1 else totalExpected
-    val pending = (total - done).coerceAtLeast(0)
     val proofReady = individualDrafts.count { it.proofReady } + shedDrafts.count { it.proofReady }
     val proofMissing = individualDrafts.count { !it.proofReady } + shedDrafts.count { !it.proofReady }
     val rows = visibleRows.map { row ->
-        RosterRow(
-            primaryTag = row.displayAnimalId,
-            secondaryTag = row.actualLocationLabel?.takeIf { row.wrongShed },
-            vaccineLabel = row.weighingScanLabel(),
-            status = when {
-                row.status.equals("Weighed", ignoreCase = true) -> ScanStatus.DONE
+        val draft = individualDrafts.firstOrNull { it.animalId == row.animalId }
+        val rowStatus = when {
+            row.availabilityStatus.equals("unavailable", ignoreCase = true) ||
                 row.status.equals("Unavailable", ignoreCase = true) -> ScanStatus.SKIPPED
-                else -> ScanStatus.PENDING
-            },
+            row.status.equals("Weighed", ignoreCase = true) || draft != null -> ScanStatus.DONE
+            else -> ScanStatus.PENDING
+        }
+        RosterRow(
+            primaryTag = row.displayAnimalId.compactWeighingTag(),
+            secondaryTag = row.actualLocationLabel?.takeIf { row.wrongShed },
+            vaccineLabel = row.weighingScanLabel(draft),
+            status = rowStatus,
             goatId = row.animalId,
             proofRequired = !isShedPartition,
-            proofClipCount = individualDrafts.count { it.animalId == row.animalId && it.proofReady },
-            proofUploadStatus = individualDrafts
-                .firstOrNull { it.animalId == row.animalId }
+            proofClipCount = if (draft?.proofReady == true) 1 else 0,
+            proofUploadStatus = draft
                 ?.let { if (it.proofReady) ProofUploadStatus.SYNCED else ProofUploadStatus.MISSING }
                 ?: ProofUploadStatus.MISSING,
         )
     }
+    val visibleDone = rows.count { it.status == ScanStatus.DONE }
+    val visibleSkipped = rows.count { it.status == ScanStatus.SKIPPED }
+    val done = if (isShedPartition) shedCompleted else maxOf(individualCompleted, visibleDone)
+    val skipped = if (isShedPartition) 0 else visibleSkipped
+    val pending = (total - done - skipped).coerceAtLeast(0)
     val proofRows = individualDrafts
         .filter { !it.readyToSubmit }
         .map { draft ->
             RosterRow(
                 primaryTag = draft.label.substringBefore(" - "),
                 secondaryTag = null,
-                vaccineLabel = if (draft.proofReady) "Weight saved · proof uploading" else "Add video proof",
+                vaccineLabel = draft.weightLabel("Weight saved") +
+                    if (draft.proofReady) " · proof uploading" else " · video required",
                 status = ScanStatus.DONE,
                 goatId = draft.animalId,
                 proofRequired = true,
@@ -1289,7 +1292,7 @@ private fun WeighingUiState.toScanUiState(): ScanUiState {
         ),
         doneCount = done,
         pendingCount = pending,
-        skippedCount = visibleRows.count { it.status.equals("Unavailable", ignoreCase = true) },
+        skippedCount = skipped,
         tileLabels = ScanTileLabels(
             done = if (isShedPartition) "Recorded" else "Done",
             pending = "Pending",
@@ -1300,10 +1303,17 @@ private fun WeighingUiState.toScanUiState(): ScanUiState {
             .take(4)
             .map { row ->
                 ScanFeedEntry(
-                    primaryTag = row.displayAnimalId,
+                    primaryTag = row.displayAnimalId.compactWeighingTag(),
                     secondaryTag = row.actualLocationLabel?.takeIf { row.wrongShed },
-                    vaccineLabel = row.weighingScanLabel(),
-                    status = if (row.status.equals("Unavailable", ignoreCase = true)) ScanStatus.SKIPPED else ScanStatus.DONE,
+                    vaccineLabel = row.weighingScanLabel(individualDrafts.firstOrNull { it.animalId == row.animalId }),
+                    status = if (
+                        row.availabilityStatus.equals("unavailable", ignoreCase = true) ||
+                        row.status.equals("Unavailable", ignoreCase = true)
+                    ) {
+                        ScanStatus.SKIPPED
+                    } else {
+                        ScanStatus.DONE
+                    },
                     tone = if (row.wrongShed) ScanFeedTone.REJECTED else ScanFeedTone.ACCEPTED,
                 )
             },
@@ -1311,11 +1321,11 @@ private fun WeighingUiState.toScanUiState(): ScanUiState {
         listTitle = if (isShedPartition) "Shed proof and result" else "Tap pending to select kid, weight and proof",
         submitLabel = when {
             isShedPartition && shedCompleted > 0 -> "View shed result"
-            isShedPartition -> "Record shed result"
+            isShedPartition -> "Add shed camera clip"
             selectedAnimalId.isNullOrBlank() -> "Select pending animal"
-            else -> "Add weight + video"
+            else -> "Add camera clip"
         },
-        canSubmit = isShedPartition || !selectedAnimalId.isNullOrBlank(),
+        canSubmit = if (isShedPartition) canRecordShedPartition else canRecordIndividual,
         scanEnabled = !isShedPartition,
         captureAccessRequired = true,
         footNote = if (isShedPartition) {
@@ -1324,8 +1334,8 @@ private fun WeighingUiState.toScanUiState(): ScanUiState {
             "${proofReady} proof ready · ${proofMissing} waiting for upload"
         },
         isRefreshing = loading,
-        selectedFilter = null,
-        rosterExpanded = false,
+        selectedFilter = selectedFilter,
+        rosterExpanded = rosterExpanded,
         proofActionNeeded = proofRows,
         readerConnection = ScanReaderConnection(
             readerName = if (isShedPartition) "Camera proof" else "RFID reader",
@@ -1336,11 +1346,136 @@ private fun WeighingUiState.toScanUiState(): ScanUiState {
     )
 }
 
-private fun WeighingRosterUiRow.weighingScanLabel(): String = buildString {
-    append(status)
-    availabilityStatus?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
-    actualLocationLabel?.takeIf { it.isNotBlank() && it != expectedLocationLabel }?.let {
-        append(" · current ").append(it)
+private fun WeighingRosterUiRow.weighingScanLabel(draft: WeighingDraftUiRow? = null): String = buildString {
+    when {
+        availabilityStatus.equals("unavailable", ignoreCase = true) -> append("Unavailable")
+        draft != null -> append(draft.weightLabel("Weight saved"))
+        status.equals("Weighed", ignoreCase = true) -> append("Weighed")
+        else -> append(status)
+    }
+    if (draft != null) {
+        append(if (draft.proofReady) " · video ready" else " · video required")
+    }
+    actualLocationLabel?.takeIf { wrongShed && it.isNotBlank() && it != expectedLocationLabel }?.let {
+        append(" · ").append(it)
+    }
+}
+
+private fun WeighingDraftUiRow.weightLabel(fallback: String): String =
+    label.substringAfter(" - ", missingDelimiterValue = "")
+        .takeIf { it.isNotBlank() }
+        ?: fallback
+
+private fun WeighingRosterUiRow.weighingDetails(draft: WeighingDraftUiRow?): List<String> =
+    buildList {
+        add("Expected shed: $expectedLocationLabel")
+        actualLocationLabel
+            ?.takeIf { it.isNotBlank() && it != expectedLocationLabel }
+            ?.let { add("Current shed: $it") }
+        draft?.label
+            ?.substringAfter(" - ", missingDelimiterValue = "")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { add("Weight: $it") }
+        if (draft != null) {
+            add(if (draft.proofReady) "Video proof: ready" else "Video proof: required")
+        } else if (!availabilityStatus.equals("unavailable", ignoreCase = true)) {
+            add("Weight and animal video pending")
+        }
+    }
+
+private fun String.compactWeighingTag(): String =
+    replace("\n", "")
+        .replace(" ", "")
+        .takeIf { it.length > 14 }
+        ?.let { "${it.take(6)}…${it.takeLast(4)}" }
+        ?: this
+
+@Composable
+private fun WeighingScanCaptureCard(
+    state: WeighingUiState,
+    onWeightChange: (String) -> Unit,
+    onRecordIndividual: () -> Unit,
+    onRecordShedPartition: () -> Unit,
+) {
+    val selectedLabel = when {
+        state.isShedPartition -> state.scopeLabel.ifBlank { state.title.ifBlank { "Selected shed" } }
+        !state.selectedAnimalLabel.isNullOrBlank() -> state.selectedAnimalLabel
+        else -> null
+    }
+    val canSave = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (state.isShedPartition) MeshaColors.PurpleX else MeshaColors.BrandTint),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "KG",
+                    color = if (state.isShedPartition) MeshaColors.Purple else MeshaColors.Brand,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+            Spacer(Modifier.width(11.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (state.isShedPartition) "Shed weight + proof" else "Animal weight + proof",
+                    color = MeshaColors.Ink,
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = selectedLabel ?: "Tap Pending, then scan or select an animal.",
+                    color = if (selectedLabel == null) MeshaColors.Faint else MeshaColors.Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
+        }
+        OutlinedTextField(
+            value = state.weightInput,
+            onValueChange = onWeightChange,
+            label = { Text(if (state.isShedPartition) "Total weight" else "Weight") },
+            suffix = { Text("kg") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = if (state.isShedPartition) {
+                "One shed video is mandatory before this result can be submitted."
+            } else {
+                "One animal video is mandatory for every saved weight."
+            },
+            color = MeshaColors.Muted,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        ActionButton(
+            text = if (state.isShedPartition) "Add shed camera clip" else "Add camera clip",
+            enabled = canSave,
+            onClick = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
+            modifier = Modifier.fillMaxWidth(),
+            primary = true,
+        )
     }
 }
 

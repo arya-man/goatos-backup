@@ -215,6 +215,7 @@ interface ScanAttemptRepository {
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long? = null,
     )
 
     suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow>
@@ -241,12 +242,13 @@ class DefaultScanAttemptRepository(
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long?,
     ) {
         val trimmed = tag.trim()
         val normalized = normalizeTag(trimmed)
         if (trimmed.isEmpty() || normalized.isEmpty()) return
         val id = idGenerator()
-        val capturedAtMs = clock()
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
         val idempotencyKey = "scan-attempt:$taskId:$id"
         val entity = RfidScanAttemptEntity(
             id = id,
@@ -259,7 +261,7 @@ class DefaultScanAttemptRepository(
             outcome = outcome.wireValue,
             tagRole = tagRole.wireValue,
             reason = reason?.takeIf { it.isNotBlank() },
-            capturedAtMs = capturedAtMs,
+            capturedAtMs = durableCapturedAtMs,
             syncStatus = EntitySyncStatus.PENDING.name,
             idempotencyKey = idempotencyKey,
         )
@@ -278,7 +280,7 @@ class DefaultScanAttemptRepository(
                 outcome = outcome.wireValue,
                 tagRole = tagRole.wireValue,
                 reason = reason?.takeIf { it.isNotBlank() },
-                capturedAtMs = capturedAtMs,
+                capturedAtMs = durableCapturedAtMs,
             ),
         )
     }

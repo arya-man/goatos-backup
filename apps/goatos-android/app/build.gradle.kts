@@ -268,6 +268,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.material.icons.extended)
+    debugImplementation(libs.showkase)
+    debugImplementation(libs.showkase.annotation)
 
     // In-app LIVE camera video capture for proof recording. Shed-level proof may also use the
     // Android gallery picker when the backend SOP explicitly allows it; CameraX still backs the
@@ -281,6 +284,16 @@ dependencies {
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+}
+
+configurations.matching { configuration ->
+    configuration.name in setOf("kspDevDebug", "kspStgDebug", "kspProdDebug")
+}.configureEach {
+    project.dependencies.add(name, libs.showkase.processor)
+}
+
+ksp {
+    arg("skipPrivatePreviews", "true")
 }
 
 baselineProfile {

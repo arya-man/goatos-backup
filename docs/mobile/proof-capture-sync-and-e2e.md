@@ -119,6 +119,31 @@ videos. Nothing is "submitted" straight to the network.
   key persisted with the row, so retries never double-post (see AGENTS.md write-path
   idempotency rule).
 
+### 3a. Proof idempotency guardrail
+
+Do not rework proof upload grouping or replacement without preserving the past
+shed-proof hardening fixes.
+
+- A proof upload's **idempotency key belongs to one captured clip**, not to a
+  shed, task, goat, or "latest proof" slot. Retrying that upload must reuse the
+  same key and the same payload. Re-recording/replacing proof must create a new
+  proof row with a new proof-upload idempotency key.
+- The outbox `groupKey` is only an ordering/concurrency partition. Changing it
+  must not change the idempotency key, payload fingerprint, subject, scope, or
+  server proof identity of an existing row.
+- Same idempotency key with different subject/scope/payload is a bug. Android's
+  outbox rejects it via request fingerprint; backend proof creation also rejects
+  it via proof request fingerprint.
+- Never delete a local proof row/file just because the UI wants to replace it.
+  If the upload is queued or failed, cancel/retry through the outbox. If it is
+  in flight, refuse deletion until it settles. If it is already synced, delete
+  the server proof artifact first, and keep the local row if server deletion
+  fails or the proof is already attached to a submission.
+- Shed-level proof and per-animal proof may use different `groupKey`s for field
+  throughput, but both must keep one stable idempotency key per captured video.
+  Do not "fix" ordering by reusing a shed/task-level proof key across multiple
+  clips; that recreates the shed-submit idempotency loop.
+
 ## 4. Mandatory permissions gate
 
 Capture needs camera, Bluetooth (HID + connect/scan), location (BT dependency on

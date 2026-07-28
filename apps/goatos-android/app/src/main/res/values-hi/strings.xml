@@ -20,6 +20,12 @@
     <string name="proof_camera_feed_packing_instruction">चारा पैकिंग का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_feed_transport_title">चारा परिवहन वीडियो</string>
     <string name="proof_camera_feed_transport_instruction">इस शेड तक चारा पहुँचाते हुए वास्तविक समय में रिकॉर्ड करें</string>
+    <string name="proof_camera_recording_title">प्रमाण वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_auto_opened">लाइव प्रमाण के लिए कैमरा अपने आप खुला</string>
+    <string name="proof_camera_live_proof">लाइव प्रमाण</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">रिकॉर्डिंग रोकें</string>
+    <string name="proof_camera_start_label">रिकॉर्डिंग शुरू करें</string>
     <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
     <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
     <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>

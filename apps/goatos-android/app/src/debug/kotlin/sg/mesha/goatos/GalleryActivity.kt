@@ -8,8 +8,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
@@ -44,6 +52,7 @@ import sg.mesha.goatos.ui.sampleScanState
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.sampleSubmitState
 import sg.mesha.goatos.ui.sampleTimetableState
+import sg.mesha.goatos.feature.weighing.WeighingScreen
 
 /**
  * Debug-only screenshot harness. Renders a single screen with mock-matching sample fixture data
@@ -52,7 +61,7 @@ import sg.mesha.goatos.ui.sampleTimetableState
  *
  *   adb shell am start -n sg.mesha.goatos.dev/sg.mesha.goatos.GalleryActivity -e screen calendar
  *
- * screen in login|calendar|calendar_coverage|sheds|scan|submit|record|rfid|alerts|you|timetable
+ * screen in gallery|login|calendar|calendar_coverage|sheds|scan|submit|record|rfid|alerts|you|timetable
  */
 class GalleryActivity : ComponentActivity() {
     private lateinit var rfidReader: KeyboardWedgeRfidReader
@@ -64,13 +73,17 @@ class GalleryActivity : ComponentActivity() {
         requestBlePermissionsIfNeeded()
         rfidReader = KeyboardWedgeRfidReader(this)
         bleScanner = BleRfidScanner(this)
-        val initialScreen = intent.getStringExtra("screen")?.lowercase() ?: "calendar"
+        val initialScreen = intent.getStringExtra("screen")?.lowercase() ?: "gallery"
         setContent {
             GoatOsTheme {
                 ProvideAppLocale {
                     var screen by remember { mutableStateOf(initialScreen) }
                     Box(Modifier.fillMaxSize().background(MeshaColors.Bg)) {
                         when (screen) {
+                            "gallery" -> GalleryIndex(
+                                cases = edgeCaseGalleryCases(),
+                                onOpen = { screen = it },
+                            )
                             "login" -> LoginScreen(onSignInEmail = { _, _ -> }, onGoogle = {}, onForgotPassword = {})
                             "calendar" -> CalendarScreen(state = sampleCalendarState())
                             "calendar_coverage" -> CalendarScreen(state = sampleCalendarWithCoverageState())
@@ -81,7 +94,41 @@ class GalleryActivity : ComponentActivity() {
                                     if (event == ScanEvent.ReconnectReader) screen = "rfid"
                                 },
                             )
+                            "scan_two_tags_two_vaccines" -> ScanScreen(state = galleryScanTwoTagsTwoVaccines())
+                            "scan_duplicate" -> ScanScreen(state = galleryScanDuplicateTag())
+                            "scan_unknown" -> ScanScreen(state = galleryScanUnknownTag())
+                            "scan_wrong_shed" -> ScanScreen(state = galleryScanWrongShed())
+                            "scan_proof_missing" -> ScanScreen(state = galleryScanProofMissing())
+                            "scan_proof_uploading" -> ScanScreen(state = galleryScanProofUploading())
+                            "scan_proof_failed" -> ScanScreen(state = galleryScanProofFailed())
+                            "scan_proof_synced" -> ScanScreen(state = galleryScanProofSynced())
+                            "scan_offline_queued" -> ScanScreen(state = galleryScanOfflineQueued())
+                            "scan_font_overflow" -> ScanScreen(state = galleryScanFontOverflowStress())
+                            "scan_pending_sheet" -> GalleryBottomSheetCase(title = "Pending", rows = galleryBottomSheetRows("pending"))
+                            "scan_done_sheet" -> GalleryBottomSheetCase(title = "Done", rows = galleryBottomSheetRows("done"))
+                            "scan_skipped_sheet" -> GalleryBottomSheetCase(title = "Skipped", rows = galleryBottomSheetRows("skipped"))
+                            "scan_camera_one_vaccine" -> GalleryAutoProofCameraFrame(
+                                title = "Recording proof",
+                                stateLabel = "RFID accepted",
+                                primaryTag = "901007000504418",
+                                secondaryTag = null,
+                                vaccineLabel = "ET+TT",
+                                hint = "Keep the animal tag and vaccination visible. Stop when the proof is clear.",
+                            )
+                            "scan_camera_two_tags_two_vaccines" -> GalleryAutoProofCameraFrame(
+                                title = "Recording proof",
+                                stateLabel = "RFID accepted · 2 tags matched",
+                                primaryTag = "901007000504407",
+                                secondaryTag = "901007000504407B",
+                                vaccineLabel = "ET+TT · PPR",
+                                hint = "One clip covers both due vaccines for this animal.",
+                            )
                             "submit" -> SubmitScreen(state = sampleSubmitState())
+                            "submit_offline_queued" -> SubmitScreen(state = gallerySubmitOfflineQueued())
+                            "weighing_individual" -> WeighingScreen(state = galleryWeighingIndividualProof())
+                            "weighing_lumpsum" -> WeighingScreen(state = galleryWeighingLumpsumProof())
+                            "weighing_wrong_shed" -> WeighingScreen(state = galleryWeighingWrongShed())
+                            "weighing_offline_queued" -> WeighingScreen(state = galleryWeighingOfflineQueued())
                             "overview" -> ShedsScreen(state = sampleShedsState())
                             "record" -> RecordScreen(state = sampleRecordState())
                             "rfid" -> BleRfidScannerScreen(
@@ -123,6 +170,33 @@ class GalleryActivity : ComponentActivity() {
         }
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 77)
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun GalleryIndex(cases: List<GalleryCase>, onOpen: (String) -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 24.dp),
+    ) {
+        item {
+            Text(
+                text = "Preview cases",
+                color = MeshaColors.Ink,
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+        }
+        items(cases) { item ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(item.key) }
+                    .padding(vertical = 12.dp),
+            ) {
+                Text(item.label, color = MeshaColors.Ink, style = MaterialTheme.typography.titleMedium)
+                Text(item.group, color = MeshaColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
