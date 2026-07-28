@@ -796,9 +796,11 @@ fun AppNavHost(
                     onScanInputChange = vm::onScanInputChange,
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
+                    onSelectAnimal = vm::selectAnimal,
                     onRecordIndividual = vm::recordIndividual,
                     onRecordShedPartition = vm::recordShedPartition,
                     onRefresh = vm::refresh,
+                    onBack = { navController.popBackStack() },
                 )
             }
         }

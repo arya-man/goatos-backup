@@ -339,6 +339,17 @@ class WeighingViewModel @Inject constructor(
         weightInput.value = value.filter { it.isDigit() || it == '.' }.take(8)
     }
 
+    fun selectAnimal(animalId: String) {
+        if (scopeKey == null || animalId.isBlank()) return
+        val row = scopeState.value
+            ?.rosterWindow
+            ?.firstOrNull { it.animalId == animalId || it.id == animalId }
+            ?: return
+        selectedRow.value = row
+        scanInput.value = row.primaryTag
+        message.value = "Selected ${row.displayAnimalId}. Enter weight, then capture video."
+    }
+
     fun submitTypedScan() {
         val tag = scanInput.value
         if (tag.isNotBlank()) matchTag(tag)
@@ -570,6 +581,23 @@ class WeighingViewModel @Inject constructor(
         catalog: WeighingPlannerCatalog?,
         selections: Map<String, String>,
     ): WeighingUiState {
+        if (this == null && scopeKey != null) {
+            return WeighingUiState(
+                title = routeTitle.ifBlank { "Weighing" },
+                scopeLabel = expectedLocationLabel
+                    .ifBlank { routeTitle }
+                    .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
+                hasScope = true,
+                scanInput = scan,
+                weightInput = weight,
+                selectedAnimalId = selected?.animalId,
+                selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
+                message = currentMessage,
+                actionInFlight = busy,
+                loading = true,
+                category = category,
+            )
+        }
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
             weightInput = weight,
@@ -625,6 +653,7 @@ class WeighingViewModel @Inject constructor(
             visibleRows = scope.rosterWindow.map { row ->
                 WeighingRosterUiRow(
                     id = row.id,
+                    animalId = row.animalId,
                     displayAnimalId = row.displayAnimalId,
                     expectedLocationLabel = row.expectedLocationLabel,
                     actualLocationLabel = row.actualLocationLabel,
@@ -645,6 +674,7 @@ class WeighingViewModel @Inject constructor(
                     ?: "Matched animal"
                 WeighingDraftUiRow(
                     id = draft.observationId,
+                    animalId = draft.animalId,
                     label = "$animalLabel - ${draft.weightKg} kg",
                     proofReady = draft.proofReady,
                     readyToSubmit = draft.readyToSubmit,
