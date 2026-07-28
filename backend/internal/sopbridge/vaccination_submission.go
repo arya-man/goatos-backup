@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
@@ -95,6 +97,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	var earliest time.Time
 	var shedID *string
 	var parkID *string
+	shedLabels := make(map[string]string)
 	for _, completion := range completions {
 		if completion.GoatID == "" {
 			continue
@@ -110,6 +113,13 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		}
 		if shedID == nil && completion.ShedID != "" {
 			shedID = stringPtr(completion.ShedID)
+		}
+		if completion.ShedID != "" {
+			label := strings.TrimSpace(completion.ShedLabel)
+			if label == "" || strings.HasPrefix(label, "-") {
+				label = completion.ShedID
+			}
+			shedLabels[completion.ShedID] = label
 		}
 		if parkID == nil && completion.ParkID != "" {
 			parkID = stringPtr(completion.ParkID)
@@ -129,7 +139,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		by := submission.SubmittedBy
 		operatorID = &by
 	}
-	subjectLabel := fmt.Sprintf("%d goats", len(byGoat))
+	subjectLabel := vaccinationSubjectLabel(len(byGoat), shedLabels)
 	_, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     tenantID,
 		Vertical:     "preventive_care",
@@ -154,6 +164,33 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		return fmt.Errorf("create submission verification item %s: %w", submissionID, err)
 	}
 	return nil
+}
+
+func vaccinationSubjectLabel(goatCount int, shedLabels map[string]string) string {
+	animalSummary := fmt.Sprintf("%d goats", goatCount)
+	if len(shedLabels) == 0 {
+		return animalSummary
+	}
+	if len(shedLabels) == 1 {
+		for _, label := range shedLabels {
+			label = strings.TrimSpace(label)
+			if label == "" {
+				return animalSummary
+			}
+			return label + " · " + animalSummary
+		}
+	}
+	labels := make([]string, 0, len(shedLabels))
+	for _, label := range shedLabels {
+		if label = strings.TrimSpace(label); label != "" {
+			labels = append(labels, label)
+		}
+	}
+	sort.Strings(labels)
+	if len(labels) == 2 {
+		return strings.Join(labels, " + ") + " · " + animalSummary
+	}
+	return fmt.Sprintf("%d sheds · %s", len(shedLabels), animalSummary)
 }
 
 func uniqueStrings(values []string) []string {

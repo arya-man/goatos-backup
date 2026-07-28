@@ -1213,6 +1213,66 @@ func TestRetrySubmissionFanoutsFailsClosedAfterRecordingFailure(t *testing.T) {
 	}
 }
 
+func TestRetrySubmissionFanoutsContinuesAfterPoisonRow(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	failingSubmissionID := "65000000-0000-4000-8000-000000000001"
+	successSubmissionID := "65000000-0000-4000-8000-000000000002"
+	repo.submissions = []domain.SubmissionSummary{
+		{
+			SubmissionID: failingSubmissionID,
+			TaskID:       testTaskID,
+			SubmittedBy:  testActorID,
+			State:        "accepted",
+		},
+		{
+			SubmissionID: successSubmissionID,
+			TaskID:       testTaskID,
+			SubmittedBy:  testActorID,
+			State:        "accepted",
+		},
+	}
+	repo.submissionFanouts = []ports.SubmissionFanoutAttempt{
+		{
+			TenantID:     testTenantID,
+			TaskID:       testTaskID,
+			SubmissionID: failingSubmissionID,
+			ActorID:      testActorID,
+		},
+		{
+			TenantID:     testTenantID,
+			TaskID:       testTaskID,
+			SubmissionID: successSubmissionID,
+			ActorID:      testActorID,
+		},
+	}
+	hook := &fakeSubmissionHook{errBySubmission: map[string]error{
+		failingSubmissionID: errors.New("poison submission"),
+	}}
+	service := NewService(repo).WithSubmissionHook(hook)
+
+	applied, err := service.RetrySubmissionFanouts(context.Background(), testTenantID, 10)
+	if err == nil {
+		t.Fatal("RetrySubmissionFanouts() expected aggregate error")
+	}
+	if applied != 1 {
+		t.Fatalf("applied = %d, want 1", applied)
+	}
+	if hook.submitted != 2 {
+		t.Fatalf("submission hook calls = %d, want 2", hook.submitted)
+	}
+	if len(repo.recordedSubmissionFanouts) != 2 {
+		t.Fatalf("recorded submission fanouts = %#v", repo.recordedSubmissionFanouts)
+	}
+	if got := repo.recordedSubmissionFanouts[0]; got.SubmissionID != failingSubmissionID || got.Status != "failed" {
+		t.Fatalf("first recorded fanout = %#v, want failed poison row", got)
+	}
+	if got := repo.recordedSubmissionFanouts[1]; got.SubmissionID != successSubmissionID || got.Status != "completed" {
+		t.Fatalf("second recorded fanout = %#v, want completed repairable row", got)
+	}
+}
+
 func TestRetryReviewFanoutsSupersedesStaleRows(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.State = "needs_review"
@@ -1830,12 +1890,18 @@ func (f *fakeReviewFanout) OnTaskReworked(context.Context, string, string, strin
 }
 
 type fakeSubmissionHook struct {
-	submitted int
-	err       error
+	submitted       int
+	err             error
+	errBySubmission map[string]error
 }
 
-func (f *fakeSubmissionHook) OnTaskSubmitted(context.Context, string, domain.TaskSummary, domain.SubmissionSummary) error {
+func (f *fakeSubmissionHook) OnTaskSubmitted(_ context.Context, _ string, _ domain.TaskSummary, submission domain.SubmissionSummary) error {
 	f.submitted++
+	if f.errBySubmission != nil {
+		if err := f.errBySubmission[submission.SubmissionID]; err != nil {
+			return err
+		}
+	}
 	return f.err
 }
 

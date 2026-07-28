@@ -122,6 +122,7 @@ type Owner struct {
 type Evidence struct {
 	ProofIDs              []string    `json:"proof_ids"`
 	Media                 []MediaItem `json:"media,omitempty"`
+	MediaResolutionError  *string     `json:"media_resolution_error,omitempty"`
 	EvidenceCount         int         `json:"evidence_count"`
 	LatestEvidenceAt      *time.Time  `json:"latest_evidence_at,omitempty"`
 	LatestRejectionReason *string     `json:"latest_rejection_reason,omitempty"`
@@ -150,13 +151,14 @@ type Row struct {
 	SOPSubmissionID *string `json:"sop_submission_id,omitempty"`
 	CompletionID    *string `json:"completion_id,omitempty"`
 
-	ParkID      string  `json:"park_id"`
-	ParkName    string  `json:"park_name"`
-	ShedID      string  `json:"shed_id"`
-	ShedName    string  `json:"shed_name"`
-	CohortID    *string `json:"cohort_id,omitempty"`
-	GoatID      *string `json:"goat_id,omitempty"`
-	AnimalStage string  `json:"animal_stage"`
+	ParkID         string  `json:"park_id"`
+	ParkName       string  `json:"park_name"`
+	ShedID         string  `json:"shed_id"`
+	ShedName       string  `json:"shed_name"`
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	CohortID       *string `json:"cohort_id,omitempty"`
+	GoatID         *string `json:"goat_id,omitempty"`
+	AnimalStage    string  `json:"animal_stage"`
 
 	ProtocolID        string  `json:"protocol_id"`
 	ProtocolVersionID string  `json:"protocol_version_id"`
@@ -221,6 +223,7 @@ type Query struct {
 	Cursor             *Cursor
 	IncludeCompleted   bool
 	OnlyBrokenOrAtRisk bool
+	ScopeLatestDrive   bool
 	// IncludeAdherenceSummary asks the repository to compute Protocol Adherence
 	// KPIs over the full filtered set, not only the current page.
 	IncludeAdherenceSummary bool
@@ -273,6 +276,8 @@ type AdherenceSummary struct {
 
 type AdherenceRow struct {
 	RowID                   string             `json:"row_id"`
+	ShedName                string             `json:"shed_name"`
+	PartitionLabel          *string            `json:"partition_label,omitempty"`
 	Expected                string             `json:"expected"`
 	Actual                  string             `json:"actual"`
 	Gap                     string             `json:"gap"`
@@ -314,10 +319,16 @@ type ControlTowerAlert struct {
 	WorkState               WorkState          `json:"work_state"`
 	Title                   string             `json:"title"`
 	Detail                  string             `json:"detail"`
+	ScopeLabel              string             `json:"scope_label"`
+	EvidenceSummary         string             `json:"evidence_summary"`
+	ProofSummary            string             `json:"proof_summary"`
+	ProofState              ProofState         `json:"proof_state"`
+	VerificationState       VerificationState  `json:"verification_state"`
 	ParkID                  string             `json:"park_id"`
 	ParkName                string             `json:"park_name"`
 	ShedID                  string             `json:"shed_id"`
 	ShedName                string             `json:"shed_name"`
+	PartitionLabel          *string            `json:"partition_label,omitempty"`
 	DriveName               *string            `json:"drive_name,omitempty"`
 	Owner                   Owner              `json:"owner"`
 	NextAction              string             `json:"next_action"`

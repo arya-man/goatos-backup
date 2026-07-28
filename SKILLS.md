@@ -50,6 +50,21 @@ Reference docs inside (progressive disclosure — load only what the change touc
 .agents/skills/goatos-code-review/references/business-rules.md    # vaccination/obligation/feed/org rule fidelity
 ```
 
+Operational read model contract:
+
+```text
+docs/architecture/operational-read-model-contract.md
+```
+
+Load this contract whenever a change touches Calendar, Control Tower, Action
+Center, Protocol Adherence, Workflows, admin-web detail pages, Android
+execution/proof screens, OpenAPI/generated clients, or any new vertical/module
+such as shifting, counts, breeding, weighing, feed, or procurement. It is the
+default pattern for pluggable verticals: canonical facts -> grain-explicit
+operational read model -> shared surface adapters. Discoverability/static-text
+guard:
+`make operational-read-model-contract-guard`.
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a
@@ -93,6 +108,21 @@ Before starting work, read **`docs/ai/agent-tool-routing.md`**:
 - **Cursor** — admin-web UI, mock fidelity, small single-file fixes.
 - **Claude Code** (`claude` in repo root) — OpenAPI, backend engine, migrations,
   sqlc, protocol/scheduling, multi-module refactors.
+
+## Android UI Preview And Screenshots
+
+For Android Compose UI work, load the visual workflow before coding:
+
+```text
+apps/goatos-android/docs/ui-preview-and-screenshots.md
+```
+
+Use Showkase debug fixtures for fast mock-state review on device/emulator and
+Paparazzi snapshots for committed PR regression evidence. Add fixtures for edge
+cases before handoff: empty/loading/offline, duplicate/unknown/wrong-shed scans,
+two RFID tags, multiple vaccines, proof missing/uploading/failed/synced, and
+role-specific navigation. Production mobile copy must never leak internal terms
+such as Room, outbox, idempotency, API, local, localhost, debug, or fixture.
 
 ## STG Deploy Routing
 
@@ -193,6 +223,12 @@ After implementing any phase:
 - Admin-web/operator UI copy/options/navigation/table/filter/chip/drawer truth is
   backend-contract owned; see `AGENTS.md`, `apps/admin-web/AGENTS.md`, and
   `context/frontend/admin-web-backend-ui-contract.md` before frontend work.
+- Mobile/frontend user-facing copy must never leak implementation/debug/test/
+  roadmap language. CEO/director/operator UI should use business language only;
+  keep `V1`, `Room`, `outbox`, `idempotency`, `backend`, `API`, `mock`,
+  `localhost`, and similar technical words in docs/tests/logs, not screens. Load
+  `.agents/skills/goatos-build/references/frontend-mobile.md` for the full copy
+  firewall before touching Compose/React UI.
 - Hooks call shared scripts in `tools/agent-hooks/`.
 - CI is the hard gate; hooks are fast feedback.
 - Do not create many skills up front. Add a new skill only when the trigger is
@@ -223,6 +259,6 @@ lens when its trigger matches:
 
 Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,
 `mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`,
-`domain-event-architecture-guard`, …) are
+`domain-event-architecture-guard`, `operational-read-model-contract-guard`, …) are
 registered in `tools/ci/guardrail-manifest.json` and wired into `make guardrails`
 / `tools/ci/run-local-ci.sh`.

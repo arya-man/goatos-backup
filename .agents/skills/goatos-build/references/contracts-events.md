@@ -11,6 +11,7 @@ Canonical docs:
 - `docs/decisions/calendar-ownership.md`
 - `context/architecture/operational-kernel.md`
 - `context/architecture/final-architecture.md`
+- `docs/architecture/operational-read-model-contract.md`
 
 Contract families:
 
@@ -69,6 +70,13 @@ Operational kernel contracts:
 - Read-model contracts must expose enough state for command lenses to answer:
   expected process, followed/broken status, owner, next action, due time,
   evidence, reminder state, escalation state, and history.
+- Operational read-model contracts must also declare grain and bucket semantics:
+  animal vs obligation vs completion/proof/verification vs shed/partition/drive/
+  park-day/task/alert. Summary fields are whole-result aggregates unless named
+  `page_*`; row pagination must not change summary truth. Backend structs,
+  OpenAPI, generated TypeScript clients, Android DTOs, admin-web renderers, and
+  mobile renderers move together. See
+  `docs/architecture/operational-read-model-contract.md`.
 
 Calendar contract rule:
 

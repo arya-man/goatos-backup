@@ -296,6 +296,7 @@ class ShedsViewModel @Inject constructor(
         )
         val totals = executionCounts(rowsForSelectedDay)
         val visibleWindowTotals = executionCounts(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay))
+        val pageComplete = nextCursor.isNullOrBlank()
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
@@ -319,13 +320,13 @@ class ShedsViewModel @Inject constructor(
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
             shedCount = rowsForSelectedDay.map { it.shedId }.distinct().size,
-            dueCount = totals.open,
-            doneCount = totals.done,
+            dueCount = if (pageComplete) totals.open else 0,
+            doneCount = if (pageComplete) totals.done else 0,
             shedCountLabel = "${shedRows.size} sheds",
-            dueLabel = "${totals.open} open",
-            dayProgressLabel = percentLabel(totals.done, totals.target),
-            dayProgressFraction = fraction(totals.done, totals.target),
-            daySummary = "${totals.done} / ${totals.target} done",
+            dueLabel = if (pageComplete) "${totals.open} open" else "More rows available",
+            dayProgressLabel = if (pageComplete) percentLabel(totals.done, totals.target) else "",
+            dayProgressFraction = if (pageComplete) fraction(totals.done, totals.target) else 0f,
+            daySummary = if (pageComplete) "${totals.done} / ${totals.target} done" else "Load all rows for full-day totals",
             caption = if (shedRows.isEmpty()) {
                 if (selectedDay == workWindow.today) {
                     "No sheds scheduled today"
@@ -336,7 +337,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = protocolAdherenceSummary(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay), visibleWindowTotals),
+            adherence = if (pageComplete) protocolAdherenceSummary(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay), visibleWindowTotals) else null,
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,

@@ -5,6 +5,13 @@ role-aware app for the field operator **and** leadership (native **Kotlin +
 Jetpack Compose**), to be built to the finalized prototype mock
 `mock/vaccination-mobile-mock.html`.
 
+Shared operational read models must follow
+`docs/architecture/operational-read-model-contract.md`. Android is a renderer of
+backend-owned operational contracts, with Room as the on-device read source of
+truth; it must not hand-maintain a parallel interpretation of shared counts,
+proof/verification state, shed/partition scope, drive identity, or summary
+semantics.
+
 Read these before writing any Android code. Nothing here is implemented yet —
 this is the pre-implementation design set the maintainer asked for.
 

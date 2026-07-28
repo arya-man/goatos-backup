@@ -1,5 +1,29 @@
 # Goat OS Workspace Agent Context
 
+## Local Stack Canonical Ports
+
+For local Goat OS browser/debug work, use one shared local stack unless the user
+explicitly asks for an isolated throwaway stack:
+
+```text
+Frontend: http://127.0.0.1:3300
+Backend:  http://127.0.0.1:8080
+Database: postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable
+Docker DB container: goatos-local-current
+```
+
+Before cloning, seeding, importing, or debugging local data, first verify the
+running backend's `DATABASE_URL` and make it match the canonical DB above. Do
+not infer the local DB from a previous temp worktree, a random Docker port, or a
+stale shell variable. If a temp stack is unavoidable, clearly label it as
+throwaway and do not call it "the local DB".
+
+When the user says "my local DB" or "local frontend/backend", treat that as:
+
+```text
+Chrome -> 127.0.0.1:3300 -> 127.0.0.1:8080 -> 127.0.0.1:5433/goatos
+```
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
@@ -267,6 +291,46 @@ leadership when scheduled sheds are still not submitted. Shed proof submission
 immediately notifies the park verifier(s) and leadership with role-specific
 routes: verifier to video review, leadership to Vaccination overview. Run
 `make fcm-recipient-routing-guard` with local CI for any notification change.
+
+## Operational Read Model Contract Is Mandatory
+
+Shared command surfaces (Calendar, Control Tower, Action Center, Protocol
+Adherence, Workflows, admin-web detail pages, Android execution/proof screens,
+and CEO/AI reporting) are renderers of backend-owned operational read contracts;
+they must not invent private business truth or recompute whole-result totals
+from page-local rows. Every new vertical or module, including shifting, counts,
+breeding, weighing, feed, procurement, and future preventive-care modules, must
+plug into the pattern in
+`docs/architecture/operational-read-model-contract.md` before it is exposed on a
+shared surface.
+
+Mandatory rules for Claude, Codex, and human developers:
+
+1. Name the grain of every shared count and status bucket (`animal`,
+   `obligation`, `completion`, `proof`, `verification`, `shed`, `partition`,
+   `drive`, `park_day`, `task`, `alert`, etc.).
+2. State whether buckets are disjoint or overlapping. Do not add overlapping
+   counts in UI unless the contract explicitly defines a union count.
+3. Summaries are whole-filter aggregates unless explicitly named `page_*`.
+   Pagination changes rows only, never summary truth.
+4. Selected operational scope must use stable identity. Rule ID alone is not a
+   drive selector when rules recur across dates, sheds, partitions, operators,
+   or batches.
+5. Backend response structs, OpenAPI, generated TypeScript clients, Android
+   DTOs, admin-web renderers, and mobile renderers must move together.
+6. A new vertical is not pluggable until it declares its canonical write owner,
+   work-item identity, scope grain, time grain, state machine, evidence model,
+   shared summaries, Calendar representation, Control Tower representation, and
+   mobile/admin surface contract.
+7. Cross-surface golden fixtures are the proof: the same fixture must make
+   Calendar, Action Center, Protocol Adherence, Control Tower, Workflows, Admin
+   Web, Android, and reporting agree on the facts they share.
+
+Run `make operational-read-model-contract-guard` for any change touching shared
+read models, OpenAPI, admin-web command lenses, Android execution/proof screens,
+or new vertical/module onboarding. This discoverability/static-text guard is
+part of local CI, but it is not a semantic Go/OpenAPI/Kotlin/frontend drift
+checker yet.
 
 Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
 batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/
@@ -762,6 +826,20 @@ Do:
   Backend code may hold only product contract shape, compile mapping, and
   intentional default skeletons for missing optional UI config rows; live/domain
   values stay in canonical module tables.
+- User-facing copy firewall for mobile and frontend: CEO, director, and operator
+  screens must use farm/product language only. Never show internal implementation,
+  debug, test, or roadmap wording in visible UI copy, screenshots, empty states,
+  toasts/snackbars, banners, cards, chips, buttons, bottom sheets, drawers, or
+  alerts. Banned visible words/patterns include `V1`, `V2`, `debug`, `mock`,
+  `fixture`, `Paparazzi`, `Room`, `outbox`, `idempotency`, `groupKey`,
+  `payload`, `backend`, `frontend`, `API`, `route`, `PRD`, `TRD`, `TODO`,
+  `local`, and `localhost`, unless the screen is explicitly a developer/admin
+  diagnostics tool. Technical facts belong in docs, tests, logs, and code
+  comments; UI must say the business thing: "Proof uploads in background",
+  "Waiting for network", "Already scanned", "Needs proof", "Cannot submit yet",
+  "Wrong shed", "Try again", etc. Before handing off any mobile/frontend UI
+  change, scan changed strings/screenshot fixtures for internal words and inspect
+  rendered screenshots for leaked technical copy.
 - Same-page drawers, sidebars, modals, and popovers are client-local UI state.
   Ordinary open/close clicks must not navigate, issue a document/RSC request,
   or trigger page-level loading UI. Use `LocalOverlayLink` and a narrow local

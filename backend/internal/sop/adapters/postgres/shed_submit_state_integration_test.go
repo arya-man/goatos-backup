@@ -262,6 +262,70 @@ func TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted(t *testing.T) {
 	}
 }
 
+func TestCompletedTaskProofRefsDoesNotRecoverParkScopedShedProofWithoutShedID(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		sopID      = "77400000-0000-4000-8000-000000000001"
+		sopVersion = "77400000-0000-4000-8000-000000000002"
+		taskID     = "77400000-0000-4000-8000-000000000003"
+		parkID     = "77400000-0000-4000-8000-000000000004"
+		shedOne    = "77400000-0000-4000-8000-000000000005"
+		shedTwo    = "77400000-0000-4000-8000-000000000006"
+		proofOne   = "77400000-0000-4000-8000-000000000007"
+		proofTwo   = "77400000-0000-4000-8000-000000000008"
+	)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'park', 'PARK-PROOF-RECOVERY', 'Proof Recovery Park', 'active')`,
+		parkID, tenantID)
+	execShedSubmitState(t, ctx, pool, "shed one",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'PROOF-RECOVERY-1', 'Proof Recovery One', $3::uuid, 'active')`,
+		shedOne, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "shed two",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'PROOF-RECOVERY-2', 'Proof Recovery Two', $3::uuid, 'active')`,
+		shedTwo, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.blank_shed_recovery_regression', 'Blank shed recovery regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"shed","types":["video"],"minimum_count":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "park scoped task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Park scoped proof recovery', 'in_progress', 'park', $5::uuid, 1)`,
+		taskID, tenantID, sopID, sopVersion, parkID)
+	execShedSubmitState(t, ctx, pool, "shed one proof",
+		`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type)
+		 VALUES ($1::uuid, $2::uuid, 'gcs', 'proof-recovery/shed-one.mp4', 'video/mp4', 'completed', 'shed', $3::uuid, 'shed', $3::uuid, 'video')`,
+		proofOne, tenantID, shedOne)
+	execShedSubmitState(t, ctx, pool, "shed two proof",
+		`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type)
+		 VALUES ($1::uuid, $2::uuid, 'gcs', 'proof-recovery/shed-two.mp4', 'video/mp4', 'completed', 'shed', $3::uuid, 'shed', $3::uuid, 'video')`,
+		proofTwo, tenantID, shedTwo)
+
+	repo := NewRepository(pool, 5*time.Second)
+	refs, err := repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "shed", "")
+	if err != nil {
+		t.Fatalf("CompletedTaskProofRefs() error = %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("CompletedTaskProofRefs blank shed id returned %d refs, want 0: %#v", len(refs), refs)
+	}
+}
+
 func execShedSubmitState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, sql string, args ...any) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, sql, args...); err != nil {

@@ -27,4 +27,5 @@
     <string name="proof_photo_instruction">Keep the water distribution clearly visible</string>
     <string name="proof_photo_take">Take photo</string>
     <string name="proof_photo_cancel">Cancel photo capture</string>
+    <string name="submit_shed_success_toast">Shed proof submitted for review</string>
 </resources>

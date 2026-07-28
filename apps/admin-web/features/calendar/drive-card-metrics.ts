@@ -40,13 +40,14 @@ export function driveCoverage(
 }
 
 export interface DriveStatusChip {
-  key: "completed" | "due" | "overdue" | "deferred";
+  key: "completed" | "submitted" | "due" | "overdue" | "deferred";
   count: number;
 }
 
 export function driveStatusClass(key: DriveStatusChip["key"]): "completed" | "due" | "over" | "def" {
   if (key === "overdue") return "over";
   if (key === "deferred") return "def";
+  if (key === "submitted") return "due";
   return key;
 }
 
@@ -54,6 +55,7 @@ export function driveStatusClass(key: DriveStatusChip["key"]): "completed" | "du
 // Used to render the status chips row on the drive card.
 export function driveStatusChips(summary: {
   completed_count: number;
+  submitted_count?: number;
   due_count: number;
   overdue_count: number;
   deferred_count: number;
@@ -61,6 +63,7 @@ export function driveStatusChips(summary: {
   return (
     [
       { key: "completed" as const, count: summary.completed_count },
+      { key: "submitted" as const, count: summary.submitted_count ?? 0 },
       { key: "due" as const, count: summary.due_count },
       { key: "overdue" as const, count: summary.overdue_count },
       { key: "deferred" as const, count: summary.deferred_count },

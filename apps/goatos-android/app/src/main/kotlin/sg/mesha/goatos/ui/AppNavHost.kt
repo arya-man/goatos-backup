@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -27,6 +28,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import kotlinx.coroutines.delay
+import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.BindPhotoCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
@@ -469,11 +471,16 @@ private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Strin
 }
 
 private fun ShedRow.scanDisplayTitle(): String {
+    return scanDisplayTitle(name = name, physicalShed = physicalShed, partition = partition)
+}
+
+internal fun scanDisplayTitle(name: String, physicalShed: String, partition: String): String {
     val base = name.takeIf { it.isNotBlank() }
         ?: physicalShed.takeIf { it.isNotBlank() }
         ?: return ""
     val partitionLabel = partition
         .takeIf { it.isNotBlank() }
+        .takeUnless { it.equals("whole", ignoreCase = true) }
         ?.let { if (it.startsWith("Part ", ignoreCase = true)) it else "Part $it" }
     val shouldAppendPartition = partitionLabel != null && !base.contains(partitionLabel, ignoreCase = true)
     return if (shouldAppendPartition) "$base - $partitionLabel" else base
@@ -743,6 +750,8 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            val submitSuccessToast = stringResource(R.string.submit_shed_success_toast)
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
             // Once the submission this operator just enqueued is accepted (ACKED — durably
             // queued/accepted by the backend), return to the vaccination sheds queue instead
@@ -755,6 +764,7 @@ fun AppNavHost(
                     SyncState.QUEUED, SyncState.SYNCING -> sawSubmitInFlight = true
                     SyncState.ACKED -> if (sawSubmitInFlight) {
                         sawSubmitInFlight = false
+                        Toast.makeText(context, submitSuccessToast, Toast.LENGTH_SHORT).show()
                         navController.popBackStack(Routes.VACCINATION, inclusive = false)
                     }
                     else -> Unit

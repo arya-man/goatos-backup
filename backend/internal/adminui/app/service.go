@@ -563,6 +563,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.next_action":                "Next action",
 			"label.evidence":                   "Evidence",
 			"label.not_ready":                  "not ready",
+			"evidence.verification_pending":    "Mobile proof submitted; awaiting verifier review",
+			"evidence.proof_pending":           "Mobile proof not submitted yet",
+			"evidence.rejected":                "Verifier rejected the submitted proof",
+			"evidence.blocked":                 "Evidence blocked by configuration or SOP issue",
+			"evidence.late":                    "Required proof is late",
+			"evidence.completed":               "Verifier accepted proof and closed the vaccination work",
+			"evidence.scope_prefix":            "Scope",
 		}
 	case "action-center":
 		return map[string]string{
@@ -988,11 +995,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.summary_pending": "Drive progress detail not available yet.",
 			// DRV-007: option-A completion-ring drive card copy — subtitle vaccine count, ring
 			// caption text, and the footer CTA (calendar-drive-card.tsx).
-			"calendar.drive.vaccines_suffix":   "vaccines",
-			"calendar.drive.of":                "of",
-			"calendar.drive.sheds_done_suffix": "sheds done",
-			"calendar.drive.owner":             "Owner",
-			"calendar.drive.open":              "Open drive",
+			"calendar.drive.vaccines_suffix":      "vaccines",
+			"calendar.drive.of":                   "of",
+			"calendar.drive.sheds_done_suffix":    "sheds done",
+			"calendar.drive.verification_pending": "Verification pending",
+			"calendar.drive.owner":                "Owner",
+			"calendar.drive.open":                 "Open drive",
 			// DRV-008: full-screen drive detail roster labels and breadcrumbs (calendar-drive-detail.tsx).
 			"calendar.drive.animal_roster":       "Animal roster",
 			"calendar.drive.display_id_header":   "Display ID",

@@ -7928,6 +7928,8 @@ components:
           format: uuid
         shed_name:
           type: string
+        partition_label:
+          type: string
         drive_name:
           type: string
         expected_count:
@@ -9978,10 +9980,11 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        Park-level drive progress. Invariant: total_count = completed_count + due_count +
-        overdue_count + deferred_count (4 disjoint obligation buckets); remaining_count = total_count -
+        Park-level drive progress. Invariant: total_count = completed_count + submitted_count +
+        due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count -
         completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive;
-        completed_animals = goats where ALL drive obligations are completed (fully covered).
+        completed_animals = goats where ALL drive obligations are completed (fully covered);
+        submitted_animals = goats with recorded mobile completion pending verification.
         Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
         product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
       required:
@@ -9992,12 +9995,14 @@ components:
         - vaccine_labels
         - total_count
         - completed_count
+        - submitted_count
         - remaining_count
         - due_count
         - overdue_count
         - deferred_count
         - total_animals
         - completed_animals
+        - submitted_animals
         - owner_label
       properties:
         park_name:
@@ -10033,6 +10038,10 @@ components:
           type: integer
           minimum: 0
           description: Completed obligations
+        submitted_count:
+          type: integer
+          minimum: 0
+          description: Recorded mobile completions pending verification
         remaining_count:
           type: integer
           minimum: 0
@@ -10057,6 +10066,10 @@ components:
           type: integer
           minimum: 0
           description: Distinct animals where all drive obligations are completed
+        submitted_animals:
+          type: integer
+          minimum: 0
+          description: Distinct animals with recorded completion pending verification
         owner_label:
           type: string
           description: Owner/team label
@@ -11224,6 +11237,7 @@ components:
       additionalProperties: false
       required:
         - row_id
+        - shed_name
         - expected
         - actual
         - gap
@@ -11234,6 +11248,10 @@ components:
         - work_state
       properties:
         row_id:
+          type: string
+        shed_name:
+          type: string
+        partition_label:
           type: string
         expected:
           type: string
@@ -11334,6 +11352,11 @@ components:
         - work_state
         - title
         - detail
+        - scope_label
+        - evidence_summary
+        - proof_summary
+        - proof_state
+        - verification_state
         - park_id
         - park_name
         - shed_id
@@ -11353,6 +11376,16 @@ components:
           type: string
         detail:
           type: string
+        scope_label:
+          type: string
+        evidence_summary:
+          type: string
+        proof_summary:
+          type: string
+        proof_state:
+          $ref: "#/components/schemas/ProcessIntegrityProofState"
+        verification_state:
+          $ref: "#/components/schemas/ProcessIntegrityVerificationState"
         park_id:
           type: string
           format: uuid
@@ -11362,6 +11395,8 @@ components:
           type: string
           format: uuid
         shed_name:
+          type: string
+        partition_label:
           type: string
         drive_name:
           type: string

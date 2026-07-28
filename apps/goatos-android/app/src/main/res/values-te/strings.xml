@@ -27,4 +27,5 @@
     <string name="proof_photo_instruction">నీటి పంపిణీ స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_photo_take">ఫోటో తీయండి</string>
     <string name="proof_photo_cancel">ఫోటో క్యాప్చర్‌ను రద్దు చేయండి</string>
+    <string name="submit_shed_success_toast">షెడ్ రుజువు సమీక్ష కోసం సమర్పించబడింది</string>
 </resources>
