@@ -31,6 +31,7 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
+import sg.mesha.goatos.feature.weighing.WeighingScreen
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -130,6 +131,14 @@ class ScreenshotTest {
 
     @Test
     fun scan() = shot("scan") { ScanScreen(state = sampleScanState()) }
+
+    @Test
+    fun weighing_plan() = shot("weighing_plan") { WeighingScreen(state = sampleWeighingPlanState()) }
+
+    @Test
+    fun weighing_operator_capture() = shot("weighing_operator_capture") {
+        WeighingScreen(state = sampleWeighingOperatorState())
+    }
 
     @Test
     fun vaccination_scan_loading_state() = shot("vaccination_scan_loading_state") {
