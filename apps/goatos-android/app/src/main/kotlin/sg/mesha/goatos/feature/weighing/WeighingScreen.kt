@@ -751,7 +751,7 @@ private fun StatusPill(status: String) {
         else -> MeshaColors.Surf3
     }
     Text(
-        text = if (normalized.contains("progress") || normalized.contains("pending")) "due now" else status.lowercase(),
+        text = status.ifBlank { "Not started" },
         color = color,
         fontSize = 12.sp,
         fontWeight = FontWeight.W800,
