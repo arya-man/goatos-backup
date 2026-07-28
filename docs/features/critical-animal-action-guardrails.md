@@ -71,6 +71,13 @@ direction author, or a guessed shed owner as the approval authority.
 A lower-level primitive being evidence-gated is useful, but it is not by itself
 permission to expose a critical workflow as live product behavior.
 
+For ICU/quarantine movement specifically, the target workflow must record an
+expected return date or checkpoint date at entry, and every delay must be an
+explicit extension decision with evidence, audit, outbox signal, and
+process-integrity read models. Vaccination and other scheduled verticals consume
+that clinical state as a defer/reopen signal; they must not guess that an animal
+returned because the original return date elapsed.
+
 ## Generic Guardrail Boundary
 
 Guardrails are a kernel capability, not a quarantine-specific hack. The same

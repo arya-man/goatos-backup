@@ -494,19 +494,53 @@ func (r *Repository) authorizeShiftingEventInTx(
 	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string, in domain.ApprovalDecision,
 ) error {
 	tag, err := tx.Exec(ctx, `
+WITH approved_profile AS (
+    SELECT sp.location_id AS destination_profile_id,
+           sp.row_version AS destination_profile_row_version,
+           asl.stage_code AS destination_stage
+    FROM shifting_events se
+    JOIN shed_profiles sp
+      ON sp.tenant_id = se.tenant_id
+     AND sp.location_id = se.destination_shed_id
+    JOIN animal_stage_lookup asl
+      ON asl.tenant_id = sp.tenant_id
+     AND asl.animal_stage_id = sp.animal_stage_id
+     AND asl.status = 'active'
+    WHERE se.tenant_id = $1::uuid
+      AND se.shifting_event_id = $2::uuid
+      AND se.authorization_state = 'pending'
+)
 UPDATE shifting_events
 SET authorization_state = 'authorized',
     event_status = 'authorized',
     authorized_at = $3::timestamptz,
     authorized_by = $4::uuid,
+    destination_profile_id = approved_profile.destination_profile_id,
+    destination_profile_row_version = approved_profile.destination_profile_row_version,
+    destination_stage = approved_profile.destination_stage,
     updated_at = now(),
     row_version = row_version + 1
+FROM approved_profile
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_state = 'pending'`,
 		tenantID, shiftingEventID, in.DecidedAt.UTC(), in.DecidedByUserID)
 	if err != nil {
 		return fmt.Errorf("counts: authorize shifting event: %w", err)
 	}
 	if tag.RowsAffected() != 1 {
+		var pendingExists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shifting_events
+  WHERE tenant_id = $1::uuid
+    AND shifting_event_id = $2::uuid
+    AND authorization_state = 'pending'
+)`, tenantID, shiftingEventID).Scan(&pendingExists); err != nil {
+			return fmt.Errorf("counts: authorize shifting event: check pending event: %w", err)
+		}
+		if pendingExists {
+			return identityports.ErrDestinationProfileMissing
+		}
 		return fmt.Errorf("%w: shifting event %s was not pending", ports.ErrApprovalAlreadyDecided, shiftingEventID)
 	}
 	return nil

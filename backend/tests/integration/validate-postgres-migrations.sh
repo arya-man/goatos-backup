@@ -595,6 +595,7 @@ DROP TABLE IF EXISTS sop_task_scan_attempts;
 DROP TABLE IF EXISTS sop_task_scan_captures;
 
 -- Delta 4: verification_items lacked the closure columns/checks.
+DROP VIEW IF EXISTS ceo_ai.ops_exception_queue;
 ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_closed_approved_check;
 ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_closed_pair_check;
 ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_subject_label_check;

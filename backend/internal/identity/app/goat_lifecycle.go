@@ -738,7 +738,7 @@ func criticalHealthStatus(status string) bool {
 }
 
 func criticalHealthTransitionError() *Error {
-	return GuardrailRequired("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+	return GuardrailRequired("critical_action_guardrail_required", "quarantine and ICU health transitions must use the critical-action guardrail path")
 }
 
 // criticalDeathExit detects a death exit from EITHER half of the dead+died pairing

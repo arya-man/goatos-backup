@@ -57,6 +57,7 @@
     <string name="calendar_drive_open">డ్రైవ్ తెరవండి</string>
     <!-- Status chips (redesigned card) -->
     <string name="calendar_drive_done">%1$d పూర్తి</string>
+    <string name="calendar_drive_submitted">%1$d సమర్పించబడింది</string>
     <string name="calendar_drive_due">%1$d బాకీ</string>
     <string name="calendar_drive_overdue">%1$d గడువు మీరిన</string>
     <string name="calendar_drive_deferred">%1$d వాయిదా</string>

@@ -122,16 +122,35 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if state.ParkID != nil && *state.ParkID != cmd.ToParkID {
 		return nil, ports.ErrCrossParkMove
 	}
+	profile, err := r.resolveDestinationTag(ctx, tx, ports.RelocateGoatsCommand{
+		TenantID:       cmd.TenantID,
+		ActorID:        cmd.ActorID,
+		TraceID:        cmd.TraceID,
+		GoatIDs:        []string{cmd.GoatID},
+		FromParkID:     state.ParkID,
+		FromShedID:     state.ShedID,
+		ToParkID:       cmd.ToParkID,
+		ToShedID:       cmd.ToShedID,
+		DestinationTag: "",
+		Reason:         cmd.Reason,
+		OccurredAt:     cmd.OccurredAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	effectiveStage := profile.stage
+	stageChanged := state.ManagementStage != effectiveStage
 
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
 SET current_location_id = $4::uuid,
     park_id = $3::uuid,
     shed_id = $4::uuid,
+    management_stage = $6::text,
     updated_at = $5::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-		cmd.TenantID, cmd.GoatID, cmd.ToParkID, cmd.ToShedID, cmd.OccurredAt); err != nil {
+		cmd.TenantID, cmd.GoatID, cmd.ToParkID, cmd.ToShedID, cmd.OccurredAt, effectiveStage); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -145,15 +164,37 @@ INSERT INTO goat_location_history (
 	}
 
 	payload := map[string]any{
-		"goat_id":          cmd.GoatID,
-		"from_park_id":     stringValue(state.ParkID),
-		"from_shed_id":     stringValue(state.ShedID),
-		"to_park_id":       cmd.ToParkID,
-		"to_shed_id":       cmd.ToShedID,
-		"scope_type":       "shed",
-		"scope_id":         cmd.ToShedID,
-		"reason":           cmd.Reason,
-		"row_version_from": cmd.RowVersion,
+		"goat_id":                         cmd.GoatID,
+		"from_park_id":                    stringValue(state.ParkID),
+		"from_shed_id":                    stringValue(state.ShedID),
+		"to_park_id":                      cmd.ToParkID,
+		"to_shed_id":                      cmd.ToShedID,
+		"scope_type":                      "shed",
+		"scope_id":                        cmd.ToShedID,
+		"reason":                          cmd.Reason,
+		"row_version_from":                cmd.RowVersion,
+		"previous_management_stage":       state.ManagementStage,
+		"management_stage":                effectiveStage,
+		"destination_profile_id":          profile.destinationProfileID,
+		"destination_profile_row_version": profile.destinationProfileRowVersion,
+	}
+	var extraEvents []goatLifecycleExtraEvent
+	if stageChanged {
+		extraEvents = append(extraEvents, goatLifecycleExtraEvent{
+			EventType: goatStageChangedEventType,
+			Payload: map[string]any{
+				"goat_id":                         cmd.GoatID,
+				"previous_management_stage":       state.ManagementStage,
+				"management_stage":                effectiveStage,
+				"destination_profile_id":          profile.destinationProfileID,
+				"destination_profile_row_version": profile.destinationProfileRowVersion,
+				"scope_type":                      "shed",
+				"scope_id":                        cmd.ToShedID,
+				"reason":                          cmd.Reason,
+				"row_version_from":                cmd.RowVersion,
+			},
+			OutboxIdempotencyKey: cmd.StoredIdempotencyKey + ":stage_changed",
+		})
 	}
 	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
 		TenantUUID:     tenantUUID,
@@ -174,6 +215,7 @@ INSERT INTO goat_location_history (
 		AggregateType: goatLifecycleAggregate,
 		SubjectType:   goatLifecycleSubject,
 		SubjectID:     cmd.GoatID,
+		ExtraEvents:   extraEvents,
 	})
 }
 
@@ -631,10 +673,17 @@ type goatLifecycleFinish struct {
 	AggregateType  string
 	SubjectType    string
 	SubjectID      string
+	ExtraEvents    []goatLifecycleExtraEvent
 	// DeferCommit leaves the transaction OPEN for the caller to commit. The zero value keeps the
 	// historical behaviour (this helper commits), so every pool-owned lifecycle write is unchanged;
 	// only the *InTx seams used by the Counts approval workflow set it.
 	DeferCommit bool
+}
+
+type goatLifecycleExtraEvent struct {
+	EventType            string
+	Payload              map[string]any
+	OutboxIdempotencyKey string
 }
 
 func goatLifecycleCommandFromMove(cmd ports.MoveGoatCommand) goatLifecycleCommand {
@@ -1018,7 +1067,49 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')`,
 	}); err != nil {
 		return nil, err
 	}
-	response, err := adminGoatMutationResult(ctx, qtx, finish.TenantUUID, finish.Command.TenantID, finish.GoatUUID, decision, []domain.EventSummary{{EventID: eventRow.EventID, EventType: finish.EventType}}, false, nil)
+	eventSummaries := []domain.EventSummary{{EventID: eventRow.EventID, EventType: finish.EventType}}
+	extraEventUUIDs := make([]pgtype.UUID, 0, len(finish.ExtraEvents))
+	for _, extra := range finish.ExtraEvents {
+		extraEventID, err := qtx.NewUUID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		extraEventUUID, err := uuidParam(extraEventID)
+		if err != nil {
+			return nil, err
+		}
+		extra.Payload["decision_id"] = decision.DecisionID
+		extraPayload, err := json.Marshal(extra.Payload)
+		if err != nil {
+			return nil, err
+		}
+		extraRow, err := qtx.InsertGoatIdentityEvent(ctx, identitydb.InsertGoatIdentityEventParams{
+			IdentityEventID: extraEventUUID,
+			TenantID:        finish.TenantUUID,
+			GoatID:          finish.GoatUUID,
+			EventType:       extra.EventType,
+			OccurredAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+			RecordedAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+			ActorID:         finish.ActorUUID,
+			Payload:         extraPayload,
+			DecisionID:      decisionUUID,
+			IdempotencyKey:  extra.OutboxIdempotencyKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := qtx.InsertIdentityDecisionEvent(ctx, identitydb.InsertIdentityDecisionEventParams{
+			DecisionID:      decisionUUID,
+			TenantID:        finish.TenantUUID,
+			EventID:         extraEventUUID,
+			EventRecordedAt: extraRow.RecordedAt,
+		}); err != nil {
+			return nil, err
+		}
+		extraEventUUIDs = append(extraEventUUIDs, extraEventUUID)
+		eventSummaries = append(eventSummaries, domain.EventSummary{EventID: extraRow.EventID, EventType: extra.EventType})
+	}
+	response, err := adminGoatMutationResult(ctx, qtx, finish.TenantUUID, finish.Command.TenantID, finish.GoatUUID, decision, eventSummaries, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1085,6 +1176,30 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')`,
 		TraceID:        nullableText(nonEmptyStringPtr(finish.Command.TraceID)),
 	}); err != nil {
 		return nil, err
+	}
+	for i, extra := range finish.ExtraEvents {
+		extraFinish := finish
+		extraFinish.EventType = extra.EventType
+		extraFinish.Payload = extra.Payload
+		extraEnvelope, err := goatLifecycleDomainEventEnvelope(extraFinish, eventSummaries[i+1].EventID)
+		if err != nil {
+			return nil, err
+		}
+		if err := qtx.InsertOutboxMessage(ctx, identitydb.InsertOutboxMessageParams{
+			TenantID:       finish.TenantUUID,
+			EventID:        extraEventUUIDs[i],
+			EventType:      extra.EventType,
+			SchemaVersion:  eventSchemaVersion,
+			AggregateType:  finish.AggregateType,
+			AggregateID:    finish.AggregateUUID,
+			Topic:          goatLifecycleTopic,
+			Payload:        extraEnvelope,
+			Headers:        headers,
+			IdempotencyKey: extra.OutboxIdempotencyKey,
+			TraceID:        nullableText(nonEmptyStringPtr(finish.Command.TraceID)),
+		}); err != nil {
+			return nil, err
+		}
 	}
 	if err := qtx.CompleteIdempotencyKey(ctx, identitydb.CompleteIdempotencyKeyParams{
 		ResultType:     textParam(goatLifecycleResultType),
@@ -1246,10 +1361,8 @@ func (r *Repository) replayGoatLifecycleMutation(ctx context.Context, tx pgx.Tx,
 		return nil, ports.ErrIdempotencyPending
 	}
 	var decision domain.DecisionRecordSummary
-	var event domain.EventSummary
 	err = tx.QueryRow(ctx, `
-SELECT d.decision_id::text, d.decision_type, d.decision_result, d.decision_state, d.policy_version, d.created_at,
-       gie.identity_event_id::text, gie.event_type
+SELECT d.decision_id::text, d.decision_type, d.decision_result, d.decision_state, d.policy_version, d.created_at
 FROM goat_identity_events gie
 JOIN identity_decisions d ON d.tenant_id = gie.tenant_id AND d.decision_id = gie.decision_id
 WHERE gie.tenant_id = $1::uuid
@@ -1263,8 +1376,6 @@ LIMIT 1`, uuidText(tenantUUID), uuidText(goatUUID), key).Scan(
 		&decision.DecisionState,
 		&decision.PolicyVersion,
 		&decision.CreatedAt,
-		&event.EventID,
-		&event.EventType,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ports.ErrIdempotencyPending
@@ -1272,6 +1383,38 @@ LIMIT 1`, uuidText(tenantUUID), uuidText(goatUUID), key).Scan(
 	if err != nil {
 		return nil, err
 	}
+	rows, err := tx.Query(ctx, `
+SELECT gie.identity_event_id::text, gie.event_type
+FROM goat_identity_events gie
+JOIN identity_decision_events ide
+  ON ide.tenant_id = gie.tenant_id
+ AND ide.event_id = gie.identity_event_id
+ AND ide.event_recorded_at = gie.recorded_at
+WHERE gie.tenant_id = $1::uuid
+  AND gie.goat_id = $2::uuid
+  AND ide.decision_id = $3::uuid
+ORDER BY
+  CASE WHEN gie.idempotency_key = $4 THEN 0 ELSE 1 END,
+  gie.recorded_at,
+  gie.identity_event_id`, uuidText(tenantUUID), uuidText(goatUUID), decision.DecisionID, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	eventSummaries := []domain.EventSummary{}
+	for rows.Next() {
+		var event domain.EventSummary
+		if err := rows.Scan(&event.EventID, &event.EventType); err != nil {
+			return nil, err
+		}
+		eventSummaries = append(eventSummaries, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(eventSummaries) == 0 {
+		return nil, ports.ErrIdempotencyPending
+	}
 	firstResultID := idempotency.ResultID
-	return adminGoatMutationResult(ctx, qtx, tenantUUID, uuidText(tenantUUID), goatUUID, decision, []domain.EventSummary{event}, true, &firstResultID)
+	return adminGoatMutationResult(ctx, qtx, tenantUUID, uuidText(tenantUUID), goatUUID, decision, eventSummaries, true, &firstResultID)
 }

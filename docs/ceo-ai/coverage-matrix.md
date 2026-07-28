@@ -161,9 +161,12 @@ tracked as gaps below.
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |
-| shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue |
+| shifting_events | counts_movement_daily, ops_exception_queue. Destination-profile snapshot columns (`destination_profile_id`, `destination_profile_row_version`, `destination_stage`) are write-path audit/validation facts for fail-closed shifting completion; leadership movement answers still read the approved/completed movement through `counts_movement_daily`, not these snapshot columns directly. |
+| shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue |
 | procurement_loads, procurement_load_goats, arrival_intake_reviews, procurement_source_health_checks, procurement_hf_vaccination_evidence | procurement_pipeline, source_entry_health_status |
 | sop_tasks, sop_submissions, sop_task_submission_fanouts | sop_execution_status, ops_exception_queue |
+| sop_task_scan_captures | EXCLUDED (operator proof capture ledger) — scan-level evidence for mobile SOP task submission. Leadership reads SOP execution/proof state through `sop_execution_status`, `verification_queue_status`, and `ops_exception_queue`; raw scan rows are per-task evidence, not a leadership aggregate. |
+| sop_task_scan_attempts | EXCLUDED (operator scan attempt ledger) — accepted/duplicate/not-due/unknown scan attempts used to debug mobile field capture. Failures surface through SOP submission/verification/ops exception read models; raw attempts are operational telemetry, not a CEO KPI or standalone assistant read. |
 | verification_items | verification_queue_status |
 | inventory_items, inventory_stock, inventory_stock_movements | inventory_stock_position |
 | workforce_members, workforce_positions, workforce_absences, workforce_roster_assignments, org_role_catalog | workforce_coverage_status |

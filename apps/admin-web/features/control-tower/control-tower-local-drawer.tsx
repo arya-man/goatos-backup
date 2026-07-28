@@ -116,7 +116,7 @@ function ControlTowerAlertDrawer({
         <div className="metagrid">
           <div><div className="k">{copy(pageContract, "label.gap")}</div><div className="v"><Tag tone={optionTone(pageContract, "work_state_filter_chips", alert.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag></div></div>
           <div><div className="k">{copy(pageContract, "label.severity")}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", alert.severity) as Tone}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag></div></div>
-          <div><div className="k">Scope</div><div className="v">{alert.scope_label}</div></div>
+          <div><div className="k">{copy(pageContract, "label.scope")}</div><div className="v">{alert.scope_label}</div></div>
           <div><div className="k">{copy(pageContract, "label.detail")}</div><div className="v">{alert.detail}</div></div>
           <div><div className="k">{copy(pageContract, "label.owner")}</div><div className="v">{owner}</div></div>
           <div><div className="k">{copy(pageContract, "label.next_action")}</div><div className="v">{alert.next_action}</div></div>

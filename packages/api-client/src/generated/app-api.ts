@@ -3655,14 +3655,6 @@ export interface components {
         DriveCapacityState: "not_planned" | "within_cap" | "over_cap_required" | "medical_defer" | "terminal_animal_closed";
         CountByWorkState: {
             work_state: components["schemas"]["WorkState"];
-            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
-            drive_animals_required?: number;
-            drive_animals_assigned?: number;
-            drive_operator_cap?: number;
-            drive_available_operators?: number;
-            /** Format: date-time */
-            drive_latest_safe_date?: string;
-            drive_medical_defer_reason?: string;
             count: number;
         };
         ActionCenterObligation: {

@@ -161,7 +161,10 @@ func (r *Repository) CompleteShiftingEvent(
 		// The destination cohort the animals adopt is read from the destination shed's CONFIGURED
 		// profile (shed_profiles -> animal_stage_lookup) inside the relocation. A supplied tag is only
 		// a request that must AGREE with that profile.
-		DestinationTag: in.DestinationTag,
+		DestinationTag:                       in.DestinationTag,
+		ExpectedDestinationProfileID:         stringPtrValue(current.DestinationProfileID),
+		ExpectedDestinationProfileRowVersion: int32(intPtrValue(current.DestinationProfileRowVersion)),
+		ExpectedDestinationStage:             stringPtrValue(current.DestinationStage),
 		// Thread the completion's trace id into the relocation so the goat.location.changed /
 		// goat.stage_changed outbox envelopes carry a non-empty trace_id (the envelope schema requires
 		// minLength 1); without it the relay would reject and never deliver these events.
@@ -373,6 +376,9 @@ type lockedShiftingEvent struct {
 	CompletionRequestFingerprint *string
 	CancelIdempotencyKey         *string
 	CancelRequestFingerprint     *string
+	DestinationProfileID         *string
+	DestinationProfileRowVersion *int
+	DestinationStage             *string
 }
 
 // lockShiftingEvent takes a row lock so two operators driving the same movement serialize here
@@ -385,7 +391,8 @@ SELECT event_status, authorization_state,
        applied_at, applied_by::text,
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
-       cancel_idempotency_key, cancel_request_fingerprint
+       cancel_idempotency_key, cancel_request_fingerprint,
+       destination_profile_id::text, destination_profile_row_version, destination_stage
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
@@ -394,7 +401,8 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.AppliedAt, &out.AppliedBy,
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
-		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint)
+		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint,
+		&out.DestinationProfileID, &out.DestinationProfileRowVersion, &out.DestinationStage)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return lockedShiftingEvent{}, ports.ErrShiftingEventNotFound
@@ -402,6 +410,20 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		return lockedShiftingEvent{}, fmt.Errorf("counts: lock shifting event: %w", err)
 	}
 	return out, nil
+}
+
+func stringPtrValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func intPtrValue(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // readShiftingEventSourceLocation reads the expected source park and shed for a shifting event.

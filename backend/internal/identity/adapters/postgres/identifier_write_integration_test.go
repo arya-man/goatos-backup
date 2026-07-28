@@ -138,10 +138,33 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MoveGoat: %v", err)
 		}
-		if moved.Decision.DecisionType != "move_goat" || len(moved.Events) != 1 || moved.Events[0].EventType != "goat.location.changed" {
+		if moved.Decision.DecisionType != "move_goat" || len(moved.Events) != 2 || moved.Events[0].EventType != "goat.location.changed" || moved.Events[1].EventType != "goat.stage_changed" {
 			t.Fatalf("unexpected move result: %#v", moved)
 		}
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, moved.Events[0].EventID, created.Goat.GoatID, "goat.location.changed", adminMoveTargetShed)
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey+":stage_changed", moved.Events[1].EventID, created.Goat.GoatID, "goat.stage_changed", created.Goat.GoatID)
+		replay, err := repo.MoveGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("MoveGoat replay: %v", err)
+		}
+		if !replay.Replayed || len(replay.Events) != len(moved.Events) {
+			t.Fatalf("unexpected move replay result: %#v", replay)
+		}
+		for i := range moved.Events {
+			if replay.Events[i] != moved.Events[i] {
+				t.Fatalf("move replay event[%d]=%#v, want %#v", i, replay.Events[i], moved.Events[i])
+			}
+		}
+		var managementStage string
+		if err := pool.QueryRow(ctx, `
+SELECT management_stage
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID).Scan(&managementStage); err != nil {
+			t.Fatalf("read moved goat management stage: %v", err)
+		}
+		if managementStage != "weaner" {
+			t.Fatalf("moved goat management_stage=%q, want destination shed profile weaner", managementStage)
+		}
 	})
 
 	t.Run("admin goat move rejects cross-park destination", func(t *testing.T) {
@@ -907,6 +930,27 @@ SET name = EXCLUDED.name,
     sort_order = EXCLUDED.sort_order,
     status = EXCLUDED.status,
     updated_at = now()`, meshaTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+WITH stages AS (
+  SELECT animal_stage_id, stage_code
+  FROM animal_stage_lookup
+  WHERE tenant_id = $1::uuid
+    AND stage_code IN ('adult', 'weaner')
+)
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, row_version)
+SELECT v.location_id::uuid, $1::uuid, s.animal_stage_id, 1
+FROM (VALUES
+  ($2::text, 'adult'),
+  ($3::text, 'weaner')
+) AS v(location_id, stage_code)
+JOIN stages s ON s.stage_code = v.stage_code
+ON CONFLICT (location_id) DO UPDATE SET
+  animal_stage_id = EXCLUDED.animal_stage_id,
+  row_version = shed_profiles.row_version + 1,
+  updated_at = now()`,
+		meshaTenant, adminCreateShedLocation, adminMoveTargetShed); err != nil {
 		t.Fatal(err)
 	}
 	if got := countRows(t, pool, `

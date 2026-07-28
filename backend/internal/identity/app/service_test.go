@@ -903,7 +903,7 @@ func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
 		if !errors.As(err, &appErr) {
 			t.Fatalf("HealthGoat(%s) error = %v, want app error", status, err)
 		}
-		if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+		if appErr.Code != "critical_action_guardrail_required" || appErr.HTTPStatus != 409 {
 			t.Fatalf("HealthGoat(%s) app error = %#v, want guardrail-required 409", status, appErr)
 		}
 		if repo.lastHealthGoatCmd.GoatID != "" {
