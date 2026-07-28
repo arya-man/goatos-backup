@@ -80,6 +80,18 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "management_stage", Code: "not_found", Message: "management_stage does not resolve to an active animal stage"})
 		}
 	}
+	if cmd.BirthDamRef != nil {
+		damGoatID, err := r.resolveBirthMother(ctx, cmd.TenantID, *cmd.BirthDamRef, cmd.Species)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "dam_id", Code: "not_found", Message: "mother RFID does not resolve to a canonical female animal"})
+			} else {
+				return out, err
+			}
+		} else {
+			out.DamGoatID = &damGoatID
+		}
+	}
 	if len(out.Conflicts) > 0 {
 		return out, nil
 	}
@@ -97,6 +109,57 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 		}
 	}
 	return out, nil
+}
+
+// resolveBirthMother follows the write contract's two legal inputs without an OR predicate that
+// would hide index use: the first submit supplies a normalized active RFID; approval replay supplies
+// the canonical UUID stored by the submit handler. Both paths are tenant-scoped and require a
+// canonical, non-merged female of the same species.
+func (r *Repository) resolveBirthMother(ctx context.Context, tenantID, ref, species string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if _, err := uuidParam(ref); err == nil {
+		var goatID string
+		err := r.pool.QueryRow(ctx, `
+SELECT goat_id::text
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid
+  AND sex = 'female'
+  AND species = $3::text
+  AND merged_into_goat_id IS NULL`, tenantID, ref, species).Scan(&goatID)
+		return goatID, err
+	}
+
+	var goatID string
+	err := r.pool.QueryRow(ctx, `
+SELECT g.goat_id::text
+FROM goat_identifiers gi
+JOIN goats g
+  ON g.tenant_id = gi.tenant_id
+ AND g.goat_id = gi.goat_id
+WHERE gi.tenant_id = $1::uuid
+  AND gi.normalized_value = $2::text
+  AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+  AND gi.status = 'active'
+  AND g.sex = 'female'
+  AND g.species = $3::text
+  AND g.merged_into_goat_id IS NULL`, tenantID, strings.ToUpper(ref), species).Scan(&goatID)
+	return goatID, err
+}
+
+// BirthProvisionalPrefix resolves the canonical active park code by the exact tenant+park PK.
+func (r *Repository) BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var prefix string
+	err := r.pool.QueryRow(ctx, `
+SELECT location_code
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_id = $2::uuid
+  AND location_type = 'park'
+  AND status = 'active'`, tenantID, parkID).Scan(&prefix)
+	return prefix, err
 }
 
 func (r *Repository) activeManagementStageExists(ctx context.Context, tenantID, stageCode string) (bool, error) {
@@ -294,6 +357,47 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		stringValue(cmd.TimeOfBirth),
 	); err != nil {
 		return nil, err
+	}
+	if cmd.OriginType == "birth" {
+		if cmd.DamID == nil || cmd.LitterSize == nil || *cmd.LitterSize < 1 || *cmd.LitterSize > 3 {
+			return nil, ports.ErrWriteConflict
+		}
+		birthEventID := strings.TrimSpace(cmd.BirthEventID)
+		if birthEventID == "" {
+			birthEventID = goatID
+		}
+		childOrdinal := cmd.BirthChildOrdinal
+		if childOrdinal == 0 {
+			childOrdinal = 1
+		}
+		countStatus := strings.TrimSpace(cmd.BirthCountStatus)
+		if countStatus == "" {
+			countStatus = "approved"
+		}
+		if childOrdinal < 1 || childOrdinal > *cmd.LitterSize ||
+			(countStatus != "pending" && countStatus != "approved" && countStatus != "rejected") {
+			return nil, ports.ErrWriteConflict
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO goat_births (
+  tenant_id, child_goat_id, mother_goat_id, birth_event_id, child_ordinal,
+  litter_size, count_status, count_approved_at, count_approved_by, created_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::smallint,
+  $6::smallint, $7,
+  CASE WHEN $7 = 'approved' THEN $8::timestamptz ELSE NULL END,
+  CASE WHEN $7 = 'approved' THEN $9::uuid ELSE NULL END,
+  $8::timestamptz
+)`,
+			cmd.TenantID, goatID, *cmd.DamID, birthEventID, childOrdinal,
+			*cmd.LitterSize, countStatus, now, cmd.ActorID); err != nil {
+			return nil, err
+		}
+		// The goat insert trigger fires before goat_births exists. Refresh again after the birth row is
+		// present so a pending child is removed from the count projection in this same transaction.
+		if _, err := tx.Exec(ctx, `SELECT herd_register_refresh_goat_projection($1::uuid, $2::uuid)`, cmd.TenantID, goatID); err != nil {
+			return nil, err
+		}
 	}
 
 	identifiers := make([]domain.GoatIdentifier, 0, len(cmd.Identifiers))

@@ -29,8 +29,6 @@ import sg.mesha.goatos.feature.counts.WorkflowActionUi
 import sg.mesha.goatos.feature.counts.WorkflowAnswerOptionUi
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
 import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
-import sg.mesha.goatos.feature.counts.WorkflowSessionTone
-import sg.mesha.goatos.feature.counts.WorkflowSessionUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
 import java.time.Duration
 import java.time.Instant
@@ -56,8 +54,8 @@ import javax.inject.Inject
  * A `requires_video` completion mirrors the shifting execute flow: capture through the shared
  * [ProofCaptureSource], enqueue the PROOF_UPLOAD on the WORKFLOW's outbox group so it drains
  * FIRST, then enqueue the completion carrying the proof outbox item id — the sync engine resolves
- * the uploaded proof_id into `proof_ref`. `tag_the_kid` never posts a completion: it navigates to
- * the existing promote flow, and the backend completes the action on `goat.identifier.added`.
+ * the uploaded proof_id into `proof_ref`. `tag_the_kid` keeps the existing promote flow as the
+ * single identifier writer, but remains open until the operator also records its mandatory video.
  */
 @HiltViewModel
 class WorkflowDetailViewModel @Inject constructor(
@@ -163,6 +161,10 @@ class WorkflowDetailViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     private fun answer(actionId: String, value: String) {
+        if (_state.value.actions.firstOrNull { it.actionId == actionId }?.requiresVideo == true) {
+            captureAndComplete(actionId, answerValue = value)
+            return
+        }
         viewModelScope.launch {
             val result = syncRepository.enqueueWorkflowActionAnswer(
                 groupKey = workflowId,
@@ -209,11 +211,12 @@ class WorkflowDetailViewModel @Inject constructor(
      * the proof outbox item id. A completion without its proof never reaches the backend — and the
      * backend re-rejects one with 422 `proof_required`.
      */
-    private fun captureAndComplete(actionId: String) {
+    private fun captureAndComplete(actionId: String, answerValue: String? = null) {
         val current = _state.value
         if (current.isCapturingVideo) return
+        val action = current.actions.firstOrNull { it.actionId == actionId }
         val goatId = current.subjectGoatId
-        val prompt = when (current.actions.firstOrNull { it.actionId == actionId }?.actionKey) {
+        val prompt = when (action?.actionKey) {
             ACTION_KEY_DEATH_VIDEO -> ProofCapturePrompt.DEATH
             ACTION_KEY_POST_MORTEM_VIDEO -> ProofCapturePrompt.POST_MORTEM
             else -> ProofCapturePrompt.BIRTH
@@ -221,7 +224,7 @@ class WorkflowDetailViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, message = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(prompt)
+                proofCaptureSource.captureVideo(prompt, action?.title)
             } catch (error: Exception) {
                 crashReporter.recordException(error, "workflow video capture failed")
                 null
@@ -290,27 +293,42 @@ class WorkflowDetailViewModel @Inject constructor(
                 }
             }
             analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
-            val completeResult = syncRepository.enqueueWorkflowActionComplete(
-                groupKey = workflowId,
-                // Couple the completion idempotency to this durable proof item. Exact retries
-                // collapse; a verifier-requested re-shoot gets a new command key.
-                idempotencyKey = workflowVideoCompletionKey(actionId, proofItemId),
-                workflowId = workflowId,
-                actionId = actionId,
-                proofOutboxItemId = proofItemId,
-            )
-            when (completeResult) {
+            val writeResult = if (answerValue != null) {
+                syncRepository.enqueueWorkflowActionAnswer(
+                    groupKey = workflowId,
+                    idempotencyKey = workflowVideoAnswerKey(actionId, proofItemId),
+                    workflowId = workflowId,
+                    actionId = actionId,
+                    answerValue = answerValue,
+                    proofOutboxItemId = proofItemId,
+                )
+            } else {
+                syncRepository.enqueueWorkflowActionComplete(
+                    groupKey = workflowId,
+                    // Couple the completion idempotency to this durable proof item. Exact retries
+                    // collapse; a verifier-requested re-shoot gets a new command key.
+                    idempotencyKey = workflowVideoCompletionKey(actionId, proofItemId),
+                    workflowId = workflowId,
+                    actionId = actionId,
+                    proofOutboxItemId = proofItemId,
+                )
+            }
+            when (writeResult) {
                 is AppResult.Ok -> {
-                    // Video-gated steps read as in-review until the verifier/backend confirms.
-                    repo.markActionCompleted(workflowId, actionId, inReview = true)
-                    analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
+                    if (answerValue != null) {
+                        repo.markActionAnswered(workflowId, actionId, answerValue)
+                        analytics.track(AnalyticsEvents.WORKFLOW_ACTION_ANSWERED)
+                    } else {
+                        repo.markActionCompleted(workflowId, actionId, inReview = false)
+                        analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
+                    }
                     _state.update {
                         it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false)
                     }
                 }
                 is AppResult.Err -> {
                     _state.update { it.copy(isCapturingVideo = false) }
-                    onWriteFailed("workflow_complete", completeResult)
+                    onWriteFailed("workflow_action_with_video", writeResult)
                 }
             }
         }
@@ -403,12 +421,16 @@ class WorkflowDetailViewModel @Inject constructor(
         deathUploadFailed: Boolean,
     ): WorkflowDetailUiState {
         val now = Instant.now()
-        val mainActions = actions.filter { it.section != SECTION_COLOSTRUM && it.actionType != TYPE_APPROVAL }
+        val mainActions = operatorVisibleWorkflowActions(actions)
         return current.copy(
             loading = false,
             notFound = false,
             isDeath = module == MODULE_DEATH,
-            displayId = subject.displayId.ifBlank { subject.tag },
+            displayId = if (templateKey == TEMPLATE_KEY_BIRTH_MOTHER) {
+                subject.tag.ifBlank { subject.displayId }
+            } else {
+                subject.displayId.ifBlank { subject.tag }
+            },
             roleLabel = subject.roleLabel,
             templateLine = listOf(
                 if (module == MODULE_DEATH) TEMPLATE_DEATH else TEMPLATE_BIRTH,
@@ -419,23 +441,17 @@ class WorkflowDetailViewModel @Inject constructor(
             // and must not make a completed upload read as 0/N or suppress the exit control.
             actionsDone = mainActions.count { operatorFinishedWorkflowStatus(it.status) },
             actionsTotal = mainActions.size,
-            actions = mainActions.sortedBy { it.seq }.mapIndexed { index, action ->
+            actions = mainActions.sortedBy(::workflowDisplayOrder).map { action ->
                 val hasDraft = drafts.any { it.actionId == action.actionId }
                 val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
-                val predecessorsReady = mainActions.sortedBy { it.seq }.take(index).all { previous ->
+                val predecessorsReady = workflowPredecessorsReady(action, mainActions) { previous ->
                     operatorFinishedWorkflowStatus(previous.status) || drafts.any { it.actionId == previous.actionId }
                 }
                 action.toActionUi(now).copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = action.requiresVideo &&
-                        !operatorFinishedWorkflowStatus(action.status) &&
-                        !draftsSubmitting &&
-                        predecessorsReady,
+                    canRecordVideo = canRecordWorkflowVideo(action, draftsSubmitting, predecessorsReady),
                 )
             }.sortedBy { it.sectionOrder() },
-            sessions = actions.filter { it.section == SECTION_COLOSTRUM }
-                .sortedBy { it.seq }
-                .toSessionUi(now),
             subjectGoatId = subject.goatId,
             deathDraftCount = drafts.count { draft -> mainActions.any { it.actionId == draft.actionId } },
             deathDraftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING },
@@ -451,6 +467,7 @@ class WorkflowDetailViewModel @Inject constructor(
 
     private fun WorkflowActionDto.toActionUi(now: Instant): WorkflowActionUi {
         val due = dueAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val numericAnswerUnit = workflowNumericAnswerUnit(this)
         val isOverdueNow = status == STATUS_PENDING && !blocked && due != null && due.isBefore(now)
         val section = when {
             status == STATUS_COMPLETED || status == STATUS_IN_REVIEW -> WorkflowActionSection.COMPLETED
@@ -464,12 +481,14 @@ class WorkflowDetailViewModel @Inject constructor(
             isOverdueNow -> WorkflowStatusTone.OVERDUE
             else -> WorkflowStatusTone.SCHEDULED
         }
+        val accessLabel = workflowAccessLabel(blockedReason, due, now)
         val statusLabel = when {
             status == STATUS_COMPLETED -> LABEL_DONE
             status == STATUS_IN_REVIEW -> LABEL_IN_REVIEW
             status == STATUS_REWORK -> LABEL_REWORK
+            accessLabel != null -> accessLabel
             blocked -> LABEL_BLOCKED
-            isOverdueNow -> lateLabel(due!!, now)
+            isOverdueNow -> lateLabel(due, now)
             due != null -> dueLabel(due)
             else -> LABEL_SCHEDULED
         }
@@ -482,7 +501,7 @@ class WorkflowDetailViewModel @Inject constructor(
             title = title,
             detail = detail,
             typeLabel = when (actionType) {
-                TYPE_QUESTION -> TAG_QUESTION
+                TYPE_QUESTION -> if (numericAnswerUnit != null) TAG_NUMBER else TAG_QUESTION
                 TYPE_QUESTION_SELECT -> TAG_QUESTION_SELECT
                 TYPE_APPROVAL -> TAG_APPROVAL
                 else -> TAG_ACTION
@@ -498,43 +517,23 @@ class WorkflowDetailViewModel @Inject constructor(
             options = if (actionType == TYPE_QUESTION_SELECT) {
                 // The backend's own bands, verbatim: the band string is both value and label.
                 options.map { WorkflowAnswerOptionUi(value = it, label = it) }
-            } else {
+            } else if (numericAnswerUnit == null) {
                 listOf(
                     WorkflowAnswerOptionUi(ANSWER_YES_VALUE, ANSWER_YES_LABEL),
                     WorkflowAnswerOptionUi(ANSWER_NO_VALUE, ANSWER_NO_LABEL),
                 )
-            },
+            } else emptyList(),
+            numericAnswerUnit = numericAnswerUnit,
             statusLabel = statusLabel,
             statusTone = statusTone,
             section = section,
             canAnswer = actionable && isQuestion && !opensPromote,
             canComplete = actionable && actionType == TYPE_ACTION && !requiresVideo && !opensPromote,
-            canRecordVideo = actionable && actionType == TYPE_ACTION && requiresVideo && !opensPromote,
+            canRecordVideo = actionable && requiresVideo,
             opensPromote = opensPromote && actionable,
             footer = completedByLabel.orEmpty(),
             answerValue = answerValue,
         )
-    }
-
-    /** The fixed day-one colostrum strip: S1..S5 with the IST session time and its state tint. */
-    private fun List<WorkflowActionDto>.toSessionUi(now: Instant): List<WorkflowSessionUi> {
-        val firstOpenId = firstOrNull { it.status != STATUS_COMPLETED }?.actionId
-        return mapIndexed { index, session ->
-            val time = session.dueAt
-                ?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                ?.atZone(IST)
-                ?.format(TIME_FORMAT)
-                .orEmpty()
-            WorkflowSessionUi(
-                label = "S${index + 1}",
-                timeLabel = time,
-                tone = when {
-                    session.status == STATUS_COMPLETED -> WorkflowSessionTone.DONE
-                    session.actionId == firstOpenId -> WorkflowSessionTone.NOW
-                    else -> WorkflowSessionTone.NEXT
-                },
-            )
-        }
     }
 
     private fun lateLabel(due: Instant, now: Instant): String {
@@ -551,7 +550,7 @@ class WorkflowDetailViewModel @Inject constructor(
         return if (zoned.toLocalDate() == LocalDate.now(IST)) {
             zoned.format(TIME_FORMAT)
         } else {
-            zoned.format(DATE_FORMAT)
+            zoned.format(DATE_TIME_FORMAT)
         }
     }
 
@@ -560,10 +559,9 @@ class WorkflowDetailViewModel @Inject constructor(
 
         private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-        private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
-
+        private val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM · HH:mm")
         private const val MODULE_DEATH = "death"
-        private const val SECTION_COLOSTRUM = "colostrum_session"
+        private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
         private const val TYPE_QUESTION = "question"
         private const val TYPE_QUESTION_SELECT = "question_select"
         private const val TYPE_ACTION = "action"
@@ -583,6 +581,7 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val TEMPLATE_BIRTH = "Birth"
         private const val TEMPLATE_DEATH = "Death"
         private const val TAG_QUESTION = "Question"
+        private const val TAG_NUMBER = "Enter kg"
         private const val TAG_QUESTION_SELECT = "Pick a value"
         private const val TAG_ACTION = "Do & confirm"
         private const val TAG_APPROVAL = "Approval"
@@ -613,6 +612,59 @@ class WorkflowDetailViewModel @Inject constructor(
     }
 }
 
+internal fun canRecordWorkflowVideo(
+    action: WorkflowActionDto,
+    draftsSubmitting: Boolean,
+    predecessorsReady: Boolean,
+): Boolean = action.actionType == "action" &&
+    action.requiresVideo &&
+    !operatorFinishedWorkflowStatus(action.status) &&
+    !action.blocked &&
+    !draftsSubmitting &&
+    predecessorsReady
+
+internal fun operatorVisibleWorkflowActions(actions: List<WorkflowActionDto>): List<WorkflowActionDto> =
+    actions.filter { it.actionType != "approval" }
+
+internal fun workflowPredecessorsReady(
+    action: WorkflowActionDto,
+    actions: List<WorkflowActionDto>,
+    isFinished: (WorkflowActionDto) -> Boolean,
+): Boolean {
+    if (action.actionKey == WORKFLOW_ACTION_KEY_TAG_THE_KID) {
+        return actions
+            .filter { it.actionId != action.actionId && it.actionType != "approval" }
+            .all(isFinished)
+    }
+    if (action.section == WORKFLOW_SECTION_COLOSTRUM) {
+        val firstColostrum = actions.firstOrNull { it.actionKey == WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM }
+            ?: return false
+        if (!isFinished(firstColostrum)) return false
+    }
+    return actions
+        .filter { it.section == action.section && it.seq < action.seq }
+        .all(isFinished)
+}
+
+internal fun workflowDisplayOrder(action: WorkflowActionDto): Int =
+    if (action.actionKey == WORKFLOW_ACTION_KEY_TAG_THE_KID) Int.MAX_VALUE else action.seq
+
+internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Instant): String? {
+    if (blockedReason != "not_yet_due" || due == null || !now.isBefore(due)) return null
+    return "Available ${due.atZone(WORKFLOW_IST).format(WORKFLOW_DATE_TIME_FORMAT)}"
+}
+
+internal fun workflowNumericAnswerUnit(action: WorkflowActionDto): String? =
+    if (action.actionKey == "take_weight" && action.actionType == "question") "kg" else null
+
+internal fun workflowNumericAnswerValid(value: String): Boolean {
+    val trimmed = value.trim()
+    if (trimmed.isEmpty() || trimmed.count { it == '.' } > 1 || trimmed.any { !it.isDigit() && it != '.' }) {
+        return false
+    }
+    return trimmed.toDoubleOrNull()?.let { it > 0.0 && it.isFinite() } == true
+}
+
 internal fun operatorFinishedWorkflowStatus(status: String): Boolean =
     status == "completed" || status == "in_review"
 
@@ -621,3 +673,12 @@ internal fun workflowProofUploadKey(actionId: String, capturedStartedAtMs: Long)
 
 internal fun workflowVideoCompletionKey(actionId: String, proofOutboxItemId: String): String =
     "wf-complete:$actionId:$proofOutboxItemId"
+
+internal fun workflowVideoAnswerKey(actionId: String, proofOutboxItemId: String): String =
+    "wf-answer:$actionId:$proofOutboxItemId"
+
+private val WORKFLOW_IST: ZoneId = ZoneId.of("Asia/Kolkata")
+private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM · HH:mm")
+private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
+private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
+private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"

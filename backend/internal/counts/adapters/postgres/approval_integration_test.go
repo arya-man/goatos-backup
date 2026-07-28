@@ -14,6 +14,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identitydomain "github.com/vgoats/goatos/backend/internal/identity/domain"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
@@ -21,11 +22,6 @@ import (
 )
 
 // Counts lifecycle approval workflow -- Postgres proofs.
-//
-// These exercise the properties that only a real database can demonstrate: that submitting applies
-// NOTHING, that approving applies the effect and the status flip in ONE transaction, that a failing
-// effect rolls the approval back rather than leaving a request reading 'approved' with nothing
-// behind it, and that an approved shifting genuinely relocates the animal.
 
 const (
 	countsApprover  = "00000000-0000-4000-8000-000000009001"
@@ -172,6 +168,33 @@ ON CONFLICT (goat_id) DO NOTHING`, goatID, countsTenant, countsPark, shedID, cou
 	}
 }
 
+func seedPendingBirthLitter(t *testing.T, ctx context.Context, pool *pgxpool.Pool, birthEventID string, litterSize, childRows int) []string {
+	t.Helper()
+	var motherID string
+	if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&motherID); err != nil {
+		t.Fatalf("new mother id: %v", err)
+	}
+	seedApprovalGoat(t, ctx, pool, motherID, countsShedA)
+	children := make([]string, 0, childRows)
+	for ordinal := 1; ordinal <= childRows; ordinal++ {
+		var childID string
+		if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&childID); err != nil {
+			t.Fatalf("new child id: %v", err)
+		}
+		seedApprovalGoat(t, ctx, pool, childID, countsShedA)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_births (
+  tenant_id, child_goat_id, mother_goat_id, birth_event_id, child_ordinal,
+  litter_size, count_status
+) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, 'pending')`,
+			countsTenant, childID, motherID, birthEventID, ordinal, litterSize); err != nil {
+			t.Fatalf("seed pending birth child %d: %v", ordinal, err)
+		}
+		children = append(children, childID)
+	}
+	return children
+}
+
 func birthSubmission(key string) domain.ApprovalRequestSubmission {
 	return domain.ApprovalRequestSubmission{
 		TenantID:           countsTenant,
@@ -212,47 +235,75 @@ func approvalStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id st
 	return status
 }
 
-// ---------------------------------------------------------------------------
-// Pending, not applied
-// ---------------------------------------------------------------------------
-
-// Submitting a birth must create the request and NOTHING else. This is the whole maintainer
-// decision in one assertion: before it, the same submit created the animal immediately, which meant
-// an unapproved birth was already in the census and had already generated the kid's vaccination
-// obligations.
-func TestSubmitBirthRequestCreatesNoGoat(t *testing.T) {
+// A twin submit traverses the real Counts repository -> Identity transaction seam. Both canonical
+// children and goat.created outbox rows exist immediately, but neither child enters the herd
+// projection before the independent web approval. Exact replay returns the same two children.
+func TestSubmitTwinBirthCreatesCanonicalChildrenButExcludesCountsUntilApproval(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
-	identity := &fakeIdentityTx{}
+	identity := identitypg.NewRepository(pool, 10*time.Second)
 	repo := newApprovalRepo(t, pool, identity)
 
+	motherID := "00000000-0000-4000-8000-00000000b001"
+	seedApprovalGoat(t, ctx, pool, motherID, countsShedA)
 	before := countGoats(t, ctx, pool)
-	req, replay, err := repo.CreateApprovalRequest(ctx, birthSubmission("birth-key-0001"))
+	litterSize := 2
+	dob := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
+	stage := "kid"
+	children := make([]identityports.CreateAdminGoatCommand, 0, litterSize)
+	for ordinal, tag := range []string{"CPT-12345", "CPT-67890"} {
+		clientKey := fmt.Sprintf("twin-child-%d", ordinal+1)
+		children = append(children, identityports.CreateAdminGoatCommand{
+			TenantID: countsTenant, ActorID: countsOperator,
+			ClientIdempotencyKey: clientKey,
+			StoredIdempotencyKey: countsTenant + ":identity.admin.goat_create:" + clientKey,
+			IdempotencyScope:     "identity.admin.goat_create", RequestHash: "hash-" + clientKey,
+			Identifiers: []identityports.AdminGoatCreateIdentifier{{
+				IdentifierType: "temporary_tag", IdentifierValue: tag,
+				NormalizedValue: tag, ScopeKey: "global", IsPrimary: true,
+			}},
+			CustodianPartyID: countsCustodian, ParkID: countsPark, ShedID: countsShedA,
+			Species: "goat", Breed: strPtr("beetal"), Sex: "female", DOB: &dob,
+			OriginType: "birth", EntryDate: dob, ManagementStage: &stage,
+			DamID: &motherID, LitterSize: &litterSize,
+		})
+	}
+	submission := birthSubmission("birth-key-twins-immediate")
+	result, err := repo.CreateBirthApprovalRequest(ctx, submission, children)
 	if err != nil {
-		t.Fatalf("create approval request: %v", err)
+		t.Fatalf("submit twin birth: %v", err)
 	}
-	if replay {
-		t.Fatal("first submission must not report a replay")
+	if result.Replayed || result.Approval.Status != domain.ApprovalStatusPending {
+		t.Fatalf("result=%+v, want first pending submission", result)
 	}
-	if req.Status != domain.ApprovalStatusPending {
-		t.Fatalf("status=%q, want pending", req.Status)
+	if len(result.Children) != 2 || result.Children[0].GoatID == result.Children[1].GoatID {
+		t.Fatalf("children=%+v, want two distinct canonical goats", result.Children)
 	}
-	if got := countGoats(t, ctx, pool); got != before {
-		t.Fatalf("goats=%d, want %d — a PENDING birth must not create an animal", got, before)
+	if got := countGoats(t, ctx, pool); got != before+2 {
+		t.Fatalf("goats=%d, want %d immediately after twin submit", got, before+2)
 	}
-	if identity.createCalls != 0 {
-		t.Fatalf("identity create calls=%d, want 0 — submission must apply nothing", identity.createCalls)
+	var pendingBirths, projected, outbox int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM goat_births WHERE tenant_id=$1::uuid AND birth_event_id=$2::uuid AND count_status='pending'`, countsTenant, result.Approval.ApprovalRequestID).Scan(&pendingBirths); err != nil {
+		t.Fatalf("count pending birth rows: %v", err)
 	}
-	// No goat.created means the vaccination generator never sees the kid, which is the downstream
-	// consequence the decision is really about.
-	var outbox int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM herd_register_goat_projection WHERE tenant_id=$1::uuid AND goat_id IN ($2::uuid, $3::uuid)`, countsTenant, result.Children[0].GoatID, result.Children[1].GoatID).Scan(&projected); err != nil {
+		t.Fatalf("count projected children: %v", err)
+	}
 	if err := pool.QueryRow(ctx, `
 SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'goat.created'`,
 		countsTenant).Scan(&outbox); err != nil {
 		t.Fatalf("count outbox: %v", err)
 	}
-	if outbox != 0 {
-		t.Fatalf("goat.created outbox rows=%d, want 0", outbox)
+	if pendingBirths != 2 || projected != 0 || outbox != 2 {
+		t.Fatalf("pending=%d projected=%d goat.created=%d, want 2/0/2", pendingBirths, projected, outbox)
+	}
+	replayed, err := repo.CreateBirthApprovalRequest(ctx, submission, children)
+	if err != nil || !replayed.Replayed || len(replayed.Children) != 2 ||
+		replayed.Children[0].GoatID != result.Children[0].GoatID || replayed.Children[1].GoatID != result.Children[1].GoatID {
+		t.Fatalf("replay=%+v err=%v, want the original two children", replayed, err)
+	}
+	if got := countGoats(t, ctx, pool); got != before+2 {
+		t.Fatalf("goats after replay=%d, want %d", got, before+2)
 	}
 }
 
@@ -310,7 +361,15 @@ func TestApproveBirthAppliesExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	children := seedPendingBirthLitter(t, ctx, pool, req.ApprovalRequestID, 1, 1)
 	before := countGoats(t, ctx, pool)
+	var projectedBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM herd_register_goat_projection WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, countsTenant, children[0]).Scan(&projectedBefore); err != nil {
+		t.Fatalf("count pending projected child: %v", err)
+	}
+	if projectedBefore != 0 {
+		t.Fatalf("pending child projected=%d, want 0 before web approval", projectedBefore)
+	}
 
 	decided, replay, err := repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
 		TenantID:           countsTenant,
@@ -320,7 +379,7 @@ func TestApproveBirthAppliesExactlyOnce(t *testing.T) {
 		DecidedAt:          time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "decide-key-0001",
 		RequestFingerprint: "decide-fp-0001",
-		Effect:             &domain.ApprovalEffect{CreateGoat: identityports.CreateAdminGoatCommand{TenantID: countsTenant}},
+		Effect:             &domain.ApprovalEffect{BirthCounts: &domain.BirthCountsApprovalEffect{BirthEventID: req.ApprovalRequestID}},
 	})
 	if err != nil {
 		t.Fatalf("approve: %v", err)
@@ -333,17 +392,21 @@ func TestApproveBirthAppliesExactlyOnce(t *testing.T) {
 	}
 	// The applied result is stamped in the same transaction; the schema's
 	// counts_approval_requests_applied_result_check makes an approved row without it impossible.
-	if decided.AppliedResultType == nil || *decided.AppliedResultType != domain.ApprovalResultTypeGoat {
-		t.Fatalf("applied_result_type=%v, want goat", decided.AppliedResultType)
+	if decided.AppliedResultType == nil || *decided.AppliedResultType != domain.ApprovalResultTypeBirthEvent {
+		t.Fatalf("applied_result_type=%v, want birth_event", decided.AppliedResultType)
 	}
 	if decided.AppliedResultID == nil || *decided.AppliedResultID == "" {
-		t.Fatal("an approved request must name the goat it created")
+		t.Fatal("an approved request must name the litter it activated")
 	}
-	if got := countGoats(t, ctx, pool); got != before+1 {
-		t.Fatalf("goats=%d, want %d — approval must create exactly one animal", got, before+1)
+	if got := countGoats(t, ctx, pool); got != before {
+		t.Fatalf("goats=%d, want %d — approval must not create another animal", got, before)
 	}
-	if identity.createCalls != 1 {
-		t.Fatalf("identity create calls=%d, want exactly 1", identity.createCalls)
+	var projected int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM herd_register_goat_projection WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, countsTenant, children[0]).Scan(&projected); err != nil {
+		t.Fatalf("count projected child: %v", err)
+	}
+	if projected != 1 || identity.createCalls != 0 {
+		t.Fatalf("projected=%d identity creates=%d, want count activation without goat creation", projected, identity.createCalls)
 	}
 }
 
@@ -360,6 +423,7 @@ func TestDoubleApproveDoesNotDoubleApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	seedPendingBirthLitter(t, ctx, pool, req.ApprovalRequestID, 1, 1)
 	decision := domain.ApprovalDecision{
 		TenantID:           countsTenant,
 		ApprovalRequestID:  req.ApprovalRequestID,
@@ -368,7 +432,7 @@ func TestDoubleApproveDoesNotDoubleApply(t *testing.T) {
 		DecidedAt:          time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "decide-key-double",
 		RequestFingerprint: "decide-fp-double",
-		Effect:             &domain.ApprovalEffect{CreateGoat: identityports.CreateAdminGoatCommand{TenantID: countsTenant}},
+		Effect:             &domain.ApprovalEffect{BirthCounts: &domain.BirthCountsApprovalEffect{BirthEventID: req.ApprovalRequestID}},
 	}
 	if _, _, err := repo.DecideApprovalRequest(ctx, decision); err != nil {
 		t.Fatalf("first approve: %v", err)
@@ -390,8 +454,8 @@ func TestDoubleApproveDoesNotDoubleApply(t *testing.T) {
 	if got := countGoats(t, ctx, pool); got != after {
 		t.Fatalf("goats=%d after double approve, want %d — approving twice must not create a second animal", got, after)
 	}
-	if identity.createCalls != 1 {
-		t.Fatalf("identity create calls=%d, want exactly 1 across both approves", identity.createCalls)
+	if identity.createCalls != 0 {
+		t.Fatalf("identity create calls=%d, want 0 across count-only approvals", identity.createCalls)
 	}
 }
 
@@ -420,6 +484,7 @@ func TestDecideSameKeyChangedPayloadConflictsAfterDecision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("submit: %v", err)
 			}
+			seedPendingBirthLitter(t, ctx, pool, req.ApprovalRequestID, 1, 1)
 			decision := domain.ApprovalDecision{
 				TenantID:           countsTenant,
 				ApprovalRequestID:  req.ApprovalRequestID,
@@ -431,7 +496,7 @@ func TestDecideSameKeyChangedPayloadConflictsAfterDecision(t *testing.T) {
 				RequestFingerprint: "decide-fp-cr06-" + tc.name,
 			}
 			if tc.status == domain.ApprovalStatusApproved {
-				decision.Effect = &domain.ApprovalEffect{CreateGoat: identityports.CreateAdminGoatCommand{TenantID: countsTenant}}
+				decision.Effect = &domain.ApprovalEffect{BirthCounts: &domain.BirthCountsApprovalEffect{BirthEventID: req.ApprovalRequestID}}
 			}
 			if _, _, err := repo.DecideApprovalRequest(ctx, decision); err != nil {
 				t.Fatalf("first decision: %v", err)
@@ -469,6 +534,7 @@ func TestRejectAppliesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	seedPendingBirthLitter(t, ctx, pool, req.ApprovalRequestID, 1, 1)
 	before := countGoats(t, ctx, pool)
 
 	decided, _, err := repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
@@ -530,19 +596,19 @@ func TestRejectWithoutReasonIsRefusedByTheDatabase(t *testing.T) {
 // Atomicity
 // ---------------------------------------------------------------------------
 
-// THE atomicity proof. The effect writes a real goats row and then fails. If the status flip and
-// the effect were separate transactions, the goat would survive and/or the request would read
-// 'approved' with nothing behind it. Both must be gone.
-func TestApproveRollsBackStatusFlipWhenEffectFails(t *testing.T) {
+// Litter membership is fail-closed: approving a delivery that declares twins but has only one
+// canonical child must roll back the approval transition and leave the existing child untouched.
+func TestApproveIncompleteLitterRollsBackStatus(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
-	identity := &fakeIdentityTx{failCreate: errors.New("identity write failed after inserting the row")}
+	identity := &fakeIdentityTx{}
 	repo := newApprovalRepo(t, pool, identity)
 
 	req, _, err := repo.CreateApprovalRequest(ctx, birthSubmission("birth-key-rollback"))
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	seedPendingBirthLitter(t, ctx, pool, req.ApprovalRequestID, 2, 1)
 	before := countGoats(t, ctx, pool)
 
 	if _, _, err := repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
@@ -553,7 +619,7 @@ func TestApproveRollsBackStatusFlipWhenEffectFails(t *testing.T) {
 		DecidedAt:          time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "decide-key-rollback",
 		RequestFingerprint: "decide-fp-rollback",
-		Effect:             &domain.ApprovalEffect{CreateGoat: identityports.CreateAdminGoatCommand{TenantID: countsTenant}},
+		Effect:             &domain.ApprovalEffect{BirthCounts: &domain.BirthCountsApprovalEffect{BirthEventID: req.ApprovalRequestID}},
 	}); err == nil {
 		t.Fatal("a failing effect must fail the approval")
 	}
@@ -563,7 +629,7 @@ func TestApproveRollsBackStatusFlipWhenEffectFails(t *testing.T) {
 		t.Fatalf("status=%q after a failed effect, want pending — an approved request whose effect "+
 			"failed is exactly what the atomic transition rule forbids", got)
 	}
-	// And the row the effect wrote before failing must be gone with it.
+	// No identity mutation is attempted at approval; the already-created child remains unchanged.
 	if got := countGoats(t, ctx, pool); got != before {
 		t.Fatalf("goats=%d, want %d — the failed effect's partial write must roll back with the approval", got, before)
 	}

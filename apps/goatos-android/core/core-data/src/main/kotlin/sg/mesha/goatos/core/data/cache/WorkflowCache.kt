@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.Flow
  *  - [WorkflowChipsCacheEntity] — the day's chip counts, a JSON-blob-by-scope rollup keyed
  *    (module | date). The counts are backend-computed; the client never re-derives them from the
  *    fetched page.
- *  - [WorkflowDetailCacheEntity] — the drill-in detail (card + facts + bounded ≤13-row action
+ *  - [WorkflowDetailCacheEntity] — the drill-in detail (card + facts + bounded ≤18-row action
  *    list), a JSON blob keyed by workflow id, mirroring [TaskDetailCacheEntity]. Bounded via
  *    [JsonBlobCacheDao] + `enforceCacheBounds`.
  */

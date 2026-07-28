@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.navigation.NavHostController
@@ -182,6 +183,7 @@ object Routes {
     // L1 add forms behind each module's ＋ button (hosted destinations with Up/Back, no root chrome).
     const val COUNTS_BIRTH_ADD = "/counts/birth/add"
     const val COUNTS_DEATH_ADD = "/counts/death/add"
+    const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
 
     // The L1 execute destination for one approved movement from the Shifting "Pending" tab. A
     // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
@@ -893,10 +895,14 @@ fun AppNavHost(
         // Birth / Death workflow modules (docs/decisions/birth-death-workflows.md): two L0 work
         // lists, each with its own drill-in and add form. The list composable wires Paging load
         // states into the VM so refresh/offline banners track the real page loads.
-        composable(Routes.COUNTS_BIRTH) {
+        composable(Routes.COUNTS_BIRTH) { backStackEntry ->
             val vm: BirthWorkflowListViewModel = hiltViewModel()
+            val returnedSubmissionNotice by backStackEntry.savedStateHandle
+                .getStateFlow<String?>(Routes.COUNTS_BIRTH_SUBMISSION_NOTICE, null)
+                .collectAsStateWithLifecycle()
             WorkflowListDestination(
                 vm = vm,
+                submissionNotice = returnedSubmissionNotice,
                 onOpenCard = { workflowId ->
                     navController.navigate(Routes.birthWorkflowRoute(workflowId)) { launchSingleTop = true }
                 },
@@ -948,6 +954,16 @@ fun AppNavHost(
         composable(Routes.COUNTS_BIRTH_ADD) {
             val vm: AddBirthViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.returnToBirthList, state.submissionNotice) {
+                if (state.returnToBirthList) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_BIRTH_SUBMISSION_NOTICE,
+                        state.submissionNotice,
+                    )
+                    vm.onEvent(AddBirthEvent.NavigationHandled)
+                    navController.popBackStack()
+                }
+            }
             AddBirthScreen(
                 state = state,
                 onEvent = { event ->
@@ -1461,6 +1477,7 @@ fun AppNavHost(
 @Composable
 private fun WorkflowListDestination(
     vm: WorkflowListViewModel,
+    submissionNotice: String? = null,
     onOpenCard: (String) -> Unit,
     onAddNew: () -> Unit,
     onBack: () -> Unit,
@@ -1477,9 +1494,8 @@ private fun WorkflowListDestination(
     }
     val appendError = (rows.loadState.append as? LoadState.Error)?.error
     LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
-
     WorkflowListScreen(
-        state = state,
+        state = state.copy(submissionNotice = submissionNotice),
         rows = rows,
         onEvent = { event ->
             when (event) {

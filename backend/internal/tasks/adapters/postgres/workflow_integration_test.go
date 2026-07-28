@@ -79,6 +79,13 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'dam-901', 'DAM-901', 'global
 ON CONFLICT DO NOTHING`, wfTenant, wfDam); err != nil {
 		t.Fatalf("seed dam identifier: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+                              scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'kid-rfid-901', 'KID-RFID-901', 'global', true, 'active', now(), 'test')
+ON CONFLICT DO NOTHING`, wfTenant, wfKid); err != nil {
+		t.Fatalf("seed kid identifier: %v", err)
+	}
 	return NewRepository(pool, 10*time.Second), pool, ctx
 }
 
@@ -135,8 +142,51 @@ func actionStatus(t *testing.T, detail domain.WorkflowDetail, key string) string
 	return ""
 }
 
-// TestOpenWorkflowIdempotentAndCardServed proves the ON CONFLICT natural-key open, the template
-// instantiation (13 rows for the kid track), and the write-maintained card list read.
+func factValue(t *testing.T, detail domain.WorkflowDetail, label string) string {
+	t.Helper()
+	for _, fact := range detail.Facts {
+		if fact.Label == label {
+			return fact.Value
+		}
+	}
+	t.Fatalf("fact %q not found in %#v", label, detail.Facts)
+	return ""
+}
+
+func TestBirthKidDetailShowsMotherRFIDAndLitterSize(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_births (
+  tenant_id, child_goat_id, mother_goat_id, birth_event_id, child_ordinal,
+  litter_size, count_status, count_approved_at
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $2::uuid, 1, 2, 'approved', now())`, wfTenant, wfKid, wfDam); err != nil {
+		t.Fatalf("seed birth relationship: %v", err)
+	}
+	created, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{
+		TenantID: wfTenant, TemplateKey: domain.TemplateKeyBirthKid, SubjectGoatID: wfKid,
+		DamGoatID: stringPtr(wfDam), EventAt: wfEventAt,
+	})
+	if err != nil || !created {
+		t.Fatalf("open kid workflow: created=%v err=%v", created, err)
+	}
+	detail, err := repo.GetWorkflow(ctx, wfTenant, findWorkflowID(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid), wfEventAt)
+	if err != nil {
+		t.Fatalf("get kid workflow: %v", err)
+	}
+	if got := factValue(t, detail, "Mother RFID"); got != "dam-901" {
+		t.Fatalf("mother RFID=%q, want dam-901", got)
+	}
+	if got := factValue(t, detail, "Litter size"); got != "2" {
+		t.Fatalf("litter size=%q, want 2", got)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
+
+// TestOpenWorkflowIdempotentAndCardServed proves the ON CONFLICT natural-key open, the
+// birth-time-derived template instantiation, and the write-maintained card list read. At 09:30
+// IST, four birth-day colostrum slots remain eligible and all five next-day slots are included.
 func TestOpenWorkflowIdempotentAndCardServed(t *testing.T) {
 	repo, _, ctx := newWorkflowRepo(t)
 	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
@@ -153,11 +203,11 @@ func TestOpenWorkflowIdempotentAndCardServed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get workflow: %v", err)
 	}
-	if len(detail.Actions) != 13 {
-		t.Fatalf("kid actions = %d, want 13 (8 main + 5 colostrum)", len(detail.Actions))
+	if len(detail.Actions) != 17 {
+		t.Fatalf("kid actions = %d, want 17 (8 main + 9 birth-time-derived colostrum sessions)", len(detail.Actions))
 	}
-	if detail.Card.ActionsTotal != 8 || detail.Card.ActionsDone != 0 {
-		t.Fatalf("card counters = %d/%d, want 0/8", detail.Card.ActionsDone, detail.Card.ActionsTotal)
+	if detail.Card.ActionsTotal != 17 || detail.Card.ActionsDone != 0 {
+		t.Fatalf("card counters = %d/%d, want 0/17", detail.Card.ActionsDone, detail.Card.ActionsTotal)
 	}
 	if detail.Card.Subject.Sex != "female" || detail.Card.Subject.Breed != "Boer" {
 		t.Fatalf("subject display = %+v (canonical goat join)", detail.Card.Subject)
@@ -176,6 +226,26 @@ func TestOpenWorkflowIdempotentAndCardServed(t *testing.T) {
 	}
 	if page.Chips.All != 1 || page.Chips.Completed != 0 {
 		t.Fatalf("chips = %+v", page.Chips)
+	}
+}
+
+func TestListWorkflowsReturnsOnlyPreviousDatesWithOverdueOpenWork(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+
+	page, err := repo.ListWorkflows(ctx, domain.WorkflowListQuery{
+		TenantID: wfTenant, Module: domain.ModuleBirth,
+		EventDate: "2026-07-28", TodayDate: "2026-07-28", Filter: domain.FilterAll,
+		PageSize: 20, Now: wfEventAt.Add(24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(page.OverdueDates) != 1 {
+		t.Fatalf("overdue dates = %+v, want one previous date", page.OverdueDates)
+	}
+	if got := page.OverdueDates[0]; got.Date != "2026-07-27" || got.WorkflowCount != 1 {
+		t.Fatalf("overdue date = %+v, want 2026-07-27 count 1", got)
 	}
 }
 
@@ -273,6 +343,43 @@ func TestAnswerActionIdempotencyPg(t *testing.T) {
 	}
 }
 
+// TestMotherAnswerRequiresAndPersistsVideoPg exercises the production adapter path for a
+// requires_video QUESTION (not only action completions): proofless answers fail atomically, while
+// one answer with one proof stores both on the same workflow_actions row.
+func TestMotherAnswerRequiresAndPersistsVideoPg(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthMother, wfDam)
+	detail, err := repo.GetWorkflow(ctx, wfTenant, workflowID, wfEventAt)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	cmd := domain.AnswerActionCommand{
+		TenantID: wfTenant, WorkflowID: workflowID,
+		ActionID:    actionIDByKey(t, detail, domain.ActionKeyBabiesStillInside),
+		AnswerValue: "no", AnsweredAt: wfEventAt.UTC(),
+		IdempotencyKey: "mother-answer-video-1", RequestFingerprint: "fp-mother-answer-video-1",
+	}
+	if _, err := repo.AnswerAction(ctx, cmd); !errors.Is(err, domain.ErrProofRequired) {
+		t.Fatalf("proofless mother answer err = %v, want ErrProofRequired", err)
+	}
+	cmd.ProofRef = "proof-mother-question"
+	result, err := repo.AnswerAction(ctx, cmd)
+	if err != nil {
+		t.Fatalf("answer with proof: %v", err)
+	}
+	if result.Action.AnswerValue == nil || *result.Action.AnswerValue != "no" ||
+		result.Action.ProofRef == nil || *result.Action.ProofRef != "proof-mother-question" {
+		t.Fatalf("stored mother answer = %+v", result.Action)
+	}
+	labels, answers, err := repo.ResolveActionPresentations(ctx, wfTenant, []string{cmd.ActionID})
+	if err != nil {
+		t.Fatalf("resolve verifier task presentation: %v", err)
+	}
+	if labels[cmd.ActionID] != "Are any babies still inside?" || answers[cmd.ActionID] != "No" {
+		t.Fatalf("resolved verifier task presentation label=%q answer=%q", labels[cmd.ActionID], answers[cmd.ActionID])
+	}
+}
+
 // TestActionWritesRejectOutOfSequencePg proves the production repository locks all sibling rows
 // and rejects a later operator mutation until the preceding action in that section completes.
 func TestActionWritesRejectOutOfSequencePg(t *testing.T) {
@@ -286,6 +393,7 @@ func TestActionWritesRejectOutOfSequencePg(t *testing.T) {
 	second := domain.CompleteActionCommand{
 		TenantID: wfTenant, WorkflowID: workflowID,
 		ActionID:    actionIDByKey(t, detail, domain.ActionKeyIodineDipping),
+		ProofRef:    "proof-sequence-second",
 		CompletedAt: wfEventAt.UTC(), IdempotencyKey: "sequence-second", RequestFingerprint: "fp-sequence-second",
 	}
 	if _, err := repo.CompleteAction(ctx, second); !errors.Is(err, domain.ErrActionOutOfSequence) {
@@ -295,6 +403,7 @@ func TestActionWritesRejectOutOfSequencePg(t *testing.T) {
 	first := domain.AnswerActionCommand{
 		TenantID: wfTenant, WorkflowID: workflowID,
 		ActionID: actionIDByKey(t, detail, domain.ActionKeyKidClean), AnswerValue: "yes",
+		ProofRef:   "proof-sequence-first",
 		AnsweredAt: wfEventAt.UTC(), IdempotencyKey: "sequence-first", RequestFingerprint: "fp-sequence-first",
 	}
 	if _, err := repo.AnswerAction(ctx, first); err != nil {
@@ -302,6 +411,131 @@ func TestActionWritesRejectOutOfSequencePg(t *testing.T) {
 	}
 	if _, err := repo.CompleteAction(ctx, second); err != nil {
 		t.Fatalf("second action after first: %v", err)
+	}
+}
+
+// TestORSRoundTwoIsServerBlockedForFiftyMinutes proves the real write path uses the persisted
+// first-round completion time, not a client timer: 49:59 is rejected and exactly 50:00 succeeds.
+func TestORSRoundTwoIsServerBlockedForFiftyMinutes(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthMother, wfDam)
+	detail, err := repo.GetWorkflow(ctx, wfTenant, workflowID, wfEventAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstGivenAt := wfEventAt.UTC()
+	for _, action := range detail.Actions {
+		if action.Seq > 5 {
+			continue
+		}
+		key := "ors-gate-prerequisite-" + action.ActionKey
+		if action.ActionType == domain.ActionTypeQuestion {
+			_, err = repo.AnswerAction(ctx, domain.AnswerActionCommand{
+				TenantID: wfTenant, WorkflowID: workflowID, ActionID: action.ActionID,
+				AnswerValue: "yes", ProofRef: "proof-" + action.ActionKey,
+				AnsweredBy: wfCustodian, AnsweredAt: firstGivenAt,
+				IdempotencyKey: key, RequestFingerprint: key,
+			})
+		} else {
+			_, err = repo.CompleteAction(ctx, domain.CompleteActionCommand{
+				TenantID: wfTenant, WorkflowID: workflowID, ActionID: action.ActionID,
+				ProofRef: "proof-" + action.ActionKey, CompletedBy: wfCustodian,
+				CompletedAt: firstGivenAt, IdempotencyKey: key, RequestFingerprint: key,
+			})
+		}
+		if err != nil {
+			t.Fatalf("complete prerequisite %s: %v", action.ActionKey, err)
+		}
+	}
+	detail, err = repo.GetWorkflow(ctx, wfTenant, workflowID, firstGivenAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ors2ID := actionIDByKey(t, detail, domain.ActionKeyORSWater2)
+	early := domain.CompleteActionCommand{
+		TenantID: wfTenant, WorkflowID: workflowID, ActionID: ors2ID,
+		ProofRef: "proof-ors-2-early", CompletedBy: wfCustodian,
+		CompletedAt:    firstGivenAt.Add(49*time.Minute + 59*time.Second),
+		IdempotencyKey: "ors-2-early", RequestFingerprint: "ors-2-early",
+	}
+	if _, err := repo.CompleteAction(ctx, early); !errors.Is(err, domain.ErrActionNotYetDue) {
+		t.Fatalf("ORS round 2 at 49:59 err=%v, want ErrActionNotYetDue", err)
+	}
+	onTime := early
+	onTime.ProofRef = "proof-ors-2-on-time"
+	onTime.CompletedAt = firstGivenAt.Add(50 * time.Minute)
+	onTime.IdempotencyKey = "ors-2-on-time"
+	onTime.RequestFingerprint = "ors-2-on-time"
+	if _, err := repo.CompleteAction(ctx, onTime); err != nil {
+		t.Fatalf("ORS round 2 at 50:00: %v", err)
+	}
+}
+
+// TestColostrumSessionIsServerBlockedUntilItsBirthDerivedTime proves the production write path
+// treats the scheduled time as a not-before gate. The round remains completable after that instant;
+// the schedule is not a narrow attendance window.
+func TestColostrumSessionIsServerBlockedUntilItsBirthDerivedTime(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+	detail, err := repo.GetWorkflow(ctx, wfTenant, workflowID, wfEventAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, action := range detail.Actions {
+		if action.Section != domain.SectionMain || action.Seq > 5 {
+			continue
+		}
+		key := "colostrum-gate-prerequisite-" + action.ActionKey
+		if action.ActionType == domain.ActionTypeQuestion {
+			_, err = repo.AnswerAction(ctx, domain.AnswerActionCommand{
+				TenantID: wfTenant, WorkflowID: workflowID, ActionID: action.ActionID,
+				AnswerValue: "yes", ProofRef: "proof-" + action.ActionKey,
+				AnsweredBy: wfCustodian, AnsweredAt: wfEventAt,
+				IdempotencyKey: key, RequestFingerprint: key,
+			})
+		} else {
+			_, err = repo.CompleteAction(ctx, domain.CompleteActionCommand{
+				TenantID: wfTenant, WorkflowID: workflowID, ActionID: action.ActionID,
+				ProofRef: "proof-" + action.ActionKey, CompletedBy: wfCustodian,
+				CompletedAt: wfEventAt, IdempotencyKey: key, RequestFingerprint: key,
+			})
+		}
+		if err != nil {
+			t.Fatalf("complete prerequisite %s: %v", action.ActionKey, err)
+		}
+	}
+
+	detail, err = repo.GetWorkflow(ctx, wfTenant, workflowID, wfEventAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firstSession domain.WorkflowAction
+	for _, action := range detail.Actions {
+		if action.Section == domain.SectionColostrumSession {
+			firstSession = action
+			break
+		}
+	}
+	if firstSession.ActionID == "" || firstSession.DueAt == nil {
+		t.Fatalf("first scheduled colostrum session missing due_at: %+v", firstSession)
+	}
+	early := domain.CompleteActionCommand{
+		TenantID: wfTenant, WorkflowID: workflowID, ActionID: firstSession.ActionID,
+		ProofRef: "proof-colostrum-early", CompletedBy: wfCustodian,
+		CompletedAt:    firstSession.DueAt.Add(-time.Second),
+		IdempotencyKey: "colostrum-early", RequestFingerprint: "colostrum-early",
+	}
+	if _, err := repo.CompleteAction(ctx, early); !errors.Is(err, domain.ErrActionNotYetDue) {
+		t.Fatalf("colostrum before scheduled time err=%v, want ErrActionNotYetDue", err)
+	}
+	onTime := early
+	onTime.ProofRef = "proof-colostrum-on-time"
+	onTime.CompletedAt = *firstSession.DueAt
+	onTime.IdempotencyKey = "colostrum-on-time"
+	onTime.RequestFingerprint = "colostrum-on-time"
+	if _, err := repo.CompleteAction(ctx, onTime); err != nil {
+		t.Fatalf("colostrum at scheduled time: %v", err)
 	}
 }
 
@@ -465,8 +699,8 @@ func TestResolveDamAndFactsPg(t *testing.T) {
 	}
 }
 
-// TestCompleteTagActionForGoatPg proves the goat.identifier.added consumer path: the pending
-// tag_the_kid step completes on the open birth_kid workflow, idempotently.
+// TestCompleteTagActionForGoatPg proves RFID promotion records the prerequisite but never completes
+// the mandatory tagging-video task.
 func TestCompleteTagActionForGoatPg(t *testing.T) {
 	repo, _, ctx := newWorkflowRepo(t)
 	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
@@ -480,12 +714,97 @@ func TestCompleteTagActionForGoatPg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got := actionStatus(t, detail, domain.ActionKeyTagTheKid); got != domain.ActionStatusCompleted {
-		t.Fatalf("tag_the_kid = %q, want completed", got)
+	if got := actionStatus(t, detail, domain.ActionKeyTagTheKid); got != domain.ActionStatusPending {
+		t.Fatalf("tag_the_kid = %q, want pending until video", got)
 	}
 	// A goat with no open birth workflow is a silent no-op.
 	if err := repo.CompleteTagActionForGoat(ctx, wfTenant, wfDam, wfEventAt.UTC()); err != nil {
 		t.Fatalf("no-workflow tag completion: %v", err)
+	}
+}
+
+func TestBirthReviewIsIndependentPerMotherAndChildWorkflow(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	if _, err := pool.Exec(ctx, `INSERT INTO goat_births
+	 (tenant_id,child_goat_id,mother_goat_id,birth_event_id,child_ordinal,litter_size,count_status)
+	 VALUES ($1::uuid,$2::uuid,$3::uuid,$2::uuid,1,1,'pending')`, wfTenant, wfKid, wfDam); err != nil {
+		t.Fatal(err)
+	}
+	kidID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+	created, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{TenantID: wfTenant, TemplateKey: domain.TemplateKeyBirthMother,
+		SubjectGoatID: wfDam, DamGoatID: stringPtr(wfKid), EventAt: wfEventAt})
+	if err != nil || !created {
+		t.Fatalf("open mother: created=%v err=%v", created, err)
+	}
+	motherID := findWorkflowID(t, repo, ctx, domain.TemplateKeyBirthMother, wfDam)
+	completeAll := func(id string) {
+		detail, err := repo.GetWorkflow(ctx, wfTenant, id, wfEventAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, action := range detail.Actions {
+			key := "all-video-" + action.ActionID
+			completedAt := wfEventAt
+			if action.ActionKey == domain.ActionKeyORSWater2 {
+				completedAt = wfEventAt.Add(50 * time.Minute)
+			}
+			if action.ActionType == domain.ActionTypeQuestion || action.ActionType == domain.ActionTypeQuestionSelect {
+				answer := "yes"
+				if action.ActionType == domain.ActionTypeQuestionSelect {
+					answer = action.Options[0]
+				}
+				_, err = repo.AnswerAction(ctx, domain.AnswerActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
+					AnswerValue: answer, ProofRef: "proof-" + action.ActionID, AnsweredBy: wfCustodian, AnsweredAt: completedAt, IdempotencyKey: key, RequestFingerprint: key})
+			} else {
+				_, err = repo.CompleteAction(ctx, domain.CompleteActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
+					ProofRef: "proof-" + action.ActionID, CompletedBy: wfCustodian, CompletedAt: completedAt, IdempotencyKey: key, RequestFingerprint: key})
+			}
+			if err != nil {
+				t.Fatalf("complete %s: %v", action.ActionKey, err)
+			}
+		}
+	}
+	completeAll(motherID)
+	motherDetail, err := repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range motherDetail.Actions {
+		if action.ActionKey == domain.ActionKeyORSWater2 {
+			want := wfEventAt.Add(50 * time.Minute)
+			if action.DueAt == nil || !action.DueAt.Equal(want) {
+				t.Fatalf("ORS round 2 due=%v, want %v", action.DueAt, want)
+			}
+		}
+	}
+	review, err := repo.BirthWorkflowEvidenceForVerification(ctx, wfTenant, motherID)
+	if err != nil {
+		t.Fatalf("mother review must not wait for kids: %v", err)
+	}
+	if review.WorkflowID != motherID || review.SubjectRole != domain.TemplateKeyBirthMother || len(review.ProofRefs) != 6 {
+		t.Fatalf("mother review=%+v, want mother workflow and 6 proofs", review)
+	}
+	motherDetail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	kidDetail, _ := repo.GetWorkflow(ctx, wfTenant, kidID, wfEventAt)
+	if !motherDetail.Card.AwaitingVerification || kidDetail.Card.AwaitingVerification {
+		t.Fatalf("review gates mother=%v kid=%v, want true/false", motherDetail.Card.AwaitingVerification, kidDetail.Card.AwaitingVerification)
+	}
+
+	completeAll(kidID)
+	kidReview, err := repo.BirthWorkflowEvidenceForVerification(ctx, wfTenant, kidID)
+	if err != nil {
+		t.Fatalf("kid review: %v", err)
+	}
+	if kidReview.WorkflowID != kidID || kidReview.SubjectRole != domain.TemplateKeyBirthKid || len(kidReview.ProofRefs) != 13 {
+		t.Fatalf("kid review=%+v, want kid workflow and 13 proofs", kidReview)
+	}
+	if err := repo.ApplyBirthSignoffApproved(ctx, ports.DeathVerdictCommand{TenantID: wfTenant, WorkflowID: review.WorkflowID}); err != nil {
+		t.Fatal(err)
+	}
+	motherDetail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	kidDetail, _ = repo.GetWorkflow(ctx, wfTenant, kidID, wfEventAt)
+	if motherDetail.Card.AwaitingVerification || !kidDetail.Card.AwaitingVerification {
+		t.Fatalf("approval gates mother=%v kid=%v, want false/true", motherDetail.Card.AwaitingVerification, kidDetail.Card.AwaitingVerification)
 	}
 }
 

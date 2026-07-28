@@ -41,7 +41,7 @@ func (f *fakeRepo) nextID(prefix string) string {
 }
 
 func (f *fakeRepo) OpenWorkflow(_ context.Context, cmd ports.OpenWorkflowCommand) (bool, error) {
-	template, ok := domain.TemplateByKey(cmd.TemplateKey)
+	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt)
 	if !ok {
 		return false, domain.ErrUnknownTemplate
 	}
@@ -144,7 +144,7 @@ func (f *fakeRepo) mutate(tenantID, workflowID string,
 func (f *fakeRepo) AnswerAction(_ context.Context, cmd domain.AnswerActionCommand) (domain.ActionWriteResult, error) {
 	var target domain.WorkflowAction
 	w, actions, replay, err := f.mutate(cmd.TenantID, cmd.WorkflowID,
-		func(_ *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
 			for i := range actions {
 				if actions[i].ActionID != cmd.ActionID {
 					continue
@@ -155,6 +155,9 @@ func (f *fakeRepo) AnswerAction(_ context.Context, cmd domain.AnswerActionComman
 				}
 				actions[i] = updated
 				target = updated
+				if !isReplay && w.TemplateKey == domain.TemplateKeyBirthKid && domain.BirthWorkflowComplete(actions) {
+					w.AwaitingVerification = true
+				}
 				return isReplay, nil
 			}
 			return false, domain.ErrNotFound
@@ -185,6 +188,9 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 				if f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && updated.RequiresVideo && domain.DeathVideosComplete(actions) {
 					w.AwaitingVerification = true
 				}
+				if w.TemplateKey == domain.TemplateKeyBirthKid && domain.BirthWorkflowComplete(actions) {
+					w.AwaitingVerification = true
+				}
 				return false, nil
 			}
 			return false, domain.ErrNotFound
@@ -212,15 +218,14 @@ func (f *fakeRepo) CompleteTagActionForGoat(_ context.Context, tenantID, goatID 
 			continue
 		}
 		_, _, _, err := f.mutate(tenantID, id,
-			func(_ *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
+			func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
 				for i := range actions {
 					if actions[i].ActionKey == domain.ActionKeyTagTheKid {
 						if actions[i].Status == domain.ActionStatusCompleted {
 							return true, nil
 						}
-						at := completedAt
-						actions[i].Status = domain.ActionStatusCompleted
-						actions[i].CompletedAt = &at
+						assigned := "permanent-rfid-assigned"
+						actions[i].AnswerValue = &assigned
 						actions[i].RowVersion++
 						return false, nil
 					}
@@ -256,6 +261,26 @@ func (f *fakeRepo) DeathEvidenceForVerification(_ context.Context, tenantID, goa
 		return review, nil
 	}
 	return ports.DeathEvidenceReview{}, domain.ErrNotFound
+}
+
+func (f *fakeRepo) BirthWorkflowEvidenceForVerification(_ context.Context, tenantID, workflowID string) (ports.BirthEvidenceReview, error) {
+	w, ok := f.workflows[workflowID]
+	if !ok || w.TenantID != tenantID ||
+		(w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother) ||
+		!domain.BirthWorkflowComplete(f.actions[workflowID]) {
+		return ports.BirthEvidenceReview{}, domain.ErrNotFound
+	}
+	if !w.AwaitingVerification {
+		w.AwaitingVerification = true
+		w.RowVersion++
+		f.workflows[workflowID] = w
+	}
+	return ports.BirthEvidenceReview{
+		WorkflowID: workflowID, SubjectRole: w.TemplateKey, EventDate: w.EventDate, Round: w.RowVersion,
+		ParkID: derefOr(w.ParkID), ShedID: derefOr(w.ShedID),
+		ProofRefs:  domain.BirthProofRefs(f.actions[workflowID]),
+		OperatorID: domain.BirthProofOperator(f.actions[workflowID]),
+	}, nil
 }
 
 func (f *fakeRepo) CancelDeathWorkflowForGoat(_ context.Context, tenantID, goatID string, _ time.Time) error {
@@ -308,6 +333,27 @@ func (f *fakeRepo) BounceDeathVideosForRework(_ context.Context, cmd ports.Death
 	return err
 }
 
+func (f *fakeRepo) ApplyBirthSignoffApproved(_ context.Context, cmd ports.DeathVerdictCommand) error {
+	return f.ApplyDeathSignoffApproved(context.Background(), cmd)
+}
+
+func (f *fakeRepo) BounceBirthVideoForRework(_ context.Context, cmd ports.DeathVerdictCommand) error {
+	_, _, _, err := f.mutate(cmd.TenantID, cmd.WorkflowID,
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
+			w.AwaitingVerification = false
+			for i := range actions {
+				if actions[i].ActionKey == domain.ActionKeyFirstColostrum && actions[i].Status == domain.ActionStatusCompleted {
+					actions[i].Status = domain.ActionStatusRework
+					actions[i].ProofRef = nil
+					actions[i].CompletedAt = nil
+					return false, nil
+				}
+			}
+			return true, nil
+		})
+	return err
+}
+
 var _ ports.Repository = (*fakeRepo)(nil)
 
 // fakeEnqueuer models the REAL verification adapter, not just "the seam was called". Verification's
@@ -317,9 +363,25 @@ var _ ports.Repository = (*fakeRepo)(nil)
 // `items` is keyed exactly like that unique index and is the assertion surface for "did a park head
 // actually get something to review".
 type fakeEnqueuer struct {
-	calls []DeathVerificationEnqueueRequest
-	items map[string]int // (tenant|idempotency_key) -> times an item was actually CREATED
-	err   error
+	calls      []DeathVerificationEnqueueRequest
+	birthCalls []BirthVerificationEnqueueRequest
+	items      map[string]int // (tenant|idempotency_key) -> times an item was actually CREATED
+	err        error
+}
+
+func (f *fakeEnqueuer) EnqueueBirthEvidenceVerification(_ context.Context, in BirthVerificationEnqueueRequest) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.birthCalls = append(f.birthCalls, in)
+	if f.items == nil {
+		f.items = map[string]int{}
+	}
+	key := in.TenantID + "|" + in.IdempotencyKey
+	if _, exists := f.items[key]; !exists {
+		f.items[key] = len(f.items) + 1
+	}
+	return nil
 }
 
 func (f *fakeEnqueuer) EnqueueDeathEvidenceVerification(_ context.Context, in DeathVerificationEnqueueRequest) error {
@@ -392,6 +454,49 @@ func newServiceWithKidWorkflow(t *testing.T) (*Service, *fakeRepo, string) {
 	return nil, nil, ""
 }
 
+func TestPermanentRfidLeavesTagVideoPendingAndDoesNotQueueVerification(t *testing.T) {
+	repo := newFakeRepo()
+	enq := &fakeEnqueuer{}
+	svc := NewService(repo, nil).WithVerificationEnqueuer(enq)
+	created, err := repo.OpenWorkflow(context.Background(), ports.OpenWorkflowCommand{
+		TenantID: testTenant, TemplateKey: domain.TemplateKeyBirthKid, SubjectGoatID: testGoat,
+		EventAt: time.Date(2026, 7, 28, 9, 0, 0, 0, biztime.DefaultLocation()),
+	})
+	if err != nil || !created {
+		t.Fatalf("open birth workflow: created=%v err=%v", created, err)
+	}
+	var workflowID string
+	for id := range repo.workflows {
+		workflowID = id
+	}
+	operator := "33333333-3333-4333-8333-333333333333"
+	proof := "proof-birth-first-colostrum"
+	completedAt := time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC)
+	for i := range repo.actions[workflowID] {
+		action := &repo.actions[workflowID][i]
+		if action.ActionKey == domain.ActionKeyTagTheKid {
+			continue
+		}
+		action.Status = domain.ActionStatusCompleted
+		action.CompletedAt = &completedAt
+		action.CompletedBy = &operator
+		if action.ActionKey == domain.ActionKeyFirstColostrum {
+			action.ProofRef = &proof
+		}
+	}
+	repo.workflows[workflowID] = domain.RecomputeCard(repo.workflows[workflowID], repo.actions[workflowID])
+
+	if err := svc.CompleteTagAction(context.Background(), testTenant, testGoat, completedAt); err != nil {
+		t.Fatalf("complete permanent RFID action: %v", err)
+	}
+	if len(enq.birthCalls) != 0 || enq.created() != 0 {
+		t.Fatalf("RFID assignment alone queued verification: calls=%d created=%d", len(enq.birthCalls), enq.created())
+	}
+	if got := actionByKeyT(t, repo, workflowID, domain.ActionKeyTagTheKid); got.Status != domain.ActionStatusPending || got.AnswerValue == nil {
+		t.Fatalf("tag action = %+v, want assigned RFID recorded but mandatory video still pending", got)
+	}
+}
+
 func TestReportedDeathOpensUploadWorkflowBeforeApproval(t *testing.T) {
 	repo := newFakeRepo()
 	repo.goats[testGoat] = ports.GoatWorkflowFacts{GoatID: testGoat, LifecycleStatus: "alive"}
@@ -460,6 +565,7 @@ func TestAnswerActionIdempotency(t *testing.T) {
 		WorkflowID:         workflowID,
 		ActionID:           actionID(t, repo, workflowID, domain.ActionKeyKidClean),
 		AnswerValue:        "yes",
+		ProofRef:           "proof-kid-clean",
 		IdempotencyKey:     "answer-key-1",
 		RequestFingerprint: "fp-1",
 	}
@@ -505,22 +611,29 @@ func TestAnswerActionIdempotency(t *testing.T) {
 	}
 }
 
-func TestAnswerQuestionSelectValidatesOptions(t *testing.T) {
+func TestAnswerKidWeightRequiresPositiveNumericKilograms(t *testing.T) {
 	svc, repo, workflowID := newServiceWithKidWorkflow(t)
 	in := AnswerActionInput{
 		TenantID:           testTenant,
 		WorkflowID:         workflowID,
 		ActionID:           actionID(t, repo, workflowID, domain.ActionKeyTakeWeight),
 		AnswerValue:        "12 tonnes",
+		ProofRef:           "proof-kid-weight",
 		IdempotencyKey:     "weight-key-1",
 		RequestFingerprint: "fp-w1",
 	}
 	if _, err := svc.AnswerAction(context.Background(), in); !errors.Is(err, domain.ErrInvalidAnswer) {
-		t.Fatalf("out-of-band answer err = %v, want ErrInvalidAnswer", err)
+		t.Fatalf("non-numeric weight err = %v, want ErrInvalidAnswer", err)
 	}
-	in.AnswerValue = "2.0 – 2.5 kg"
+	in.AnswerValue = "0"
+	in.RequestFingerprint = "fp-w2"
+	if _, err := svc.AnswerAction(context.Background(), in); !errors.Is(err, domain.ErrInvalidAnswer) {
+		t.Fatalf("zero weight err = %v, want ErrInvalidAnswer", err)
+	}
+	in.AnswerValue = "2.35"
+	in.RequestFingerprint = "fp-w3"
 	if _, err := svc.AnswerAction(context.Background(), in); err != nil {
-		t.Fatalf("valid band answer: %v", err)
+		t.Fatalf("valid kilogram answer: %v", err)
 	}
 }
 
@@ -926,6 +1039,9 @@ func TestOpenBirthWorkflowsOpensKidAndResolvedMother(t *testing.T) {
 	if mother.SubjectGoatID != damID {
 		t.Fatalf("mother subject = %q, want dam %q", mother.SubjectGoatID, damID)
 	}
+	if kid.DamGoatID == nil || *kid.DamGoatID != damID {
+		t.Fatalf("kid mother link = %v, want dam %q", kid.DamGoatID, damID)
+	}
 
 	// A TWIN (second kid, same dam) opens its own kid workflow but attaches to the SAME mother
 	// workflow (natural key + ON CONFLICT semantics).
@@ -974,13 +1090,13 @@ func TestBirthMomentFallsBackTo0700(t *testing.T) {
 	}
 }
 
-func TestCompleteTagActionViaIdentifierAdded(t *testing.T) {
+func TestIdentifierAddedRecordsTagPrerequisiteWithoutCompletingVideoTask(t *testing.T) {
 	svc, repo, workflowID := newServiceWithKidWorkflow(t)
 	if err := svc.CompleteTagAction(context.Background(), testTenant, testGoat, time.Now()); err != nil {
 		t.Fatalf("tag completion: %v", err)
 	}
-	if got := actionByKeyT(t, repo, workflowID, domain.ActionKeyTagTheKid).Status; got != domain.ActionStatusCompleted {
-		t.Fatalf("tag_the_kid status = %q, want completed", got)
+	if got := actionByKeyT(t, repo, workflowID, domain.ActionKeyTagTheKid); got.Status != domain.ActionStatusPending || got.AnswerValue == nil {
+		t.Fatalf("tag_the_kid = %+v, want RFID recorded and video still pending", got)
 	}
 	// Redelivery is a no-op.
 	if err := svc.CompleteTagAction(context.Background(), testTenant, testGoat, time.Now()); err != nil {

@@ -161,6 +161,7 @@ tracked as gaps below.
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |
 | shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue |
+| goat_births | EXCLUDED — per-child canonical mother relationship and delivery litter size used by the operator birth workflow; leadership birth/mortality reporting remains on governed Counts aggregates |
 | procurement_loads, procurement_load_goats, arrival_intake_reviews, procurement_source_health_checks, procurement_hf_vaccination_evidence | procurement_pipeline, source_entry_health_status |
 | sop_tasks, sop_submissions | sop_execution_status |
 | verification_items | verification_queue_status |
@@ -531,3 +532,11 @@ day — not a leadership KPI, time-series, or tenant/park rollup. Same category 
 already-excluded operator execution/scan internals; leadership drive/coverage answers
 stay on the existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views. No
 `ceo_ai.*` view, Cube metric, or Toolbox tool is warranted.
+
+**EXCLUDED — `table:goat_births` / `POST /app/counts/birth-events` birth-form metadata**
+— `goat_births` stores one child's canonical mother relationship and delivery
+litter size; the app endpoint captures required breed, mother RFID, and litter
+choice. These are operator-entry and per-animal detail facts, not an official
+leadership KPI or aggregate read surface. Leadership birth/mortality answers
+remain on the existing governed Counts aggregates; no `ceo_ai.*` view, Cube
+metric, or Toolbox row-level tool is warranted.

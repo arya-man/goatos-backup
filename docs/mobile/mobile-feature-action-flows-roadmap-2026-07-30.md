@@ -165,11 +165,15 @@ thread (one mother, N kids).
 
 **Track A — Mother** (146 occurrences each):
 
+All six implemented mother steps require one live-camera video. Question steps
+submit the selected response and that one video together. Mother's Medicine is
+one task and one video for the complete four-medicine administration.
+
 | # | Type | Action | Schedule | Details |
 |---|---|---|---|---|
 | 1 | `QUESTION` | Are there any babies still inside? | immediate | |
 | 2 | `QUESTION` | Is the mother licking her babies? | immediate | |
-| 3 | `ACTION` | Mother's Medicine | immediate | Chocolate Injection 1.5 ml SQ; Meloxicam Paracetamol 4 ml IM; Exapar 20 ml; Glucoboost 100 ml + 150 g concentrate |
+| 3 | `ACTION` | Mother's Medicine | immediate | ONE task: Chocolate Injection 1.5 ml SQ; Meloxicam Paracetamol 4 ml IM; Exapar 20 ml; Glucoboost 100 ml + 150 g concentrate. One video covers the complete medicine task. |
 | 4 | `ACTION` | Give ORS water | immediate | |
 | 5 | `QUESTION` | Is the mother eating? | immediate | |
 | 6 | `ACTION` | Give ORS water (2nd) | `FUNC_ORS_2` | |
@@ -196,14 +200,23 @@ no colostrum.
 
 **Colostrum series** — see §4.7. It is generated from Birth but is its own page.
 
-**What changes vs the app today:** `BirthDeathScreen` is a one-shot form. It must
-become a **task with a live action list** — separate mother and per-kid tracks,
-scheduled follow-ups at +1h/+2d/+9d, and two automatic shifting requests. The
-breed picker shipped on `CountsWrite` (commit `e2969f17`) stays; it becomes
-action-level input rather than the whole interaction.
+**Implemented form + workflow contract:** Birth opens on a live action list with
+separate mother and per-kid tracks. One delivery submit creates the selected
+`1`, `Twins`, or `Triplets` as distinct canonical children. Breed is visible and
+required; the mother's permanent RFID is required/scannable and resolves to the
+canonical mother goat ID. Each child receives a distinct farm-coded provisional
+ID (`CBE-#####`/`CPT-#####`) and its own workflow. After server acceptance,
+Android clears all entered values, returns to Birth, and refreshes those normal
+workflow cards. It shows no pending-approval cards: web approval separately
+controls only whether the already-created children enter herd counts. **Tag the
+kid** promotes each permanent RFID and retires its provisional ID. The removed
+shifting trigger rows remain owned by Shifting, not Birth.
 
-**Completion effects:** live kid becomes a canonical animal in the shed's
-configured stage; dead offspring creates no animal and no vaccination work;
+**Completion effects:** submission creates all live children and their
+`goat_births` rows immediately; web approval atomically activates count
+eligibility for the complete litter and never creates a goat. After all actions
+for one child finish, its birth evidence is sent to Verify. Dead offspring
+creates no animal and no vaccination work;
 `Create Shifting Request` events must go through the real shifting producer, not
 a private path.
 
@@ -594,7 +607,8 @@ A workflow is done only when:
 - Conditional actions are evaluated from real prior answers, not rendered as a
   static checklist.
 - Commands are idempotent, audited, event-backed, replay-safe, and offline-safe.
-- Birth and Death apply at approval; Shifting applies only at verifier approval.
+- Birth creates children at submission and activates counts at web approval;
+  Death applies at approval; Shifting applies only at verifier approval.
 - No unpublished medical value from the workbook has become hardcoded app
   behaviour.
 - Room-backed UI distinguishes pending sync, pending approval/verification,

@@ -96,6 +96,7 @@
     <string name="counts_id_kind_permanent">स्थायी RFID</string>
     <string name="counts_id_kind_temporary">अस्थायी टैग</string>
     <string name="counts_field_breed">नस्ल</string>
+    <string name="counts_field_breed_required">नस्ल *</string>
     <string name="counts_field_dob">जन्म तिथि (YYYY-MM-DD)</string>
     <string name="counts_field_entry_date">प्रविष्टि तिथि (YYYY-MM-DD)</string>
     <string name="counts_field_park">पार्क</string>
@@ -104,6 +105,12 @@
     <string name="counts_field_shed">शेड</string>
     <string name="counts_field_dam">माता</string>
     <string name="counts_field_dam_optional">माता (वैकल्पिक)</string>
+    <string name="counts_field_mother_rfid">माता का RFID</string>
+    <string name="counts_mother_rfid_hint">माता का स्थायी RFID स्कैन करें या टाइप करें।</string>
+    <string name="counts_field_litter_size">कितने बच्चे जन्मे? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">जुड़वाँ</string>
+    <string name="counts_litter_triplets">तीन बच्चे</string>
     <string name="counts_field_sex">लिंग</string>
     <string name="counts_field_status">स्थिति</string>
     <string name="counts_field_goat">बकरी</string>
@@ -161,8 +168,13 @@
     <string name="counts_workflow_group_in_review">समीक्षा में</string>
     <string name="counts_workflow_group_completed">पूर्ण</string>
     <string name="counts_workflow_submitted">जमा किया गया</string>
+    <string name="counts_birth_pending_header">स्वीकृति लंबित</string>
     <string name="counts_workflow_chip_all">सभी</string>
     <string name="counts_workflow_chip_overdue">समय बीत चुका</string>
+    <string name="counts_workflow_previous_overdue_open">पिछले दिनों के विलंबित कार्य दिखाएँ</string>
+    <string name="counts_workflow_previous_overdue_title">पिछले दिनों से विलंबित</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d लंबित कार्य</string>
+    <string name="counts_workflow_previous_overdue_empty">पिछले दिनों का कोई विलंबित कार्य नहीं है।</string>
     <string name="counts_workflow_chip_due">देय</string>
     <string name="counts_workflow_chip_completed">पूर्ण</string>
     <string name="counts_workflow_chip_awaiting_video">वीडियो प्रतीक्षित</string>
@@ -190,8 +202,10 @@
     <string name="counts_field_time_of_birth">जन्म का समय (HH:MM)</string>
     <string name="counts_add_birth_dob_hint">जन्म तिथि — आज। जन्म होते ही दर्ज किए जाते हैं।</string>
     <string name="counts_add_birth_time_hint">अभी के समय से भरा गया — बदलने के लिए टैप करें।</string>
-    <string name="counts_add_birth_workflow_note">सबमिट पर अनुमोदन के बाद बच्चा बनता है और उसके जन्म फ़ॉलो-अप कार्य खुलते हैं — माँ के लिए Mother ट्रैक और नवजात के लिए Kid ट्रैक।</string>
+    <string name="counts_add_birth_workflow_note">सबमिट करते ही हर बच्चा अपने जन्म कार्यों के साथ बन जाता है। वेब अनुमोदन केवल बच्चों को झुंड की गिनती में जोड़ता है।</string>
     <string name="counts_add_death_subtitle">मृत पशु खोजें</string>
     <string name="counts_workflow_recorded">रिकॉर्ड किया गया</string>
     <string name="counts_workflow_rerecord_video">वीडियो फिर रिकॉर्ड करें</string>
+    <string name="counts_workflow_weight_kg">वजन (किग्रा)</string>
+    <string name="counts_workflow_weight_continue">वीडियो रिकॉर्ड करने के लिए आगे बढ़ें</string>
 </resources>

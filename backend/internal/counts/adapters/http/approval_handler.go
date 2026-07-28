@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -53,6 +54,7 @@ const (
 // ApprovalWorkflow is the slice of counts/app.ApprovalService this handler needs.
 type ApprovalWorkflow interface {
 	SubmitRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error)
+	SubmitBirthRequest(ctx context.Context, in domain.ApprovalRequestSubmission, children []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error)
 	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkID string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
@@ -62,6 +64,21 @@ func RegisterApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appApprovalsRoute, h.ListApprovals)
 	mux.HandleFunc("POST "+appApprovalApproveRoute, h.ApproveRequest)
 	mux.HandleFunc("POST "+appApprovalRejectRoute, h.RejectRequest)
+}
+
+func approvalPageSize(w http.ResponseWriter, r *http.Request, h *AppWriteHandler) (int, bool) {
+	pageSize := domain.MaxApprovalPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer", nil)
+			return 0, false
+		}
+		if parsed < pageSize {
+			pageSize = parsed
+		}
+	}
+	return pageSize, true
 }
 
 // RegisterAdminWebApprovals wires the admin-web Approvals page onto the SAME approval service and
@@ -120,16 +137,9 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 
 	// Page size is capped server-side at MaxApprovalPageSize: this queue is read from a phone, and
 	// a client asking for 500 rows must get one screen of work, not the whole backlog.
-	pageSize := domain.MaxApprovalPageSize
-	if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 {
-			h.writeError(w, r, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer", nil)
-			return
-		}
-		if parsed < pageSize {
-			pageSize = parsed
-		}
+	pageSize, ok := approvalPageSize(w, r, h)
+	if !ok {
+		return
 	}
 
 	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkID, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))

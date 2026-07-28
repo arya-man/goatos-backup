@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_detail_recorded_answer">उत्तर: %1$s</string>
     <string name="verify_detail_death_video">मृत्यु वीडियो</string>
     <string name="verify_detail_post_mortem_video">पोस्टमार्टम वीडियो</string>
     <string name="verify_module_birth">जन्म</string>

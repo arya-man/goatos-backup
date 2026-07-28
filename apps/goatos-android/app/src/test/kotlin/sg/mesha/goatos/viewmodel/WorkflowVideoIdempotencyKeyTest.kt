@@ -15,5 +15,9 @@ class WorkflowVideoIdempotencyKeyTest {
             workflowVideoCompletionKey("death-action", "proof-item-1"),
             workflowVideoCompletionKey("death-action", "proof-item-2"),
         )
+        assertNotEquals(
+            workflowVideoAnswerKey("mother-question", "proof-item-1"),
+            workflowVideoAnswerKey("mother-question", "proof-item-2"),
+        )
     }
 }

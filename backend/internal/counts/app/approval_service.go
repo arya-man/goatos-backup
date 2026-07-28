@@ -42,6 +42,14 @@ type approvalSubjectParkReader interface {
 	ApprovalSubjectPark(ctx context.Context, tenantID, goatID string) (string, error)
 }
 
+type birthApprovalSubmitter interface {
+	CreateBirthApprovalRequest(
+		ctx context.Context,
+		in domain.ApprovalRequestSubmission,
+		children []identityports.CreateAdminGoatCommand,
+	) (domain.BirthSubmissionResult, error)
+}
+
 // ApprovalService owns the Counts lifecycle approval workflow: submit-as-pending, list, decide.
 type ApprovalService struct {
 	repo     ports.Repository
@@ -79,6 +87,29 @@ func (s *ApprovalService) SubmitRequest(ctx context.Context, in domain.ApprovalR
 		in.RaisedAt = s.now().UTC()
 	}
 	return s.repo.CreateApprovalRequest(ctx, in)
+}
+
+// SubmitBirthRequest atomically creates every canonical child and the independent web approval.
+// The children are count-pending, but goat.created is emitted immediately for each child so their
+// operational workflows start without waiting for the web queue.
+func (s *ApprovalService) SubmitBirthRequest(
+	ctx context.Context,
+	in domain.ApprovalRequestSubmission,
+	children []identityports.CreateAdminGoatCommand,
+) (domain.BirthSubmissionResult, error) {
+	if strings.TrimSpace(in.TenantID) == "" || strings.TrimSpace(in.RaisedByUserID) == "" ||
+		strings.TrimSpace(in.IdempotencyKey) == "" || strings.TrimSpace(in.RequestFingerprint) == "" ||
+		in.RequestType != domain.ApprovalRequestTypeBirth || len(children) < 1 || len(children) > 3 {
+		return domain.BirthSubmissionResult{}, ErrMissingRequiredField
+	}
+	if in.RaisedAt.IsZero() {
+		in.RaisedAt = s.now().UTC()
+	}
+	repo, ok := s.repo.(birthApprovalSubmitter)
+	if !ok {
+		return domain.BirthSubmissionResult{}, fmt.Errorf("counts: birth submission repository is not wired")
+	}
+	return repo.CreateBirthApprovalRequest(ctx, in, children)
 }
 
 // ---------------------------------------------------------------------------
@@ -244,23 +275,9 @@ func (s *ApprovalService) prepareEffect(
 ) (*domain.ApprovalEffect, error) {
 	switch req.RequestType {
 	case domain.ApprovalRequestTypeBirth:
-		if s.preparer == nil {
-			return nil, fmt.Errorf("counts: approve birth: goat lifecycle preparer is not wired")
-		}
-		// The apply-time idempotency key is derived from the APPROVAL REQUEST, not from the
-		// approver's client key. That is what makes a second approve (with a different client key)
-		// collapse onto the same identity write instead of creating a second kid.
-		cmd, err := s.preparer.PrepareCreateAdminGoat(ctx, identityapp.CreateAdminGoatInput{
-			TenantID:       req.TenantID,
-			ActorID:        in.DecidedByUserID,
-			IdempotencyKey: approvalEffectIdempotencyKey(req),
-			TraceID:        in.TraceID,
-			RawBody:        req.Payload,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return &domain.ApprovalEffect{CreateGoat: cmd}, nil
+		return &domain.ApprovalEffect{BirthCounts: &domain.BirthCountsApprovalEffect{
+			BirthEventID: req.ApprovalRequestID,
+		}}, nil
 
 	case domain.ApprovalRequestTypeDeath:
 		if s.preparer == nil {

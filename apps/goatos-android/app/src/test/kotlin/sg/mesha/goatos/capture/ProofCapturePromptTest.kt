@@ -7,6 +7,17 @@ import sg.mesha.goatos.R
 
 class ProofCapturePromptTest {
     @Test
+    fun `workflow task title replaces generic birth recorder title`() {
+        assertEquals(
+            "Mother's Medicine",
+            recorderHeaderTitle(
+                taskTitle = "Mother's Medicine",
+                fallbackTitle = "Record birth video",
+            ),
+        )
+    }
+
+    @Test
     fun `death recorders never reuse vaccination header or instruction`() {
         val vaccination = recorderCopyResources(ProofCapturePrompt.VACCINATION)
         val death = recorderCopyResources(ProofCapturePrompt.DEATH)

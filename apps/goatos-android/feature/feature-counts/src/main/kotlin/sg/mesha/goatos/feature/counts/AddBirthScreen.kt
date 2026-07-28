@@ -39,10 +39,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  * ＋ button.
  *
  * Deltas from the retired combined form: NO RFID scan and NO permanent/temporary toggle (the
- * server auto-generates a provisional `K-…` tag; the kid is tagged later via the "Tag the kid"
+ * server auto-generates a provisional `CBE-#####` or `CPT-#####` tag; the kid is tagged later via the "Tag the kid"
  * action → the existing promote flow); DOB is LOCKED to today (shown disabled); a NEW editable
  * time-of-birth field (HH:MM, prefilled to now IST); the entry-date field is REMOVED (the client
- * sends today); breed + dam stay optional behind expanders; the park → shed cascade stays
+ * sends today); breed, mother RFID, and litter size are required; the park → shed cascade stays
  * required. The offline outbox submit/QUEUED/SYNCED banner behavior is unchanged.
  */
 
@@ -61,10 +61,16 @@ data class AddBirthUiState(
     val shedId: String = "",
     val destinationsMessage: String? = null,
     val damId: String = "",
+    val litterSize: Int = 1,
+    val scanningMotherRfid: Boolean = false,
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val lastRecordedMessage: String? = null,
+    /** One-shot navigation signal set only after the server accepts the approval request. */
+    val returnToBirthList: Boolean = false,
+    /** Backend-result-aware acknowledgement handed to the parent Birth list. */
+    val submissionNotice: String? = null,
 ) {
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
@@ -74,8 +80,11 @@ sealed interface AddBirthEvent {
     data class EditField(val field: AddBirthField, val value: String) : AddBirthEvent
     data class SelectPark(val parkId: String) : AddBirthEvent
     data class SelectShed(val shedId: String) : AddBirthEvent
+    data class SelectLitterSize(val litterSize: Int) : AddBirthEvent
+    data object ToggleMotherRfidScan : AddBirthEvent
     data object Submit : AddBirthEvent
     data object RecordAnother : AddBirthEvent
+    data object NavigationHandled : AddBirthEvent
     data object Back : AddBirthEvent
 }
 
@@ -107,9 +116,8 @@ fun AddBirthScreen(
             }
 
             // Identity — species/sex segmented; the provisional tag is SERVER-generated, so there
-            // is no identifier input at all. Breed stays optional behind the expander.
+            // is no kid identifier input. Breed is visible and required.
             item(key = "identity") {
-                var moreExpanded by remember { mutableStateOf(state.breed.isNotBlank()) }
                 AddFormGroupCard(title = stringResource(R.string.counts_group_identity)) {
                     Text(
                         text = stringResource(R.string.counts_add_birth_tag_note),
@@ -132,22 +140,15 @@ fun AddBirthScreen(
                         selectedKey = state.sex,
                         onSelect = { onEvent(AddBirthEvent.EditField(AddBirthField.SEX, it)) },
                     )
-                    AddFormExpander(
-                        expanded = moreExpanded,
-                        onToggle = { moreExpanded = !moreExpanded },
-                        label = stringResource(R.string.counts_add_birth_more),
+                    val selectedBreedLabel = state.breedOptions.firstOrNull { it.key == state.breed }?.label
+                    CountsDropdownField(
+                        label = stringResource(R.string.counts_field_breed_required),
+                        selectedLabel = selectedBreedLabel,
+                        placeholder = stringResource(R.string.counts_select_breed),
+                        options = state.breedOptions.map { CountsDropdownOption(it.key, it.label, it.count) },
+                        onSelect = { onEvent(AddBirthEvent.EditField(AddBirthField.BREED, it)) },
+                        enabled = state.breedOptions.isNotEmpty(),
                     )
-                    if (moreExpanded) {
-                        val selectedBreedLabel = state.breedOptions.firstOrNull { it.key == state.breed }?.label
-                        CountsDropdownField(
-                            label = stringResource(R.string.counts_field_breed),
-                            selectedLabel = selectedBreedLabel,
-                            placeholder = stringResource(R.string.counts_select_breed),
-                            options = state.breedOptions.map { CountsDropdownOption(it.key, it.label, it.count) },
-                            onSelect = { onEvent(AddBirthEvent.EditField(AddBirthField.BREED, it)) },
-                            enabled = state.breedOptions.isNotEmpty(),
-                        )
-                    }
                 }
             }
 
@@ -168,13 +169,36 @@ fun AddBirthScreen(
                         required = true,
                         supporting = stringResource(R.string.counts_add_birth_time_hint),
                     )
+                    Text(
+                        text = stringResource(R.string.counts_field_litter_size),
+                        color = MeshaColors.Muted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.W700,
+                    )
+                    CountsSegmented(
+                        options = listOf(
+                            "1" to stringResource(R.string.counts_litter_single),
+                            "2" to stringResource(R.string.counts_litter_twins),
+                            "3" to stringResource(R.string.counts_litter_triplets),
+                        ),
+                        selectedKey = state.litterSize.toString(),
+                        onSelect = { value -> value.toIntOrNull()?.let { onEvent(AddBirthEvent.SelectLitterSize(it)) } },
+                    )
                 }
             }
 
-            // Placement — the park -> shed cascade stays REQUIRED; dam optional behind an expander.
+            // Placement — mother RFID and the park -> shed cascade are required.
             item(key = "placement") {
-                var damExpanded by remember { mutableStateOf(state.damId.isNotBlank()) }
                 AddFormGroupCard(title = stringResource(R.string.counts_group_placement)) {
+                    CountsRfidField(
+                        value = state.damId,
+                        onValueChange = { onEvent(AddBirthEvent.EditField(AddBirthField.DAM_ID, it)) },
+                        label = stringResource(R.string.counts_field_mother_rfid),
+                        scanning = state.scanningMotherRfid,
+                        onToggleScan = { onEvent(AddBirthEvent.ToggleMotherRfidScan) },
+                        required = true,
+                        supporting = stringResource(R.string.counts_mother_rfid_hint),
+                    )
                     val selectedPark = state.destinationParks.firstOrNull { it.parkId == state.parkId }
                     CountsDropdownField(
                         label = stringResource(R.string.counts_field_park),
@@ -200,18 +224,6 @@ fun AddBirthScreen(
                     )
                     state.destinationsMessage?.let { message ->
                         Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
-                    }
-                    AddFormExpander(
-                        expanded = damExpanded,
-                        onToggle = { damExpanded = !damExpanded },
-                        label = stringResource(R.string.counts_field_dam_optional),
-                    )
-                    if (damExpanded) {
-                        CountsTextField(
-                            value = state.damId,
-                            onValueChange = { onEvent(AddBirthEvent.EditField(AddBirthField.DAM_ID, it)) },
-                            label = stringResource(R.string.counts_field_dam_optional),
-                        )
                     }
                 }
             }

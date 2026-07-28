@@ -80,6 +80,8 @@ data class VerifyMediaItem(
     val signedUrl: String,
     val mimeType: String,
     val proofSubject: String,
+    val taskTitle: String? = null,
+    val answer: String? = null,
 )
 
 /** The four fixed context dimensions the spec calls out (shed/park/operator/timestamp). The
@@ -90,20 +92,6 @@ enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT }
 /** One context line: [kind] picks the localized label, [value] is the backend-composed
  *  display string (shed/park/operator name, or a formatted capture timestamp). */
 data class VerifyContextRow(val kind: VerifyContextKind, val value: String)
-
-enum class VerifyMediaLabel { DEATH_VIDEO, POST_MORTEM_VIDEO }
-
-/** Death evidence is an ordered two-proof contract: death video, then post-mortem video. */
-fun verificationMediaLabel(category: String, index: Int): VerifyMediaLabel? =
-    if (category == DEATH_EVIDENCE_CATEGORY) {
-        when (index) {
-            0 -> VerifyMediaLabel.DEATH_VIDEO
-            1 -> VerifyMediaLabel.POST_MORTEM_VIDEO
-            else -> null
-        }
-    } else {
-        null
-    }
 
 @Immutable
 data class VerifyDetailUiState(
@@ -192,18 +180,27 @@ fun VerifyDetailScreen(
                         items = state.media,
                         key = { _, media -> media.signedUrl },
                         contentType = { _, _ -> "verification_media" },
-                    ) { index, media ->
+                    ) { _, media ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
-                            verificationMediaLabel(state.category, index)?.let { label ->
+                            val recordedAnswer = media.answer?.takeIf { it.isNotBlank() }
+                            media.taskTitle?.takeIf { it.isNotBlank() }?.let { taskTitle ->
                                 Text(
-                                    text = stringResource(label.stringResourceId()),
+                                    text = taskTitle,
                                     color = MeshaColors.Ink,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.W700,
+                                    modifier = Modifier.padding(bottom = if (recordedAnswer == null) 8.dp else 3.dp),
+                                )
+                            }
+                            recordedAnswer?.let { answer ->
+                                Text(
+                                    text = stringResource(R.string.verify_detail_recorded_answer, answer),
+                                    color = MeshaColors.Muted,
+                                    fontSize = 14.sp,
                                     modifier = Modifier.padding(bottom = 8.dp),
                                 )
                             }
@@ -259,13 +256,6 @@ fun VerifyDetailScreen(
         )
     }
 }
-
-private fun VerifyMediaLabel.stringResourceId(): Int = when (this) {
-    VerifyMediaLabel.DEATH_VIDEO -> R.string.verify_detail_death_video
-    VerifyMediaLabel.POST_MORTEM_VIDEO -> R.string.verify_detail_post_mortem_video
-}
-
-private const val DEATH_EVIDENCE_CATEGORY = "death_evidence"
 
 @Composable
 private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {

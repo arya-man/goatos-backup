@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
@@ -47,6 +48,8 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthField
 import sg.mesha.goatos.feature.counts.AddDeathEvent
+import sg.mesha.goatos.feature.counts.WorkflowModuleUi
+import sg.mesha.goatos.rfid.FakeScanSource
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,7 +58,7 @@ import java.time.format.DateTimeFormatter
  * The split add forms (docs/decisions/birth-death-workflows.md, maintainer decisions 2026-07-27):
  *
  *  - **Birth sends NO identifier** — neither `animal_identifier_1` nor `temporary_identifier` —
- *    because the SERVER auto-generates the provisional `K-…` tag; the client cannot pre-empt it.
+ *    because the SERVER auto-generates the provisional `CBE-#####`/`CPT-#####` tag; the client cannot pre-empt it.
  *  - **DOB and entry date are locked to today** (Asia/Kolkata) and the NEW `time_of_birth` field
  *    ships in `HH:MM`, validated client-side against the same 24-hour pattern the contract pins.
  *  - **Placement stays chosen-and-required**; death keeps its resolved-animal + row_version
@@ -67,6 +70,7 @@ class AddBirthDeathViewModelValidationTest {
 
     private lateinit var syncRepository: RecordingAddSyncRepository
     private lateinit var countsRepository: FakeAddCountsRepository
+    private lateinit var scanSource: FakeScanSource
     private lateinit var analytics: AnalyticsPort
     private lateinit var crashReporter: CrashReporter
     private lateinit var savedStateHandle: SavedStateHandle
@@ -76,6 +80,7 @@ class AddBirthDeathViewModelValidationTest {
         Dispatchers.setMain(dispatcher)
         syncRepository = RecordingAddSyncRepository()
         countsRepository = FakeAddCountsRepository()
+        scanSource = FakeScanSource()
         analytics = NoopAddAnalyticsPort()
         crashReporter = NoopAddCrashReporter()
         savedStateHandle = SavedStateHandle()
@@ -87,6 +92,7 @@ class AddBirthDeathViewModelValidationTest {
     private fun newBirthViewModel() = AddBirthViewModel(
         syncRepository,
         countsRepository,
+        scanSource,
         analytics,
         crashReporter,
         savedStateHandle,
@@ -113,7 +119,9 @@ class AddBirthDeathViewModelValidationTest {
         assertFalse("Shed still unchosen", vm.state.value.canSubmit)
 
         vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
-        assertTrue("Both placement ids chosen — submit enabled", vm.state.value.canSubmit)
+        assertFalse("Breed and mother RFID are still required", vm.state.value.canSubmit)
+        completeBirthMetadata(vm)
+        assertTrue("Placement, breed, and mother RFID chosen — submit enabled", vm.state.value.canSubmit)
     }
 
     @Test
@@ -134,6 +142,7 @@ class AddBirthDeathViewModelValidationTest {
         advanceUntilIdle()
         vm.onEvent(AddBirthEvent.SelectPark(PARK_ID))
         vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
+        completeBirthMetadata(vm)
         assertTrue(vm.state.value.canSubmit)
 
         vm.onEvent(AddBirthEvent.EditField(AddBirthField.TIME_OF_BIRTH, "25:99"))
@@ -151,13 +160,15 @@ class AddBirthDeathViewModelValidationTest {
 
         vm.onEvent(AddBirthEvent.SelectPark(PARK_ID))
         vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
+        completeBirthMetadata(vm)
+        vm.onEvent(AddBirthEvent.SelectLitterSize(2))
         vm.onEvent(AddBirthEvent.EditField(AddBirthField.TIME_OF_BIRTH, "07:20"))
         vm.onEvent(AddBirthEvent.Submit)
         advanceUntilIdle()
 
         val request = syncRepository.lastBirth
         assertTrue("A birth was enqueued", request != null)
-        // The server mints the provisional K-… tag; the app must not send ANY identity.
+        // The server mints the provisional CBE-#####/CPT-##### tag; the app must not send ANY identity.
         assertNull("No permanent RFID is sent", request!!.animalIdentifier1)
         assertNull("No temporary tag is sent", request.temporaryIdentifier)
         assertNull("No second RFID is sent", request.animalIdentifier2)
@@ -166,24 +177,84 @@ class AddBirthDeathViewModelValidationTest {
         assertEquals("The HH:MM time of birth ships on the wire", "07:20", request.timeOfBirth)
         assertEquals(PARK_ID, request.parkId)
         assertEquals(SHED_ID, request.shedId)
+        assertEquals("beetal", request.breed)
+        assertEquals("RFID-MOTHER-001", request.damId)
+        assertEquals(2, request.litterSize)
     }
 
     @Test
-    fun `record another keeps the placement for the twin case`() = runTest(dispatcher) {
+    fun `record another starts a clean independent delivery`() = runTest(dispatcher) {
         val vm = newBirthViewModel()
         advanceUntilIdle()
         vm.onEvent(AddBirthEvent.SelectPark(PARK_ID))
         vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
+        completeBirthMetadata(vm)
+        vm.onEvent(AddBirthEvent.SelectLitterSize(2))
         vm.onEvent(AddBirthEvent.Submit)
         advanceUntilIdle()
 
         vm.onEvent(AddBirthEvent.RecordAnother)
         advanceUntilIdle()
 
-        // Twins are recorded as separate kids into the same shed: placement survives the reset.
-        assertEquals(PARK_ID, vm.state.value.parkId)
-        assertEquals(SHED_ID, vm.state.value.shedId)
-        assertTrue("The next kid is immediately submittable", vm.state.value.canSubmit)
+        assertEquals("", vm.state.value.parkId)
+        assertEquals("", vm.state.value.shedId)
+        assertEquals("", vm.state.value.breed)
+        assertEquals("", vm.state.value.damId)
+        assertEquals(1, vm.state.value.litterSize)
+        assertFalse("A separate delivery must be filled independently", vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun `successful birth sync clears the completed form instead of preserving sibling values`() = runTest(dispatcher) {
+        val vm = newBirthViewModel()
+        advanceUntilIdle()
+        vm.onEvent(AddBirthEvent.SelectPark(PARK_ID))
+        vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
+        completeBirthMetadata(vm)
+        vm.onEvent(AddBirthEvent.SelectLitterSize(2))
+        vm.onEvent(AddBirthEvent.Submit)
+        advanceUntilIdle()
+
+        syncRepository.emitBirthSucceeded()
+        advanceUntilIdle()
+
+        assertEquals("", vm.state.value.parkId)
+        assertEquals("", vm.state.value.shedId)
+        assertEquals("", vm.state.value.breed)
+        assertEquals("", vm.state.value.damId)
+        assertEquals(1, vm.state.value.litterSize)
+        assertTrue("The host must return to the Birth list after server acceptance", vm.state.value.returnToBirthList)
+        assertEquals(
+            "Birth recorded. 2 child workflows are ready; herd-count approval is separate.",
+            vm.state.value.submissionNotice,
+        )
+
+        vm.onEvent(AddBirthEvent.NavigationHandled)
+        assertFalse("The navigation signal is one-shot", vm.state.value.returnToBirthList)
+    }
+
+    @Test
+    fun `empty Birth list describes child workflow work rather than count approval`() {
+        assertEquals(
+            "No birth follow-up work for this day.",
+            workflowEmptyMessage(WorkflowModuleUi.BIRTH, isOffline = false),
+        )
+    }
+
+    @Test
+    fun `mother RFID scanner fills the required canonical lookup input`() = runTest(dispatcher) {
+        val vm = newBirthViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(AddBirthEvent.ToggleMotherRfidScan)
+        assertTrue(scanSource.isStarted)
+        advanceUntilIdle()
+        scanSource.emit(" RFID-MOTHER-009 ")
+        advanceUntilIdle()
+
+        assertEquals("RFID-MOTHER-009", vm.state.value.damId)
+        assertFalse(vm.state.value.scanningMotherRfid)
+        assertFalse(scanSource.isStarted)
     }
 
     // --- Death ---------------------------------------------------------------------------------
@@ -244,6 +315,11 @@ class AddBirthDeathViewModelValidationTest {
     private fun todayIst(): String =
         LocalDate.now(ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
+    private fun completeBirthMetadata(vm: AddBirthViewModel) {
+        vm.onEvent(AddBirthEvent.EditField(AddBirthField.BREED, "beetal"))
+        vm.onEvent(AddBirthEvent.EditField(AddBirthField.DAM_ID, "RFID-MOTHER-001"))
+    }
+
     private companion object {
         const val PARK_ID = "11111111-1111-1111-1111-111111111111"
         const val SHED_ID = "33333333-3333-3333-3333-333333333333"
@@ -278,6 +354,32 @@ private class RecordingAddSyncRepository : SyncRepository {
     override suspend fun enqueueCountsDeath(groupKey: String, idempotencyKey: String, request: CountsDeathEventRequestDto): AppResult<String> {
         lastDeath = request
         return AppResult.Ok("outbox-death-1")
+    }
+
+    fun emitBirthSucceeded() {
+        status.value = SyncStatus(
+            online = true,
+            pendingCount = 0,
+            inFlightCount = 0,
+            failedCount = 0,
+            deadLetterCount = 0,
+            lastSyncAt = 1L,
+            items = listOf(
+                SyncQueueItem(
+                    id = "outbox-birth-1",
+                    opType = "COUNTS_BIRTH",
+                    groupKey = "birth-1",
+                    status = SyncItemStatus.SUCCEEDED,
+                    attemptCount = 1,
+                    maxAttempts = 5,
+                    conflict = false,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    lastError = null,
+                    resultJson = "{\"approval_request_id\":\"9015d472-3fdc-4920-b10f-830478096e64\",\"request_type\":\"birth\",\"status\":\"pending\",\"raised_at\":\"2026-07-28T12:24:17+05:30\",\"idempotent_replay\":false,\"children\":[{\"goat_id\":\"00000000-0000-0000-0000-000000000001\",\"temporary_identifier\":\"CBE-12345\",\"child_ordinal\":1},{\"goat_id\":\"00000000-0000-0000-0000-000000000002\",\"temporary_identifier\":\"CBE-67890\",\"child_ordinal\":2}]}",
+                ),
+            ),
+        )
     }
 }
 

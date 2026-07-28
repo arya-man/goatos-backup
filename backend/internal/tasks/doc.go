@@ -1,7 +1,8 @@
 // Package tasks is the birth/death follow-up workflow engine (maintainer decision 2026-07-27;
 // canonical source docs/decisions/birth-death-workflows.md).
 //
-// A birth applying (goat.created with origin_type=birth) opens its workflow at approval. A death
+// A birth submission creates every child (goat.created with origin_type=birth) and immediately
+// opens one workflow per child; its separate web approval only controls herd-count eligibility. A death
 // report opens its workflow immediately while the goat is still alive, so the operator can upload
 // both mandatory videos before the existing admin approval. Admin acceptance applies the death and
 // releases the proof pair to Verify; rejection cancels the staged workflow without changing counts.

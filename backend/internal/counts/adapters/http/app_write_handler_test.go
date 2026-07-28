@@ -28,6 +28,7 @@ const (
 	testGoatID   = "33333333-3333-4333-8333-333333333333"
 	testParkID   = "44444444-4444-4444-8444-444444444444"
 	testShedID   = "55555555-5555-4555-8555-555555555555"
+	testMotherID = "66666666-6666-4666-8666-666666666666"
 )
 
 // The three submit routes now RECORD a pending approval request instead of APPLYING the event
@@ -130,16 +131,18 @@ type fakeApprovalWorkflow struct {
 	requestByKey     map[string]domain.ApprovalRequest
 	fingerprintByKey map[string]string
 
-	submits        int
-	submitsByType  map[string]int
-	lastSubmission domain.ApprovalRequestSubmission
+	submits           int
+	submitsByType     map[string]int
+	lastSubmission    domain.ApprovalRequestSubmission
+	birthResultsByKey map[string]domain.BirthSubmissionResult
 }
 
 func newFakeApprovalWorkflow() *fakeApprovalWorkflow {
 	return &fakeApprovalWorkflow{
-		requestByKey:     map[string]domain.ApprovalRequest{},
-		fingerprintByKey: map[string]string{},
-		submitsByType:    map[string]int{},
+		requestByKey:      map[string]domain.ApprovalRequest{},
+		fingerprintByKey:  map[string]string{},
+		submitsByType:     map[string]int{},
+		birthResultsByKey: map[string]domain.BirthSubmissionResult{},
 	}
 }
 
@@ -173,6 +176,35 @@ func (f *fakeApprovalWorkflow) SubmitRequest(_ context.Context, in domain.Approv
 	return request, false, nil
 }
 
+func (f *fakeApprovalWorkflow) SubmitBirthRequest(_ context.Context, in domain.ApprovalRequestSubmission, commands []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error) {
+	request, replay, err := f.SubmitRequest(context.Background(), in)
+	if err != nil {
+		return domain.BirthSubmissionResult{}, err
+	}
+	if replay {
+		result := f.birthResultsByKey[in.IdempotencyKey]
+		result.Replayed = true
+		return result, nil
+	}
+	children := make([]domain.BirthChildResult, 0, len(commands))
+	for i, command := range commands {
+		temporaryIdentifier := ""
+		for _, identifier := range command.Identifiers {
+			if identifier.IdentifierType == "temporary_tag" {
+				temporaryIdentifier = identifier.IdentifierValue
+			}
+		}
+		children = append(children, domain.BirthChildResult{
+			GoatID:              fmt.Sprintf("00000000-0000-4000-8000-%012d", i+101),
+			TemporaryIdentifier: temporaryIdentifier,
+			ChildOrdinal:        i + 1,
+		})
+	}
+	result := domain.BirthSubmissionResult{Approval: request, Children: children}
+	f.birthResultsByKey[in.IdempotencyKey] = result
+	return result, nil
+}
+
 // ListPending and Decide exist only to satisfy ApprovalWorkflow so RegisterApprovals can be wired
 // alongside RegisterAppWrites. These tests cover the SUBMIT half of the workflow; the decision half
 // is exercised against the real service.
@@ -196,6 +228,9 @@ func (f *fakeApprovalWorkflow) Decide(_ context.Context, _ countsapp.DecisionInp
 // validateCriticalDeathExit. A fake that accepted any body would let a regression that widened the
 // dead+died pairing pass every test except one.
 type fakeGoatValidator struct {
+	// creates and deaths run the REAL identity validation. Keeping a rubber-stamp create fake here
+	// previously let incomplete birth payloads enter the approval queue in tests and production.
+	creates GoatLifecycleValidator
 	// deaths runs the REAL identity validation for PrepareCriticalDeathExit.
 	deaths GoatLifecycleValidator
 
@@ -216,19 +251,24 @@ func newFakeGoatValidator() *fakeGoatValidator {
 }
 
 func newFakeGoatValidatorWithRepo(repo *stubIdentityRepo) *fakeGoatValidator {
-	return &fakeGoatValidator{deaths: identityapp.NewService(repo)}
+	service := identityapp.NewService(repo)
+	return &fakeGoatValidator{creates: service, deaths: service}
 }
 
 // PrepareCreateAdminGoat records the payload the handler forwarded. It keeps the missing-key
 // rejection the old fake had: the client Idempotency-Key must reach the owning module, because that
 // key is what makes the operator's retry collapse rather than raise a second birth request.
-func (f *fakeGoatValidator) PrepareCreateAdminGoat(_ context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error) {
+func (f *fakeGoatValidator) PrepareCreateAdminGoat(ctx context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error) {
 	if in.IdempotencyKey == "" {
 		return identityports.CreateAdminGoatCommand{}, identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
 	}
 	f.prepareCreates++
 	f.lastCreate = in
-	return identityports.CreateAdminGoatCommand{TenantID: in.TenantID}, nil
+	return f.creates.PrepareCreateAdminGoat(ctx, in)
+}
+
+func (f *fakeGoatValidator) BirthProvisionalPrefix(context.Context, string, string) (string, error) {
+	return "CBE", nil
 }
 
 // PrepareCriticalDeathExit records the payload and then runs the REAL guardrail. The returned
@@ -274,6 +314,10 @@ type stubIdentityRepo struct {
 	lastExit identityports.ExitGoatCommand
 }
 
+func (s *stubIdentityRepo) BirthProvisionalPrefix(context.Context, string, string) (string, error) {
+	return "CBE", nil
+}
+
 func (s *stubIdentityRepo) ExitGoat(_ context.Context, cmd identityports.ExitGoatCommand) (*identityports.AdminGoatMutationResult, error) {
 	s.calls++
 	s.lastExit = cmd
@@ -281,6 +325,24 @@ func (s *stubIdentityRepo) ExitGoat(_ context.Context, cmd identityports.ExitGoa
 		Goat:             identitydomain.GoatSummary{GoatID: cmd.GoatID, LifecycleStatus: "dead"},
 		GenerationStatus: "complete",
 	}, nil
+}
+
+func (s *stubIdentityRepo) ValidateAdminGoatCreate(_ context.Context, cmd identityports.ValidateAdminGoatCreateCommand) (identityports.AdminGoatCreateValidation, error) {
+	validation := identityports.AdminGoatCreateValidation{
+		CustodianPartyID: testActorID,
+		ParkID:           testParkID,
+		ShedID:           testShedID,
+	}
+	if cmd.BirthDamRef != nil {
+		motherID := testMotherID
+		validation.DamGoatID = &motherID
+	}
+	return validation, nil
+}
+
+func (s *stubIdentityRepo) CreateAdminGoat(_ context.Context, _ identityports.CreateAdminGoatCommand) (*identityports.AdminGoatMutationResult, error) {
+	s.calls++
+	return nil, fmt.Errorf("CreateAdminGoat must not run from an app submit route")
 }
 
 // goatCreator and goatExiter reproduce the method set of the DELETED GoatLifecycleWriter. They are
@@ -372,6 +434,9 @@ func birthBody(identifier string) map[string]any {
 		"entry_date":          "2026-07-01",
 		"park_id":             testParkID,
 		"shed_id":             testShedID,
+		"breed":               "beetal",
+		"dam_id":              "RFID-MOTHER-001",
+		"litter_size":         1,
 		"evidence_refs": []map[string]any{
 			{"evidence_type": "media", "evidence_id": "birth-proof-1"},
 		},
@@ -385,6 +450,41 @@ func birthBodyAutoProvisional() map[string]any {
 	body := birthBody("unused")
 	delete(body, "animal_identifier_1")
 	return body
+}
+
+// A birth is not valid until it carries the three facts that make the permanent
+// mother/child relationship unambiguous. The phone supplies the mother's RFID in
+// dam_id; identity resolves that value to the canonical mother goat before the
+// request can enter the approval queue.
+func TestRecordBirthEventRequiresBreedMotherAndLitterSize(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+	}{
+		{name: "breed", field: "breed"},
+		{name: "mother RFID", field: "dam_id"},
+		{name: "litter size", field: "litter_size"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := newFakeGoatValidator()
+			approvals := newFakeApprovalWorkflow()
+			mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+			body := birthBodyAutoProvisional()
+			body["breed"] = "beetal"
+			body["dam_id"] = "RFID-MOTHER-001"
+			body["litter_size"] = 2
+			delete(body, tc.field)
+
+			rec := post(t, mux, appBirthEventRoute, "birth-missing-"+strings.ReplaceAll(tc.field, "_", "-"), body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400 when %s is missing", rec.Code, rec.Body.String(), tc.field)
+			}
+			if approvals.submits != 0 {
+				t.Fatalf("submits=%d, want 0: an incomplete birth must never reach approval", approvals.submits)
+			}
+		})
+	}
 }
 
 // TestRecordBirthEventAutoProvisionalTagIsDeterministicAcrossRetries is the offline-retry
@@ -764,11 +864,17 @@ func TestRecordBirthEventForcesOriginTypeBirth(t *testing.T) {
 	if stored["origin_type"] != "birth" {
 		t.Fatalf("stored origin_type=%v, want birth (the app route must not be able to park a procured animal in the queue)", stored["origin_type"])
 	}
+	if stored["dam_id"] != testMotherID {
+		t.Fatalf("stored dam_id=%v, want canonical mother goat id %s", stored["dam_id"], testMotherID)
+	}
+	if stored["litter_size"] != float64(1) {
+		t.Fatalf("stored litter_size=%v, want 1", stored["litter_size"])
+	}
 	if validator.lastCreate.TenantID != testTenantID || validator.lastCreate.ActorID != testActorID {
 		t.Fatalf("tenant/actor not propagated: %+v", validator.lastCreate)
 	}
-	if validator.lastCreate.IdempotencyKey != "birth-key-0001" {
-		t.Fatalf("idempotency key=%q, want birth-key-0001", validator.lastCreate.IdempotencyKey)
+	if validator.lastCreate.IdempotencyKey != "birth-key-0001:child:1" {
+		t.Fatalf("idempotency key=%q, want the stable first-child key", validator.lastCreate.IdempotencyKey)
 	}
 	if approvals.lastSubmission.RaisedByUserID != testActorID {
 		t.Fatalf("raised_by=%q, want %q (an approver has to know who reported the birth)", approvals.lastSubmission.RaisedByUserID, testActorID)
@@ -840,7 +946,9 @@ func TestRecordBirthEventSameKeyDifferentPayloadIsRejected(t *testing.T) {
 	if rec := post(t, mux, appBirthEventRoute, "birth-key-0004", birthBody("KID-004")); rec.Code != http.StatusAccepted {
 		t.Fatalf("first status=%d body=%s, want 202", rec.Code, rec.Body.String())
 	}
-	rec := post(t, mux, appBirthEventRoute, "birth-key-0004", birthBody("KID-999"))
+	changed := birthBody("KID-004")
+	changed["breed"] = "sirohi"
+	rec := post(t, mux, appBirthEventRoute, "birth-key-0004", changed)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s, want 409", rec.Code, rec.Body.String())
 	}
@@ -849,7 +957,7 @@ func TestRecordBirthEventSameKeyDifferentPayloadIsRejected(t *testing.T) {
 	if approvals.submits != 1 {
 		t.Fatalf("submits=%d, want 1", approvals.submits)
 	}
-	if stored := approvals.requestByKey["app-counts-birth:birth-key-0004"]; !bytes.Contains(stored.Payload, []byte("KID-004")) {
+	if stored := approvals.requestByKey["app-counts-birth:birth-key-0004"]; !bytes.Contains(stored.Payload, []byte("beetal")) {
 		t.Fatalf("stored payload was replaced by the conflicting submission: %s", stored.Payload)
 	}
 }
@@ -899,6 +1007,49 @@ func TestSubmitBirthEventCreatesPendingRequestAndAppliesNothing(t *testing.T) {
 		field := handlerType.Field(i)
 		if field.Type.Implements(creator) || field.Type.Implements(exiter) {
 			t.Fatalf("AppWriteHandler.%s can apply a goat lifecycle write; submit routes must only record a pending request", field.Name)
+		}
+	}
+}
+
+// A litter is one operator submission but N canonical children. The submit response must hand the
+// phone every created child immediately so the Birth work list can open one workflow per kid; the
+// separate web approval remains pending and only controls herd-count eligibility.
+func TestRecordTwinBirthCreatesTwoDistinctProvisionalChildrenImmediately(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	body := birthBody("")
+	delete(body, "temporary_identifier")
+	body["litter_size"] = 2
+	rec := post(t, mux, appBirthEventRoute, "birth-twins-immediate-children", body)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Status   string `json:"status"`
+		Children []struct {
+			GoatID              string `json:"goat_id"`
+			TemporaryIdentifier string `json:"temporary_identifier"`
+		} `json:"children"`
+	}
+	decodeBody(t, rec, &got)
+	if got.Status != domain.ApprovalStatusPending {
+		t.Fatalf("approval status=%q, want pending", got.Status)
+	}
+	if len(got.Children) != 2 {
+		t.Fatalf("children=%d body=%s, want two canonical kids from one twin submission", len(got.Children), rec.Body.String())
+	}
+	if got.Children[0].GoatID == "" || got.Children[1].GoatID == "" || got.Children[0].GoatID == got.Children[1].GoatID {
+		t.Fatalf("children must have distinct canonical goat ids: %+v", got.Children)
+	}
+	if got.Children[0].TemporaryIdentifier == "" || got.Children[1].TemporaryIdentifier == "" ||
+		got.Children[0].TemporaryIdentifier == got.Children[1].TemporaryIdentifier {
+		t.Fatalf("children must have distinct provisional identifiers: %+v", got.Children)
+	}
+	for _, child := range got.Children {
+		if !strings.HasPrefix(child.TemporaryIdentifier, "CBE-") || len(child.TemporaryIdentifier) != len("CBE-12345") {
+			t.Fatalf("temporary_identifier=%q, want CBE- plus five digits", child.TemporaryIdentifier)
 		}
 	}
 }

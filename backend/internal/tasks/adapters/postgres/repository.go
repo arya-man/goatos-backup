@@ -42,32 +42,96 @@ func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.
 	return context.WithTimeout(ctx, r.timeout)
 }
 
+// ResolveActionPresentations returns backend-authored workflow task titles and recorded answers at
+// action_id grain. The
+// verifier proof resolver supplies a bounded page of IDs from proof metadata; action_id is the
+// workflow_actions primary key, so this is one indexed query rather than one lookup per video.
+func (r *Repository) ResolveActionPresentations(ctx context.Context, tenantID string, actionIDs []string) (map[string]string, map[string]string, error) {
+	labels := make(map[string]string, len(actionIDs))
+	answers := make(map[string]string, len(actionIDs))
+	if len(actionIDs) == 0 {
+		return labels, answers, nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT action_id::text, title, COALESCE(NULLIF(btrim(answer_value), ''), '')
+FROM workflow_actions
+WHERE tenant_id = $1::uuid
+  AND action_id = ANY($2::uuid[])`, tenantID, actionIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var actionID, title, answer string
+		if err := rows.Scan(&actionID, &title, &answer); err != nil {
+			return nil, nil, err
+		}
+		labels[actionID] = title
+		if answer = formatRecordedAnswer(answer); answer != "" {
+			answers[actionID] = answer
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return labels, answers, nil
+}
+
+func formatRecordedAnswer(answer string) string {
+	answer = strings.TrimSpace(answer)
+	switch strings.ToLower(answer) {
+	case "yes":
+		return "Yes"
+	case "no":
+		return "No"
+	default:
+		return answer
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Open
 // ---------------------------------------------------------------------------
 
 // OpenWorkflow inserts the workflow instance and its template's action rows in ONE transaction.
-// The instance INSERT is idempotent on the natural key (tenant, template, subject goat) via
-// ON CONFLICT DO NOTHING: a redelivered event, or a twin's second attach to the shared mother
-// workflow, inserts nothing and duplicates no actions.
+// The instance INSERT is idempotent on the event-grained birth key or goat-grained death key via
+// ON CONFLICT DO NOTHING: redelivery and a twin's second attach duplicate no actions, while a
+// later litter for the same dam receives a fresh mother workflow.
 func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCommand) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	template, ok := domain.TemplateByKey(cmd.TemplateKey)
-	if !ok {
-		return false, domain.ErrUnknownTemplate
-	}
 	if strings.TrimSpace(cmd.TenantID) == "" || strings.TrimSpace(cmd.SubjectGoatID) == "" || cmd.EventAt.IsZero() {
 		return false, domain.ErrMissingRequiredField
 	}
+	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt)
+	if !ok {
+		return false, domain.ErrUnknownTemplate
+	}
+	var birthEventID *string
+	if cmd.TemplateKey == domain.TemplateKeyBirthKid || cmd.TemplateKey == domain.TemplateKeyBirthMother {
+		childID := cmd.SubjectGoatID
+		if cmd.TemplateKey == domain.TemplateKeyBirthMother && cmd.DamGoatID != nil {
+			childID = *cmd.DamGoatID
+		}
+		var eventID string
+		err := r.pool.QueryRow(ctx, `SELECT birth_event_id::text FROM goat_births
+WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Scan(&eventID)
+		if err == nil {
+			birthEventID = &eventID
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+	}
 
 	// Initial card fields come straight from the template (compute-on-write from the very first row):
-	// the first main step is the next action, and the counters cover main steps only.
+	// the first visible operator step is next, and the counters cover every visible operator step.
 	var first *domain.ActionTemplate
 	for i := range template.Actions {
 		a := template.Actions[i]
-		if a.Section == domain.SectionMain {
+		if a.Type != domain.ActionTypeApproval {
 			if first == nil || a.Seq < first.Seq {
 				first = &template.Actions[i]
 			}
@@ -96,18 +160,18 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 	err = tx.QueryRow(ctx, `
 INSERT INTO workflow_instances (
   tenant_id, template_key, module, subject_goat_id, dam_goat_id,
-  event_at, event_date, park_id, shed_id, state,
+  birth_event_id, event_at, event_date, park_id, shed_id, state,
   actions_total, actions_done, next_action_key, next_action_title, next_due_at
 ) VALUES (
   $1::uuid, $2, $3, $4::uuid, nullif($5::text,'')::uuid,
-  $6::timestamptz, $7::date, nullif($8::text,'')::uuid, nullif($9::text,'')::uuid, 'open',
-  $10, 0, $11, $12, $13::timestamptz
+  nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
+  $11, 0, $12, $13, $14::timestamptz
 )
-ON CONFLICT (tenant_id, template_key, subject_goat_id) DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING workflow_id::text`,
 		cmd.TenantID, cmd.TemplateKey, template.Module, cmd.SubjectGoatID, deref(cmd.DamGoatID),
-		cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
-		template.MainActionCount(), nextKey, nextTitle, nextDue,
+		deref(birthEventID), cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
+		template.OperatorActionCount(), nextKey, nextTitle, nextDue,
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict: the workflow already exists. Do not touch its actions.
@@ -121,8 +185,8 @@ RETURNING workflow_id::text`,
 		return false, err
 	}
 
-	// One multi-VALUES INSERT for every template step (<= 13 rows) — set-based, never a per-row loop
-	// of Execs.
+	// One multi-VALUES INSERT for every template step (<= 18 rows) — set-based, never a per-row loop
+	// of Execs. Birth-time eligibility keeps the actual row count between 13 and 18.
 	var (
 		sb   strings.Builder
 		args []any
@@ -146,7 +210,10 @@ RETURNING workflow_id::text`,
 			options = string(raw)
 		}
 		var dueAt any
-		if a.Schedule != (domain.Schedule{}) {
+		if a.Key == domain.ActionKeyORSWater2 {
+			// Dependency-timed: populated atomically when ORS round 1 completes.
+			dueAt = nil
+		} else if a.Schedule != (domain.Schedule{}) {
 			dueAt = a.Schedule.DueAt(cmd.EventAt).UTC()
 		} else {
 			// Immediate steps are due at the event moment itself.
@@ -288,6 +355,10 @@ func (r *Repository) ListWorkflows(ctx context.Context, q domain.WorkflowListQue
 	if now.IsZero() {
 		now = time.Now()
 	}
+	todayDate := q.TodayDate
+	if todayDate == "" {
+		todayDate = q.EventDate
+	}
 
 	var page domain.WorkflowListPage
 	err := r.pool.QueryRow(ctx, `
@@ -304,6 +375,39 @@ WHERE tenant_id = $1::uuid AND module = $2 AND event_date = $3::date`,
 	if err != nil {
 		return domain.WorkflowListPage{}, err
 	}
+
+	// projection-review: producer and consumer both use workflow_instances at one row per workflow.
+	// Grouping by event_date cannot multiply cards; WorkflowCount and the existence of a date range
+	// over the identical predicate (tenant, module, open, next_due_at < now, event_date < today).
+	// The partial workflow_instances_overdue_dates_idx serves this bounded five-date summary.
+	rowsOverdue, err := r.pool.Query(ctx, `
+SELECT event_date::text, count(*)::integer
+FROM workflow_instances
+WHERE tenant_id = $1::uuid
+  AND module = $2
+  AND state = 'open'
+  AND next_due_at IS NOT NULL
+  AND next_due_at < $3::timestamptz
+  AND event_date < $4::date
+GROUP BY event_date
+ORDER BY event_date DESC
+LIMIT 5`, q.TenantID, q.Module, now.UTC(), todayDate)
+	if err != nil {
+		return domain.WorkflowListPage{}, err
+	}
+	for rowsOverdue.Next() {
+		var item domain.WorkflowOverdueDate
+		if err := rowsOverdue.Scan(&item.Date, &item.WorkflowCount); err != nil {
+			rowsOverdue.Close()
+			return domain.WorkflowListPage{}, err
+		}
+		page.OverdueDates = append(page.OverdueDates, item)
+	}
+	if err := rowsOverdue.Err(); err != nil {
+		rowsOverdue.Close()
+		return domain.WorkflowListPage{}, err
+	}
+	rowsOverdue.Close()
 
 	// The "now" bind is appended ONLY by the filters that actually reference it. Binding it
 	// unconditionally left an unreferenced parameter in the statement for the All / Completed /
@@ -424,10 +528,30 @@ func (r *Repository) GetWorkflow(ctx context.Context, tenantID, workflowID strin
 	}
 	var detail domain.WorkflowDetail
 	var damDisplay *string
+	var damRFID *string
+	var litterSize *int
+	// projection-review: goat_births produces one row per unique (tenant_id, child_goat_id) and
+	// workflow_instances consumes it on (tenant_id, subject_goat_id), so this join is 1:0..1. A goat
+	// can carry two active RFID types; the LATERAL side pre-selects one preferred identifier before
+	// the join, keeping it 1:0..1 too. This detail read has no ratio or cap key set.
 	row := r.pool.QueryRow(ctx, `
-SELECT `+cardSelectColumns+`, dam.display_id`+cardJoins+`
+SELECT `+cardSelectColumns+`, dam.display_id, dam_rfid.identifier_value, gb.litter_size`+cardJoins+`
 LEFT JOIN goats dam
   ON dam.tenant_id = wi.tenant_id AND dam.goat_id = wi.dam_goat_id
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value
+  FROM goat_identifiers gi
+  WHERE gi.tenant_id = wi.tenant_id
+    AND gi.goat_id = wi.dam_goat_id
+    AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+    AND gi.status = 'active'
+  ORDER BY CASE gi.identifier_type WHEN 'animal_identifier_1' THEN 0 ELSE 1 END
+  LIMIT 1
+) dam_rfid ON true
+LEFT JOIN goat_births gb
+  ON gb.tenant_id = wi.tenant_id
+ AND gb.child_goat_id = wi.subject_goat_id
+ AND wi.template_key = 'birth_kid'
 WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflowID)
 	var (
 		card      domain.WorkflowCard
@@ -444,6 +568,8 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel,
 		&damDisplay,
+		&damRFID,
+		&litterSize,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.WorkflowDetail{}, domain.ErrNotFound
@@ -477,7 +603,9 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	if card.ShedLabel != "" {
 		facts = append(facts, domain.WorkflowFact{Label: "Shed", Value: card.ShedLabel})
 	}
-	if damDisplay != nil && *damDisplay != "" {
+	if card.TemplateKey == domain.TemplateKeyBirthKid && damRFID != nil && *damRFID != "" {
+		facts = append(facts, domain.WorkflowFact{Label: "Mother RFID", Value: *damRFID})
+	} else if damDisplay != nil && *damDisplay != "" {
 		// On the kid track dam_goat_id is the mother; on the mother track it links back to the
 		// (first) kid. Label the fact accordingly.
 		label := "Mother"
@@ -485,6 +613,9 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 			label = "Kid"
 		}
 		facts = append(facts, domain.WorkflowFact{Label: label, Value: *damDisplay})
+	}
+	if litterSize != nil {
+		facts = append(facts, domain.WorkflowFact{Label: "Litter size", Value: fmt.Sprintf("%d", *litterSize)})
 	}
 	detail.Facts = facts
 	return detail, nil
@@ -546,9 +677,10 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 //
 // projection-review: producer grain = `workflow_actions` unique (workflow_id, action_key); consumer
 // card grain = `workflow_instances` unique (tenant_id, template_key, subject_goat_id) = 1 row per
-// card. `actions_done` / `actions_total` / `next_*` use the same key set: that workflow's main,
-// non-approval operator actions (join key workflow_id, 1:N pre-aggregated on write in the same txn
-// by domain.RecomputeCard); workflow state uses all main actions. Chip counts group
+// card. `actions_done` / `actions_total` / `next_*` use the same key set: every visible non-approval
+// operator action across main and scheduled-colostrum sections (join key workflow_id, 1:N
+// pre-aggregated on write in the same txn by domain.RecomputeCard); death workflow state separately
+// uses all main actions. Chip counts group
 // workflow_instances rows by derived bucket at (tenant_id, module, event_date) grain — numerator
 // and denominator both range over the same workflow_instances key set; no join fan-out.
 func (r *Repository) workflowMutation(
@@ -598,11 +730,11 @@ UPDATE workflow_actions
 SET status = $3, answer_value = $4, proof_ref = $5, completed_by = nullif($6::text,'')::uuid,
     completed_at = $7::timestamptz, verification_item_id = nullif($8::text,'')::uuid,
     idempotency_key = $9, request_fingerprint = $10,
-    row_version = $11, updated_at = now()
+    row_version = $11, due_at = $12::timestamptz, updated_at = now()
 WHERE tenant_id = $1::uuid AND action_id = $2::uuid`,
 			tenantID, a.ActionID, a.Status, a.AnswerValue, a.ProofRef, derefPtr(a.CompletedBy),
 			a.CompletedAt, derefPtr(a.VerificationItemID), a.IdempotencyKey, a.RequestFingerprint,
-			a.RowVersion,
+			a.RowVersion, a.DueAt,
 		); err != nil {
 			if isUniqueViolation(err) {
 				// workflow_actions_idempotency_uq: this client key already claimed a DIFFERENT action write.
@@ -659,7 +791,7 @@ FOR UPDATE`, tenantID, workflowID).Scan(
 func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCommand) (domain.ActionWriteResult, error) {
 	var target domain.WorkflowAction
 	w, actions, replay, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(_ *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			idx := findAction(actions, cmd.ActionID)
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
@@ -704,6 +836,18 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			if domain.OperatorActionBlocked(actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence
 			}
+			if domain.ActionTimeBlocked(actions[idx], cmd.CompletedAt) {
+				return nil, false, domain.ErrActionNotYetDue
+			}
+			if actions[idx].ActionKey == domain.ActionKeyTagTheKid {
+				ready, err := r.hasPermanentIdentifier(ctx, cmd.TenantID, w.SubjectGoatID)
+				if err != nil {
+					return nil, false, err
+				}
+				if !ready {
+					return nil, false, domain.ErrPermanentIdentifierRequired
+				}
+			}
 			updated, isReplay, err := domain.ApplyComplete(actions[idx], cmd)
 			if err != nil {
 				return nil, false, err
@@ -714,6 +858,17 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 				return nil, true, nil
 			}
 			changed := []domain.WorkflowAction{updated}
+			if w.TemplateKey == domain.TemplateKeyBirthMother && updated.ActionKey == domain.ActionKeyORSWater1 && updated.CompletedAt != nil {
+				for i := range actions {
+					if actions[i].ActionKey == domain.ActionKeyORSWater2 {
+						due := updated.CompletedAt.Add(50 * time.Minute)
+						actions[i].DueAt = &due
+						actions[i].RowVersion++
+						changed = append(changed, actions[i])
+						break
+					}
+				}
+			}
 			// Only re-shoots after an already-applied death return directly to Verify. The initial
 			// upload pair waits for the separate admin approval transaction.
 			if deathApplied && w.TemplateKey == domain.TemplateKeyDeath && updated.RequiresVideo && domain.DeathVideosComplete(actions) {
@@ -725,6 +880,17 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 		return domain.ActionWriteResult{}, err
 	}
 	return buildWriteResult(w, actions, target, replay), nil
+}
+
+func (r *Repository) hasPermanentIdentifier(ctx context.Context, tenantID, goatID string) (bool, error) {
+	var ready bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM goat_identifiers
+  WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+    AND identifier_type = 'animal_identifier_1' AND status = 'active'
+)`, tenantID, goatID).Scan(&ready)
+	return ready, err
 }
 
 // deathAlreadyApplied uses the canonical goat lifecycle, not a client/workflow flag. A racing
@@ -796,10 +962,14 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`,
 	return true, nil
 }
 
-// CompleteTagActionForGoat completes a pending tag_the_kid step on the goat's open birth_kid
-// workflow. Called by the goat.identifier.added consumer when the permanent RFID lands through the
-// promote flow. Idempotent no-op when there is no open workflow or the step is already completed.
+// CompleteTagActionForGoat records that the permanent RFID prerequisite is satisfied. Despite the
+// legacy method name, promotion no longer completes the task: the operator must still submit the
+// tag action's mandatory video. The promote transaction remains the sole identifier writer.
 func (r *Repository) CompleteTagActionForGoat(ctx context.Context, tenantID, goatID string, completedAt time.Time) error {
+	identifier, err := r.permanentIdentifier(ctx, tenantID, goatID)
+	if err != nil {
+		return err
+	}
 	lookupCtx, cancel := r.withTimeout(ctx)
 	workflowID, err := func() (string, error) {
 		defer cancel()
@@ -808,7 +978,7 @@ func (r *Repository) CompleteTagActionForGoat(ctx context.Context, tenantID, goa
 SELECT workflow_id::text
 FROM workflow_instances
 WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid
-  AND template_key = $3 AND state = 'open'
+  AND template_key = $3 AND state <> 'canceled'
 LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", domain.ErrNotFound
@@ -823,23 +993,37 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 	}
 
 	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
-		func(_ *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			if w.AwaitingVerification {
+				return nil, true, nil
+			}
 			for i := range actions {
 				if actions[i].ActionKey != domain.ActionKeyTagTheKid {
 					continue
 				}
-				if actions[i].Status == domain.ActionStatusCompleted {
+				if actions[i].AnswerValue != nil && *actions[i].AnswerValue == identifier {
 					return nil, true, nil
 				}
-				at := completedAt
-				actions[i].Status = domain.ActionStatusCompleted
-				actions[i].CompletedAt = &at
+				actions[i].AnswerValue = &identifier
 				actions[i].RowVersion++
 				return []domain.WorkflowAction{actions[i]}, false, nil
 			}
 			return nil, true, nil
 		})
 	return err
+}
+
+func (r *Repository) permanentIdentifier(ctx context.Context, tenantID, goatID string) (string, error) {
+	var identifier string
+	err := r.pool.QueryRow(ctx, `
+SELECT identifier_value FROM goat_identifiers
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+  AND identifier_type = 'animal_identifier_1' AND status = 'active'
+ORDER BY valid_from DESC LIMIT 1`, tenantID, goatID).Scan(&identifier)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrPermanentIdentifierRequired
+	}
+	return identifier, err
 }
 
 // DeathEvidenceForVerification returns the approved/in-review evidence bundle addressed by the
@@ -883,6 +1067,39 @@ WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_
 	out.OperatorID = deref(operatorID)
 	out.ProofRefs = []string{deathProof, postProof}
 	return out, nil
+}
+
+// BirthWorkflowEvidenceForVerification opens one review gate at workflow grain. The producer and
+// consumer both key on workflow_instances.workflow_id; workflow_actions is unique on
+// (workflow_id, action_key), so the proof bundle contains exactly this mother OR this child and
+// can neither wait for nor fan out through sibling workflows.
+func (r *Repository) BirthWorkflowEvidenceForVerification(ctx context.Context, tenantID, workflowID string) (ports.BirthEvidenceReview, error) {
+	w, actions, _, err := r.workflowMutation(ctx, tenantID, workflowID,
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
+				return nil, false, domain.ErrNotFound
+			}
+			if !domain.BirthWorkflowComplete(actions) {
+				return nil, false, domain.ErrNotFound
+			}
+			if w.AwaitingVerification {
+				return nil, true, nil
+			}
+			w.AwaitingVerification = true
+			return nil, false, nil
+		})
+	if err != nil {
+		return ports.BirthEvidenceReview{}, err
+	}
+	proofRefs := domain.BirthProofRefs(actions)
+	if len(proofRefs) == 0 {
+		return ports.BirthEvidenceReview{}, domain.ErrNotFound
+	}
+	return ports.BirthEvidenceReview{
+		WorkflowID: workflowID, SubjectRole: w.TemplateKey, OperatorID: domain.BirthProofOperator(actions),
+		ParkID: deref(w.ParkID), ShedID: deref(w.ShedID), EventDate: w.EventDate,
+		ProofRefs: proofRefs, Round: w.RowVersion,
+	}, nil
 }
 
 // CancelDeathWorkflowForGoat closes staged work after an admin rejection. The set is bounded to
@@ -977,6 +1194,55 @@ func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.D
 		})
 	// ErrNotFound propagates for the same reason as the approve path: a redelivered rework is a no-op
 	// mutation, so this is only a mis-routed ref_id and must not vanish silently.
+	return err
+}
+
+func (r *Repository) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
+	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
+		func(w *domain.WorkflowInstance, _ []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
+				return nil, false, domain.ErrNotFound
+			}
+			if !w.AwaitingVerification {
+				return nil, true, nil
+			}
+			w.AwaitingVerification = false
+			return nil, false, nil
+		})
+	return err
+}
+
+func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
+	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
+		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
+				return nil, false, domain.ErrNotFound
+			}
+			changed := make([]domain.WorkflowAction, 0, len(actions))
+			w.AwaitingVerification = false
+			for i := range actions {
+				if !actions[i].RequiresVideo ||
+					(actions[i].Status != domain.ActionStatusCompleted && actions[i].Status != domain.ActionStatusInReview) {
+					continue
+				}
+				actions[i].Status = domain.ActionStatusRework
+				if actions[i].ActionKey != domain.ActionKeyTagTheKid {
+					actions[i].AnswerValue = nil
+				}
+				actions[i].ProofRef = nil
+				actions[i].CompletedBy = nil
+				actions[i].CompletedAt = nil
+				actions[i].VerificationItemID = nil
+				actions[i].IdempotencyKey = nil
+				actions[i].RequestFingerprint = nil
+				actions[i].RowVersion++
+				changed = append(changed, actions[i])
+			}
+			if len(changed) == 0 {
+				return nil, true, nil
+			}
+			return changed, false, nil
+		})
 	return err
 }
 

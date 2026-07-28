@@ -461,7 +461,7 @@ func TestCreateAdminGoatAcceptsTemporaryIdentifierOnly(t *testing.T) {
 		ActorID:        testActor,
 		IdempotencyKey: "idem-create-temp-only",
 		TraceID:        testTrace,
-		RawBody: []byte(fmt.Sprintf(`{"temporary_identifier":"TEMP-42","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+		RawBody: []byte(fmt.Sprintf(`{"temporary_identifier":"TEMP-42","species":"goat","park_id":%q,"shed_id":%q,"breed":"beetal","sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","dam_id":"RFID-MOTHER-001","litter_size":1,"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
 			testPark, testShed)),
 	})
 	if err != nil {
@@ -515,6 +515,49 @@ func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
 		t.Fatalf("missing DOB must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
+func TestPrepareBirthRequiresMetadataAndReturnsCanonicalMother(t *testing.T) {
+	valid := fmt.Sprintf(`{"temporary_identifier":"K-123456","species":"goat","park_id":%q,"shed_id":%q,"breed":"beetal","sex":"female","dob":"2026-07-28","origin_type":"birth","entry_date":"2026-07-28","dam_id":"RFID-MOTHER-001","litter_size":2,"evidence_refs":[{"evidence_type":"source_record","evidence_id":"birth-test"}]}`, testPark, testShed)
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "missing breed", body: strings.Replace(valid, `,"breed":"beetal"`, "", 1), want: "breed is required for a birth"},
+		{name: "missing mother", body: strings.Replace(valid, `,"dam_id":"RFID-MOTHER-001"`, "", 1), want: "mother RFID is required for a birth"},
+		{name: "missing litter size", body: strings.Replace(valid, `,"litter_size":2`, "", 1), want: "litter_size is required for a birth"},
+		{name: "invalid litter size", body: strings.Replace(valid, `"litter_size":2`, `"litter_size":4`, 1), want: "litter_size must be 1, 2, or 3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			_, err := NewService(repo).PrepareCreateAdminGoat(context.Background(), CreateAdminGoatInput{
+				TenantID: testTenant, ActorID: testActor, IdempotencyKey: "birth-" + strings.ReplaceAll(tc.name, " ", "-"), RawBody: []byte(tc.body),
+			})
+			var appErr *Error
+			if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != tc.want {
+				t.Fatalf("err=%v, want invalid_goat_create %q", err, tc.want)
+			}
+			if len(repo.validateAdminGoatCreateCmds) != 0 {
+				t.Fatal("invalid birth metadata must fail before repository validation")
+			}
+		})
+	}
+
+	repo := &fakeRepo{}
+	cmd, err := NewService(repo).PrepareCreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "birth-canonical-mother", RawBody: []byte(valid),
+	})
+	if err != nil {
+		t.Fatalf("prepare valid birth: %v", err)
+	}
+	if cmd.DamID == nil || *cmd.DamID != goatA {
+		t.Fatalf("canonical dam id=%v, want %s", cmd.DamID, goatA)
+	}
+	if cmd.LitterSize == nil || *cmd.LitterSize != 2 {
+		t.Fatalf("litter size=%v, want 2", cmd.LitterSize)
 	}
 }
 
@@ -709,7 +752,7 @@ func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
 func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Farm,Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,A1-KID-001,A2-KID-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Farm,Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,A1-KID-001,A2-KID-001,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -749,7 +792,7 @@ func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-NO-DOB,A2-NO-DOB,goat,CBE,K1,female,,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-NO-DOB,A2-NO-DOB,goat,CBE,K1,female,,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -769,7 +812,7 @@ func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-A1-001,DUP-A2-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,22.5\n\nDUP-A1-001,DUP-A2-002,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-A1-001,DUP-A2-001,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15,22.5\n\nDUP-A1-001,DUP-A2-002,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -1534,12 +1577,17 @@ func defaultAdminGoatCreateValidation(cmd ports.ValidateAdminGoatCreateCommand) 
 	if cmd.ShedID != nil {
 		shedID = *cmd.ShedID
 	}
-	return ports.AdminGoatCreateValidation{
+	validation := ports.AdminGoatCreateValidation{
 		CustodianPartyID: "70000000-0000-4000-8000-000000000001",
 		FarmID:           cmd.FarmID,
 		ParkID:           parkID,
 		ShedID:           shedID,
 	}
+	if cmd.BirthDamRef != nil {
+		damID := goatA
+		validation.DamGoatID = &damID
+	}
+	return validation
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }

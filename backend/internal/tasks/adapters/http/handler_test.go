@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
@@ -20,6 +21,7 @@ type stubService struct {
 	completeErr error
 	listCalls   int
 	writeCalls  int
+	lastAnswer  tasksapp.AnswerActionInput
 	detail      domain.WorkflowDetail
 	detailErr   error
 }
@@ -70,8 +72,36 @@ func TestGetWorkflowHidesInternalApprovalAndBlocksLaterOperatorAction(t *testing
 	}
 }
 
-func (s *stubService) AnswerAction(_ context.Context, _ tasksapp.AnswerActionInput) (domain.ActionWriteResult, error) {
+func TestGetWorkflowBlocksORSRoundTwoUntilRecordedDueTime(t *testing.T) {
+	due := time.Now().UTC().Add(time.Hour)
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{
+			WorkflowID: "wf-mother", Module: domain.ModuleBirth, TemplateKey: domain.TemplateKeyBirthMother,
+			ActionsDone: 5, ActionsTotal: 6,
+		},
+		Actions: []domain.WorkflowAction{
+			{ActionID: "ors-2", ActionKey: domain.ActionKeyORSWater2, Seq: 6, Section: domain.SectionMain, ActionType: domain.ActionTypeAction, Status: domain.ActionStatusPending, DueAt: &due},
+		},
+	}}
+	rec := doRequest(newTestMux(svc), http.MethodGet, "/app/workflows/wf-mother", "", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var response workflowDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Actions) != 1 || !response.Actions[0].Blocked {
+		t.Fatalf("ORS round 2 action = %+v, want blocked before due_at", response.Actions)
+	}
+	if response.Actions[0].BlockedReason != "not_yet_due" {
+		t.Fatalf("blocked_reason = %q, want not_yet_due", response.Actions[0].BlockedReason)
+	}
+}
+
+func (s *stubService) AnswerAction(_ context.Context, in tasksapp.AnswerActionInput) (domain.ActionWriteResult, error) {
 	s.writeCalls++
+	s.lastAnswer = in
 	if s.answerErr != nil {
 		return domain.ActionWriteResult{}, s.answerErr
 	}
@@ -163,6 +193,26 @@ func TestListWorkflowsParamValidation(t *testing.T) {
 	}
 }
 
+func TestListWorkflowsReturnsPreviousOverdueDates(t *testing.T) {
+	svc := &stubService{}
+	rec := doRequest(newTestMux(svc), http.MethodGet,
+		"/app/workflows?module=birth&date=2026-07-28", "", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	raw, ok := body["overdue_dates"]
+	if !ok {
+		t.Fatalf("response is missing overdue_dates: %s", rec.Body.String())
+	}
+	if string(raw) != "[]" {
+		t.Fatalf("overdue_dates = %s, want [] (never null)", raw)
+	}
+}
+
 func TestActionWriteParamValidation(t *testing.T) {
 	svc := &stubService{}
 	mux := newTestMux(svc)
@@ -193,6 +243,19 @@ func TestActionWriteParamValidation(t *testing.T) {
 	}
 }
 
+func TestAnswerActionAcceptsVideoProof(t *testing.T) {
+	svc := &stubService{}
+	rec := doRequest(newTestMux(svc), http.MethodPost, "/app/workflows/wf-1/actions/act-1/answer",
+		`{"answer_value":"yes","proof_ref":"proof-mother-1"}`,
+		map[string]string{"Idempotency-Key": "long-enough-key"}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if svc.lastAnswer.ProofRef != "proof-mother-1" {
+		t.Fatalf("proof_ref = %q, want proof-mother-1", svc.lastAnswer.ProofRef)
+	}
+}
+
 func TestErrorMapping(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -205,6 +268,7 @@ func TestErrorMapping(t *testing.T) {
 		{"already completed", domain.ErrActionAlreadyCompleted, http.StatusConflict, "action_already_completed"},
 		{"in review", domain.ErrActionInReview, http.StatusConflict, "action_in_review"},
 		{"out of sequence", domain.ErrActionOutOfSequence, http.StatusConflict, "action_out_of_sequence"},
+		{"not yet due", domain.ErrActionNotYetDue, http.StatusConflict, "action_not_yet_due"},
 		{"not completable", domain.ErrActionNotCompletable, http.StatusBadRequest, "action_not_completable"},
 		{"not found", domain.ErrNotFound, http.StatusNotFound, "workflow_not_found"},
 	}

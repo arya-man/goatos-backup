@@ -385,10 +385,9 @@ func TestApproveDeathPreparesTheGuardedCommand(t *testing.T) {
 	}
 }
 
-// The apply-time idempotency key must be a function of the APPROVAL REQUEST, not of the approver's
-// client key. Otherwise two approvers (or one approver retrying with a fresh key) would each get a
-// distinct identity write and the herd would gain two kids from one birth.
-func TestApproveEffectIdempotencyKeyIsDerivedFromTheRequest(t *testing.T) {
+// Birth approval must address the already-created litter and must not prepare another identity
+// create command. A retry with a different client key still targets the same birth_event_id.
+func TestApproveBirthTargetsExistingLitterWithoutPreparingAnotherGoat(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeBirth)}
 	preparer := &fakePreparer{}
 	svc := NewApprovalService(repo, preparer, nil)
@@ -397,7 +396,7 @@ func TestApproveEffectIdempotencyKeyIsDerivedFromTheRequest(t *testing.T) {
 	if _, _, err := svc.Decide(context.Background(), first); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	keyFromFirst := preparer.lastCreate.IdempotencyKey
+	firstEffect := repo.decisions[len(repo.decisions)-1].Effect.BirthCounts
 
 	second := newDecisionInput("request-1", true, []string{"birth", "death"})
 	second.IdempotencyKey = "a-totally-different-client-key"
@@ -405,13 +404,12 @@ func TestApproveEffectIdempotencyKeyIsDerivedFromTheRequest(t *testing.T) {
 	if _, _, err := svc.Decide(context.Background(), second); err != nil {
 		t.Fatalf("second approve: %v", err)
 	}
-	if preparer.lastCreate.IdempotencyKey != keyFromFirst {
-		t.Fatalf("effect idempotency key changed between approvals (%q -> %q); a retry with a new "+
-			"client key must still resolve to the SAME identity write",
-			keyFromFirst, preparer.lastCreate.IdempotencyKey)
+	secondEffect := repo.decisions[len(repo.decisions)-1].Effect.BirthCounts
+	if firstEffect == nil || secondEffect == nil || firstEffect.BirthEventID != secondEffect.BirthEventID {
+		t.Fatalf("birth count effect changed between approvals: first=%+v second=%+v", firstEffect, secondEffect)
 	}
-	if keyFromFirst == "" {
-		t.Fatal("effect idempotency key must not be empty")
+	if firstEffect.BirthEventID != repo.request.ApprovalRequestID || preparer.createCalls != 0 {
+		t.Fatalf("effect=%+v prepare calls=%d, want existing approval request and no goat create prepare", firstEffect, preparer.createCalls)
 	}
 }
 

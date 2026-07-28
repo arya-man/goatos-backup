@@ -75,6 +75,7 @@ type WorkflowListQuery struct {
 	TenantID  string
 	Module    string
 	EventDate string // YYYY-MM-DD
+	TodayDate string // current Asia/Kolkata business date; anchors previous-day attention rows
 	Filter    string
 	PageSize  int
 	Cursor    *WorkflowCursor
@@ -128,11 +129,19 @@ type WorkflowChips struct {
 	AwaitingVideo int `json:"awaiting_video"`
 }
 
+// WorkflowOverdueDate is one previous business date containing open work whose next action is
+// already late. WorkflowCount is the number of affected per-goat workflow cards on that date.
+type WorkflowOverdueDate struct {
+	Date          string `json:"date"`
+	WorkflowCount int    `json:"workflow_count"`
+}
+
 // WorkflowListPage is one keyset page plus the day's chips.
 type WorkflowListPage struct {
-	Items      []WorkflowCard
-	Chips      WorkflowChips
-	NextCursor *string
+	Items        []WorkflowCard
+	Chips        WorkflowChips
+	OverdueDates []WorkflowOverdueDate
+	NextCursor   *string
 }
 
 // WorkflowFact is one context line on the detail header.

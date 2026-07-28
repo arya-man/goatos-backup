@@ -40,10 +40,18 @@ type DeathVerificationEnqueueRequest struct {
 	IdempotencyKey string
 }
 
+type BirthVerificationEnqueueRequest struct {
+	TenantID, WorkflowID, OperatorID, ParkID, ShedID, SubjectLabel string
+	ProofRefs                                                      []string
+	CapturedAt                                                     time.Time
+	IdempotencyKey                                                 string
+}
+
 // DeathVerificationEnqueuer is the composition-layer seam to the verification module (the bridge in
 // adapters/verificationbridge adapts verification's CreateItem; tasks never writes its tables).
 type DeathVerificationEnqueuer interface {
 	EnqueueDeathEvidenceVerification(ctx context.Context, in DeathVerificationEnqueueRequest) error
+	EnqueueBirthEvidenceVerification(ctx context.Context, in BirthVerificationEnqueueRequest) error
 }
 
 // Service is the tasks app service.
@@ -111,6 +119,7 @@ func (s *Service) ListWorkflows(ctx context.Context, in ListWorkflowsInput) (dom
 		TenantID:  in.TenantID,
 		Module:    in.Module,
 		EventDate: date,
+		TodayDate: biztime.BusinessDate(now),
 		Filter:    in.Filter,
 		PageSize:  in.PageSize,
 		Cursor:    cursor,
@@ -130,12 +139,13 @@ func (s *Service) GetWorkflow(ctx context.Context, tenantID, workflowID string) 
 // Writes
 // ---------------------------------------------------------------------------
 
-// AnswerActionInput answers a question / question_select step.
+// AnswerActionInput answers a question / question_select step, including the numeric-kg kid weight.
 type AnswerActionInput struct {
 	TenantID           string
 	WorkflowID         string
 	ActionID           string
 	AnswerValue        string
+	ProofRef           string
 	AnsweredBy         string
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -148,16 +158,24 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 		strings.TrimSpace(in.RequestFingerprint) == "" {
 		return domain.ActionWriteResult{}, domain.ErrMissingRequiredField
 	}
-	return s.repo.AnswerAction(ctx, domain.AnswerActionCommand{
+	result, err := s.repo.AnswerAction(ctx, domain.AnswerActionCommand{
 		TenantID:           in.TenantID,
 		WorkflowID:         in.WorkflowID,
 		ActionID:           in.ActionID,
 		AnswerValue:        strings.TrimSpace(in.AnswerValue),
+		ProofRef:           strings.TrimSpace(in.ProofRef),
 		AnsweredBy:         strings.TrimSpace(in.AnsweredBy),
 		AnsweredAt:         s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})
+	if err != nil {
+		return domain.ActionWriteResult{}, err
+	}
+	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
+	return result, nil
 }
 
 // CompleteActionInput completes an "action" step (optionally carrying a video proof).
@@ -176,6 +194,14 @@ type CompleteActionInput struct {
 // retry of the same completion de-duplicates. See DeathVerificationEnqueueRequest.IdempotencyKey.
 func deathEvidenceIdempotencyKey(workflowID string, round int, proofRefs []string) string {
 	key := "counts-death-evidence:" + workflowID + ":r" + strconv.Itoa(round)
+	for _, ref := range proofRefs {
+		key += ":" + strings.TrimSpace(ref)
+	}
+	return key
+}
+
+func birthEvidenceIdempotencyKey(workflowID string, round int, proofRefs []string) string {
+	key := "counts-birth-evidence:" + workflowID + ":r" + strconv.Itoa(round)
 	for _, ref := range proofRefs {
 		key += ":" + strings.TrimSpace(ref)
 	}
@@ -207,6 +233,9 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
+	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
 
 	if result.NeedsVerificationEnqueue {
 		if s.enqueuer == nil {
@@ -230,6 +259,29 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) enqueueBirthWorkflowIfReady(ctx context.Context, tenantID, workflowID string) error {
+	review, err := s.repo.BirthWorkflowEvidenceForVerification(ctx, tenantID, workflowID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if s.enqueuer == nil {
+		return domain.ErrVerificationEnqueuerNotWired
+	}
+	subject := "Child"
+	if review.SubjectRole == domain.TemplateKeyBirthMother {
+		subject = "Mother"
+	}
+	return s.enqueuer.EnqueueBirthEvidenceVerification(ctx, BirthVerificationEnqueueRequest{
+		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
+		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
+		SubjectLabel: subject + " birth evidence · " + review.EventDate, CapturedAt: s.now().UTC(),
+		IdempotencyKey: birthEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -259,10 +311,29 @@ func (s *Service) OpenBirthWorkflows(ctx context.Context, in OpenBirthWorkflowsI
 		return err
 	}
 	eventAt := birthMoment(facts.DOB, facts.TimeOfBirth, in.PayloadTimeOfBirth, in.OccurredAt)
+	damRef := strings.TrimSpace(in.DamRef)
+	var damGoatID string
+	if damRef != "" {
+		damGoatID, err = s.repo.ResolveDamGoat(ctx, in.TenantID, damRef)
+		if err != nil {
+			if err != domain.ErrNotFound {
+				return err
+			}
+			// Legacy goat.created events may predate the required canonical mother contract. Keep
+			// opening their kid track, but do not fabricate a relationship.
+			s.log.Info("tasks_birth_mother_dam_unresolved", "tenant_id", in.TenantID, "goat_id", in.GoatID, "dam_ref", damRef)
+			damGoatID = ""
+		}
+	}
+	var kidMotherID *string
+	if damGoatID != "" {
+		kidMotherID = &damGoatID
+	}
 	if _, err := s.repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{
 		TenantID:      in.TenantID,
 		TemplateKey:   domain.TemplateKeyBirthKid,
 		SubjectGoatID: in.GoatID,
+		DamGoatID:     kidMotherID,
 		EventAt:       eventAt,
 		ParkID:        facts.ParkID,
 		ShedID:        facts.ShedID,
@@ -270,19 +341,8 @@ func (s *Service) OpenBirthWorkflows(ctx context.Context, in OpenBirthWorkflowsI
 		return err
 	}
 
-	damRef := strings.TrimSpace(in.DamRef)
-	if damRef == "" {
+	if damGoatID == "" {
 		return nil
-	}
-	damGoatID, err := s.repo.ResolveDamGoat(ctx, in.TenantID, damRef)
-	if err != nil {
-		if err == domain.ErrNotFound {
-			// Free-text dam that resolves to no canonical animal: skip the mother workflow silently
-			// (logged once here; the kid track is unaffected).
-			s.log.Info("tasks_birth_mother_dam_unresolved", "tenant_id", in.TenantID, "goat_id", in.GoatID, "dam_ref", damRef)
-			return nil
-		}
-		return err
 	}
 	damFacts, err := s.repo.GoatWorkflowFacts(ctx, in.TenantID, damGoatID)
 	if err != nil {
@@ -370,7 +430,8 @@ func (s *Service) CancelRejectedDeathWorkflow(ctx context.Context, tenantID, goa
 	return s.repo.CancelDeathWorkflowForGoat(ctx, tenantID, goatID, at)
 }
 
-// CompleteTagAction completes a pending tag_the_kid step when the permanent RFID lands.
+// CompleteTagAction records the permanent-RFID prerequisite when the identifier event lands.
+// It never completes or enqueues the task; the mandatory tagging-video command does that.
 func (s *Service) CompleteTagAction(ctx context.Context, tenantID, goatID string, at time.Time) error {
 	if at.IsZero() {
 		at = s.now().UTC()
@@ -385,6 +446,22 @@ func (s *Service) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.Death
 
 func (s *Service) BounceDeathVideosForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	return s.ackUnroutableVerdict("rework", cmd, s.repo.BounceDeathVideosForRework(ctx, cmd))
+}
+
+func (s *Service) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
+	return s.ackUnroutableBirthVerdict("approved", cmd, s.repo.ApplyBirthSignoffApproved(ctx, cmd))
+}
+
+func (s *Service) BounceBirthVideoForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
+	return s.ackUnroutableBirthVerdict("rework", cmd, s.repo.BounceBirthVideoForRework(ctx, cmd))
+}
+
+func (s *Service) ackUnroutableBirthVerdict(verdict string, cmd ports.DeathVerdictCommand, err error) error {
+	if errors.Is(err, domain.ErrNotFound) {
+		s.log.Warn("tasks_birth_verdict_unroutable", "verdict", verdict, "tenant_id", cmd.TenantID, "workflow_id", cmd.WorkflowID)
+		return nil
+	}
+	return err
 }
 
 // ackUnroutableVerdict acks a verdict that addresses no death workflow instead of retrying it

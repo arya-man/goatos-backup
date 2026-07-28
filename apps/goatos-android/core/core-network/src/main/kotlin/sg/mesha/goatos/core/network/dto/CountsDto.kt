@@ -423,7 +423,10 @@ data class CountsBirthEventRequestDto(
      */
     @SerialName("time_of_birth") val timeOfBirth: String? = null,
     @SerialName("entry_date") val entryDate: String,
-    @SerialName("dam_id") val damId: String? = null,
+    /** Mother RFID on first submit; the server resolves and stores the canonical mother goat id. */
+    @SerialName("dam_id") val damId: String,
+    /** Number born in this delivery. One submit creates this many distinct canonical children. */
+    @SerialName("litter_size") val litterSize: Int,
     @SerialName("sire_or_lot") val sireOrLot: String? = null,
     @SerialName("weight_kg") val weightKg: Double? = null,
     @SerialName("management_stage") val managementStage: String? = null,
@@ -463,28 +466,26 @@ data class CountsDeathEventRequestDto(
 }
 
 /**
- * Lenient response envelope shared by the birth and death routes (identity's
- * `AdminGoatResponse`). Only the fields the app actually surfaces are bound — the full response
- * also carries identifiers, decision, events, and idempotency metadata that mobile does not
- * render.
+ * Result of raising a birth/death approval request. Birth submission creates canonical children
+ * immediately and returns them in [children], while approval controls only their count eligibility.
+ * Death continues to apply its lifecycle exit only after approval and therefore returns no children.
  */
 @Serializable
-data class CountsGoatLifecycleResponseDto(
-    @SerialName("goat") val goat: CountsGoatSummaryDto = CountsGoatSummaryDto(),
-    @SerialName("generation_status") val generationStatus: String = "",
-    @SerialName("trace_id") val traceId: String = "",
+data class CountsApprovalSubmitResponseDto(
+    @SerialName("approval_request_id") val approvalRequestId: String,
+    @SerialName("request_type") val requestType: String,
+    @SerialName("status") val status: String,
+    @SerialName("raised_at") val raisedAt: String,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean,
+    @SerialName("children") val children: List<CountsBirthChildResultDto> = emptyList(),
 )
 
-/**
- * The bound slice of `GoatSummary`. Deliberately NOT carrying `row_version`: the contract's
- * `GoatSummary` does not expose one, so the death write's optimistic-concurrency guard cannot be
- * round-tripped from a previous response and must be supplied by the caller.
- */
+/** One canonical child created by a birth submission. */
 @Serializable
-data class CountsGoatSummaryDto(
-    @SerialName("goat_id") val goatId: String = "",
-    @SerialName("display_id") val displayId: String = "",
-    @SerialName("lifecycle_status") val lifecycleStatus: String = "",
+data class CountsBirthChildResultDto(
+    @SerialName("goat_id") val goatId: String,
+    @SerialName("temporary_identifier") val temporaryIdentifier: String,
+    @SerialName("child_ordinal") val childOrdinal: Int,
 )
 
 // ---------------------------------------------------------------------------

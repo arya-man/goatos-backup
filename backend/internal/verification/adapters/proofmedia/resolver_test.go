@@ -21,8 +21,14 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 			ProofID:    "10000000-0000-4000-8000-000000000001",
 			MimeType:   "video/mp4",
 			DurationMS: &duration,
+			Metadata: map[string]any{
+				"action_id": "20000000-0000-4000-8000-000000000001",
+			},
 		},
 		url: "/app/proofs/10000000-0000-4000-8000-000000000001/download/signed?tenant_id=00000000-0000-4000-8000-000000000001&expires=1&sig=ok",
+	}).WithActionPresentationResolver(fakeActionPresentationResolver{
+		labels:  map[string]string{"20000000-0000-4000-8000-000000000001": "Are any babies still inside?"},
+		answers: map[string]string{"20000000-0000-4000-8000-000000000001": "No"},
 	})
 
 	media, err := resolver.ResolveMedia(context.Background(), "00000000-0000-4000-8000-000000000001", []string{"10000000-0000-4000-8000-000000000001"})
@@ -35,6 +41,31 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	if media[0].MimeType != "video/mp4" || media[0].DurationMS == nil || *media[0].DurationMS != duration {
 		t.Fatalf("media metadata not populated: %#v", media[0])
 	}
+	if media[0].Label != "Are any babies still inside?" {
+		t.Fatalf("media label=%q, want Are any babies still inside?", media[0].Label)
+	}
+	if media[0].Answer != "No" {
+		t.Fatalf("media answer=%q, want No", media[0].Answer)
+	}
+}
+
+type fakeActionPresentationResolver struct {
+	labels  map[string]string
+	answers map[string]string
+}
+
+func (f fakeActionPresentationResolver) ResolveActionPresentations(_ context.Context, _ string, actionIDs []string) (map[string]string, map[string]string, error) {
+	labels := make(map[string]string, len(actionIDs))
+	answers := make(map[string]string, len(actionIDs))
+	for _, id := range actionIDs {
+		if label, ok := f.labels[id]; ok {
+			labels[id] = label
+		}
+		if answer, ok := f.answers[id]; ok {
+			answers[id] = answer
+		}
+	}
+	return labels, answers, nil
 }
 
 func TestLocalUploadCompletePreservesDurationForVerificationMedia(t *testing.T) {

@@ -493,7 +493,7 @@ class BirthDeathViewModel @Inject constructor(
             parkId = current.parkId.ifBlank { null },
             shedId = current.shedId.ifBlank { null },
             // Breed is the selected facet key from the herd's own vocabulary, never typed.
-            breed = current.breed.trim().ifBlank { null },
+            breed = current.breed.trim(),
             sex = current.sex,
             dob = current.dob.trim(),
             // Entry date defaults to today's business date (Asia/Kolkata) — stamped on open so an
@@ -501,7 +501,8 @@ class BirthDeathViewModel @Inject constructor(
             // via the M3 date picker, so the operator's chosen value is what ships. The backend
             // stays the authority on dob <= entry_date.
             entryDate = current.entryDate.trim().ifBlank { todayBusinessDate() },
-            damId = current.damId.trim().ifBlank { null },
+            damId = current.damId.trim(),
+            litterSize = 1,
             evidenceRefs = evidence,
         ),
     )
@@ -645,6 +646,8 @@ class BirthDeathViewModel @Inject constructor(
         // dob <= today. Mirrors the backend rule so the operator sees it before the round trip; the
         // server still enforces it independently. String compare is safe on ISO YYYY-MM-DD dates.
         state.dob.trim() > todayBusinessDate() -> "Date of birth cannot be in the future."
+        state.breed.isBlank() -> "Choose the newborn's breed."
+        state.damId.isBlank() -> "Scan or enter the mother's RFID."
         // Placement is REQUIRED and chosen from the catalog — a newborn is never recorded into no
         // shed, and the ids can only ever be real park/shed ids the picker offered.
         state.parkId.isBlank() -> "Choose the park the newborn is placed in."

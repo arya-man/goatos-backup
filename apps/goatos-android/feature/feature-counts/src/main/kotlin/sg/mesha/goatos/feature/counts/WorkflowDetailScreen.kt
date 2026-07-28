@@ -47,10 +47,12 @@ import sg.mesha.goatos.core.ui.SyncIconButton
  * The drill-in for one Birth/Death workflow (`/counts/{birth,death}/workflows/{workflow_id}` —
  * docs/decisions/birth-death-workflows.md, mock/birth-death-mobile-mock.html): a context card
  * (avatar, id + role, template label, facts grid, n/N progress), then the action rows in
- * Overdue / Scheduled / Completed sections, plus the kid track's Colostrum-sessions strip.
- * Internal approval and verification are deliberately absent from this operator screen. Questions answer inline (Yes/No or the backend's own
- * question_select bands); `requires_video` actions capture through the shared proof pipeline;
- * `tag_the_kid` navigates to the existing promote flow (it completes SERVER-side on promotion).
+ * Overdue / Scheduled / Completed sections. Birth-time-derived colostrum rounds are normal
+ * operator tasks in those sections, with the same video-proof controls as every other kid task.
+ * Internal approval and verification are deliberately absent from this operator screen. Questions
+ * answer inline (Yes/No, numeric kilograms, or backend-owned question_select options);
+ * `requires_video` actions capture through the shared proof pipeline;
+ * `tag_the_kid` opens the existing promote flow and also requires its own tagging video.
  *
  * All copy — titles, details, tags, facts, status labels — is backend-owned and rendered verbatim.
  */
@@ -76,6 +78,8 @@ data class WorkflowActionUi(
      * is what submits; [WorkflowAnswerOptionUi.label] is what renders.
      */
     val options: List<WorkflowAnswerOptionUi>,
+    /** Non-null renders one numeric answer field with this unit instead of answer-choice buttons. */
+    val numericAnswerUnit: String? = null,
     /** Status chip copy + tone ("1h late" / "Scheduled" / "Done" / "Blocked" / "In review"). */
     val statusLabel: String,
     val statusTone: WorkflowStatusTone,
@@ -86,7 +90,7 @@ data class WorkflowActionUi(
     val canComplete: Boolean,
     /** True renders the "Record video" button. */
     val canRecordVideo: Boolean,
-    /** True navigates to the promote flow instead of posting a completion. */
+    /** True also exposes the promote flow; video completion remains a separate required control. */
     val opensPromote: Boolean,
     /** Footer line with backend-owned completion attribution; blank hides it. */
     val footer: String,
@@ -99,16 +103,6 @@ enum class WorkflowStatusTone { OVERDUE, SCHEDULED, DONE, BLOCKED, IN_REVIEW }
 /** One inline answer choice: [value] submits, [label] renders. */
 @Immutable
 data class WorkflowAnswerOptionUi(val value: String, val label: String)
-
-/** One colostrum session cell (S1–S5) with its IST time and state tint. */
-@Immutable
-data class WorkflowSessionUi(
-    val label: String,
-    val timeLabel: String,
-    val tone: WorkflowSessionTone,
-)
-
-enum class WorkflowSessionTone { DONE, NOW, NEXT }
 
 /** Copy state for the death evidence acknowledgment; uploading action 2 is the real submission. */
 enum class WorkflowDeathSubmissionLabel { SUBMIT, UPLOADING, UPLOAD_FAILED, SUBMITTED }
@@ -127,8 +121,6 @@ data class WorkflowDetailUiState(
     val actionsDone: Int = 0,
     val actionsTotal: Int = 0,
     val actions: List<WorkflowActionUi> = emptyList(),
-    val sessions: List<WorkflowSessionUi> = emptyList(),
-    val sessionsNote: String = "",
     val isRefreshing: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val isSubmittingDeath: Boolean = false,
@@ -217,18 +209,6 @@ fun WorkflowDetailScreen(
 
             renderSection(state, WorkflowActionSection.OVERDUE, R.string.counts_workflow_sect_overdue, onEvent)
             renderSection(state, WorkflowActionSection.SCHEDULED, R.string.counts_workflow_sect_scheduled, onEvent)
-
-            if (state.sessions.isNotEmpty()) {
-                item(key = "sessions-title") {
-                    WorkflowSectionTitle(stringResource(R.string.counts_workflow_sect_sessions))
-                }
-                item(key = "sessions") { WorkflowSessionsStrip(state.sessions) }
-                if (state.sessionsNote.isNotBlank()) {
-                    item(key = "sessions-note") {
-                        Text(text = state.sessionsNote, color = MeshaColors.Faint, fontSize = 11.sp)
-                    }
-                }
-            }
 
             renderSection(state, WorkflowActionSection.COMPLETED, R.string.counts_workflow_sect_completed, onEvent)
             if (state.showDeathSubmissionButton) {
@@ -382,8 +362,6 @@ private fun WorkflowActionRow(
     state: WorkflowDetailUiState,
     onEvent: (WorkflowDetailEvent) -> Unit,
 ) {
-    // Expand/collapse of the detail text is client-local UI state only.
-    var expanded by rememberSaveable(action.actionId) { mutableStateOf(false) }
     val hasDetail = action.detail.isNotBlank()
     Column(
         modifier = Modifier
@@ -393,8 +371,6 @@ private fun WorkflowActionRow(
             .clickable(enabled = hasDetail || action.opensPromote) {
                 if (action.opensPromote && state.subjectGoatId.isNotBlank()) {
                     onEvent(WorkflowDetailEvent.OpenPromote(state.subjectGoatId))
-                } else if (hasDetail) {
-                    expanded = !expanded
                 }
             }
             .padding(12.dp),
@@ -426,8 +402,9 @@ private fun WorkflowActionRow(
                         WorkflowTag(stringResource(R.string.counts_workflow_tag_video), MeshaColors.WarnX, MeshaColors.Warn)
                     }
                     action.answerValue?.takeIf { it.isNotBlank() }?.let { answer ->
+                        val displayedAnswer = answer + action.numericAnswerUnit?.let { " $it" }.orEmpty()
                         WorkflowTag(
-                            stringResource(R.string.counts_workflow_answered_fmt, answer),
+                            stringResource(R.string.counts_workflow_answered_fmt, displayedAnswer),
                             MeshaColors.OkX,
                             MeshaColors.Ok,
                         )
@@ -440,8 +417,13 @@ private fun WorkflowActionRow(
                 state.isDeath,
             )
         }
-        if (expanded && hasDetail) {
-            Text(text = action.detail, color = MeshaColors.Muted, fontSize = 12.sp)
+        if (hasDetail) {
+            Text(
+                text = action.detail,
+                color = MeshaColors.Muted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
         }
         if (action.canAnswer && action.options.isNotEmpty()) {
             // Question_select bands can be many; wrap two per row so long band lists stay tappable.
@@ -466,6 +448,37 @@ private fun WorkflowActionRow(
                     if (pair.size == 1) Box(modifier = Modifier.weight(1f))
                 }
             }
+        }
+        if (action.canAnswer && action.numericAnswerUnit != null) {
+            var numericAnswer by rememberSaveable(action.actionId) { mutableStateOf("") }
+            CountsTextField(
+                value = numericAnswer,
+                onValueChange = { candidate ->
+                    if (candidate.all { it.isDigit() || it == '.' } && candidate.count { it == '.' } <= 1) {
+                        numericAnswer = candidate
+                    }
+                },
+                label = stringResource(R.string.counts_workflow_weight_kg),
+                required = true,
+                numeric = true,
+            )
+            val validWeight = numericAnswer.toDoubleOrNull()?.let { it > 0.0 && it.isFinite() } == true
+            Text(
+                text = stringResource(R.string.counts_workflow_weight_continue),
+                color = if (validWeight) MeshaColors.OnBrand else MeshaColors.Faint,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W800,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (validWeight) MeshaColors.Brand else MeshaColors.Surf3)
+                    .clickable(enabled = validWeight) {
+                        onEvent(WorkflowDetailEvent.Answer(action.actionId, numericAnswer))
+                    }
+                    .minimumInteractiveComponentSize()
+                    .padding(vertical = 10.dp),
+            )
         }
         if (action.canRecordVideo) {
             Row(
@@ -557,29 +570,4 @@ private fun StatusChip(label: String, tone: WorkflowStatusTone, isDeath: Boolean
             .background(bg)
             .padding(horizontal = 9.dp, vertical = 3.dp),
     )
-}
-
-@Composable
-private fun WorkflowSessionsStrip(sessions: List<WorkflowSessionUi>) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        sessions.forEach { session ->
-            val (bg, fg) = when (session.tone) {
-                WorkflowSessionTone.DONE -> MeshaColors.OkX to MeshaColors.Ok
-                WorkflowSessionTone.NOW -> MeshaColors.BrandTint to MeshaColors.BrandD
-                WorkflowSessionTone.NEXT -> MeshaColors.Surf2 to MeshaColors.Muted
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(bg)
-                    .padding(vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(text = session.label, color = fg, fontSize = 11.sp, fontWeight = FontWeight.W800)
-                Text(text = session.timeLabel, color = fg, fontSize = 10.sp, fontWeight = FontWeight.W600)
-            }
-        }
-    }
 }

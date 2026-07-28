@@ -2020,7 +2020,13 @@ export interface components {
             management_stage?: string;
             health_status?: string;
             weight_kg?: number;
+            /** @description For birth-origin creates, the required mother RFID or already-resolved canonical mother goat UUID. The server persists only the canonical mother goat relationship. */
             dam_id?: string;
+            /**
+             * @description Required for birth-origin creates; rejected for other origin types.
+             * @enum {integer}
+             */
+            litter_size?: 1 | 2 | 3;
             sire_or_lot?: string;
             photo_url?: string;
             source_record_id?: string;
