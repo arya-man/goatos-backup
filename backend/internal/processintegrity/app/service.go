@@ -70,6 +70,7 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	q = s.defaults(q)
 	q.IncludeCompleted = true
 	q.IncludeAdherenceSummary = true
+	q.ScopeLatestDrive = true
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
