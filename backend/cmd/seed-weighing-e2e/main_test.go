@@ -20,6 +20,7 @@ func TestDryRunValidatesRepositoryFixture(t *testing.T) {
 		"animals=7",
 		"proofs=6",
 		"observations=4",
+		"duplicate_scans=1",
 		"shed_observations=1",
 	} {
 		if !strings.Contains(got, want) {

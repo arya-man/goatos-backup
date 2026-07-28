@@ -243,6 +243,18 @@
       "idempotency_key": "weighing:33333333:66666666-0001:77777777-0099:proof-0099"
     }
   ],
+  "duplicate_scans": [
+    {
+      "scan_id": "dup-wg-rfid-0001",
+      "animal_id": "77777777-0001-4777-8777-777777777771",
+      "rfid": "WG-RFID-0001",
+      "original_observation_id": "88888888-0001-4888-8888-888888888881",
+      "idempotency_key": "weighing:33333333:66666666-0001:77777777-0001:proof-0001",
+      "expected_result": "idempotent_replay",
+      "progress_delta": 0,
+      "must_not_create_second_observation": true
+    }
+  ],
   "shed_observations": [
     {
       "shed_observation_id": "aaaaaaaa-0003-4aaa-8aaa-aaaaaaaaaaa3",
