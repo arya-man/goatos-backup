@@ -57,6 +57,10 @@ import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
+import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -116,6 +120,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
+                MIGRATION_19_20,
             )
             .build()
         try {
@@ -401,6 +406,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
+                MIGRATION_19_20,
             )
             .build()
         try {
@@ -500,6 +506,9 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 8. The two v19 "Awaiting RFID" tables (MIGRATION_18_19) exist and round-trip.
             assertAwaitingRfidTablesRoundTrip(upgraded, base = 80L)
+
+            // 9. The four v20 Birth/Death workflow tables (MIGRATION_19_20) exist and round-trip.
+            assertWorkflowTablesRoundTrip(upgraded, base = 100L)
         } finally {
             upgraded.close()
         }
@@ -527,6 +536,40 @@ class GoatDatabaseUpgradeCrashTest {
             ShiftingPendingRemoteKeyEntity(queryKey = scope, nextCursor = "cursor-2", endReached = false, updatedAt = base + 1),
         )
         assertEquals("cursor-2", upgraded.shiftingPendingRemoteKeyDao().get(scope)?.nextCursor)
+    }
+
+    /** Round-trips the four v20 Birth/Death workflow tables so a missing/mismatched CREATE in
+     *  MIGRATION_19_20 fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertWorkflowTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        val scope = cacheKey("workflows", "birth", "2026-07-27", "all")
+        upgraded.workflowCardDao().upsertAll(
+            listOf(
+                WorkflowCardEntity(
+                    queryKey = scope,
+                    workflowId = "wf-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.workflowCardDao().countFor(scope))
+        assertNotNull(upgraded.workflowCardDao().findById("wf-1"))
+        upgraded.workflowRemoteKeyDao().upsert(
+            WorkflowRemoteKeyEntity(queryKey = scope, nextCursor = "cursor-2", endReached = false, updatedAt = base + 1),
+        )
+        assertEquals("cursor-2", upgraded.workflowRemoteKeyDao().get(scope)?.nextCursor)
+        upgraded.workflowChipsCacheDao().upsert(
+            WorkflowChipsCacheEntity(cacheKey = cacheKey("workflow-chips", "birth", "2026-07-27"), dtoJson = "{}", updatedAt = base + 2),
+        )
+        assertEquals(
+            base + 2,
+            upgraded.workflowChipsCacheDao().observe(cacheKey("workflow-chips", "birth", "2026-07-27")).first()?.updatedAt,
+        )
+        upgraded.workflowDetailCacheDao().upsert(
+            WorkflowDetailCacheEntity(cacheKey = "wf-1", dtoJson = "{}", updatedAt = base + 3),
+        )
+        assertEquals(base + 3, upgraded.workflowDetailCacheDao().observe("wf-1").first()?.updatedAt)
     }
 
     /** Round-trips the v19 "Awaiting RFID" list pair so a missing/mismatched CREATE in

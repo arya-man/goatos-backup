@@ -45,13 +45,19 @@
           "module": "vaccination",
           "file": "backend/internal/vaccination/app/generation_handler.go",
           "notes": "GoatCreatedHandler.HandleEvent reads the payload key trusted_vaccination_history (written by the procurement producer) and routes it through GenerationService.ingestPreArrivalHistory (backend/internal/vaccination/app/prearrival_history.go), which reviews each supplier claim and persists it as accepted or rejected pre-arrival history before generation runs (BUG-017)."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "GoatCreatedWorkflowHandler.HandleEvent filters origin_type=birth, reads the canonical goats row (dob/time_of_birth/sex/park/shed) by PK, and opens the birth_kid workflow plus the shared birth_mother workflow when the payload's dam_id resolves to a canonical animal (docs/decisions/birth-death-workflows.md). It parses the payload keys dob, dam_id, sex, and time_of_birth added by the identity producer for exactly this consumer, so none of those keys is accept-and-discard."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
         "backend/internal/vaccination/adapters/postgres/generation_integration_test.go",
-        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go"
+        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -185,6 +191,52 @@
       ]
     },
     {
+      "eventType": "counts.death.reported",
+      "producer": "counts death approval-request submission",
+      "producerFiles": [
+		"backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "CountsDeathReportedHandler opens the death workflow immediately from the still-live goat's canonical park/shed facts. The event and counts_approval_requests insert commit atomically; migration 000035 backfills pending pre-existing death requests."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/counts/adapters/postgres/approval_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring, and internal/kernelstages.",
+	  "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "counts.death.rejected",
+      "producer": "counts death approval rejection",
+      "producerFiles": [
+		"backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "CountsDeathRejectedHandler cancels the staged death workflow and clears its proof refs. The rejection applies no identity/count effect, so the goat remains alive."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/counts/adapters/postgres/approval_integration_test.go",
+        "backend/internal/tasks/app/service_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by every domain-event bus composition.",
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
       "eventType": "goat.exited",
       "producer": "identity goat exit",
       "producerFiles": [
@@ -194,12 +246,18 @@
         {
           "module": "obligation",
           "file": "backend/internal/obligation/app/cancel.go"
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "GoatExitedWorkflowHandler.HandleEvent filters exit_reason=died and releases the approval-prepared pair of death videos to the generic Verify queue. The counts approval transaction first proves both videos, moves the internal review action to in_review, applies the guarded exit/count change, and emits goat.exited atomically. Sold/culled/transferred exits release nothing."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
-        "backend/internal/obligation/adapters/postgres/cancel_integration_test.go"
+        "backend/internal/obligation/adapters/postgres/cancel_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -234,7 +292,7 @@
     },
     {
       "eventType": "verification.item.pending",
-      "producer": "generic verification item enqueue",
+      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, and death_evidence \u2014 initial death evidence is released by the approved goat.exited consumer; only a post-verifier-rejection re-shoot enqueues from the second upload completion)",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -280,6 +338,11 @@
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_packing_verification_handler.go",
           "notes": "FeedPackingVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_packing_completion (distinct from the distribution handler, which shares module=feed but uses ref_type=feed_distribution_completion) and calls PackingCompletionStore.ApplyVerifiedPacking, which flips the feed_packing_completions row 'pending_verification' -> 'completed' and emits feed.packing.completed. Maintainer-2026-07-26 gate (SUPERSEDING the earlier 'packing stays instant' rule): a feed PACKING session is completed only when a verifier approves the operator's ONE mandatory packing video. Separate NEW table."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "DeathVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=workflow_death_signoff (distinct from shifting) and completes the internal verifier-review action/workflow. ONE death_evidence item carries BOTH videos. Its idempotency key includes workflow, review round, and proof refs; verifier rejection resets both uploads while leaving the admin-approved death/count applied, and the second re-shoot returns directly to Verify."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -289,7 +352,8 @@
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
-        "backend/internal/eventwiring/appliers_test.go"
+        "backend/internal/eventwiring/appliers_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/appliers.go (RegisterVerificationAppliers) is the SINGLE registration of the shifting + feed-distribution + feed-packing verdict appliers, called by bootstrap/api.go, cmd/outbox-relay, AND cmd/domain-event-consumer. The verdict is delivered ONLY via the outbox, so the durable-bus consumers (outbox-relay local / domain-event-consumer prod) MUST register them; before 2026-07-27 they did not and every feed/shifting approval was silently dropped while the API-bus registration never fired. appliers_test.go is the drift guard.",
       "surfaces": [
@@ -322,6 +386,11 @@
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
           "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-records the video + water proof and re-submits."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "DeathVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=workflow_death_signoff and calls Repository.BounceDeathVideosForRework, resetting both death video actions to 'rework' (proofs cleared, re-shoot mandatory) and the sign-off back to pending."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -329,7 +398,8 @@
         "backend/internal/vaccination/app/completion_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
-        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go"
+        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -623,6 +693,30 @@
       "e2eProof": [
         "backend/internal/obligation/app/operator_config_replan_test.go",
         "backend/internal/obligation/adapters/postgres/operator_config_replan_leave_e2e_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "goat.identifier.added",
+      "producer": "identity identifier attach / temp-to-permanent promote",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/identifier_write.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "IdentifierAddedWorkflowHandler.HandleEvent filters action=attach + identifier_type=animal_identifier_1 (the PERMANENT RFID; temporary tags and animal_identifier_2 are ignored) and completes the pending 'Tag the kid' step on the goat's open birth_kid workflow. The promote flow stays the single writer of identifier truth; the client never chains this (docs/decisions/birth-death-workflows.md)."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",

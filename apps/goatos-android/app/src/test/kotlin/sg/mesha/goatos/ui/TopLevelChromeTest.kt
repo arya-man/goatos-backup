@@ -110,7 +110,8 @@ class TopLevelChromeTest {
         status = NavModuleStatus.AVAILABLE,
         navItems = listOf(
             NavItem(key = "counts", label = "Counts", href = "/counts"),
-            NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+            NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
+            NavItem(key = "death", label = "Death", href = "/counts/death"),
             NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
             // Approvals were removed from mobile (maintainer decision 2026-07-21): the Counts bar is
             // capture-only now, with no trailing Approval tab.
@@ -163,7 +164,8 @@ class TopLevelChromeTest {
 
         val countsRoots = rootsFor(twoModules, "counts", "/counts")
         assertTrue(isTopLevelRoute("/counts", countsRoots))
-        assertTrue(isTopLevelRoute("/counts/birth-death", countsRoots))
+        assertTrue(isTopLevelRoute("/counts/birth", countsRoots))
+        assertTrue(isTopLevelRoute("/counts/death", countsRoots))
         assertFalse(isTopLevelRoute(Routes.VACCINATION, countsRoots))
     }
 
@@ -177,7 +179,7 @@ class TopLevelChromeTest {
         // capture-only (no You, and no Approval since approvals were removed from mobile). This is
         // the assertion that would fail if the client ever went back to appending a fixed tab.
         assertEquals(
-            listOf("/counts", "/counts/birth-death", "/counts/shifting"),
+            listOf("/counts", "/counts/birth", "/counts/death", "/counts/shifting"),
             twoModules.barItems("counts", "/counts").map { it.href },
         )
     }
@@ -185,9 +187,11 @@ class TopLevelChromeTest {
     @Test
     fun `a drill inside the open module never inherits chrome`() {
         val countsRoots = rootsFor(twoModules, "counts", "/counts")
-        // "/counts/birth-death" IS a root; a deeper drill under it is not. Exact membership,
+        // "/counts/birth" IS a root; a deeper drill under it (/add, /workflows/{id}) is not.
+        // Exact membership,
         // never prefix matching (docs/decisions/android-navigation-stack.md).
-        assertFalse(isTopLevelRoute("/counts/birth-death/record", countsRoots))
+        assertFalse(isTopLevelRoute("/counts/birth/add", countsRoots))
+        assertFalse(isTopLevelRoute("/counts/birth/workflows/wf-1", countsRoots))
         assertFalse(isTopLevelRoute("/counts/shifting/confirm", countsRoots))
         assertFalse(isTopLevelRoute(Routes.CALENDAR_DRIVE, countsRoots))
     }
@@ -317,7 +321,7 @@ class TopLevelChromeTest {
             Routes.SCAN,
             Routes.SUBMIT,
             Routes.RECORD,
-            "/counts/birth-death/record",
+            "/counts/birth/add",
         ).forEach { route ->
             assertFalse(route, drawerAvailable(twoModules.chrome, route, countsRoots))
         }
@@ -358,10 +362,11 @@ class TopLevelChromeTest {
         val operatorCounts = NavModule(
             key = "counts",
             label = "Counts",
-            href = "/counts/birth-death",
+            href = "/counts/birth",
             status = NavModuleStatus.AVAILABLE,
             navItems = listOf(
-                NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+                NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
+            NavItem(key = "death", label = "Death", href = "/counts/death"),
                 NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
             ),
         )
@@ -371,11 +376,11 @@ class TopLevelChromeTest {
             modules = listOf(operatorCounts),
         )
         assertEquals(
-            listOf("/counts/birth-death", "/counts/shifting"),
-            operatorState.barItems("counts", "/counts/birth-death").map { it.href },
+            listOf("/counts/birth", "/counts/death", "/counts/shifting"),
+            operatorState.barItems("counts", "/counts/birth").map { it.href },
         )
         // ...and no You route sneaks into the operator's L0 set.
-        val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth-death")
+        val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth")
         assertFalse(isTopLevelRoute(Routes.YOU, operatorRoots))
 
         // Approvals were removed from mobile (maintainer decision 2026-07-21): no Counts bar — for

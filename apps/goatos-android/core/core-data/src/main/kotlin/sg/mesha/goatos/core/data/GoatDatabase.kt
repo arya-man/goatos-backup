@@ -72,6 +72,14 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowCardDao
+import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
+import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheDao
+import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheDao
+import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
 
 /**
  * The on-device SSOT database (docs/decisions/android-offline-first.md). v1 held only the
@@ -155,8 +163,12 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         ShiftingPendingRemoteKeyEntity::class,
         AwaitingRfidItemEntity::class,
         AwaitingRfidRemoteKeyEntity::class,
+        WorkflowCardEntity::class,
+        WorkflowRemoteKeyEntity::class,
+        WorkflowChipsCacheEntity::class,
+        WorkflowDetailCacheEntity::class,
     ],
-    version = 19,
+    version = 20,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -180,6 +192,10 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // v19 (see [MIGRATION_18_19]) adds the "Awaiting RFID" list pair — the Counts promote flow's
     // offline-first read model (one Room row per temporary-tagged goat + its keyset remote key), so an
     // operator re-entering the list sees their cached rows instead of a blank wall.
+    // v20 (see [MIGRATION_19_20]) adds the four Birth/Death workflow read-model tables
+    // (docs/decisions/birth-death-workflows.md): the keyset card list + its remote keys, the
+    // per-day chips rollup, and the drill-in detail blob — the two new work-list modules
+    // (/counts/birth, /counts/death) offline-first and bounded from day one.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -219,4 +235,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
     abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao
     abstract fun awaitingRfidRemoteKeyDao(): AwaitingRfidRemoteKeyDao
+    abstract fun workflowCardDao(): WorkflowCardDao
+    abstract fun workflowRemoteKeyDao(): WorkflowRemoteKeyDao
+    abstract fun workflowChipsCacheDao(): WorkflowChipsCacheDao
+    abstract fun workflowDetailCacheDao(): WorkflowDetailCacheDao
 }

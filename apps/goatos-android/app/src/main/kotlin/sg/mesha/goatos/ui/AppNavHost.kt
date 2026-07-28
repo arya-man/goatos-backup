@@ -34,10 +34,12 @@ import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
+import sg.mesha.goatos.feature.counts.AddBirthEvent
+import sg.mesha.goatos.feature.counts.AddBirthScreen
+import sg.mesha.goatos.feature.counts.AddDeathEvent
+import sg.mesha.goatos.feature.counts.AddDeathScreen
 import sg.mesha.goatos.feature.counts.AwaitingRfidEvent
 import sg.mesha.goatos.feature.counts.AwaitingRfidScreen
-import sg.mesha.goatos.feature.counts.BirthDeathEvent
-import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
@@ -62,6 +64,10 @@ import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
 import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingTab
+import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
+import sg.mesha.goatos.feature.counts.WorkflowDetailScreen
+import sg.mesha.goatos.feature.counts.WorkflowListEvent
+import sg.mesha.goatos.feature.counts.WorkflowListScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
@@ -85,10 +91,15 @@ import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
+import sg.mesha.goatos.viewmodel.AddBirthViewModel
+import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.AwaitingRfidViewModel
-import sg.mesha.goatos.viewmodel.BirthDeathViewModel
+import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
+import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
+import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
+import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
@@ -142,15 +153,35 @@ object Routes {
     const val TIMETABLE = "/timetable"
 
     /**
-     * Counts module. All three arrive as the counts module's backend-composed `nav_items`, so all
-     * three are L0 roots that own the bottom bar — chrome membership is decided by EXACT route
+     * Counts module. All four arrive as the counts module's backend-composed `nav_items`, so all
+     * four are L0 roots that own the bottom bar — chrome membership is decided by EXACT route
      * equality against the backend's hrefs (`GoatOsShell.isTopLevelRoute`), never by prefix. That
-     * exactness is what keeps [COUNTS_BIRTH_DEATH] and [COUNTS_SHIFTING] from accidentally
-     * inheriting (or suppressing) chrome just because they share [COUNTS]'s path prefix.
+     * exactness is what keeps [COUNTS_BIRTH]/[COUNTS_DEATH] (and their /add + /workflows drills)
+     * and [COUNTS_SHIFTING] from accidentally inheriting (or suppressing) chrome just because they
+     * share [COUNTS]'s path prefix.
+     *
+     * Birth and Death are TWO modules with their own routes (maintainer decision 2026-07-27,
+     * docs/decisions/birth-death-workflows.md): each opens on the outstanding per-goat SOP work
+     * list; recording moves behind the ＋ button. The old combined `/counts/birth-death` form
+     * route is REMOVED from navigation.
      */
     const val COUNTS = "/counts"
-    const val COUNTS_BIRTH_DEATH = "/counts/birth-death"
+    const val COUNTS_BIRTH = "/counts/birth"
+    const val COUNTS_DEATH = "/counts/death"
     const val COUNTS_SHIFTING = "/counts/shifting"
+
+    // L1 drill-ins for one workflow card (distinct hosted destinations with Up/Back and no root
+    // chrome — never a prefix reuse of the L0 roots above). Each module keeps its own drill route
+    // so Back always lands on the module the operator came from.
+    const val WORKFLOW_ID_ARG = "workflow_id"
+    const val COUNTS_BIRTH_WORKFLOW = "/counts/birth/workflows/{$WORKFLOW_ID_ARG}"
+    const val COUNTS_DEATH_WORKFLOW = "/counts/death/workflows/{$WORKFLOW_ID_ARG}"
+    fun birthWorkflowRoute(workflowId: String): String = "/counts/birth/workflows/$workflowId"
+    fun deathWorkflowRoute(workflowId: String): String = "/counts/death/workflows/$workflowId"
+
+    // L1 add forms behind each module's ＋ button (hosted destinations with Up/Back, no root chrome).
+    const val COUNTS_BIRTH_ADD = "/counts/birth/add"
+    const val COUNTS_DEATH_ADD = "/counts/death/add"
 
     // The L1 execute destination for one approved movement from the Shifting "Pending" tab. A
     // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
@@ -859,14 +890,83 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.COUNTS_BIRTH_DEATH) {
-            val vm: BirthDeathViewModel = hiltViewModel()
+        // Birth / Death workflow modules (docs/decisions/birth-death-workflows.md): two L0 work
+        // lists, each with its own drill-in and add form. The list composable wires Paging load
+        // states into the VM so refresh/offline banners track the real page loads.
+        composable(Routes.COUNTS_BIRTH) {
+            val vm: BirthWorkflowListViewModel = hiltViewModel()
+            WorkflowListDestination(
+                vm = vm,
+                onOpenCard = { workflowId ->
+                    navController.navigate(Routes.birthWorkflowRoute(workflowId)) { launchSingleTop = true }
+                },
+                onAddNew = { navController.navigate(Routes.COUNTS_BIRTH_ADD) { launchSingleTop = true } },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.COUNTS_DEATH) {
+            val vm: DeathWorkflowListViewModel = hiltViewModel()
+            WorkflowListDestination(
+                vm = vm,
+                onOpenCard = { workflowId ->
+                    navController.navigate(Routes.deathWorkflowRoute(workflowId)) { launchSingleTop = true }
+                },
+                onAddNew = { navController.navigate(Routes.COUNTS_DEATH_ADD) { launchSingleTop = true } },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // L1 workflow drill-ins: one goat's SOP action list. The camera is bound only while
+        // composed (operator capture role gated) so requires_video actions can record; the
+        // `tag_the_kid` action navigates to the existing L2 promote form instead of posting.
+        listOf(Routes.COUNTS_BIRTH_WORKFLOW, Routes.COUNTS_DEATH_WORKFLOW).forEach { route ->
+            composable(
+                route = route,
+                arguments = listOf(navArgument(Routes.WORKFLOW_ID_ARG) { type = NavType.StringType }),
+            ) {
+                val vm: WorkflowDetailViewModel = hiltViewModel()
+                val state by vm.state.collectAsStateWithLifecycle()
+                val onEvent: (WorkflowDetailEvent) -> Unit = { event ->
+                    when (event) {
+                        WorkflowDetailEvent.Back -> navController.popBackStack()
+                        is WorkflowDetailEvent.OpenPromote -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.promoteGoatRoute(event.goatId)) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                }
+                CaptureAccessGate {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    WorkflowDetailScreen(state = state, onEvent = onEvent)
+                }
+            }
+        }
+
+        // L1 add forms behind each module's ＋.
+        composable(Routes.COUNTS_BIRTH_ADD) {
+            val vm: AddBirthViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            BirthDeathScreen(
+            AddBirthScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        BirthDeathEvent.Back -> navController.popBackStack()
+                        AddBirthEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.COUNTS_DEATH_ADD) {
+            val vm: AddDeathViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AddDeathScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        AddDeathEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
                 },
@@ -1354,6 +1454,52 @@ fun AppNavHost(
 }
 
 /**
+ * Shared body of the two L0 workflow work-list destinations: collects the Paging rows, wires the
+ * refresh/append load states into the VM (so the sync banner and offline empty-state track REAL
+ * page loads), and routes card taps / ＋ / Back to the nav controller.
+ */
+@Composable
+private fun WorkflowListDestination(
+    vm: WorkflowListViewModel,
+    onOpenCard: (String) -> Unit,
+    onAddNew: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val rows = vm.rows.collectAsLazyPagingItems()
+    val refreshState = rows.loadState.refresh
+    LaunchedEffect(refreshState) {
+        when (refreshState) {
+            is LoadState.Loading -> vm.onRowsLoading()
+            is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+            is LoadState.NotLoading -> vm.onRowsLoaded()
+        }
+    }
+    val appendError = (rows.loadState.append as? LoadState.Error)?.error
+    LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
+
+    WorkflowListScreen(
+        state = state,
+        rows = rows,
+        onEvent = { event ->
+            when (event) {
+                is WorkflowListEvent.OpenCard -> {
+                    vm.onEvent(event) // analytics
+                    onOpenCard(event.workflowId)
+                }
+                WorkflowListEvent.AddNew -> onAddNew()
+                WorkflowListEvent.Back -> onBack()
+                WorkflowListEvent.Refresh -> {
+                    vm.onEvent(event)
+                    rows.refresh()
+                }
+                else -> vm.onEvent(event)
+            }
+        },
+    )
+}
+
+/**
  * Cold start must never land on a route the backend did not expose to this principal, and it
  * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item.
  *
@@ -1391,7 +1537,8 @@ private val supportedRootDestinations = setOf(
     // of falling back to Calendar (which a Counts-only principal may not be granted).
     // Approvals live in admin-web only (moved off mobile), so there is no approvals root here.
     Routes.COUNTS,
-    Routes.COUNTS_BIRTH_DEATH,
+    Routes.COUNTS_BIRTH,
+    Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
     Routes.COUNTS_PROMOTE,
 )

@@ -34,7 +34,10 @@ source "$repo_root/tools/dev/android-env.sh"
 api_base="http://localhost:8080"
 bootstrap_path="/app/bootstrap"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
-user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
+# The Android dev build starts in the field-operator surface. The old CEO default could read the
+# workflow but was correctly denied TaskExecute on proof upload, leaving camera files only in the
+# tablet outbox. Callers can still override this for leadership/verifier testing.
+user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000201}"
 ttl="${GOATOS_DEV_TOKEN_TTL:-23h}"
 gradle_props="$HOME/.gradle/gradle.properties"
 supervisor="$repo_root/tools/dev/run-local-stack-supervised.sh"

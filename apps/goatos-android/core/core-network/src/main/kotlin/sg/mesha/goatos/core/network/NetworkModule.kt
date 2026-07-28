@@ -83,6 +83,11 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -450,6 +455,34 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsDeathEventRequestDto,
     ): CountsGoatLifecycleResponseDto
+
+    @GET("app/workflows")
+    suspend fun listWorkflows(
+        @Query("module") module: String,
+        @Query("date") date: String?,
+        @Query("filter") filter: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): WorkflowListResponseDto
+
+    @GET("app/workflows/{workflow_id}")
+    suspend fun getWorkflow(@Path("workflow_id") workflowId: String): WorkflowDetailResponseDto
+
+    @POST("app/workflows/{workflow_id}/actions/{action_id}/answer")
+    suspend fun answerWorkflowAction(
+        @Path("workflow_id") workflowId: String,
+        @Path("action_id") actionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    @POST("app/workflows/{workflow_id}/actions/{action_id}/complete")
+    suspend fun completeWorkflowAction(
+        @Path("workflow_id") workflowId: String,
+        @Path("action_id") actionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto
 
     @GET("goats/search")
     suspend fun searchGoats(
@@ -879,6 +912,33 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
     ): CountsGoatLifecycleResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+
+    override suspend fun listWorkflows(
+        module: String,
+        date: String?,
+        filter: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): WorkflowListResponseDto = service.listWorkflows(module, date, filter, pageSize, cursor)
+
+    override suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto =
+        service.getWorkflow(workflowId)
+
+    override suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        service.answerWorkflowAction(workflowId, actionId, idempotencyKey, request)
+
+    override suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        service.completeWorkflowAction(workflowId, actionId, idempotencyKey, request)
 
     override suspend fun searchGoats(
         q: String?,

@@ -378,6 +378,80 @@ func birthBody(identifier string) map[string]any {
 	}
 }
 
+// birthBodyAutoProvisional is what the phone actually sends after the 2026-07-27 split: NO
+// animal_identifier_1 and NO temporary_identifier, because the operator no longer scans an RFID at
+// birth and the server mints the provisional tag.
+func birthBodyAutoProvisional() map[string]any {
+	body := birthBody("unused")
+	delete(body, "animal_identifier_1")
+	return body
+}
+
+// TestRecordBirthEventAutoProvisionalTagIsDeterministicAcrossRetries is the offline-retry
+// regression for the server-minted provisional tag.
+//
+// The Android write path is the offline outbox: it retries the SAME Idempotency-Key until it gets a
+// response, so a lost 202 is the normal case, not an edge case. The provisional tag is injected into
+// the body BEFORE the body is marshalled, and that same body feeds the request fingerprint — so a
+// randomly regenerated tag makes the fingerprint differ on every retry, the approval store reports
+// ErrIdempotencyConflict, and the handler answers 409 forever. The birth is already queued
+// server-side, so the operator's outbox entry wedges permanently on a birth that did record.
+//
+// The tag must therefore be derived deterministically from the client key: a retry has to rebuild a
+// byte-identical body and replay cleanly.
+func TestRecordBirthEventAutoProvisionalTagIsDeterministicAcrossRetries(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	first := post(t, mux, appBirthEventRoute, "birth-key-auto-1", birthBodyAutoProvisional())
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("first status=%d body=%s, want 202", first.Code, first.Body.String())
+	}
+	firstForwarded := append([]byte(nil), validator.lastCreate.RawBody...)
+	if !bytes.Contains(firstForwarded, []byte(`"temporary_identifier"`)) {
+		t.Fatalf("server must mint a provisional tag when none is supplied: %s", firstForwarded)
+	}
+
+	second := post(t, mux, appBirthEventRoute, "birth-key-auto-1", birthBodyAutoProvisional())
+	if second.Code != http.StatusAccepted {
+		t.Fatalf("offline retry status=%d body=%s, want 202 — the outbox entry is wedged on a birth "+
+			"that already recorded", second.Code, second.Body.String())
+	}
+	if !bytes.Equal(firstForwarded, validator.lastCreate.RawBody) {
+		t.Fatalf("provisional tag is not deterministic across retries:\n%s\n%s",
+			firstForwarded, validator.lastCreate.RawBody)
+	}
+	if approvals.submits != 1 {
+		t.Fatalf("submits=%d after an offline retry, want 1 (no duplicate pending birth)", approvals.submits)
+	}
+	var body appApprovalSubmitResponse
+	decodeBody(t, second, &body)
+	if !body.IdempotentReplay {
+		t.Fatal("offline retry must report idempotent_replay=true")
+	}
+}
+
+// Two different births must not collide onto one provisional tag just because the derivation is
+// deterministic — the key, not a constant, is what varies.
+func TestRecordBirthEventAutoProvisionalTagsDifferPerClientKey(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	if rec := post(t, mux, appBirthEventRoute, "birth-key-auto-a", birthBodyAutoProvisional()); rec.Code != http.StatusAccepted {
+		t.Fatalf("first status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	tagA := append([]byte(nil), validator.lastCreate.RawBody...)
+
+	if rec := post(t, mux, appBirthEventRoute, "birth-key-auto-b", birthBodyAutoProvisional()); rec.Code != http.StatusAccepted {
+		t.Fatalf("second status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	if bytes.Equal(tagA, validator.lastCreate.RawBody) {
+		t.Fatalf("two distinct births share one provisional tag:\n%s", tagA)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Shifting events
 // ---------------------------------------------------------------------------

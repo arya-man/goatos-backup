@@ -114,6 +114,21 @@ enum class OutboxOpType {
      * two completions of the same shed-session drain strictly oldest-first.
      */
     FEED_PACKING_COMPLETE,
+
+    /**
+     * Birth/Death follow-up workflow action writes (docs/decisions/birth-death-workflows.md):
+     * `POST /app/workflows/{workflow_id}/actions/{action_id}/answer` (question / question_select)
+     * and `…/complete` (action type; `proof_ref` MANDATORY when the action `requires_video`).
+     *
+     * Both are must-not-double-apply writes — the backend rejects a NEW key against an
+     * already-completed action with 409 — so their callers derive a STABLE per-action idempotency
+     * key (never a timestamp-suffixed one); an exact replay returns the original result with
+     * `idempotent_replay=true`. The WORKFLOW ID is the outbox group key so two actions on the same
+     * workflow drain strictly oldest-first (and a `requires_video` completion drains AFTER its
+     * coupled PROOF_UPLOAD row on the same group, exactly like [SHIFTING_COMPLETE]).
+     */
+    WORKFLOW_ACTION_ANSWER,
+    WORKFLOW_ACTION_COMPLETE,
 }
 
 /**

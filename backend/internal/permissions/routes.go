@@ -361,6 +361,15 @@ var protectedRoutes = []Route{
 	// operator holding CountsWrite may complete or cancel any authorized movement in their tenant
 	// -- there is no "only the raiser" restriction, because the person who witnesses the animals
 	// move is not reliably the person who typed the request.
+	// Birth/death follow-up workflow surface (docs/decisions/birth-death-workflows.md). The per-goat
+	// SOP work opened by an APPROVED birth/death is operator ground work from the same phone as the
+	// Counts writes, so all four routes are gated on CountsWrite: the operator who records the birth
+	// is the operator who runs the kid's follow-up checklist and shoots the death evidence videos.
+	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", Permissions: []string{CountsWrite}},
+	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", Permissions: []string{CountsWrite}},
+	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", Permissions: []string{CountsWrite}},
+	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", Permissions: []string{CountsWrite}},
+
 	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},
 	{OperationID: "cancelAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/cancel", Permissions: []string{CountsWrite}},

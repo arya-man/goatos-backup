@@ -343,6 +343,40 @@ interface SyncRepository {
         reason: String,
     ): AppResult<String> = AppResult.Err("shifting cancel sync is not configured")
 
+    /**
+     * Enqueues a birth/death workflow-action ANSWER
+     * (`POST /app/workflows/{workflow_id}/actions/{action_id}/answer`,
+     * docs/decisions/birth-death-workflows.md). [groupKey] is the WORKFLOW id so two actions on
+     * the same workflow drain strictly oldest-first. [idempotencyKey] must be a STABLE per-action
+     * key the caller derived once and persisted — the backend rejects a NEW key against an
+     * already-completed action, so a fresh key on resend would surface a spurious conflict instead
+     * of collapsing onto the original answer.
+     */
+    suspend fun enqueueWorkflowActionAnswer(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        answerValue: String,
+    ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
+
+    /**
+     * Enqueues a birth/death workflow-action COMPLETE
+     * (`POST /app/workflows/{workflow_id}/actions/{action_id}/complete`). For a `requires_video`
+     * action the MANDATORY video is passed by REFERENCE to its PROOF_UPLOAD outbox row
+     * ([proofOutboxItemId], enqueued on the SAME [groupKey] so it drains first); the dispatcher
+     * resolves the uploaded proof_id and sends it as `proof_ref`, exactly like
+     * [enqueueShiftingComplete]. Null for non-video completions. Same stable-key contract as
+     * [enqueueWorkflowActionAnswer].
+     */
+    suspend fun enqueueWorkflowActionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        proofOutboxItemId: String? = null,
+    ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
+
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
      *  retry affordance. */
@@ -884,6 +918,44 @@ class DefaultSyncRepository(
         if (fingerprintMatches || legacyPayloadMatches) return existing.id
         throw IllegalStateException("Idempotency key already belongs to a different queued write.")
     }
+
+    override suspend fun enqueueWorkflowActionAnswer(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        answerValue: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WORKFLOW_ACTION_ANSWER,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WorkflowActionAnswerPayload(
+                workflowId = workflowId,
+                actionId = actionId,
+                answerValue = answerValue,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueWorkflowActionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        proofOutboxItemId: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WORKFLOW_ACTION_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WorkflowActionCompletePayload(
+                workflowId = workflowId,
+                actionId = actionId,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
 
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
         try {

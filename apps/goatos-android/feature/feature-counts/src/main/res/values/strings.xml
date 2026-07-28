@@ -160,4 +160,60 @@
     <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
     <string name="counts_more_fields">More details</string>
+
+    <!-- Birth / Death workflow module (docs/decisions/birth-death-workflows.md). STATIC chrome
+         only: screen titles, section headers, control labels, hints. Every live value the operator
+         reads (card ids, role labels, action titles/details, chip counts, facts, status copy)
+         is backend-owned and rendered verbatim. -->
+    <string name="counts_workflow_birth_title">Birth</string>
+    <string name="counts_workflow_death_title">Death</string>
+    <string name="counts_workflow_open_fmt">%1$d open</string>
+    <string name="counts_workflow_add_birth">Add birth</string>
+    <string name="counts_workflow_add_death">Add death</string>
+    <string name="counts_workflow_today">Today</string>
+    <string name="counts_workflow_past_note">Showing a past day. Completed work is read-only.</string>
+    <string name="counts_workflow_group_overdue">Overdue</string>
+    <string name="counts_workflow_group_due">Due today</string>
+    <string name="counts_workflow_group_in_review">In review</string>
+    <string name="counts_workflow_group_completed">Completed</string>
+    <string name="counts_workflow_submitted">Submitted</string>
+    <string name="counts_workflow_chip_all">All</string>
+    <string name="counts_workflow_chip_overdue">Overdue</string>
+    <string name="counts_workflow_chip_due">Due</string>
+    <string name="counts_workflow_chip_completed">Completed</string>
+    <string name="counts_workflow_chip_awaiting_video">Awaiting video</string>
+    <string name="counts_workflow_empty">Nothing to follow up for this day.</string>
+    <string name="counts_workflow_empty_offline">Couldn\'t load the work list. It will appear once you\'re back online.</string>
+
+    <!-- Workflow drill-in -->
+    <string name="counts_workflow_detail_title">Actions</string>
+    <string name="counts_workflow_not_found">This record isn\'t available. Go back and refresh the list.</string>
+    <string name="counts_workflow_progress_fmt">%1$d / %2$d done</string>
+    <string name="counts_workflow_sect_overdue">Overdue</string>
+    <string name="counts_workflow_sect_scheduled">Scheduled</string>
+    <string name="counts_workflow_sect_completed">Completed</string>
+    <string name="counts_workflow_sect_verification">Verification</string>
+    <string name="counts_workflow_sect_sessions">Colostrum sessions</string>
+    <string name="counts_workflow_tag_video">Video</string>
+    <string name="counts_workflow_answered_fmt">Answered %1$s</string>
+    <string name="counts_workflow_record_video">Record video</string>
+    <string name="counts_workflow_recording">Recording…</string>
+    <string name="counts_workflow_pick_video">Upload</string>
+    <string name="counts_workflow_mark_done">Mark done</string>
+    <string name="counts_workflow_submit">Submit</string>
+
+    <!-- Add-birth form (server generates the provisional tag; DOB locked to today) -->
+    <string name="counts_add_birth_subtitle">Record a newborn</string>
+    <string name="counts_group_born">BORN</string>
+    <string name="counts_add_birth_tag_note">The kid gets a provisional tag automatically. Attach the permanent RFID later with the \"Tag the kid\" step.</string>
+    <string name="counts_add_birth_more">＋ Add details (breed)</string>
+    <string name="counts_field_time_of_birth">Time of birth (HH:MM)</string>
+    <string name="counts_add_birth_dob_hint">Date of birth — today. Births are recorded as they happen.</string>
+    <string name="counts_add_birth_time_hint">Prefilled to now — tap to change.</string>
+    <string name="counts_add_birth_workflow_note">On submit the kid is created after approval and its birth follow-up actions open — a Mother track for the dam and a Kid track for the newborn.</string>
+
+    <!-- Add-death form -->
+    <string name="counts_add_death_subtitle">Find the animal that died</string>
+    <string name="counts_workflow_recorded">Recorded</string>
+    <string name="counts_workflow_rerecord_video">Re-record video</string>
 </resources>

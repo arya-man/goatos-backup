@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -89,8 +90,7 @@ class ShiftingExecuteViewModel @Inject constructor(
 
     fun onEvent(event: ShiftingExecuteEvent) {
         when (event) {
-            ShiftingExecuteEvent.RecordVideo -> captureVideo(fromGallery = false)
-            ShiftingExecuteEvent.PickVideo -> captureVideo(fromGallery = true)
+            ShiftingExecuteEvent.RecordVideo -> captureVideo()
             ShiftingExecuteEvent.MarkDone -> markDone()
             ShiftingExecuteEvent.Back -> Unit // navigation — handled by the nav host.
         }
@@ -109,19 +109,18 @@ class ShiftingExecuteViewModel @Inject constructor(
     }
 
     /**
-     * MANDATORY video (maintainer decision, 2026-07-26). Records a LIVE clip ([fromGallery] false)
-     * or picks one from the device gallery ([fromGallery] true) through the same [ProofCaptureSource]
-     * the vaccination flow binds, then enqueues a PROOF_UPLOAD under the MOVEMENT'S outbox group
+     * MANDATORY video (maintainer decision, 2026-07-28). Records a LIVE in-app camera clip through
+     * the shared [ProofCaptureSource], then enqueues a PROOF_UPLOAD under the MOVEMENT'S outbox group
      * (shiftingEventId) so it drains strictly BEFORE the completion on the same group. The proof
      * outbox item id is retained so the completion can resolve the uploaded proof_id and send it as
      * proof_ref. Until a video is captured, "Mark done" stays disabled.
      */
-    private fun captureVideo(fromGallery: Boolean) {
+    private fun captureVideo() {
         if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
+                proofCaptureSource.captureVideo(ProofCapturePrompt.SHIFTING)
             } catch (error: Exception) {
                 crashReporter.recordException(error, "shifting execute video capture failed")
                 null
@@ -138,9 +137,8 @@ class ShiftingExecuteViewModel @Inject constructor(
                 subjectType = "shed",
                 subjectId = destinationShedId,
                 // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
-                // capture_source (in_app_camera | gallery_picker) plus the capture window. They come
-                // straight off the captured clip so a live recording and a gallery upload each
-                // register with the true source; omitting them is rejected 400 invalid_proof.
+                // capture_source plus the capture window. This flow permits only the live in-app
+                // camera; omitting the metadata is rejected 400 invalid_proof.
                 metadata = mapOf(
                     META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),

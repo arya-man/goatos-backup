@@ -95,6 +95,11 @@ import (
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
+	taskshttp "github.com/vgoats/goatos/backend/internal/tasks/adapters/http"
+	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
+	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
+	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -384,8 +389,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// countsApprovalRepo therefore carries the identity write seam (goat create / guarded critical-
 	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
 	// a payload at submit time without applying it.
+	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
-		WithIdentityTxWriter(identityRepo)
+		WithIdentityTxWriter(identityRepo).
+		WithDeathEvidenceTxGate(tasksWorkflowRepo)
 	countsApprovalService := countsapp.NewApprovalService(countsApprovalRepo, identityService, nil)
 	// Shifting execution shares countsApprovalRepo because that repository already carries the
 	// identity transaction seam the relocation runs through -- and the relocation now happens HERE,
@@ -511,6 +518,27 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	feedDirectionService.WithPackingVerificationEnqueuer(
 		feeddirectionverificationbridge.NewPacking(verificationService))
+	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
+	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
+	// travel to Verify as
+	// ONE generic verification item (category death_evidence, both proofs on the item), so tasks is a
+	// verification producer just like shifting and feed. Register the category and wire the enqueue
+	// seam into the tasks workflow service.
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      tasksdomain.VerificationVerticalCounts,
+		Module:        tasksdomain.VerificationModuleCounts,
+		Category:      tasksdomain.VerificationCategoryDeathEvidence,
+		ExpectedMedia: []string{"video", "video"},
+		SLAHours:      24,
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	// Birth/death follow-up workflow engine (tasks module): per-goat SOP work opened by
+	// goat.created/goat.exited, listed by the mobile /counts/birth and /counts/death modules.
+	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
+		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService))
+	tasksWorkflowHandler := taskshttp.NewHandler(tasksWorkflowService, log)
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
@@ -605,6 +633,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
 	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, log)
+	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
+	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
+	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then
@@ -719,6 +750,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
+	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

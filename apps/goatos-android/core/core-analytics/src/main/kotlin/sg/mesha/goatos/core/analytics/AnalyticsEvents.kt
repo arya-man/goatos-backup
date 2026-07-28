@@ -184,6 +184,24 @@ object AnalyticsEvents {
     /** A feed-packing completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_PACKING_COMPLETE_FAILURE = "feed_packing_complete_failure"
 
+    /**
+     * A Birth/Death workflow work list was opened (docs/decisions/birth-death-workflows.md).
+     * [Params.KIND] is the module (`birth`/`death`).
+     */
+    const val WORKFLOW_LIST_VIEWED = "workflow_list_viewed"
+
+    /** A per-goat workflow card was opened (the drill-in action screen). [Params.KIND] = module. */
+    const val WORKFLOW_CARD_OPENED = "workflow_card_opened"
+
+    /** A question / question_select workflow action was answered (durably queued). */
+    const val WORKFLOW_ACTION_ANSWERED = "workflow_action_answered"
+
+    /** An `action`-type workflow step was completed (durably queued). */
+    const val WORKFLOW_ACTION_COMPLETED = "workflow_action_completed"
+
+    /** A mandatory video was recorded/picked for a requires_video workflow action. */
+    const val WORKFLOW_VIDEO_CAPTURED = "workflow_video_captured"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 

@@ -37,14 +37,16 @@ own execution — the anti-fraud/quality gate.
 
 ## Verifier APP scope (mobile, standalone)
 A verifier who opens the app sees **only** video verification — nothing else:
-- **A queue of pending media to verify**, filtered by **category** (vaccine,
-  feed-direction, diagnosis, death/post-mortem, breeding, … — the vertical/module
-  the item came from). The verifier is assigned one or more categories.
+- **A queue of pending media to verify**, separated into module tabs. Birth and
+  Death have distinct tabs: Death reads category `death_evidence`; Birth reserves
+  category `birth_evidence` but remains empty until its producer flow is approved.
+  Other tabs cover vaccine, shifting, packing, and feed-direction evidence. The
+  verifier is assigned one or more categories.
 - Per item: **play the video(s)** (+ its context: shed/park/operator/timestamp from
   the capture metadata) → **Approve** or **Reject + mandatory reason**.
 - **No capture, no ops, no roster, no config** — the standalone Verifier section
-  only. Vaccination is active; Counts and Feed Direction are visible as under
-  construction.
+  only. Tabs render backend-owned category queues; an empty tab does not fabricate
+  verification work.
 - Bounded/paginated queue (~20), media via streamed signed URLs (scale rules apply).
 
 ## Backend (generic — see verification-module-design.md)

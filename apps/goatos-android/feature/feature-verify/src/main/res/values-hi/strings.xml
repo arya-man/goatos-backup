@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_detail_death_video">मृत्यु वीडियो</string>
+    <string name="verify_detail_post_mortem_video">पोस्टमार्टम वीडियो</string>
+    <string name="verify_module_birth">जन्म</string>
+    <string name="verify_module_death">मृत्यु</string>
     <string name="verify_module_vaccination">टीकाकरण</string>
     <string name="verify_module_shifting">स्थानांतरण</string>
     <string name="verify_module_packing">पैकिंग</string>

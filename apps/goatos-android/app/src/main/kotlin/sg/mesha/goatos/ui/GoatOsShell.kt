@@ -1,5 +1,6 @@
 package sg.mesha.goatos.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -76,6 +77,8 @@ import sg.mesha.goatos.push.PushNavigationViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
+private const val TAG_SHELL = "GoatOsShell"
+
 /** Drawer-header identity (mock `.dp`): avatar initials + name + "role · location" sub. */
 data class DrawerProfile(val name: String, val role: String, val initials: String)
 
@@ -139,7 +142,13 @@ fun GoatOsShell(navState: NavState) {
     val pendingPushRoute by pushNavVm.pendingRoute.collectAsStateWithLifecycle()
     LaunchedEffect(pendingPushRoute) {
         val route = pendingPushRoute ?: return@LaunchedEffect
-        navController.navigate(route) { launchSingleTop = true }
+        // Same stale-contract hazard as the nav bar: a push payload can name a route this build does
+        // not host (older APK, retired deep link). Consume it either way so it cannot replay.
+        if (navController.graph.findNode(route) == null) {
+            Log.w(TAG_SHELL, "push_route_not_hosted route=$route — ignoring deep link")
+        } else {
+            navController.navigate(route) { launchSingleTop = true }
+        }
         pushNavVm.consume()
     }
 
@@ -149,6 +158,9 @@ fun GoatOsShell(navState: NavState) {
     val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
+    LaunchedEffect(syncStatus.failedCount, syncStatus.deadLetterCount) {
+        if (syncStatus.failedCount > 0 || syncStatus.deadLetterCount > 0) showSyncSheet = true
+    }
 
     // Drawer identity + settings actions (mock `ovl-drawer`). ProfileViewModel already resolves
     // name/role/initials from the bootstrap cache and owns sign-out + language persistence.
@@ -161,11 +173,27 @@ fun GoatOsShell(navState: NavState) {
     // interruptions that could resurrect a hosted child route as the operator landing page, which
     // put a Back affordance on a root and hid the bottom bar. Selecting a backend-composed L0 item
     // now clears any stale child stack and lands on the exact href the backend granted.
-    val navigate: (String) -> Unit = { href ->
-        navController.navigate(href) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-            launchSingleTop = true
-            restoreState = false
+    //
+    // Navigation is BACKEND-COMPOSED and CACHED OFFLINE, but the nav graph is fixed at build time,
+    // so the two can legitimately disagree: a cached bar that predates a route rename, or a backend
+    // newer than the installed APK, both hand us an href this build does not host. Passing that
+    // straight to navController.navigate() throws IllegalArgumentException and kills the app — it
+    // shipped twice (/counts/promote, then /counts/birth-death after the birth/death split). An
+    // unknown href is a stale-contract condition to survive, never a crash: skip it and let the next
+    // successful bootstrap refresh heal the cache.
+    // Returns whether the href was actually hosted, so a caller holding several candidates (the
+    // drawer) can fall through to the next one instead of leaving the tap dead.
+    val navigate: (String) -> Boolean = { href ->
+        if (navController.graph.findNode(href) == null) {
+            Log.w(TAG_SHELL, "nav_href_not_hosted route=$href — stale nav cache or newer backend")
+            false
+        } else {
+            navController.navigate(href) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+                restoreState = false
+            }
+            true
         }
     }
 
@@ -199,6 +227,7 @@ fun GoatOsShell(navState: NavState) {
             isOnline = syncStatus.online,
             syncingCount = syncStatus.inFlightCount,
             queuedCount = syncStatus.pendingCount,
+            failedCount = syncStatus.failedCount,
             queue = syncStatus.items,
             onRetryAll = syncVm::retryAll,
             onDismiss = { showSyncSheet = false },
@@ -226,7 +255,7 @@ fun GoatOsShell(navState: NavState) {
 fun GoatOsShellChrome(
     navState: NavState,
     currentRoute: String?,
-    onNavigate: (String) -> Unit,
+    onNavigate: (String) -> Boolean,
     initialDrawerValue: DrawerValue = DrawerValue.Closed,
     drawerProfile: DrawerProfile? = null,
     languageLabel: String = "English",
@@ -287,8 +316,13 @@ fun GoatOsShellChrome(
                     onSelectModule = { module ->
                         scope.launch { drawerState.close() }
                         onSelectModule(module)
-                        // Selecting a module opens its landing route; the bar swaps with it.
-                        module.href.takeIf { it.isNotBlank() }?.let(onNavigate)
+                        // Selecting a module opens its landing route; the bar swaps with it. A cached
+                        // landing href can predate a route rename, so fall back to the module's own
+                        // tabs rather than leaving the tap dead (onNavigate itself refuses any href
+                        // this build does not host).
+                        (listOf(module.href) + module.navItems.map { it.href })
+                            .filter { it.isNotBlank() }
+                            .firstOrNull { onNavigate(it) }
                     },
                     onOpenLanguage = {
                         scope.launch { drawerState.close() }
@@ -309,7 +343,9 @@ fun GoatOsShellChrome(
                     MeshaNavBar(
                         items = barItems,
                         currentRoute = currentRoute,
-                        onSelect = onNavigate,
+                        // A bar tab has no fallback candidate; the guard inside onNavigate is what
+                        // keeps a stale cached tab from crashing the app.
+                        onSelect = { onNavigate(it) },
                     )
                 }
             },

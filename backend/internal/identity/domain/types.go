@@ -192,20 +192,24 @@ type AdminGoatCreateRequest struct {
 	// temp-only goat carries no active animal_identifier_1 and is promoted later.
 	TemporaryIdentifier *string `json:"temporary_identifier,omitempty"`
 	Species             string  `json:"species"`
-	FarmID              *string `json:"farm_id,omitempty"`
-	FarmCode            *string `json:"farm_code,omitempty"`
-	ParkID              *string `json:"park_id,omitempty"`
-	ParkCode            *string `json:"park_code,omitempty"`
-	ShedID              *string `json:"shed_id,omitempty"`
-	ShedCode            *string `json:"shed_code,omitempty"`
-	Breed               *string `json:"breed,omitempty"`
-	Sex                 string  `json:"sex"`
-	DOB                 *string `json:"dob,omitempty"`
-	DOBEstimated        *bool   `json:"dob_estimated,omitempty"`
-	OriginType          string  `json:"origin_type"`
-	EntryDate           string  `json:"entry_date"`
-	ManagementStage     *string `json:"management_stage,omitempty"`
-	HealthStatus        *string `json:"health_status,omitempty"`
+	// TimeOfBirth is the operator-recorded birth time (HH:MM, 24h, IST wall clock). Optional; stored
+	// as goats.time_of_birth and carried on the goat.created payload so the birth follow-up workflow
+	// opener can anchor EVENT+offset steps. Absent = unknown (readers fall back to 07:00 IST).
+	TimeOfBirth     *string `json:"time_of_birth,omitempty"`
+	FarmID          *string `json:"farm_id,omitempty"`
+	FarmCode        *string `json:"farm_code,omitempty"`
+	ParkID          *string `json:"park_id,omitempty"`
+	ParkCode        *string `json:"park_code,omitempty"`
+	ShedID          *string `json:"shed_id,omitempty"`
+	ShedCode        *string `json:"shed_code,omitempty"`
+	Breed           *string `json:"breed,omitempty"`
+	Sex             string  `json:"sex"`
+	DOB             *string `json:"dob,omitempty"`
+	DOBEstimated    *bool   `json:"dob_estimated,omitempty"`
+	OriginType      string  `json:"origin_type"`
+	EntryDate       string  `json:"entry_date"`
+	ManagementStage *string `json:"management_stage,omitempty"`
+	HealthStatus    *string `json:"health_status,omitempty"`
 	// ReproductiveStatus is optional. When present on a row whose identifiers
 	// match an existing goat, the bulk import applies it via the event-emitting
 	// ReproductiveGoat transition instead of treating the row as a create conflict.

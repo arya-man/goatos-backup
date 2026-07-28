@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -91,9 +91,24 @@ enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT }
  *  display string (shed/park/operator name, or a formatted capture timestamp). */
 data class VerifyContextRow(val kind: VerifyContextKind, val value: String)
 
+enum class VerifyMediaLabel { DEATH_VIDEO, POST_MORTEM_VIDEO }
+
+/** Death evidence is an ordered two-proof contract: death video, then post-mortem video. */
+fun verificationMediaLabel(category: String, index: Int): VerifyMediaLabel? =
+    if (category == DEATH_EVIDENCE_CATEGORY) {
+        when (index) {
+            0 -> VerifyMediaLabel.DEATH_VIDEO
+            1 -> VerifyMediaLabel.POST_MORTEM_VIDEO
+            else -> null
+        }
+    } else {
+        null
+    }
+
 @Immutable
 data class VerifyDetailUiState(
     val itemId: String = "",
+    val category: String = "",
     val categoryLabel: String = "",
     // Backend-composed subject for this item (e.g. a feed-packing item's shed-session "Session 1").
     // Shown as a subtitle under the category; null hides it. Category-agnostic — whatever the producer
@@ -173,13 +188,30 @@ fun VerifyDetailScreen(
                         )
                     }
                 } else {
-                    items(state.media, key = { it.signedUrl }) { media ->
-                        VerifyVideoPlayer(
-                            media = media,
+                    itemsIndexed(
+                        items = state.media,
+                        key = { _, media -> media.signedUrl },
+                        contentType = { _, _ -> "verification_media" },
+                    ) { index, media ->
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
+                        ) {
+                            verificationMediaLabel(state.category, index)?.let { label ->
+                                Text(
+                                    text = stringResource(label.stringResourceId()),
+                                    color = MeshaColors.Ink,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.W700,
+                                    modifier = Modifier.padding(bottom = 8.dp),
+                                )
+                            }
+                            VerifyVideoPlayer(
+                                media = media,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
                 item { ContextCard(state.context) }
@@ -227,6 +259,13 @@ fun VerifyDetailScreen(
         )
     }
 }
+
+private fun VerifyMediaLabel.stringResourceId(): Int = when (this) {
+    VerifyMediaLabel.DEATH_VIDEO -> R.string.verify_detail_death_video
+    VerifyMediaLabel.POST_MORTEM_VIDEO -> R.string.verify_detail_post_mortem_video
+}
+
+private const val DEATH_EVIDENCE_CATEGORY = "death_evidence"
 
 @Composable
 private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {

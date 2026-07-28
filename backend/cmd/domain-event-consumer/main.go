@@ -151,6 +151,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// actually applies on the durable bus. Missing this here is what stranded every feed/shifting
 	// approval in pending_verification.
 	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
+	// Birth/death workflow consumers (docs/decisions/birth-death-workflows.md): the durable bus is
+	// where goat.created/goat.exited/goat.identifier.added and the death_evidence verdicts actually
+	// arrive, so this registration is load-bearing, not parity.
+	eventwiring.RegisterWorkflowConsumers(bus,
+		eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
 
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")

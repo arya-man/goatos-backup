@@ -20,6 +20,19 @@ data class CapturedVideo(
     val captureSource: String = "in_app_camera",
 )
 
+/** Operator-facing copy for the shared recorder. The prompt belongs to each capture request,
+ * not to the host route: one Death workflow contains both death and post-mortem recordings. */
+enum class ProofCapturePrompt {
+    VACCINATION,
+    BIRTH,
+    DEATH,
+    POST_MORTEM,
+    SHIFTING,
+    FEED_DISTRIBUTION,
+    WATER_DISTRIBUTION,
+    FEED_PACKING,
+}
+
 /**
  * Port for the Submit recording-form's `video_proof` capture. Production camera capture uses
  * LIVE in-app CameraX (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, see
@@ -31,6 +44,10 @@ interface ProofCaptureSource {
     /** Suspends until a video has been captured (production: launches the camera intent and
      *  awaits its result), or returns null if the operator cancelled. */
     suspend fun captureVideo(): CapturedVideo?
+
+    /** Captures with workflow-specific guidance. Existing vaccination callers deliberately use
+     * [captureVideo] so their current copy and behavior remain unchanged. */
+    suspend fun captureVideo(prompt: ProofCapturePrompt): CapturedVideo? = captureVideo()
 
     /** Suspends until a video is selected from gallery and copied into app-private storage, or
      *  returns null if the operator cancelled. Only call when the backend SOP allows it. */
@@ -48,14 +65,14 @@ interface ProofCaptureSource {
  */
 class DelegatingProofCaptureSource : ProofCaptureSource {
     @Volatile
-    private var delegate: (suspend () -> CapturedVideo?)? = null
+    private var delegate: (suspend (ProofCapturePrompt) -> CapturedVideo?)? = null
     @Volatile
     private var pickerDelegate: (suspend () -> CapturedVideo?)? = null
     @Volatile
     private var generation: Int = 0
 
     @Synchronized
-    fun bind(launch: suspend () -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
+    fun bind(launch: suspend (ProofCapturePrompt) -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
         generation += 1
         val token = generation
         delegate = launch
@@ -73,8 +90,12 @@ class DelegatingProofCaptureSource : ProofCaptureSource {
     }
 
     override suspend fun captureVideo(): CapturedVideo? {
+        return captureVideo(ProofCapturePrompt.VACCINATION)
+    }
+
+    override suspend fun captureVideo(prompt: ProofCapturePrompt): CapturedVideo? {
         val launch = delegate
-        return launch?.invoke()
+        return launch?.invoke(prompt)
     }
 
     override suspend fun pickVideo(): CapturedVideo? {

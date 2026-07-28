@@ -80,9 +80,6 @@ data class ShiftingExecuteUiState(
 sealed interface ShiftingExecuteEvent {
     /** Record the mandatory move video with the LIVE in-app camera. */
     data object RecordVideo : ShiftingExecuteEvent
-
-    /** Pick the mandatory move video from the device gallery. */
-    data object PickVideo : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
 }
@@ -174,8 +171,7 @@ private fun VideoCard(state: ShiftingExecuteUiState, onEvent: (ShiftingExecuteEv
             }
         }
         when {
-            // Importing/recording in progress: a single, non-tappable loader row so a long
-            // gallery import can never be double-triggered.
+            // Recording in progress: a single, non-tappable loader row.
             state.isCapturingVideo -> VideoActionButton(
                 icon = null,
                 label = "Adding video…",
@@ -183,22 +179,14 @@ private fun VideoCard(state: ShiftingExecuteUiState, onEvent: (ShiftingExecuteEv
                 loading = true,
                 onClick = {},
             )
-            // Record live OR upload from the gallery. Re-tapping either replaces the clip, so an
-            // operator who filmed the wrong pen can redo it right up until they mark the move done.
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Re-recording replaces the clip until the operator marks the move done.
+            else -> Row {
                 VideoActionButton(
                     icon = MeshaIcons.Video,
                     label = if (state.videoCaptured) "Re-record" else "Record video",
                     enabled = !committed,
                     modifier = Modifier.weight(1f),
                     onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
-                )
-                VideoActionButton(
-                    icon = MeshaIcons.Download,
-                    label = if (state.videoCaptured) "Re-upload" else "Upload from gallery",
-                    enabled = !committed,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onEvent(ShiftingExecuteEvent.PickVideo) },
                 )
             }
         }
@@ -235,7 +223,9 @@ private fun VideoActionButton(
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MeshaColors.Muted)
         } else if (icon != null) {
-            Icon(icon, contentDescription = null, tint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint, modifier = Modifier.size(18.dp))
+            // Color-only state change; the 18dp icon frame stays fixed regardless of enabled.
+            val iconTint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
         }
         Text(
             text = label,

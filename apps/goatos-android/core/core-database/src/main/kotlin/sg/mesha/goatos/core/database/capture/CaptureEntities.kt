@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -220,6 +221,45 @@ const val DEFAULT_CAPTURE_SOURCE = "in_app_camera"
 interface ProofCaptureDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entity: ProofCaptureEntity)
+
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :workflowId " +
+            "AND proofSubject = 'workflow_death_draft' " +
+            "ORDER BY capturedAtMs ASC, id ASC LIMIT 2",
+    )
+    fun observeWorkflowDeathDrafts(workflowId: String): Flow<List<ProofCaptureEntity>>
+
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :workflowId AND fieldKey = :actionId " +
+            "AND proofSubject = 'workflow_death_draft' LIMIT 1",
+    )
+    suspend fun findWorkflowDeathDraft(workflowId: String, actionId: String): ProofCaptureEntity?
+
+    @Query(
+        "DELETE FROM proof_capture WHERE taskId = :workflowId AND fieldKey = :actionId " +
+            "AND proofSubject = 'workflow_death_draft'",
+    )
+    suspend fun deleteWorkflowDeathDraft(workflowId: String, actionId: String)
+
+    @Transaction
+    suspend fun replaceWorkflowDeathDraft(entity: ProofCaptureEntity): ProofCaptureEntity? {
+        val previous = findWorkflowDeathDraft(entity.taskId, entity.fieldKey)
+        deleteWorkflowDeathDraft(entity.taskId, entity.fieldKey)
+        insert(entity)
+        return previous
+    }
+
+    @Query(
+        "DELETE FROM proof_capture WHERE taskId = :workflowId " +
+            "AND proofSubject = 'workflow_death_draft'",
+    )
+    suspend fun clearWorkflowDeathDrafts(workflowId: String)
+
+    @Query(
+        "UPDATE proof_capture SET syncStatus = 'SUBMITTING' WHERE taskId = :workflowId " +
+            "AND proofSubject = 'workflow_death_draft'",
+    )
+    suspend fun markWorkflowDeathDraftsSubmitting(workflowId: String)
 
     @Query(
         "SELECT * FROM proof_capture WHERE taskId = :taskId " +

@@ -239,6 +239,34 @@ data class FeedDistributionCompletePayload(
 )
 
 /**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WORKFLOW_ACTION_ANSWER].
+ * Answers a question / question_select birth/death workflow action
+ * (docs/decisions/birth-death-workflows.md). The WORKFLOW ID is the outbox group key so two
+ * actions on the same workflow drain strictly oldest-first.
+ */
+@Serializable
+data class WorkflowActionAnswerPayload(
+    @SerialName("workflow_id") val workflowId: String,
+    @SerialName("action_id") val actionId: String,
+    @SerialName("answer_value") val answerValue: String,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WORKFLOW_ACTION_COMPLETE].
+ * Completes an `action`-type step. When the action `requires_video`, the MANDATORY video is carried
+ * by REFERENCE to its PROOF_UPLOAD outbox row ([proofOutboxItemId]) — exactly like
+ * [ShiftingCompletePayload]'s single mandatory video: the dispatcher resolves the row's uploaded
+ * `proof_id` and sends it as `proof_ref`. The proof upload is enqueued on the SAME group (the
+ * workflow id), so it drains first. Null for non-video completions.
+ */
+@Serializable
+data class WorkflowActionCompletePayload(
+    @SerialName("workflow_id") val workflowId: String,
+    @SerialName("action_id") val actionId: String,
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
+)
+
+/**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_PACKING_COMPLETE] —
  * the verifier-GATED packing flow. Simpler than [FeedDistributionCompletePayload]: only ONE
  * MANDATORY packing video, carried by reference to its PROOF_UPLOAD outbox row (exactly like
