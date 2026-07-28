@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">Record vaccination proof</string>
-    <string name="proof_camera_instruction">Keep the shed and vaccination work clearly visible</string>
+    <string name="proof_camera_title">Record video proof</string>
+    <string name="proof_camera_instruction">Keep the subject and work clearly visible</string>
     <string name="proof_camera_birth_title">Record birth video</string>
     <string name="proof_camera_birth_instruction">Keep the animal and birth-care work clearly visible</string>
     <string name="proof_camera_death_title">Record death video</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">टीकाकरण प्रमाण रिकॉर्ड करें</string>
-    <string name="proof_camera_instruction">बकरी और टीका लगाने की प्रक्रिया साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_title">वीडियो प्रमाण रिकॉर्ड करें</string>
+    <string name="proof_camera_instruction">विषय और काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_birth_title">जन्म का वीडियो रिकॉर्ड करें</string>
     <string name="proof_camera_birth_instruction">पशु और जन्म के बाद की देखभाल साफ़ दिखाई देनी चाहिए</string>
     <string name="proof_camera_death_title">मृत्यु का वीडियो रिकॉर्ड करें</string>

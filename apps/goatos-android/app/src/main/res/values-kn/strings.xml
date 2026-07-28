@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">ಲಸಿಕೆ ಪುರಾವೆಯನ್ನು ದಾಖಲಿಸಿ</string>
-    <string name="proof_camera_instruction">ಮೇಕೆ ಮತ್ತು ಲಸಿಕೆ ನೀಡುವ ಪ್ರಕ್ರಿಯೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_title">ವೀಡಿಯೊ ಪುರಾವೆಯನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_instruction">ವಿಷಯ ಮತ್ತು ಕೆಲಸ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_birth_title">ಜನನದ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_birth_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಹೆರಿಗೆ ನಂತರದ ಆರೈಕೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_death_title">ಸಾವಿನ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>

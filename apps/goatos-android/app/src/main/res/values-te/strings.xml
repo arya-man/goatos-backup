@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">టీకా రుజువును రికార్డ్ చేయండి</string>
-    <string name="proof_camera_instruction">మేక మరియు టీకా ఇచ్చే ప్రక్రియ స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_camera_title">వీడియో రుజువును రికార్డ్ చేయండి</string>
+    <string name="proof_camera_instruction">విషయం మరియు పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_birth_title">ప్రసవ వీడియోను రికార్డ్ చేయండి</string>
     <string name="proof_camera_birth_instruction">జంతువు మరియు ప్రసవానంతర సంరక్షణ స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_death_title">మరణ వీడియోను రికార్డ్ చేయండి</string>
