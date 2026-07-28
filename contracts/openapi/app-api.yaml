@@ -10366,6 +10366,7 @@ components:
       additionalProperties: false
       required:
         - row_id
+        - shed_name
         - expected
         - actual
         - gap
@@ -10376,6 +10377,10 @@ components:
         - work_state
       properties:
         row_id:
+          type: string
+        shed_name:
+          type: string
+        partition_label:
           type: string
         expected:
           type: string

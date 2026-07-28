@@ -151,13 +151,14 @@ type Row struct {
 	SOPSubmissionID *string `json:"sop_submission_id,omitempty"`
 	CompletionID    *string `json:"completion_id,omitempty"`
 
-	ParkID      string  `json:"park_id"`
-	ParkName    string  `json:"park_name"`
-	ShedID      string  `json:"shed_id"`
-	ShedName    string  `json:"shed_name"`
-	CohortID    *string `json:"cohort_id,omitempty"`
-	GoatID      *string `json:"goat_id,omitempty"`
-	AnimalStage string  `json:"animal_stage"`
+	ParkID         string  `json:"park_id"`
+	ParkName       string  `json:"park_name"`
+	ShedID         string  `json:"shed_id"`
+	ShedName       string  `json:"shed_name"`
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	CohortID       *string `json:"cohort_id,omitempty"`
+	GoatID         *string `json:"goat_id,omitempty"`
+	AnimalStage    string  `json:"animal_stage"`
 
 	ProtocolID        string  `json:"protocol_id"`
 	ProtocolVersionID string  `json:"protocol_version_id"`
@@ -274,6 +275,8 @@ type AdherenceSummary struct {
 
 type AdherenceRow struct {
 	RowID                   string             `json:"row_id"`
+	ShedName                string             `json:"shed_name"`
+	PartitionLabel          *string            `json:"partition_label,omitempty"`
 	Expected                string             `json:"expected"`
 	Actual                  string             `json:"actual"`
 	Gap                     string             `json:"gap"`
