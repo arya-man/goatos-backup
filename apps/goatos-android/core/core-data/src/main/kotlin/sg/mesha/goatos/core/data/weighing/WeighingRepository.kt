@@ -626,7 +626,10 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
 
 private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
     sheds
-        .filter { shed -> status in setOf("published", "in_progress", "delayed") && shed.status != "cancelled" }
+        .filter { shed ->
+            status in setOf("published", "in_progress", "delayed") &&
+                shed.status.lowercase() !in setOf("canceled", "cancelled")
+        }
         .map { shed ->
             WeighingAssignment(
                 campaignId = campaignId,

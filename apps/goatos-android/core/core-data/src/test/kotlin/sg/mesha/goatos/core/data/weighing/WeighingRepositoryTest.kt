@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
@@ -309,6 +310,34 @@ class WeighingRepositoryTest {
     }
 
     @Test
+    fun `operator assignments exclude canceled campaign sheds from backend spelling`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-canceled", "Castro 2", "canceled"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.listAssignments() as AppResult.Ok
+
+        assertEquals(listOf("Castro 1"), result.value.map { it.label })
+    }
+
+    @Test
     fun `wrong shed scan preserves expected and actual location labels`() = runTest {
         repository.replaceRoster(
             scopeKey,
@@ -532,6 +561,10 @@ class WeighingRepositoryTest {
     private fun weighingCampaign(
         campaignId: String = "campaign-plan",
         status: String,
+        sheds: List<WeighingCampaignShedDto> = listOf(
+            weighingShed(campaignId, "campaign-shed-castro-1", "Castro 1", "pending", "individual_animal", 80),
+            weighingShed(campaignId, "campaign-shed-castro-2", "Castro 2", "pending", "per_shed_partition", 1),
+        ),
     ) = WeighingCampaignDto(
         campaignId = campaignId,
         tenantId = "tenant",
@@ -543,28 +576,25 @@ class WeighingRepositoryTest {
         plannedCapPerDay = 100,
         operatorUserId = "operator-amit",
         createdBy = "ceo",
-        sheds = listOf(
-            WeighingCampaignShedDto(
-                campaignShedId = "campaign-shed-castro-1",
-                campaignId = campaignId,
-                locationId = "shed-castro-1",
-                locationType = "shed",
-                displayName = "Castro 1",
-                expectedAnimalCount = 80,
-                weighingCategory = "individual_animal",
-                status = "pending",
-            ),
-            WeighingCampaignShedDto(
-                campaignShedId = "campaign-shed-castro-2",
-                campaignId = campaignId,
-                locationId = "shed-castro-2",
-                locationType = "shed",
-                displayName = "Castro 2",
-                expectedAnimalCount = 1,
-                weighingCategory = "per_shed_partition",
-                status = "pending",
-            ),
-        ),
+        sheds = sheds,
+    )
+
+    private fun weighingShed(
+        campaignId: String,
+        campaignShedId: String,
+        displayName: String,
+        status: String,
+        category: String = "individual_animal",
+        expectedCount: Int = 80,
+    ) = WeighingCampaignShedDto(
+        campaignShedId = campaignShedId,
+        campaignId = campaignId,
+        locationId = "shed-${displayName.lowercase().replace(" ", "-")}",
+        locationType = "shed",
+        displayName = displayName,
+        expectedAnimalCount = expectedCount,
+        weighingCategory = category,
+        status = status,
     )
 
     private fun rosterRow(
