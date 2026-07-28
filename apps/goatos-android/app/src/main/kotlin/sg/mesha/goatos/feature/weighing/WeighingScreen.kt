@@ -257,7 +257,14 @@ fun WeighingScreen(
                 }
             }
             if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {
-                item { SectionTitle("TODAY · WED 29 JUL") }
+                item {
+                    SectionTitle(
+                        state.assignments.firstOrNull()?.periodLabel
+                            ?.takeIf { it.isNotBlank() }
+                            ?.uppercase()
+                            ?: "TODAY",
+                    )
+                }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
                     AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
                 }
@@ -784,6 +791,7 @@ private fun WeighingCapturePanel(
     onRecordShedPartition: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CaptureProgressTiles(state)
         if (state.isShedPartition) {
             WeighingActionCard(
                 iconLabel = "KG",
@@ -823,6 +831,75 @@ private fun WeighingCapturePanel(
             actionLabel = if (state.isShedPartition) "Record shed" else "Save weight",
             actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
             onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
+        )
+    }
+}
+
+@Composable
+private fun CaptureProgressTiles(state: WeighingUiState) {
+    val done = if (state.isShedPartition) state.shedCompleted else state.individualCompleted
+    val total = if (state.isShedPartition) 1 else state.totalExpected
+    val pending = (total - done).coerceAtLeast(0)
+    val proofNeeded = state.individualDrafts.count { !it.proofReady } + state.shedDrafts.count { !it.proofReady }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CaptureMetricTile(
+            value = done.toString(),
+            label = if (state.isShedPartition) "Result" else "Done",
+            selected = done > 0,
+            tone = if (state.isShedPartition) MeshaColors.Purple else MeshaColors.BrandD,
+            modifier = Modifier.weight(1f),
+        )
+        CaptureMetricTile(
+            value = pending.toString(),
+            label = "Pending",
+            selected = pending == 0 && total > 0,
+            tone = MeshaColors.Ink,
+            modifier = Modifier.weight(1f),
+        )
+        CaptureMetricTile(
+            value = proofNeeded.toString(),
+            label = "Proof",
+            selected = proofNeeded == 0 && done > 0,
+            tone = if (proofNeeded > 0) MeshaColors.Warn else MeshaColors.BrandD,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun CaptureMetricTile(
+    value: String,
+    label: String,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .height(64.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (selected) MeshaColors.BrandTint else MeshaColors.Surf)
+            .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(11.dp))
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = value,
+            color = tone,
+            style = MeshaType.bodyStrong,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = label.uppercase(),
+            color = MeshaColors.Muted,
+            style = MeshaType.overline,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

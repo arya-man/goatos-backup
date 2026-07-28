@@ -568,7 +568,8 @@ class WeighingViewModel @Inject constructor(
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
             scopeLabel = expectedLocationLabel
-                .ifBlank { "Campaign $campaignId - Work group $workGroupId - Scope $campaignShedId" },
+                .ifBlank { routeTitle }
+                .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
