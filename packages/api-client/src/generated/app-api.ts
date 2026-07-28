@@ -2671,6 +2671,7 @@ export interface components {
             /** Format: uuid */
             task_id: string;
             shed_name: string;
+            partition_label?: string;
             drive_name: string;
             expected_count: number;
             handled_count: number;
@@ -3823,6 +3824,7 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            partition_label?: string;
             drive_name?: string;
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
