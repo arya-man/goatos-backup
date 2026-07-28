@@ -474,6 +474,9 @@ func TestProtocolAdherencePreservesPaginationAndWholeResultSummary(t *testing.T)
 	if repo.listCalls != 1 {
 		t.Fatalf("repo list calls = %d, want one bounded page", repo.listCalls)
 	}
+	if len(repo.listQueries) != 1 || !repo.listQueries[0].ScopeLatestDrive {
+		t.Fatalf("protocol adherence query must ask repository for latest-drive scope, got %+v", repo.listQueries)
+	}
 	if got.NextCursor == nil || *got.NextCursor != cursor {
 		t.Fatalf("next cursor=%v want %q", got.NextCursor, cursor)
 	}

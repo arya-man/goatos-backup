@@ -223,6 +223,7 @@ type Query struct {
 	Cursor             *Cursor
 	IncludeCompleted   bool
 	OnlyBrokenOrAtRisk bool
+	ScopeLatestDrive   bool
 	// IncludeAdherenceSummary asks the repository to compute Protocol Adherence
 	// KPIs over the full filtered set, not only the current page.
 	IncludeAdherenceSummary bool

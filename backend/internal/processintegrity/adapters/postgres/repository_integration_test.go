@@ -106,6 +106,57 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	}
 }
 
+func TestProtocolAdherenceLatestDriveScopeUsesRepositoryAggregate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	base := domain.Query{
+		TenantID:                piTenant,
+		AsOf:                    asOf,
+		DueBefore:               time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:                   10,
+		IncludeCompleted:        true,
+		IncludeAdherenceSummary: true,
+	}
+
+	unscoped, err := listAtAsOf(t, ctx, repo, base)
+	if err != nil {
+		t.Fatalf("unscoped adherence ListRows: %v", err)
+	}
+	if rowByBatchSubstr(unscoped.Rows, piBatch) == nil || rowByBatchSubstr(unscoped.Rows, piBatchNext) == nil {
+		t.Fatalf("seed must expose current and sibling future batches before latest-drive scope: %#v", unscoped.Rows)
+	}
+	if unscoped.TotalCount < 2 {
+		t.Fatalf("unscoped total = %d, want at least both seeded batches", unscoped.TotalCount)
+	}
+
+	scopedQuery := base
+	scopedQuery.ScopeLatestDrive = true
+	scoped, err := listAtAsOf(t, ctx, repo, scopedQuery)
+	if err != nil {
+		t.Fatalf("scoped adherence ListRows: %v", err)
+	}
+	if rowByBatchSubstr(scoped.Rows, piBatch) == nil {
+		t.Fatalf("selected current batch missing from scoped rows: %#v", scoped.Rows)
+	}
+	if rowByBatchSubstr(scoped.Rows, piBatchNext) != nil {
+		t.Fatalf("future sibling batch leaked into selected-drive scope: %#v", scoped.Rows)
+	}
+	if scoped.TotalCount != int64(len(scoped.Rows)) {
+		t.Fatalf("scoped total = %d rows=%d, want whole selected-drive total", scoped.TotalCount, len(scoped.Rows))
+	}
+	if scoped.AdherenceSummary.ExpectedCount != 1 ||
+		scoped.AdherenceSummary.OpenGapCount+scoped.AdherenceSummary.ProcessIntactCount != int(scoped.TotalCount) {
+		t.Fatalf("scoped summary=%+v total=%d, want selected-drive aggregate", scoped.AdherenceSummary, scoped.TotalCount)
+	}
+}
+
 func TestShedScopeStatusDoesNotInheritSharedParentNeedsReview(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -738,8 +789,8 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 		t.Fatalf("rows args = %d, want %d", len(args), rowsQueryArgCount)
 	}
 	// 5k-50k envelope: the request path executes the canonical LIST/AGGREGATE SQL, so the arg contract is
-	// validated against the SQL that actually runs. The canonical LIST uses the full 19-arg keyset contract;
-	// the counts and adherence aggregates use the 15-arg (countQueryArgs) prefix with no keyset args.
+	// validated against the SQL that actually runs. The canonical LIST uses the full 20-arg keyset contract;
+	// the counts and adherence aggregates use the 16-arg (countQueryArgs) prefix with no keyset args.
 	if rowsPlaceholders := maxPlaceholder(processIntegrityCanonicalRowsSQL); rowsPlaceholders != rowsQueryArgCount {
 		t.Fatalf("canonical rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
 	}
