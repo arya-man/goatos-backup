@@ -493,7 +493,7 @@ class WeighingViewModel @Inject constructor(
     }
 
     private fun reportReadFailure(reason: String) {
-        message.value = reason
+        message.value = reason.toWeighingReadMessage()
         crashReporter.recordException(IllegalStateException(reason), "weighing refresh failed")
         analytics.track(
             AnalyticsEvents.WEIGHING_READ_FAILURE,
@@ -700,6 +700,20 @@ private fun String.readableWeighingStatus(): String = when (trim().lowercase()) 
         .filter { it.isNotBlank() }
         .joinToString(" ") { part -> part.replaceFirstChar { char -> char.uppercase() } }
         .ifBlank { "Not started" }
+}
+
+private fun String.toWeighingReadMessage(): String {
+    val normalized = lowercase()
+    return when {
+        normalized.contains("failed to connect") ||
+            normalized.contains("unable to resolve host") ||
+            normalized.contains("timeout") ||
+            normalized.contains("timed out") ||
+            normalized.contains("connection refused") ->
+            "Couldn't load weighing. Check the laptop backend or network, then refresh."
+        isBlank() -> "Couldn't load weighing. Pull to refresh or try again."
+        else -> this
+    }
 }
 
 private data class WeighingFormState(

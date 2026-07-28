@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 fun LoadingSkeletonList(
     modifier: Modifier = Modifier,
     rows: Int = 3,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
 ) {
     val transition = rememberInfiniteTransition(label = "skeleton")
     val travel by transition.animateFloat(
@@ -46,7 +48,7 @@ fun LoadingSkeletonList(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         repeat(rows.coerceIn(1, 6)) {

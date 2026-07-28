@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,6 +51,7 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.R
@@ -863,37 +865,9 @@ private fun EmptyWorkCard(title: String, body: String) {
 
 @Composable
 private fun LoadingWorkSkeleton() {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        repeat(2) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MeshaColors.Surf)
-                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SkeletonBlock(width = 78.dp, height = 28.dp)
-                    SkeletonBlock(width = 72.dp, height = 28.dp)
-                }
-                SkeletonBlock(width = 142.dp, height = 18.dp)
-                SkeletonBlock(width = 220.dp, height = 14.dp)
-                SkeletonBlock(width = null, height = 7.dp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SkeletonBlock(width: androidx.compose.ui.unit.Dp?, height: androidx.compose.ui.unit.Dp) {
-    Box(
-        modifier = Modifier
-            .then(if (width == null) Modifier.fillMaxWidth() else Modifier.width(width))
-            .height(height)
-            .clip(RoundedCornerShape(99.dp))
-            .background(MeshaColors.Surf3),
+    LoadingSkeletonList(
+        rows = 2,
+        contentPadding = PaddingValues(0.dp),
     )
 }
 
