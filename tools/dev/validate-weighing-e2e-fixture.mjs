@@ -81,6 +81,18 @@ export function validateWeighingFixture(fixture) {
   assert.ok(notInCampaign >= 1, "fixture must cover not-in-campaign scan");
   assert.ok(offPage >= 1, "fixture must cover off-page scan");
 
+  const observationById = byId(fixture.observations, "observation_id");
+  assert.ok((fixture.duplicate_scans ?? []).length >= 1, "fixture must cover duplicate scan/idempotent replay");
+  for (const duplicate of fixture.duplicate_scans ?? []) {
+    const original = observationById.get(duplicate.original_observation_id);
+    assert.ok(original, `${duplicate.scan_id}: duplicate scan must reference an original observation`);
+    assert.equal(duplicate.animal_id, original.animal_id, `${duplicate.scan_id}: duplicate scan animal must match original observation`);
+    assert.equal(duplicate.idempotency_key, original.idempotency_key, `${duplicate.scan_id}: duplicate replay must reuse the original idempotency key`);
+    assert.equal(duplicate.expected_result, "idempotent_replay", `${duplicate.scan_id}: duplicate scan must be an idempotent replay`);
+    assert.equal(duplicate.progress_delta, 0, `${duplicate.scan_id}: duplicate scan must not increment progress`);
+    assert.equal(duplicate.must_not_create_second_observation, true, `${duplicate.scan_id}: duplicate scan must not create a second observation`);
+  }
+
   const unavailableTruths = new Set(["icu", "quarantine", "dead", "culled", "sold_transferred", "exited"]);
   assert.ok(
     (fixture.animals ?? []).some((animal) => animal.expected_status === "unavailable" && unavailableTruths.has(animal.current_truth)),

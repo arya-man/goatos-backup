@@ -31,6 +31,7 @@ type fixture struct {
 	Animals          []animalFixture          `json:"animals"`
 	ProofArtifacts   []proofFixture           `json:"proof_artifacts"`
 	Observations     []observationFixture     `json:"observations"`
+	DuplicateScans   []duplicateScanFixture   `json:"duplicate_scans"`
 	ShedObservations []shedObservationFixture `json:"shed_observations"`
 	MobileContract   mobileContractFixture    `json:"mobile_contract"`
 	ScaleProfile     scaleProfileFixture      `json:"scale_profile"`
@@ -104,6 +105,17 @@ type observationFixture struct {
 	OffPageScan           bool    `json:"off_page_scan"`
 }
 
+type duplicateScanFixture struct {
+	ScanID                         string `json:"scan_id"`
+	AnimalID                       string `json:"animal_id"`
+	RFID                           string `json:"rfid"`
+	OriginalObservationID          string `json:"original_observation_id"`
+	IDempotencyKey                 string `json:"idempotency_key"`
+	ExpectedResult                 string `json:"expected_result"`
+	ProgressDelta                  int    `json:"progress_delta"`
+	MustNotCreateSecondObservation bool   `json:"must_not_create_second_observation"`
+}
+
 type shedObservationFixture struct {
 	ShedObservationID string `json:"shed_observation_id"`
 	CampaignShedID    string `json:"campaign_shed_id"`
@@ -172,8 +184,8 @@ func run(args []string, stdout io.Writer) error {
 	if err := validateFixture(fx); err != nil {
 		return err
 	}
-	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d work_groups=%d animals=%d proofs=%d observations=%d shed_observations=%d scale_animals=%d",
-		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.WorkGroups), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.ShedObservations), fx.ScaleProfile.ExpectedCampaignAnimals)
+	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d work_groups=%d animals=%d proofs=%d observations=%d duplicate_scans=%d shed_observations=%d scale_animals=%d",
+		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.WorkGroups), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.DuplicateScans), len(fx.ShedObservations), fx.ScaleProfile.ExpectedCampaignAnimals)
 	if *dryRun {
 		fmt.Fprintf(stdout, "weighing E2E seed dry-run ok: %s\n", summary)
 		return nil
@@ -320,6 +332,9 @@ func validateFixture(fx fixture) error {
 			return fmt.Errorf("observation %s weight must be positive", observation.ObservationID)
 		}
 	}
+	if err := validateDuplicateScans(fx); err != nil {
+		return err
+	}
 	for _, observation := range fx.ShedObservations {
 		if !proofs[observation.ProofArtifactID] {
 			return fmt.Errorf("shed observation %s references unknown proof %s", observation.ShedObservationID, observation.ProofArtifactID)
@@ -337,6 +352,41 @@ func validateFixture(fx fixture) error {
 	}
 	if err := validateMobileAndScaleContract(fx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateDuplicateScans(fx fixture) error {
+	if len(fx.DuplicateScans) == 0 {
+		return errors.New("fixture must cover duplicate scan/idempotent replay")
+	}
+	observations := map[string]observationFixture{}
+	for _, observation := range fx.Observations {
+		observations[observation.ObservationID] = observation
+	}
+	for _, duplicate := range fx.DuplicateScans {
+		if duplicate.ScanID == "" {
+			return errors.New("duplicate scan_id is required")
+		}
+		original, ok := observations[duplicate.OriginalObservationID]
+		if !ok {
+			return fmt.Errorf("duplicate scan %s references unknown original observation %s", duplicate.ScanID, duplicate.OriginalObservationID)
+		}
+		if duplicate.AnimalID != original.AnimalID {
+			return fmt.Errorf("duplicate scan %s animal does not match original observation", duplicate.ScanID)
+		}
+		if duplicate.IDempotencyKey != original.IDempotencyKey {
+			return fmt.Errorf("duplicate scan %s must reuse the original idempotency key", duplicate.ScanID)
+		}
+		if duplicate.ExpectedResult != "idempotent_replay" {
+			return fmt.Errorf("duplicate scan %s expected_result must be idempotent_replay", duplicate.ScanID)
+		}
+		if duplicate.ProgressDelta != 0 {
+			return fmt.Errorf("duplicate scan %s must not increment progress", duplicate.ScanID)
+		}
+		if !duplicate.MustNotCreateSecondObservation {
+			return fmt.Errorf("duplicate scan %s must assert no second observation", duplicate.ScanID)
+		}
 	}
 	return nil
 }
