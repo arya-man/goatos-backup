@@ -5,6 +5,7 @@ visibility, generated clients, offline sync, media capture, or app adapters.
 
 Canonical docs:
 
+- `docs/architecture/operational-read-model-contract.md`
 - `context/frontend/current-admin-web-scope.md`
 - `context/frontend/vaccination-process-integrity-frontend-handoff.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
@@ -20,6 +21,15 @@ Canonical docs:
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
+
+Operational read-model authority: admin-web and Android are renderers of
+backend-owned operational contracts. For Calendar, Control Tower, Action Center,
+Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
+screens, and future vertical surfaces, first identify the canonical write owner,
+row/summary grain, stable scope identity, bucket disjointness/overlap, and
+whole-result summary contract. Do not repair mismatched numbers by adding
+frontend/mobile precedence rules while the backend contract is ambiguous or
+stale. See `docs/architecture/operational-read-model-contract.md`.
 
 ## Current Admin-Web Build
 
@@ -121,6 +131,18 @@ Calendar or dashboard label.
 - `mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of truth.
 - Port the mock's layout, table shapes, empty states, icon system, spacing,
   density, and interaction model.
+- User-facing copy firewall: Android and admin-web screens are for CEO,
+  director, and operator workflows, not for exposing implementation mechanics.
+  Do not render internal/debug/test/roadmap words in visible UI, including
+  screenshots, empty states, loading/error states, snackbars/toasts, cards,
+  chips, bottom sheets, drawers, action buttons, camera/proof panels, or alerts.
+  Banned visible examples: `V1`, `V2`, `debug`, `mock`, `fixture`, `Paparazzi`,
+  `Room`, `outbox`, `idempotency`, `groupKey`, `payload`, `backend`,
+  `frontend`, `API`, `route`, `PRD`, `TRD`, `TODO`, `local`, and `localhost`,
+  unless the screen is explicitly a developer/admin diagnostics tool. Use
+  operator/business language instead: "Proof uploads in background", "Waiting
+  for network", "Already scanned", "Needs proof", "Wrong shed", "Try again",
+  "Cannot submit yet", "No assigned work", and similar product copy.
 - Backend-driven UI contract is mandatory. Frontend must not invent product
   truth. Visible navigation, page titles, section/table labels, column labels,
   filter/sort/page-size semantics, chips/tabs, row-click params, drawer/action
@@ -179,6 +201,10 @@ Calendar or dashboard label.
   outside-click/back close, close-button behavior, and whether drilldown pages
   show only the scoped real records for the clicked row. Do not claim a UI fix
   from code inspection alone.
+- Before handoff for Android/admin-web UI work, grep changed production strings
+  and screenshot fixtures for leaked internal words from the copy firewall. A
+  screenshot that contains implementation terms is a failed UI review even when
+  the build and tests pass.
 
 For Next.js, React, TypeScript, Node, TanStack Query, Playwright, accessibility,
 visual review, and CI practice, follow

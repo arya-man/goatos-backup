@@ -121,6 +121,17 @@
       "ciStep": "domain-event-architecture-guard"
     },
     {
+      "id": "operational-read-model-contract",
+      "script": "tools/agent-hooks/check-operational-read-model-contract.mjs",
+      "makeTarget": "operational-read-model-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-read-model-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-read-model-contract.mjs --self-test",
+      "owningDoc": "docs/architecture/operational-read-model-contract.md",
+      "requiredInCI": true,
+      "ciStep": "operational-read-model-contract-guard",
+      "notes": "Keeps the pluggable vertical/read-model contract discoverable for Claude, Codex, build skills, review lenses, frontend/mobile lenses, and local CI."
+    },
+    {
       "id": "leadership-assistant-coverage",
       "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
       "makeTarget": "leadership-assistant-coverage-guard",

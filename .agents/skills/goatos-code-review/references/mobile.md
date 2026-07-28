@@ -9,6 +9,8 @@ Architecture: `docs/mobile/README.md`. Offline-first law:
 `docs/mobile/performance-and-memory.md`. Room migration-safety law:
 `docs/decisions/room-migration-safety.md` (machine: `make room-migration-guard`).
 Clean-architecture module rules: `apps/goatos-android/MODULE-MAP.md`.
+Shared operational read-model law:
+`docs/architecture/operational-read-model-contract.md`.
 
 > **Verify-against-source, not memory.** File paths, DAO/DTO names, screen names,
 > and the exact guard offender list below are anchors that drift. Confirm each
@@ -55,6 +57,11 @@ never import Compose. A ViewModel reading `AppApi` directly (bypassing a reposit
 The Android app is a **renderer**, exactly like admin-web (see `frontend.md`
 Golden rule). Backend OpenAPI/app contracts own navigation, labels, page-size
 semantics, disabled reasons, empty/error copy, and summary-vs-detail field sets.
+For shared operational surfaces, those contracts must declare the same grain,
+bucket semantics, and stable scope identity used by Calendar, Control Tower,
+Protocol Adherence, Admin Web, and reporting; mobile must not hand-maintain a
+parallel interpretation of `submitted`, `completed`, proof, verification,
+animal, obligation, shed, partition, or drive counts.
 On-device, **Room is the single source of truth for every READ screen** — the
 screen renders from Room; the network refresh runs in the background and upserts
 Room (stale-while-revalidate). This is a hard rule (`android-offline-first.md`).
@@ -65,6 +72,23 @@ mutation, outbox event, consumer replay, DLQ path, and E2E proof must be
 registered in `context/architecture/domain-event-registry.json`. Do not build a
 mobile-only follow-up pipeline for shifting, death/cull, feed direction,
 vaccination, or future operational modules.
+
+## User-facing copy firewall
+
+Mobile UI is for operators, directors, and leaders in the field. Treat leaked
+implementation/debug/test/roadmap language as a product bug, not a copy nit.
+Visible Compose copy, screenshot fixtures, empty states, snackbars, banners,
+cards, chips, action buttons, scan panels, proof/camera panels, dialogs, and
+bottom sheets must not contain words such as `V1`, `V2`, `debug`, `mock`,
+`fixture`, `Paparazzi`, `Room`, `outbox`, `idempotency`, `groupKey`, `payload`,
+`backend`, `frontend`, `API`, `route`, `PRD`, `TRD`, `TODO`, `local`, or
+`localhost`, unless the screen is an explicit developer/admin diagnostics tool.
+
+Review the rendered screenshot text, not just string resources. The correct
+language is business-facing: "Proof uploads in background", "Waiting for
+network", "Already scanned", "Needs proof", "Wrong shed", "Try again",
+"Cannot submit yet", "No assigned work", etc. Technical explanations belong in
+docs, tests, logs, and code comments.
 
 ## 1. Room SSOT / offline-first (screen reads)
 
