@@ -569,13 +569,17 @@ func TestProtocolAdherenceScopesRepeatedRuleToSelectedDriveDate(t *testing.T) {
 
 func TestProtocolAdherenceKeepsConcurrentRulesOnSelectedDriveDate(t *testing.T) {
 	due := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	pprDriveName := "Protocol - PPR"
+	boosterDriveName := "Protocol - Booster"
 	ppr := processRow("ppr-drive", domain.WorkStateCompleted, domain.SeverityOK, due)
 	ppr.RuleID = "rule-ppr"
+	ppr.DriveName = &pprDriveName
 	ppr.ExpectedCount = 120
 	ppr.CompletedCount = 120
 	ppr.ProcessIntact = true
 	booster := processRow("booster-drive", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
 	booster.RuleID = "rule-booster"
+	booster.DriveName = &boosterDriveName
 	booster.ExpectedCount = 120
 	booster.CompletedCount = 0
 	booster.ProcessIntact = false

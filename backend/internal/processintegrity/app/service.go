@@ -192,7 +192,6 @@ type adherenceDriveScopeKey struct {
 	batchID        string
 	partitionLabel string
 	operatorID     string
-	driveName      string
 }
 
 func adherenceDriveScope(row domain.Row) adherenceDriveScopeKey {
@@ -203,7 +202,6 @@ func adherenceDriveScope(row domain.Row) adherenceDriveScopeKey {
 		batchID:        stringValue(row.BatchID),
 		partitionLabel: stringValue(row.PartitionLabel),
 		operatorID:     stringValue(row.Owner.OperatorID),
-		driveName:      stringValue(row.DriveName),
 	}
 }
 
