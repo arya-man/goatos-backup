@@ -38,10 +38,11 @@ enum class OutboxOpType {
     /**
      * Counts lifecycle APPROVAL decisions (`POST /app/counts/approvals/{id}/{approve,reject}`).
      *
-     * These are the writes that actually change the herd: approving a birth creates the kid and
-     * generates its vaccination obligations, approving a death exits the animal and cancels its
-     * open obligations, and approving a shifting relocates the named animals and re-scopes their
-     * shed-scoped obligations. A double-applied decision is therefore not a cosmetic duplicate —
+     * These are herd-changing writes: approving a birth creates the kid and generates its
+     * vaccination obligations, approving a death exits the animal and cancels its open obligations,
+     * and approving a shifting relocates the named animals only when operator completion already
+     * exists. Otherwise it records the independent approval gate and completion performs the move
+     * later. A double-applied decision is therefore not a cosmetic duplicate —
      * so, like the three writes above, their callers derive a STABLE `SavedStateHandle`-persisted
      * idempotency key and never a timestamp-suffixed one.
      */
@@ -52,14 +53,15 @@ enum class OutboxOpType {
      * Shifting EXECUTION from the operator's Pending tab
      * (`POST /app/counts/shifting-events/{id}/{complete,cancel}`).
      *
-     * `SHIFTING_COMPLETE` is the "Mark done" that RELOCATES the animals — it flips the movement to
-     * applied, rewrites their shed/stage, and publishes goat.location.changed / goat.stage_changed.
-     * Completing twice would be a double relocation, so its caller derives a STABLE idempotency key
-     * from the movement id (never a timestamp-suffixed one); under that key a
-     * server-committed-but-client-unrecorded retry returns the original relocation instead of moving
-     * the herd onward. The SHIFTING EVENT ID is the outbox group key so two actions on the same
-     * movement can never drain concurrently or out of order. `SHIFTING_CANCEL` retires an authorized
-     * movement and moves nothing; same stable-key + group-key contract.
+     * `SHIFTING_COMPLETE` records the operator's mandatory live-camera video and completion gate.
+     * If Park Head approval already exists, that same transaction relocates the animals; otherwise
+     * the event stays pending and approval performs the move later. The transaction recording the
+     * second gate flips the movement to applied, rewrites shed/stage, and publishes location/stage
+     * events. Its caller derives a STABLE idempotency key from the movement id (never a timestamp-
+     * suffixed one), so a server-committed-but-client-unrecorded retry cannot apply twice. The
+     * SHIFTING EVENT ID is the outbox group key so two actions on the same movement cannot drain
+     * concurrently or out of order. `SHIFTING_CANCEL` retires an un-applied movement and moves
+     * nothing; same stable-key + group-key contract.
      */
     SHIFTING_COMPLETE,
     SHIFTING_CANCEL,

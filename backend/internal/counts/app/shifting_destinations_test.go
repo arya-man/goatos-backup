@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
@@ -195,6 +196,27 @@ func TestDeriveShiftingImpactsFailsClosedWhenTheAnimalDoesNotResolve(t *testing.
 	}
 	if impacts != nil {
 		t.Fatalf("impacts=%v, want nil -- a failed derivation must not yield a partial impact set", impacts)
+	}
+}
+
+// TestDeriveShiftingImpactsRejectsAnExitedAnimalAsNotShiftable reproduces the real CBE failure:
+// CBE-ASSUMED-RFID-00001 resolves to an existing goat whose lifecycle is dead and whose exited_at
+// is set. That is not a missing goat (404); it is an ineligible movement target that must fail
+// before a shifting event or approval request can be created.
+func TestDeriveShiftingImpactsRejectsAnExitedAnimalAsNotShiftable(t *testing.T) {
+	exitedAt := time.Date(2026, 7, 28, 4, 28, 14, 0, time.UTC)
+	repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{{
+		GoatID: destGoatID, LifecycleStatus: "dead", ExitedAt: &exitedAt,
+		BreedKey: "sirohi", BreedLabel: "Sirohi",
+	}}}
+
+	impacts, err := NewService(repo).DeriveShiftingImpacts(
+		context.Background(), destTenantID, destShedID, []string{destGoatID})
+	if !errors.Is(err, ports.ErrGoatNotShiftable) {
+		t.Fatalf("err=%v, want ports.ErrGoatNotShiftable for an existing dead/exited goat", err)
+	}
+	if impacts != nil {
+		t.Fatalf("impacts=%v, want nil for an ineligible animal", impacts)
 	}
 }
 

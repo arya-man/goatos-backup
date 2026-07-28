@@ -35,7 +35,7 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 // approved-but-unexecuted movement set are both served directly from canonical SQL at the current
 // release envelope; this screen earns its own projection only under that ADR's scale-out ladder.
 //
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' AND event_status='authorized' so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort (dest_cohort: the shed's single distinct live management_stage, falling back to the source stage_tag only for an empty/mixed shed) so a cross-profile K1->K2 move projects -N K1 at the source and +N K2 at the destination rather than +N K1 into the K2 shed -- resident-inference bridge until public.shed_profiles.animal_stage_id is seeded; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT, dest_cohort is a strict 1:{0,1} per-shed lookup LEFT JOINed onto the destination leg (never fans out), and locations is joined twice after aggregation on the (tenant_id, location_id) primary key as a strict 1:{0,1} label lookup; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset, and the overdue event-id array is aggregated per grain rather than per page; scope=tenant_id on goats, shifting_events, shifting_event_impacts and both locations joins, plus optional park/shed equality predicates AND an optional shed-SET (= ANY) predicate, every one of them applied to the live side and to BOTH movement legs so a shed-scoped page cannot show a delta sourced from a shed the same filter excluded
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' and not yet applied (ordinary event_status='authorized', plus rollout-compatible authorized+pending_verification) so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset; scope=tenant_id on every side plus optional park/shed equality and shed-set predicates
 //
 // Expanded rationale:
 //
@@ -44,17 +44,9 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	               count_base_anchors replay. merged_into_goat_id IS NULL keeps a merged animal
 //	               from being counted under both identities.
 //
-//	               The delta set is deliberately NARROW: only movements that are still unexecuted --
-//	               event_status 'authorized' (director-approved, operator has not completed) OR
-//	               'pending_verification' (operator completed with proof, awaiting a verifier). Both
-//	               precede any relocation. 'applied' movements are EXCLUDED, and that exclusion is the
-//	               single most important predicate in this statement. Under the shifting verification
-//	               gate (migration 000031) the animals relocate in goats ONLY at 'applied', inside
-//	               ApplyVerifiedShiftingEvent (the relocation and the status flip in one transaction),
-//	               so an applied movement is ALREADY reflected in current_head_count. Including it
-//	               would add the same animals a second time and over-feed the destination shed.
-//	               Conversely a 'pending_verification' movement is NOT yet in current_head_count, so
-//	               it must stay in the delta or the destination shed is under-fed until approval.
+//	               The delta set is deliberately NARROW: Park Head-authorized but not-yet-applied
+//	               movements. New rows are 'authorized'; authorized+pending_verification is retained
+//	               only for an in-flight pre-000049 row. 'applied' is already represented by goats.
 //	group_key    = park x shed x stage x breed x sex, normalized on both sides. See
 //	               feedGrainNormSQL for why raw equality is not safe here.
 //	join_card    = the danger is shifting_event_impacts: one event has MANY impact rows, so
@@ -112,12 +104,9 @@ WITH live AS MATERIALIZED (
 -- Maintainer decision 2026-07-27: there is NO lead time and NO priority branch -- a movement is a
 -- pending feed input the moment it is authorized (see domain.FeedShiftingEffectiveBusinessDate).
 --
--- event_status carries TWO not-yet-executed states, and both must count: 'authorized' (operator has
--- not completed) and 'pending_verification' (operator completed with proof, awaiting a verifier).
--- Under the shifting verification gate (migration 000031) the animals relocate in goats ONLY at
--- 'applied', so 'pending_verification' is NOT yet in the live herd and must stay in the delta or the
--- destination shed is under-fed until approval. 'applied' is excluded here precisely because it is
--- already in current_head_count -- see the narrow-delta note in the header.
+-- New rows count here only while 'authorized'. The authorized+pending_verification branch is a
+-- rollout compatibility shape for a pre-000049 completed row; completion-before-approval has
+-- authorization_state='pending' and never contributes. 'applied' is already in current_head_count.
 --
 -- authorized_at is the approval stamp -- the moment a park head said the movement MAY happen. It
 -- is deliberately NOT raised_at (when someone asked) and NOT effective_at (an authored intent
@@ -136,7 +125,8 @@ pending_event AS (
   FROM shifting_events se
   WHERE se.tenant_id = $1::uuid
     AND se.authorization_state = 'authorized'
-    AND se.event_status IN ('authorized', 'pending_verification')
+    AND (se.event_status = 'authorized'
+         OR (se.event_status = 'pending_verification' AND se.authorization_state = 'authorized'))
     AND se.authorized_at IS NOT NULL
 ),
 -- The destination shed's own operational cohort, so the DESTINATION leg of a movement is tagged

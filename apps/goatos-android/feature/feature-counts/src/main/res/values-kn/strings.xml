@@ -40,6 +40,9 @@
     <string name="counts_death_guardrail_note">ಮರಣವನ್ನು ಸಂರಕ್ಷಿತ ಮರಣ ಮಾರ್ಗದ ಮೂಲಕ ದಾಖಲಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಪ್ರಾಣಿಯ ತೆರೆದ ಲಸಿಕೆ ಕೆಲಸವನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ರದ್ದುಗೊಳಿಸುತ್ತದೆ.</string>
 
     <!-- Shifting screen -->
+    <string name="counts_shifting_actions_title">ಸ್ಥಳಾಂತರ</string>
+    <string name="counts_shifting_actions_subtitle">ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_raise">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_title">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_subtitle">ಒಂದು ಪ್ರಾಣಿಯನ್ನು ಇನ್ನೊಂದು ಶೆಡ್‌ಗೆ ಸ್ಥಳಾಂತರಿಸಿ</string>
     <string name="counts_submit_shifting">ಸ್ಥಳಾಂತರ ರಚಿಸಿ</string>
@@ -118,6 +121,8 @@
     <string name="counts_field_animal_lookup">RFID ಮೂಲಕ ಹುಡುಕಿ</string>
     <string name="counts_select_farm">ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_select_farm_first">ಮೊದಲು ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_select_animal_first">ಮೊದಲು ಒಂದು ಪ್ರಾಣಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_shifting_farm_locked">ಪ್ರಾಣಿಯ ಪ್ರಸ್ತುತ ಸ್ಥಳದಿಂದ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ</string>
     <string name="counts_select_shed">ಒಂದು ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_select_breed">ಒಂದು ತಳಿ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_location_unknown">ದಾಖಲಿಸಿಲ್ಲ</string>
@@ -208,4 +213,14 @@
     <string name="counts_workflow_rerecord_video">ವೀಡಿಯೊವನ್ನು ಮರು-ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="counts_workflow_weight_kg">ತೂಕ (ಕೆಜಿ)</string>
     <string name="counts_workflow_weight_continue">ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮುಂದುವರಿಯಿರಿ</string>
+    <string name="counts_shifting_after_title">After shifting</string>
+    <string name="counts_shifting_stage_label">Management stage</string>
+    <string name="counts_shifting_stage_placeholder">Choose what happens to the animal type</string>
+    <string name="counts_shifting_stage_keep">Use current type</string>
+    <string name="counts_shifting_stage_select">Select management stage</string>
+    <string name="counts_shifting_stage_destination">Use a type in destination shed</string>
+    <string name="counts_shifting_new_stage">New management stage</string>
+    <string name="counts_shifting_no_stage">No stage available</string>
+    <string name="counts_shifting_select_stage">Select stage</string>
+    <string name="counts_shifting_stage_notice">This changes only management stage. It does not create pregnancy or lactation records.</string>
 </resources>

@@ -9,6 +9,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -18,9 +19,16 @@ var (
 	// item because the enqueue seam was never wired -- a composition bug, surfaced loudly rather than
 	// silently stranding a pending_verification movement.
 	ErrVerificationEnqueuerNotWired = errors.New("counts: shifting verification enqueuer is not wired")
-	// ErrInvalidShiftingExecutionFilter is returned for a malformed cursor or park filter on the
-	// pending-execution queue.
+	// ErrInvalidShiftingExecutionFilter is returned for a malformed cursor, business date, or status.
 	ErrInvalidShiftingExecutionFilter = errors.New("counts: invalid pending-execution filter")
+)
+
+const (
+	ShiftingActionStatusAll        = "all"
+	ShiftingActionStatusPending    = "pending"
+	ShiftingActionStatusAuthorized = "authorized"
+	ShiftingActionStatusRework     = "rework"
+	ShiftingActionStatusCompleted  = "completed"
 )
 
 // ShiftingExecutionService owns the post-authorization half of a movement: complete, cancel, and
@@ -65,8 +73,8 @@ type ShiftingVerificationEnqueueRequest struct {
 	IdempotencyKey  string
 }
 
-// WithVerificationEnqueuer wires the verification enqueue seam. Without it, Complete fails closed
-// rather than flipping a movement to pending_verification with no verifier queue item.
+// WithVerificationEnqueuer wires the evidence-review enqueue seam. Without it, Complete fails
+// closed rather than accepting operator evidence that can never reach the verifier queue.
 func (s *ShiftingExecutionService) WithVerificationEnqueuer(enqueuer ShiftingVerificationEnqueuer) *ShiftingExecutionService {
 	s.enqueuer = enqueuer
 	return s
@@ -86,8 +94,8 @@ type CompleteShiftingInput struct {
 	TraceID           string
 
 	// ProofRef is the MANDATORY video the operator records to prove the move (maintainer decision,
-	// 2026-07-26). A blank value is rejected with ports.ErrShiftingProofRequired; the move is applied
-	// only after a verifier approves this video.
+	// 2026-07-26). A blank value is rejected with ports.ErrShiftingProofRequired; verification reviews
+	// the video independently of the approval + completion apply gate.
 	ProofRef string
 
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
@@ -98,9 +106,8 @@ type CompleteShiftingInput struct {
 	RequestFingerprint string
 }
 
-// Complete submits an authorized movement for verification: it records the operator's mandatory
-// video and flips the movement to pending_verification. It relocates NOBODY -- the relocation runs
-// on verifier approval (ApplyVerified).
+// Complete records the operator gate and mandatory evidence. If Park Head approval already exists,
+// the repository atomically applies the movement now; otherwise approval will apply it later.
 func (s *ShiftingExecutionService) Complete(
 	ctx context.Context, in CompleteShiftingInput,
 ) (domain.ShiftingExecutionResult, bool, error) {
@@ -113,8 +120,9 @@ func (s *ShiftingExecutionService) Complete(
 		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
 	}
 	if s.enqueuer == nil {
-		// Fail closed: without the verification queue seam a completion would flip a movement to
-		// pending_verification with nothing for a verifier to act on, stranding the animals.
+		// Fail closed: without the verification queue seam the mandatory evidence would have no
+		// review path. This does not make verification an apply gate: the approval + completion
+		// transaction still owns relocation and the census change.
 		return domain.ShiftingExecutionResult{}, false, ErrVerificationEnqueuerNotWired
 	}
 	result, replay, err := s.repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
@@ -137,7 +145,9 @@ func (s *ShiftingExecutionService) Complete(
 	// a decided move). The enqueue is idempotent on the shifting event id, so a retry after a prior
 	// enqueue failure heals rather than duplicates: the completion is not "done" for the operator
 	// until the item is queued.
-	if result.EventStatus == domain.ShiftingEventStatusPendingVerification {
+	if result.EventStatus == domain.ShiftingEventStatusPending ||
+		result.EventStatus == domain.ShiftingEventStatusPendingVerification ||
+		result.EventStatus == domain.ShiftingEventStatusApplied {
 		subject := "Shed move · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
 		if enqErr := s.enqueuer.EnqueueShiftingMoveVerification(ctx, ShiftingVerificationEnqueueRequest{
 			TenantID:        in.TenantID,
@@ -196,35 +206,11 @@ func (s *ShiftingExecutionService) Cancel(
 	})
 }
 
-// ListPendingExecution returns one keyset page of authorized movements waiting to be executed.
-//
-// OPERATOR -> PARK SCOPE: THE SWAP POINT.
-//
-// The owner asked for "all approved in their park". There is no per-operator park scope in the data
-// today -- workforce_members.primary_location_id is NULL for every member, and
-// workforce_positions / workforce_roster_assignments are both empty -- so deriving the filter from
-// the caller would hand every operator in the tenant an empty queue and make the feature look
-// broken rather than unscoped. The park is therefore an OPTIONAL client filter for now, defaulting
-// to every park.
-//
-// When that roster data lands, the change is confined to THIS METHOD and its one caller:
-//
-//  1. give the service a roster/scope port (an interface with something like
-//     ParkIDsForOperator(ctx, tenantID, userID) ([]string, error)) via the constructor;
-//  2. here, resolve the caller's parks and treat sourceParkID as a NARROWING filter WITHIN that
-//     set -- an empty sourceParkID means "all MY parks", and a sourceParkID outside the set is a
-//     403 rather than a silent empty page;
-//  3. widen domain.ShiftingExecutionQuery.SourceParkID to a SourceParkIDs slice and change the
-//     adapter's `source_park_id = $2` to `source_park_id = ANY($2::uuid[])`
-//     (shifting_events_pending_execution_park_idx already supports it);
-//  4. add the caller's user id to the ListPendingExecution signature -- the HTTP handler already
-//     has it as ActorIDFromContext.
-//
-// Nothing outside this method, the query struct, and that one SQL predicate has to change, because
-// the filter never leaks into the transitions: completion and cancellation address a movement by
-// id and are authorized by permission, not by park.
+// ListPendingExecution returns one keyset page of date-scoped Shifting Actions history. Date is an
+// Asia/Kolkata business day and status buckets are disjoint backend-owned workflow states. Farm and
+// shed are deliberately not list filters: each row already identifies its source and destination.
 func (s *ShiftingExecutionService) ListPendingExecution(
-	ctx context.Context, tenantID, sourceParkID, sourceShedID string, pageSize int, cursor string,
+	ctx context.Context, tenantID, businessDate, status string, pageSize int, cursor string,
 ) (domain.ShiftingExecutionPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ShiftingExecutionPage{}, ErrMissingRequiredField
@@ -233,10 +219,30 @@ func (s *ShiftingExecutionService) ListPendingExecution(
 	if err != nil {
 		return domain.ShiftingExecutionPage{}, ErrInvalidShiftingExecutionFilter
 	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status == "" {
+		status = ShiftingActionStatusAll
+	}
+	if status != ShiftingActionStatusAll && status != ShiftingActionStatusPending &&
+		status != ShiftingActionStatusAuthorized && status != ShiftingActionStatusRework &&
+		status != ShiftingActionStatusCompleted {
+		return domain.ShiftingExecutionPage{}, ErrInvalidShiftingExecutionFilter
+	}
+	var raisedFrom, raisedBefore *time.Time
+	if strings.TrimSpace(businessDate) != "" {
+		date, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(businessDate), biztime.DefaultLocation())
+		if err != nil {
+			return domain.ShiftingExecutionPage{}, ErrInvalidShiftingExecutionFilter
+		}
+		from := date.UTC()
+		before := date.AddDate(0, 0, 1).UTC()
+		raisedFrom, raisedBefore = &from, &before
+	}
 	return s.repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
 		TenantID:     tenantID,
-		SourceParkID: strings.TrimSpace(sourceParkID),
-		SourceShedID: strings.TrimSpace(sourceShedID),
+		RaisedFrom:   raisedFrom,
+		RaisedBefore: raisedBefore,
+		Status:       status,
 		PageSize:     pageSize,
 		Cursor:       decoded,
 	})

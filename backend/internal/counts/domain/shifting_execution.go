@@ -9,38 +9,22 @@ import (
 	"time"
 )
 
-// Shifting EXECUTION -- the half of a movement's life that happens after it is authorized.
-//
-// Maintainer decision (2026-07-26), SUPERSEDING the 2026-07-19 "operator completion applies the
-// move" rule FOR SHIFTING ONLY:
-//
-//	raise -> pending -> APPROVED (authorized; NOTHING moves)
-//	      -> operator physically walks the animals + records a MANDATORY video
-//	      -> PENDING VERIFICATION (event_status='pending_verification'; STILL nothing moves)
-//	      -> verifier approves the video -> APPLIED (the animals relocate in `goats` now)
-//	      -> verifier rejects the video   -> back to AUTHORIZED (bounce; operator re-shoots)
-//
-// The count now moves at VERIFIER APPROVAL, not at operator completion. The 2026-07-19 rule (move
-// applies the instant the operator confirms) still stands as the REASON approval never relocates --
-// a permission slip is not evidence -- but a shed move is now proved by a video an independent
-// verifier signs off on, exactly like a vaccination proof. Between operator completion and verifier
-// approval the animals are physically in the destination shed while the census still reads the
-// source shed; that lag is accepted deliberately in exchange for verified movement. Birth approval
-// only activates already-created children in herd counts; death approval still applies the exit.
-// See docs/decisions/shifting-verification.md.
+// Shifting EXECUTION (maintainer decision 2026-07-28): Park Head approval and operator completion
+// are independent gates. The second gate atomically relocates and moves census; verification only
+// reviews mandatory video evidence afterward and cannot roll the movement back.
 
 const (
-	// ShiftingEventStatusPending is a raised, not-yet-decided movement.
+	// ShiftingEventStatusPending is not-yet-decided; it may already carry operator completion stamps.
 	ShiftingEventStatusPending = "pending"
 	// ShiftingEventStatusAuthorized is approved-but-not-executed: the movement MAY happen and the
 	// animals are still at the source shed. This is the state the execution queue lists.
 	ShiftingEventStatusAuthorized = "authorized"
-	// ShiftingEventStatusPendingVerification is operator-completed-but-not-yet-verified: the operator
-	// confirmed the move and uploaded the mandatory video, a verification item is queued, and NOTHING
-	// has relocated yet. The census still reads the source shed until the verifier approves.
+	// ShiftingEventStatusPendingVerification means operator completion/proof exists while Park Head
+	// approval is absent (or a legacy rollout row awaits compatibility apply). Verification is
+	// orthogonal and does not own relocation.
 	ShiftingEventStatusPendingVerification = "pending_verification"
-	// ShiftingEventStatusApplied is executed: a verifier approved the operator's video and the
-	// animals' canonical location was rewritten in the same transaction as the approval consumer.
+	// ShiftingEventStatusApplied means Park Head approval + operator completion both exist and the
+	// animals' canonical location was rewritten atomically.
 	ShiftingEventStatusApplied = "applied"
 	// ShiftingEventStatusRejected is a movement an approver refused.
 	ShiftingEventStatusRejected = "rejected"
@@ -117,11 +101,8 @@ type ShiftingCompletionCommand struct {
 	RequestFingerprint string
 }
 
-// ShiftingVerifiedApplyCommand relocates a movement whose video a verifier APPROVED. It is issued by
-// the verification.verdict.approved consumer, never by an operator's phone: the verifier's approval
-// is what turns a pending_verification movement into a real relocation (maintainer decision,
-// 2026-07-26). DestinationTag is threaded through from the movement's own record and stays optional
-// (derived from the occupied destination shed otherwise).
+// ShiftingVerifiedApplyCommand records an approved evidence verdict. The historic name is retained
+// across ports/wiring for compatibility; new rows are already applied by the second business gate.
 type ShiftingVerifiedApplyCommand struct {
 	TenantID         string
 	ShiftingEventID  string
@@ -131,8 +112,7 @@ type ShiftingVerifiedApplyCommand struct {
 	DestinationTag   string
 }
 
-// ShiftingReworkCommand bounces a movement whose video a verifier REJECTED back to 'authorized' so
-// the operator re-records it. It moves NOTHING. Issued by the verification.verdict.rework consumer.
+// ShiftingReworkCommand marks evidence rejected for re-shoot. It preserves movement/count state.
 type ShiftingReworkCommand struct {
 	TenantID        string
 	ShiftingEventID string
@@ -188,28 +168,16 @@ type ShiftingExecutionResult struct {
 type ShiftingExecutionQuery struct {
 	TenantID string
 
-	// SourceParkID optionally narrows the queue to movements whose animals are currently standing
-	// in one park. Empty means every park.
-	//
-	// SOURCE rather than destination: an operator executing a movement has to go to where the
-	// animals ARE to collect them.
-	//
-	// This is a CLIENT-SUPPLIED FILTER today, not caller authority, and that is a deliberate,
-	// documented gap rather than an oversight -- there is no per-operator park scope in the data
-	// yet (workforce_members.primary_location_id is NULL for every member, and
-	// workforce_positions / workforce_roster_assignments are both empty), so deriving the filter
-	// from the caller would return an empty queue for every operator in the tenant. See
-	// ShiftingExecutionService.ListPendingExecution for exactly where the swap lands once that
-	// roster data exists.
+	// RaisedFrom/RaisedBefore are the inclusive/exclusive UTC bounds for one Asia/Kolkata business
+	// date selected on the Actions calendar. Nil bounds keep compatibility for older clients.
+	RaisedFrom   *time.Time
+	RaisedBefore *time.Time
+	// Status is one of all|pending|authorized|rework|completed. Empty is normalized to all by the
+	// service. These buckets are disjoint at the event grain.
+	Status string
+	// Source filters remain an adapter-level compatibility seam for older internal callers. The
+	// mobile Actions contract no longer exposes them.
 	SourceParkID string
-
-	// SourceShedID optionally narrows the queue further to movements whose animals currently stand
-	// in one shed WITHIN the park filter -- the second half of the operator's farm -> shed cascade.
-	// Empty means every shed in the (optionally park-filtered) set.
-	//
-	// SOURCE shed, matching SourceParkID: an operator executing a movement goes to the shed the
-	// animals are IN to collect them. It is a client-supplied filter on the same terms as
-	// SourceParkID; the queue is drained by whoever holds CountsWrite, not scoped by shed authority.
 	SourceShedID string
 
 	PageSize int
@@ -224,13 +192,32 @@ type ShiftingExecutionCursor struct {
 
 // ShiftingExecutionPage is one page of the pending-execution queue.
 type ShiftingExecutionPage struct {
-	Items      []ShiftingExecutionRow
-	NextCursor string
+	Items         []ShiftingExecutionRow
+	NextCursor    string
+	StatusCounts  ShiftingActionStatusCounts
+	PreviousDates []ShiftingPreviousDate
+}
+
+type ShiftingActionStatusCounts struct {
+	All        int `json:"all"`
+	Pending    int `json:"pending"`
+	Authorized int `json:"authorized"`
+	Rework     int `json:"rework"`
+	Completed  int `json:"completed"`
+}
+type ShiftingPreviousDate struct {
+	Date        string `json:"date"`
+	ActionCount int    `json:"action_count"`
 }
 
 // ShiftingExecutionRow is one authorized movement an operator can go and execute.
 type ShiftingExecutionRow struct {
-	ShiftingEventID string
+	ShiftingEventID   string
+	EventStatus       string
+	VerificationState string
+	// PrimaryActionKey is backend-owned row behavior. Completed history is visible but not
+	// executable; open/rework rows use "execute".
+	PrimaryActionKey string
 
 	Priority string
 	Category string

@@ -91,13 +91,14 @@ proof/CI and must not block unrelated valid animals from batching.
 A shed shift is not complete when only `goats.shed_id` changes. The destination
 shed owns an active operational profile; resolve it from `shed_profiles` through
 `animal_stage_lookup`, snapshot its profile ID and `row_version` when the move is
-authorized, and revalidate that snapshot at verified completion. Resident goats
+authorized, and revalidate that snapshot when the second approval/completion gate applies. Resident goats
 are observations and must never be queried as the authority for a destination
 stage. A missing, inactive, ambiguous, incompatible, or changed profile blocks
 completion without partial state or count effects.
 
-Approval records intent and emits no location/stage fact. Verified completion is
-one transaction that:
+Approval alone records intent and emits no location/stage fact. Operator completion alone also emits
+no location/stage fact while approval is absent. The transaction recording the second of Park Head
+approval and operator completion:
 
 1. locks and validates the goat, source shed, destination shed, and approved
    destination profile snapshot;
@@ -120,7 +121,7 @@ requires it; it may not infer or fabricate pregnancy, lactation, health,
 reproductive, or medical confirmation. Those facts remain separate
 authoritative commands/events even when they influence whether a move is legal.
 
-The acceptance proof is a production-path E2E beginning with shifting completion
+The acceptance proof is a production-path E2E beginning with the second approval/completion gate
 and ending after the real Vaccination rescope and recheck handlers have produced
 the correct shed-scoped result. Separate producer integration tests and consumer
 unit/integration tests do not prove the handoff and do not satisfy this contract.
@@ -132,7 +133,7 @@ appears.
 
 Shifting:
 
-- Producer: verified move/shifting completion emits `goat.location.changed` and
+- Producer: authorized + operator-completed shifting emits `goat.location.changed` and
   emits `goat.stage_changed` when the destination shed profile changes the
   operational stage.
 - Deployed consumers: vaccination rescope/recheck and obligation rescope. Future

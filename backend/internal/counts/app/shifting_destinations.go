@@ -74,6 +74,9 @@ func (s *Service) DeriveShiftingSource(
 	if len(facts) != len(goatIDs) {
 		return nil, nil, fmt.Errorf("%w: %d of %d goat ids resolved", ports.ErrGoatNotFound, len(facts), len(goatIDs))
 	}
+	if err := validateShiftableGoatFacts(facts); err != nil {
+		return nil, nil, err
+	}
 
 	// All animals must share one origin park AND shed for it to be a truthful single source.
 	park := nonBlank(facts[0].ParkID)
@@ -141,6 +144,9 @@ func (s *Service) DeriveShiftingImpacts(
 	if len(facts) != len(goatIDs) {
 		return nil, fmt.Errorf("%w: %d of %d goat ids resolved", ports.ErrGoatNotFound, len(facts), len(goatIDs))
 	}
+	if err := validateShiftableGoatFacts(facts); err != nil {
+		return nil, err
+	}
 
 	// Merge per-goat legs into cohort rows keyed by grain_key (destination shed x breed), preserving
 	// insertion order so the derived set is deterministic for the idempotency-neutral persist below.
@@ -193,6 +199,20 @@ func (s *Service) DeriveShiftingImpacts(
 		impacts = append(impacts, *byGrain[grain])
 	}
 	return impacts, nil
+}
+
+// validateShiftableGoatFacts separates lifecycle membership from health. A sick, treated,
+// quarantine, or ICU goat still has lifecycle_status='alive' and may need a health-category shed
+// move. Dead/sold/transferred/exited goats are terminal and must be rejected before any shifting
+// event or approval request is written.
+func validateShiftableGoatFacts(facts []domain.GoatShiftingFact) error {
+	for _, fact := range facts {
+		lifecycle := strings.ToLower(strings.TrimSpace(fact.LifecycleStatus))
+		if fact.ExitedAt != nil || (lifecycle != "" && lifecycle != "alive") {
+			return fmt.Errorf("%w: goat %s has lifecycle_status=%q", ports.ErrGoatNotShiftable, fact.GoatID, fact.LifecycleStatus)
+		}
+	}
+	return nil
 }
 
 // sameCohortDescriptor reports whether two same-grain impact legs describe the identical cohort on

@@ -92,9 +92,14 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId)
+            is ShiftingEvent.SelectManagementStageMode -> onSelectManagementStageMode(event.mode)
+            is ShiftingEvent.SelectTargetManagementStage -> onSelectTargetManagementStage(event.stage)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             ShiftingEvent.Submit -> submit()
+            ShiftingEvent.NavigationHandled -> _state.update {
+                it.copy(returnToActions = false, submissionNotice = null)
+            }
             ShiftingEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -111,6 +116,7 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.observeShiftingDestinations().collect { resource ->
                 val parks = resource.data?.parks?.map(CountsDestinationParkDto::toShiftingParkUi).orEmpty()
+				val managementStages = resource.data?.managementStages.orEmpty()
                 _state.update { current ->
                     // A refresh that drops the currently-chosen park or shed must not leave a
                     // stale id selected: the submit would name a destination the catalog no longer
@@ -123,6 +129,7 @@ class ShiftingViewModel @Inject constructor(
                         ?.any { it.shedId == current.destinationShedId } == true
                     current.copy(
                         destinationParks = parks,
+						managementStages = managementStages,
                         destinationParkId = parkId,
                         destinationShedId = if (shedStillOffered) current.destinationShedId else "",
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
@@ -203,11 +210,16 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.lookupAnimals(query = query)
                 .onSuccess { matches ->
+                    val eligible = matches.filter(GoatSearchItemDto::isEligibleForShifting)
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = matches.map(GoatSearchItemDto::toShiftingAnimalUi),
-                            animalLookupMessage = if (matches.isEmpty()) NO_MATCH_MESSAGE else null,
+                            animalMatches = eligible.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalLookupMessage = when {
+                                eligible.isNotEmpty() -> null
+                                matches.isNotEmpty() -> INELIGIBLE_ANIMAL_MESSAGE
+                                else -> NO_MATCH_MESSAGE
+                            },
                         )
                     }
                 }
@@ -241,7 +253,13 @@ class ShiftingViewModel @Inject constructor(
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
-            current.copy(selectedAnimal = match)
+            current.copy(
+                selectedAnimal = match,
+                // A shed move is intra-farm by contract. The animal's current park is canonical,
+                // so selecting the animal also selects the only legal destination farm.
+                destinationParkId = match.parkId,
+                destinationShedId = "",
+            )
         }
         recomputeSubmitGate()
     }
@@ -251,19 +269,14 @@ class ShiftingViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     /**
-     * Choosing a park RESETS the shed. A shed id belongs to exactly one park, so carrying the old
-     * shed forward would submit a park/shed pairing that does not exist — and because shed NAMES
-     * repeat across parks, that mistake would look plausible on screen right up until the movement
-     * relocated an animal into the wrong park.
+     * The farm is never operator-editable. Keep this event as a defensive compatibility no-op for
+     * any stale composition/test that still emits it; only selecting an animal may set the farm.
      */
     private fun onSelectDestinationPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            if (current.destinationParkId == parkId) {
-                current
-            } else {
-                current.copy(destinationParkId = parkId, destinationShedId = "")
-            }
+            val currentFarm = current.selectedAnimal?.parkId.orEmpty()
+            if (parkId == currentFarm) current.copy(destinationParkId = currentFarm) else current
         }
         recomputeSubmitGate()
     }
@@ -274,7 +287,24 @@ class ShiftingViewModel @Inject constructor(
             // Guard the pairing at the point of selection too: only a shed that belongs to the
             // chosen park may be stored.
             val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(destinationShedId = shedId) else current
+            if (belongsToPark) current.copy(destinationShedId = shedId, targetManagementStage = "") else current
+        }
+        recomputeSubmitGate()
+    }
+
+    private fun onSelectManagementStageMode(mode: String) {
+        if (!beginEdit() || mode !in setOf("keep_current", "select_stage", "destination_stage")) return
+        _state.update { it.copy(managementStageMode = mode, targetManagementStage = "") }
+        recomputeSubmitGate()
+    }
+
+    private fun onSelectTargetManagementStage(stage: String) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            val allowed = if (current.managementStageMode == "destination_stage")
+                current.shedsForSelectedPark.firstOrNull { it.shedId == current.destinationShedId }?.managementStages.orEmpty()
+            else current.managementStages
+            if (stage in allowed) current.copy(targetManagementStage = stage) else current
         }
         recomputeSubmitGate()
     }
@@ -342,6 +372,8 @@ class ShiftingViewModel @Inject constructor(
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
+        managementStageMode = managementStageMode,
+        targetManagementStage = targetManagementStage.takeIf { managementStageMode != "keep_current" },
         priority = priority,
         category = category,
         // A list of exactly one: the contract's shape is a list and the client does not narrow a
@@ -388,7 +420,10 @@ class ShiftingViewModel @Inject constructor(
         _state.update { current ->
             ShiftingUiState(
                 destinationParks = current.destinationParks,
-                lastRecordedMessage = confirmation,
+				managementStages = current.managementStages,
+                lastRecordedMessage = null,
+                returnToActions = true,
+                submissionNotice = confirmation,
             )
         }
         recomputeSubmitGate()
@@ -413,9 +448,16 @@ class ShiftingViewModel @Inject constructor(
         // the backend is certain to reject with `missing_goat_ids` — durable in the outbox,
         // terminal on first dispatch, and only visible as a failure long after they walked away
         // from the shed.
-        if (state.selectedAnimal == null) return "Find and select the animal that moved."
-        if (state.destinationParkId.isBlank()) return "Choose the farm the animal moved to."
+        val animal = state.selectedAnimal ?: return "Find and select the animal that moved."
+        if (!animal.lifecycleStatus.equals("alive", ignoreCase = true)) {
+            return INELIGIBLE_ANIMAL_MESSAGE
+        }
+        if (animal.parkId.isBlank() || state.destinationParkId != animal.parkId) {
+            return "This animal's current farm is unavailable. Refresh and try again."
+        }
         if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
+        if (state.managementStageMode.isBlank()) return "Choose what should happen to the animal's management stage."
+        if (state.managementStageMode != "keep_current" && state.targetManagementStage.isBlank()) return "Choose the new management stage."
         return null
     }
 
@@ -426,6 +468,7 @@ class ShiftingViewModel @Inject constructor(
         const val SYNCED_MESSAGE = "Movement submitted for review."
 
         const val NO_MATCH_MESSAGE = "No live animal matches that tag. Check the tag and try again."
+        const val INELIGIBLE_ANIMAL_MESSAGE = "This animal is no longer active and cannot be shifted."
         const val LOOKUP_FAILED_MESSAGE =
             "Couldn't search for animals. Check your connection and try again."
         const val DESTINATIONS_FAILED_MESSAGE =
@@ -456,6 +499,8 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     goatId = goatId,
     displayId = displayId.ifBlank { animalIdentifier1 },
     tag = animalIdentifier1,
+    parkId = locationPath.parkId.orEmpty(),
+    shedId = locationPath.shedId.orEmpty(),
     parkName = locationPath.parkName.orEmpty(),
     shedName = locationPath.shedName.orEmpty(),
     locationLabel = locationPath.display,
@@ -466,9 +511,14 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     lifecycleStatus = lifecycleStatus,
 )
 
+internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
+    lifecycleStatus.equals("alive", ignoreCase = true) &&
+        !locationPath.parkId.isNullOrBlank() &&
+        !locationPath.shedId.isNullOrBlank()
+
 /** Wire catalog -> dropdown vocabulary. Both levels keep their ids: names are display only. */
 internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = ShiftingParkUi(
     parkId = parkId,
     name = name,
-    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name) },
+    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name, managementStages = it.managementStages) },
 )

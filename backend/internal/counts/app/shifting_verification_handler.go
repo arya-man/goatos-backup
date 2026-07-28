@@ -10,13 +10,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
-// Shifting verification consumer (maintainer decision, 2026-07-26). A shed move is applied only when
-// an independent verifier approves the operator's video. The verification module emits a generic
-// verdict event on every approve/reject; this handler is the counts-side consumer of those events
-// for shifting-move items:
+// Shifting evidence consumer (maintainer decision, 2026-07-28). Park Head approval + operator
+// completion own relocation/count; these generic verdicts only accept evidence or request rework:
 //
-//	verification.verdict.approved (our shifting_move item) -> ApplyVerifiedShiftingEvent  (relocate, count moves NOW)
-//	verification.verdict.rework   (our shifting_move item) -> BounceShiftingEventForRework (back to authorized)
+//	verification.verdict.approved -> mark evidence verified
+//	verification.verdict.rework   -> mark evidence rejected/rework, no movement rollback
 //
 // It filters strictly on source.module + source.ref_type so a vaccination/feed/etc. verdict is
 // ignored. This is the same in-process bus code path a future durable Pub/Sub consumer would use.

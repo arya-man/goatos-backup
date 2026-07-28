@@ -327,7 +327,7 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/shifting_verification_handler.go",
-          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.ApplyVerifiedShiftingEvent, which relocates the moved animals (goat.location.changed + goat.stage_changed) and flips the shifting_event 'pending_verification' -> 'applied'. This is the maintainer-2026-07-26 gate: a shed move's count only shifts when a verifier approves the operator's mandatory video."
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.ApplyVerifiedShiftingEvent (legacy method name), which marks verification_state='verified' only. Under the maintainer-2026-07-28 rule, Park Head approval + operator completion already own relocation/count; verifier approval cannot move or roll back census truth. A pre-000049 authorized+completed row may be lazily applied once for rollout compatibility."
         },
         {
           "module": "feeddirection",
@@ -380,7 +380,7 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/shifting_verification_handler.go",
-          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.BounceShiftingEventForRework, which returns the shifting_event 'pending_verification' -> 'authorized' (no relocation) so the operator re-records the video."
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.BounceShiftingEventForRework, which sets verification_state='rejected' and clears the proof-submit idempotency pair so the evidence rework appears in Actions. It preserves event_status, goat location, and census truth even when the move is already applied."
         },
         {
           "module": "feeddirection",
@@ -739,7 +739,7 @@
     {
       "path": "backend/internal/identity/adapters/postgres/goat_relocate.go",
       "owner": "identity",
-      "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and the matching outbox_messages rows in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations and by vaccination generation to recompute on the new management_stage"
+      "reason": "canonical bulk shifting relocation producer called only by the shared Park-Head-approval + operator-completion second-gate transaction; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and matching outbox_messages in the same transaction, consumed by obligation/app/shift.go and vaccination generation"
     },
     {
       "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql",
@@ -796,7 +796,7 @@
         "cross-stage shed move",
         "ICU/quarantine entry and exit",
         "stale event replay",
-        "verified shifting completion atomically updates shed and operational stage then reschedules and rechecks vaccination"
+        "the second Park Head approval/operator-completion gate atomically updates shed and operational stage then reschedules and rechecks vaccination"
       ]
     },
     {
@@ -875,26 +875,26 @@
           "file": "backend/internal/vaccination/app/generation_handler.go"
         }
       ],
-      "authoritativeProfile": {
-        "source": "active destination shed_profiles row joined through animal_stage_lookup",
-        "snapshotAtAuthorization": [
-          "destination_profile_id",
-          "destination_profile_row_version"
+      "authoritativeStageSelection": {
+        "source": "mandatory raise-time mode plus explicit target validated against animal_stage_lookup",
+        "snapshotAtRaise": [
+          "management_stage_mode",
+          "target_management_stage"
         ],
         "evidenceFiles": [
-          "backend/internal/identity/adapters/postgres/goat_relocate.go"
+          "backend/internal/identity/adapters/postgres/goat_relocate.go",
+          "backend/internal/counts/adapters/postgres/shifting_execution.go"
         ],
         "requiredTokens": [
-          "shed_profiles",
+          "management_stage_mode",
+          "target_management_stage",
           "animal_stage_lookup",
-          "row_version",
-          "destination_profile_id",
-          "destination_profile_row_version"
+          "management_stage"
         ],
         "forbiddenPatterns": [
           {
             "pattern": "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats",
-            "reason": "resident goats are observations, not destination shed configuration authority"
+            "reason": "resident stages may be offered as explicit options but must never be inferred as one shed-wide authority"
           }
         ]
       },

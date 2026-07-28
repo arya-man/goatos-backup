@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
@@ -21,6 +23,14 @@ import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingActionStatusCountsDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingPreviousDateDto
+
+data class ShiftingActionsMeta(
+    val date: String = "",
+    val counts: CountsShiftingActionStatusCountsDto = CountsShiftingActionStatusCountsDto(),
+    val previousDates: List<CountsShiftingPreviousDateDto> = emptyList(),
+)
 
 /**
  * One screen-page of the operator's Pending tab. The backend caps this endpoint at 20 server-side
@@ -29,7 +39,7 @@ import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
  */
 const val SHIFTING_PENDING_PAGE_SIZE = 20
 
-/** How many filter scopes (farm/shed combinations) keep their cached rows. Bounds the table. */
+/** How many date/status scopes keep their cached rows. Bounds the table. */
 private const val SHIFTING_PENDING_CACHED_QUERIES = 4
 
 /**
@@ -46,14 +56,13 @@ private const val SHIFTING_PENDING_CACHED_QUERIES = 4
  * idempotency key instead of moving the herd twice.
  */
 interface ShiftingPendingRepository {
+    val actionsMeta: StateFlow<ShiftingActionsMeta>
     /**
-     * The paged queue, scoped by the operator's farm -> shed filter. Both layers page identically at
-     * [SHIFTING_PENDING_PAGE_SIZE] over the backend's own opaque keyset cursor; nothing ever holds
-     * the whole backlog. A blank [parkId]/[shedId] means "every park/shed".
+     * The paged Actions history for one Asia/Kolkata business date and backend status bucket.
      */
     fun pending(
-        parkId: String = "",
-        shedId: String = "",
+        date: String,
+        status: String = "all",
     ): Flow<PagingData<CountsShiftingPendingExecutionItemDto>>
 
     /**
@@ -79,10 +88,12 @@ class DefaultShiftingPendingRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ShiftingPendingRepository {
+    private val _actionsMeta = MutableStateFlow(ShiftingActionsMeta())
+    override val actionsMeta: StateFlow<ShiftingActionsMeta> = _actionsMeta
 
     @OptIn(ExperimentalPagingApi::class)
-    override fun pending(parkId: String, shedId: String): Flow<PagingData<CountsShiftingPendingExecutionItemDto>> {
-        val key = scopeKey(parkId, shedId)
+    override fun pending(date: String, status: String): Flow<PagingData<CountsShiftingPendingExecutionItemDto>> {
+        val key = scopeKey(date, status)
         return Pager(
             config = PagingConfig(
                 pageSize = SHIFTING_PENDING_PAGE_SIZE,
@@ -95,12 +106,13 @@ class DefaultShiftingPendingRepository(
                 maxSize = SHIFTING_PENDING_PAGE_SIZE * 3,
             ),
             remoteMediator = ShiftingPendingRemoteMediator(
-                parkId = parkId,
-                shedId = shedId,
+                date = date,
+                status = status,
                 api = api,
                 database = database,
                 json = json,
                 clock = clock,
+                onMeta = { counts, dates -> _actionsMeta.value = ShiftingActionsMeta(date, counts, dates) },
             ),
             pagingSourceFactory = { database.shiftingPendingItemDao().pagingSource(key) },
         ).flow
@@ -117,8 +129,8 @@ class DefaultShiftingPendingRepository(
         database.shiftingPendingItemDao().findById(shiftingEventId)
             ?.let { json.decodeFromString<CountsShiftingPendingExecutionItemDto>(it.dtoJson) }
 
-    private fun scopeKey(parkId: String, shedId: String): String =
-        cacheKey("shifting-pending", parkId, shedId)
+    private fun scopeKey(date: String, status: String): String =
+        cacheKey("shifting-actions", date, status)
 }
 
 /**
@@ -131,14 +143,15 @@ class DefaultShiftingPendingRepository(
  */
 @OptIn(ExperimentalPagingApi::class)
 private class ShiftingPendingRemoteMediator(
-    private val parkId: String,
-    private val shedId: String,
+    private val date: String,
+    private val status: String,
     private val api: AppApi,
     private val database: GoatDatabase,
     private val json: Json,
     private val clock: () -> Long,
+    private val onMeta: (CountsShiftingActionStatusCountsDto, List<CountsShiftingPreviousDateDto>) -> Unit,
 ) : RemoteMediator<Int, ShiftingPendingItemEntity>() {
-    private val queryKey = cacheKey("shifting-pending", parkId, shedId)
+    private val queryKey = cacheKey("shifting-actions", date, status)
 
     /**
      * ALWAYS refresh on open. This is a work queue answering "what is waiting on me RIGHT NOW":
@@ -167,11 +180,12 @@ private class ShiftingPendingRemoteMediator(
         }
         return try {
             val response = api.listCountsShiftingPendingExecution(
-                parkId = parkId.ifBlank { null },
-                shedId = shedId.ifBlank { null },
+                date = date,
+                status = status,
                 pageSize = SHIFTING_PENDING_PAGE_SIZE,
                 cursor = cursor,
             )
+            if (loadType == LoadType.REFRESH) onMeta(response.statusCounts, response.previousDates)
             // An absent next_cursor is the contract's own end-of-pages signal. A cursor that did not
             // ADVANCE is also treated as the end: without that check a backend echoing the same
             // cursor would spin this mediator forever on one page (the non-terminating pagination

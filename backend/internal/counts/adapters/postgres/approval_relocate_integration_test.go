@@ -102,29 +102,19 @@ func approveShifting(
 	})
 }
 
-// completeShifting drives the FULL production shifting-completion flow under the 2026-07-26 rule:
-// the operator submits the movement with the mandatory video (event_status -> pending_verification;
-// nothing relocates), then a VERIFIER approves it, which is the step that actually relocates the
-// animals. Every relocation assertion in this file is about the END state, so both phases run here;
-// the intermediate pending_verification and rejection behaviour is proven independently in
-// shifting_verification_integration_test.go.
-//
-// A relocation-time failure (missing profile, disagreeing tag, clinical cohort, unmovable animal,
-// stale source) surfaces from the SECOND phase, so the movement is left at 'pending_verification'
-// (the video already recorded) rather than 'authorized'; the callers assert that state.
+// completeShifting drives operator completion after Park Head approval. Under the 2026-07-28 rule
+// completion is the second business gate here, so it atomically relocates and returns applied.
 func completeShifting(
 	repo *Repository, ctx context.Context, key, shiftingEventID string,
 ) (domain.ShiftingExecutionResult, bool, error) {
 	return completeShiftingWithTag(repo, ctx, key, shiftingEventID, "")
 }
 
-// completeShiftingWithTag drives the two-phase flow carrying an explicit destination cohort tag, as
-// an operator does for the profile cross-check. The tag is persisted at submit and consumed by the
-// verifier-approval relocation.
+// completeShiftingWithTag carries an explicit destination cohort tag for the profile cross-check.
 func completeShiftingWithTag(
 	repo *Repository, ctx context.Context, key, shiftingEventID, destinationTag string,
 ) (domain.ShiftingExecutionResult, bool, error) {
-	subRes, subReplay, err := repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+	return repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
 		TenantID:           countsTenant,
 		ShiftingEventID:    shiftingEventID,
 		CompletedByUserID:  countsOperator,
@@ -134,17 +124,6 @@ func completeShiftingWithTag(
 		IdempotencyKey:     "complete-" + key,
 		RequestFingerprint: "complete-fp-" + key + ":" + destinationTag,
 	})
-	if err != nil {
-		return subRes, subReplay, err
-	}
-	// The verifier approves the video: this is where the relocation runs and the count moves.
-	appRes, applied, err := applyVerifiedShifting(repo, ctx, shiftingEventID)
-	if err != nil {
-		return appRes, false, err
-	}
-	// "replayed" for the combined op is true only when neither phase did fresh work (an exact retry
-	// of an already-applied movement): submit replayed AND the apply was a no-op.
-	return appRes, subReplay && !applied, nil
 }
 
 // seedApprovalGoatWithStage seeds a goat carrying an explicit management_stage (operational cohort),
@@ -352,11 +331,11 @@ SELECT event_status, applied_at, applied_by::text FROM shifting_events WHERE shi
 	if eventStatus != domain.ShiftingEventStatusApplied {
 		t.Fatalf("event_status=%q, want applied", eventStatus)
 	}
-	if appliedAt == nil || appliedBy == nil || *appliedBy != countsApprover {
-		t.Fatalf("applied stamp=(%v,%v), want the approving VERIFIER %s -- under the 2026-07-26 rule "+
-			"the move is applied by the verifier who approved the video, not the operator; "+
+	if appliedAt == nil || appliedBy == nil || *appliedBy != countsOperator {
+		t.Fatalf("applied stamp=(%v,%v), want the completing OPERATOR %s -- under the 2026-07-28 rule "+
+			"the second approval/completion gate applies the move and verification is evidence-only; "+
 			"shifting_events_applied_shape_check should have made a stampless applied row unrepresentable",
-			appliedAt, appliedBy, countsApprover)
+			appliedAt, appliedBy, countsOperator)
 	}
 
 	for _, goatID := range goatIDs {
@@ -534,10 +513,8 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 		countsTenant); got != 0 {
 		t.Fatalf("outbox messages after rolled-back completion=%d, want 0", got)
 	}
-	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusPendingVerification {
-		t.Fatalf("event_status=%q after failed verifier-approval relocation, want it %q so a human can "+
-			"resolve the animal and re-approve (the operator's video was already recorded)",
-			got, domain.ShiftingEventStatusPendingVerification)
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after failed atomic completion, want authorized for operator retry", got)
 	}
 	// The completion stamp must not have been left behind either.
 	var appliedAt *time.Time
@@ -610,9 +587,8 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 		countsTenant); got != 0 {
 		t.Fatalf("outbox messages after rolled-back stale completion=%d, want 0", got)
 	}
-	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusPendingVerification {
-		t.Fatalf("event_status=%q after failed stale verifier-approval relocation, want it %q for reconciliation",
-			got, domain.ShiftingEventStatusPendingVerification)
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after failed stale completion, want authorized for reconciliation", got)
 	}
 }
 
@@ -784,9 +760,8 @@ func TestCompleteShiftingIntoUnconfiguredShedFailsClosed(t *testing.T) {
 	if got := goatStage(t, ctx, pool, mover); got != "K0" {
 		t.Fatalf("mover management_stage=%q after rejected completion, want it unchanged at K0", got)
 	}
-	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusPendingVerification {
-		t.Fatalf("event_status=%q after failed verifier-approval relocation into an unconfigured shed, want it %q",
-			got, domain.ShiftingEventStatusPendingVerification)
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after failed completion into an unconfigured shed, want authorized", got)
 	}
 }
 

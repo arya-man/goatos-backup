@@ -78,6 +78,14 @@ func TestShiftingDestinationCatalogGroupsRepeatedShedNamesByPark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ShiftingDestinationCatalog: %v", err)
 	}
+	if len(catalog.ManagementStages) == 0 {
+		t.Fatal("active management-stage vocabulary must be returned with the destination catalog")
+	}
+	for _, stage := range catalog.ManagementStages {
+		if stage == "ICU" || stage == "Quarantine" {
+			t.Fatalf("clinical stage %q must not be offered by a movement form", stage)
+		}
+	}
 
 	byID := map[string]struct {
 		name  string
@@ -162,6 +170,9 @@ func TestShiftingDestinationCatalogIsTenantScoped(t *testing.T) {
 	}
 	if len(catalog.Parks) != 0 {
 		t.Fatalf("foreign tenant saw %d parks, want 0", len(catalog.Parks))
+	}
+	if len(catalog.ManagementStages) != 0 {
+		t.Fatalf("foreign tenant saw %d stages, want 0", len(catalog.ManagementStages))
 	}
 }
 
@@ -249,12 +260,12 @@ ON CONFLICT (goat_id) DO NOTHING`,
 	}
 }
 
-// TestGoatShiftingFactsExcludesExitedMergedAndForeignAnimals proves the membership predicate.
+// TestGoatShiftingFactsKeepsExitedForEligibilityButExcludesMergedAndForeignAnimals proves the
+// distinction the write path needs between a terminal goat (422) and a missing goat (404).
 //
-// Each of these must resolve to NO row, so the service's "did every id resolve" check fails the
-// write closed. An exited or merged animal that still derived an impact would record an authorized
-// movement for an animal that cannot actually be relocated.
-func TestGoatShiftingFactsExcludesExitedMergedAndForeignAnimals(t *testing.T) {
+// Exited animals remain visible with their terminal facts so the service can reject them explicitly.
+// Merged aliases and cross-tenant animals remain invisible and fail the write closed as not found.
+func TestGoatShiftingFactsKeepsExitedForEligibilityButExcludesMergedAndForeignAnimals(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	seedCustodianParty(t, ctx, pool)
@@ -289,8 +300,27 @@ UPDATE goats SET merged_into_goat_id = $2::uuid WHERE goat_id = $1::uuid`, merge
 	if err != nil {
 		t.Fatalf("GoatShiftingFacts: %v", err)
 	}
-	if len(facts) != 1 || facts[0].GoatID != liveGoat {
-		t.Fatalf("facts=%+v, want only the live animal %s", facts, liveGoat)
+	if len(facts) != 2 {
+		t.Fatalf("facts=%+v, want live and exited animals", facts)
+	}
+	byID := make(map[string]struct {
+		lifecycle string
+		exited    bool
+	}, len(facts))
+	for _, fact := range facts {
+		byID[fact.GoatID] = struct {
+			lifecycle string
+			exited    bool
+		}{lifecycle: fact.LifecycleStatus, exited: fact.ExitedAt != nil}
+	}
+	if got := byID[liveGoat]; got.lifecycle != "alive" || got.exited {
+		t.Fatalf("live fact=%+v, want lifecycle=alive and no exit stamp", got)
+	}
+	if got := byID[exitedGoat]; got.lifecycle != "dead" || !got.exited {
+		t.Fatalf("exited fact=%+v, want lifecycle=dead with exit stamp", got)
+	}
+	if _, ok := byID[mergedGoat]; ok {
+		t.Fatalf("merged goat %s unexpectedly resolved", mergedGoat)
 	}
 
 	// A foreign tenant's read of a real goat id must also resolve to nothing.

@@ -193,6 +193,7 @@ data class CountsBreakdownResponseDto(
 data class CountsDestinationShedDto(
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("name") val name: String = "",
+    @SerialName("management_stages") val managementStages: List<String> = emptyList(),
 )
 
 @Serializable
@@ -205,6 +206,7 @@ data class CountsDestinationParkDto(
 @Serializable
 data class CountsShiftingDestinationsResponseDto(
     @SerialName("parks") val parks: List<CountsDestinationParkDto> = emptyList(),
+    @SerialName("management_stages") val managementStages: List<String> = emptyList(),
 )
 
 /**
@@ -237,6 +239,8 @@ data class CountsShiftingDestinationsResponseDto(
 data class CountsShiftingEventRequestDto(
     @SerialName("destination_park_id") val destinationParkId: String,
     @SerialName("destination_shed_id") val destinationShedId: String,
+    @SerialName("management_stage_mode") val managementStageMode: String = "keep_current",
+    @SerialName("target_management_stage") val targetManagementStage: String? = null,
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,
@@ -254,7 +258,7 @@ data class CountsShiftingEventResponseDto(
 // ---------------------------------------------------------------------------
 
 /**
- * One authorized movement waiting to be physically executed — a row of the operator's Pending tab.
+ * One raised/authorized/evidence-rework movement — a row of the operator's Actions screen.
  *
  * Field names are verbatim from `contracts/openapi/app-api.yaml`
  * (`CountsShiftingPendingExecutionItem` / the backend's `appShiftingPendingExecutionItem`). Every
@@ -268,6 +272,7 @@ data class CountsShiftingEventResponseDto(
 data class CountsShiftingPendingExecutionItemDto(
     @SerialName("shifting_event_id") val shiftingEventId: String = "",
     @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("primary_action_key") val primaryActionKey: String = "none",
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("source_park_id") val sourceParkId: String? = null,
@@ -306,6 +311,16 @@ data class CountsShiftingPendingExecutionAnimalDto(
 data class CountsShiftingPendingExecutionResponseDto(
     @SerialName("items") val items: List<CountsShiftingPendingExecutionItemDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("status_counts") val statusCounts: CountsShiftingActionStatusCountsDto = CountsShiftingActionStatusCountsDto(),
+    @SerialName("previous_dates") val previousDates: List<CountsShiftingPreviousDateDto> = emptyList(),
+)
+
+@Serializable data class CountsShiftingActionStatusCountsDto(
+    val all: Int = 0, val pending: Int = 0, val authorized: Int = 0,
+    val rework: Int = 0, val completed: Int = 0,
+)
+@Serializable data class CountsShiftingPreviousDateDto(
+    val date: String = "", @SerialName("action_count") val actionCount: Int = 0,
 )
 
 // ---------------------------------------------------------------------------
@@ -357,8 +372,8 @@ data class CountsShiftingCancelRequestDto(
 data class CountsShiftingCompleteRequestDto(
     /**
      * MANDATORY (maintainer decision, 2026-07-26): the proof_artifact id of the operator's video.
-     * The backend flips the move to pending_verification and applies it only after a verifier
-     * approves this video. A blank/absent value is rejected 422 proof_required.
+     * Approval and completion are independent gates; the second gate applies the move. Verification
+     * reviews this video afterward. A blank/absent value is rejected 422 proof_required.
      */
     @SerialName("proof_ref") val proofRef: String,
     @SerialName("destination_tag") val destinationTag: String? = null,

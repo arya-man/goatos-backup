@@ -66,6 +66,9 @@
     <string name="counts_death_guardrail_note">A death is recorded through the protected death path and cancels the animal\'s open vaccination work automatically.</string>
 
     <!-- Shifting screen -->
+    <string name="counts_shifting_actions_title">Shifting</string>
+    <string name="counts_shifting_actions_subtitle">Actions</string>
+    <string name="counts_shifting_raise">Raise shifting</string>
     <string name="counts_shifting_title">Record shifting</string>
     <string name="counts_shifting_subtitle">Move one animal to another shed</string>
     <string name="counts_submit_shifting">Create Shifting</string>
@@ -146,6 +149,8 @@
     <string name="counts_field_animal_lookup">Search by RFID</string>
     <string name="counts_select_farm">Select a farm</string>
     <string name="counts_select_farm_first">Select a farm first</string>
+    <string name="counts_select_animal_first">Select an animal first</string>
+    <string name="counts_shifting_farm_locked">Automatically selected from the animal’s current location</string>
     <string name="counts_select_shed">Select a shed</string>
     <string name="counts_select_breed">Select a breed</string>
     <string name="counts_location_unknown">Not recorded</string>
@@ -230,4 +235,14 @@
     <string name="counts_workflow_rerecord_video">Re-record video</string>
     <string name="counts_workflow_weight_kg">Weight (kg)</string>
     <string name="counts_workflow_weight_continue">Continue to record video</string>
+    <string name="counts_shifting_after_title">After shifting</string>
+    <string name="counts_shifting_stage_label">Management stage</string>
+    <string name="counts_shifting_stage_placeholder">Choose what happens to the animal type</string>
+    <string name="counts_shifting_stage_keep">Use current type</string>
+    <string name="counts_shifting_stage_select">Select management stage</string>
+    <string name="counts_shifting_stage_destination">Use a type in destination shed</string>
+    <string name="counts_shifting_new_stage">New management stage</string>
+    <string name="counts_shifting_no_stage">No stage available</string>
+    <string name="counts_shifting_select_stage">Select stage</string>
+    <string name="counts_shifting_stage_notice">This changes only management stage. It does not create pregnancy or lactation records.</string>
 </resources>

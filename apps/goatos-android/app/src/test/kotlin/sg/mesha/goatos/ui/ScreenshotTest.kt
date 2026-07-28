@@ -46,13 +46,15 @@ import sg.mesha.goatos.feature.counts.RfidPromoteUiState
 import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
 import sg.mesha.goatos.feature.counts.ShiftingExecuteUiState
-import sg.mesha.goatos.feature.counts.ShiftingHomeScreen
-import sg.mesha.goatos.feature.counts.ShiftingPendingFilterOption
-import sg.mesha.goatos.feature.counts.ShiftingPendingFilterUi
+import sg.mesha.goatos.feature.counts.ShiftingActionsScreen
 import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
-import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
+import sg.mesha.goatos.feature.counts.ShiftingPendingStatusUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingUiState
-import sg.mesha.goatos.feature.counts.ShiftingTab
+import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
+import sg.mesha.goatos.feature.counts.ShiftingParkUi
+import sg.mesha.goatos.feature.counts.ShiftingScreen
+import sg.mesha.goatos.feature.counts.ShiftingShedUi
+import sg.mesha.goatos.feature.counts.ShiftingUiState
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -354,6 +356,37 @@ class ScreenshotTest {
     }
 
     @Test
+    fun shifting_add_locks_current_farm() = shot("shifting_add_locks_current_farm") {
+        val animal = ShiftingAnimalUi(
+            goatId = "d8337607-6e21-41c9-a703-a7b73ae4e545",
+            displayId = "G-000326",
+            tag = "CBE-ASSUMED-RFID-00002",
+            parkId = "00000000-0000-4000-8000-000000003001",
+            shedId = "43071c6e-3b00-47a9-860c-1bbacb570575",
+            parkName = "Coimbatore",
+            shedName = "Castro 1",
+            lifecycleStatus = "alive",
+        )
+        ShiftingScreen(
+            state = ShiftingUiState(
+                animalQuery = animal.tag,
+                animalMatches = listOf(animal),
+                selectedAnimal = animal,
+                destinationParks = listOf(
+                    ShiftingParkUi(
+                        parkId = animal.parkId,
+                        name = animal.parkName,
+                        sheds = listOf(
+                            ShiftingShedUi("43071c6e-3b00-47a9-860c-1bbacb570576", "Castro 2"),
+                        ),
+                    ),
+                ),
+                destinationParkId = animal.parkId,
+            ),
+        )
+    }
+
+    @Test
     fun shifting_pending() = shot("shifting_pending") {
         val rows = flowOf(
             PagingData.from(
@@ -366,6 +399,8 @@ class ScreenshotTest {
                         category = "Growth",
                         animalCount = 12,
                         approvedAtLabel = "2026-07-22",
+                        actionStateLabel = "Approved",
+                        primaryActionKey = "execute",
                     ),
                     ShiftingPendingRowUi(
                         shiftingEventId = "move-2",
@@ -375,29 +410,26 @@ class ScreenshotTest {
                         category = "Health",
                         animalCount = 1,
                         approvedAtLabel = "2026-07-22",
+                        actionStateLabel = "Completed",
+                        primaryActionKey = "none",
                     ),
                 ),
             ),
         ).collectAsLazyPagingItems()
-        ShiftingHomeScreen(
-            selectedTab = ShiftingTab.PENDING,
-            onSelectTab = {},
-            onBack = {},
-            raiseContent = {},
-            pendingContent = {
-                ShiftingPendingScreen(
-                    state = ShiftingPendingUiState(
-                        filters = ShiftingPendingFilterUi(
-                            parks = listOf(ShiftingPendingFilterOption("p1", "Gandhi Farm")),
-                            selectedParkId = "p1",
-                            selectedParkLabel = "Gandhi Farm",
-                            sheds = listOf(ShiftingPendingFilterOption("s1", "Shed A")),
-                        ),
-                        lastSyncedAt = 0L,
-                    ),
-                    rows = rows,
-                )
-            },
+        ShiftingActionsScreen(
+            state = ShiftingPendingUiState(
+                dateIso = "2026-07-22",
+                dateLabel = "Today · 22 Jul",
+                statuses = listOf(
+                    ShiftingPendingStatusUi("all", "All", true),
+                    ShiftingPendingStatusUi("pending", "Pending", false),
+                    ShiftingPendingStatusUi("authorized", "Approved", false),
+                    ShiftingPendingStatusUi("rework", "Rework", false),
+                    ShiftingPendingStatusUi("completed", "Completed", false),
+                ),
+                lastSyncedAt = 0L,
+            ),
+            rows = rows,
         )
     }
 

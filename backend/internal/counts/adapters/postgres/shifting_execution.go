@@ -42,14 +42,10 @@ import (
 // Complete
 // ---------------------------------------------------------------------------
 
-// CompleteShiftingEvent SUBMITS an authorized movement for verification (maintainer decision,
-// 2026-07-26, superseding the 2026-07-19 completion-applies-the-move rule for shifting).
-//
-// The operator confirms the animals walked AND records a MANDATORY video (in.ProofRef). This method
-// does NOT relocate anybody and does NOT move the count: it flips the movement to
-// 'pending_verification', stores the video reference, and stamps the completion idempotency pair.
-// The animals are physically in the destination shed while the census still reads the source shed;
-// the relocation runs later, in ApplyVerifiedShiftingEvent, only when a verifier approves the video.
+// CompleteShiftingEvent records the operator-completion gate with mandatory video evidence. The
+// completion may arrive before or after Park Head approval. When approval already exists, this same
+// transaction applies the move; otherwise it remains pending with completion stamps and approval applies it
+// later. Verification reviews the evidence independently and never owns the relocation.
 //
 // A blank ProofRef is rejected with ErrShiftingProofRequired before any state changes -- a move with
 // no video has nothing for a verifier to approve.
@@ -96,15 +92,16 @@ func (r *Repository) CompleteShiftingEvent(
 	// model (shifting_event_impacts counts heads, it does not name animals). Reading it here rather
 	// than carrying it from the approval keeps completion self-contained: the operator's phone
 	// posts an id, not a herd.
-	goatIDs, destParkID, destShedID, err := r.shiftingMovementSet(ctx, tx, in.TenantID, in.ShiftingEventID)
+	goatIDs, destParkID, destShedID, err := r.shiftingProposedMovementSet(ctx, tx, in.TenantID, in.ShiftingEventID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 
 	// Already submitted for verification, or already applied. Answer with the original result rather
 	// than enqueuing / relocating a second time.
-	if current.EventStatus == domain.ShiftingEventStatusPendingVerification ||
-		current.EventStatus == domain.ShiftingEventStatusApplied {
+	if (current.CompletedAt != nil || current.EventStatus == domain.ShiftingEventStatusPendingVerification ||
+		current.EventStatus == domain.ShiftingEventStatusApplied) &&
+		current.VerificationState != "rejected" {
 		if in.IdempotencyKey != "" && current.CompletionIdempotencyKey != nil &&
 			*current.CompletionIdempotencyKey == in.IdempotencyKey {
 			if current.CompletionRequestFingerprint == nil ||
@@ -123,11 +120,13 @@ func (r *Repository) CompleteShiftingEvent(
 		}, true, nil
 	}
 
-	if current.EventStatus != domain.ShiftingEventStatusAuthorized {
+	if current.EventStatus != domain.ShiftingEventStatusPending &&
+		current.EventStatus != domain.ShiftingEventStatusAuthorized &&
+		current.VerificationState != "rejected" {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"%w: shifting event %s is %q, and completion may only start from %q",
+			"%w: shifting event %s is %q, and completion may only start from pending, authorized, or evidence rework",
 			ports.ErrShiftingNotAuthorized, in.ShiftingEventID, current.EventStatus,
-			domain.ShiftingEventStatusAuthorized)
+		)
 	}
 
 	if len(goatIDs) == 0 {
@@ -138,29 +137,48 @@ func (r *Repository) CompleteShiftingEvent(
 			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
 	}
 
-	// The status flip: authorized -> pending_verification. NOTHING relocates here. The mandatory
-	// video (proof_ref) is stored so the verification enqueue can carry it, and the completion
-	// idempotency pair is stamped. `AND event_status = 'authorized'` makes the transition its own
-	// concurrency guard: if anything canceled/re-decided this movement since the lock, zero rows
-	// update and the transaction rolls back.
+	// Record the operator fact first. For a rejected proof on an already-applied movement, preserve
+	// the applied state and original completion actor/time while replacing only the evidence.
 	tag, err := tx.Exec(ctx, `
 UPDATE shifting_events
-SET event_status = 'pending_verification',
+SET event_status = event_status,
     verification_state = 'unverified',
     proof_ref = $3,
     completion_destination_tag = nullif($6, ''),
     completion_idempotency_key = nullif($4, ''),
     completion_request_fingerprint = nullif($5, ''),
+    completed_at = COALESCE(completed_at, $7::timestamptz),
+    completed_by = COALESCE(completed_by, $8::uuid),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'authorized'`,
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND (event_status IN ('pending', 'authorized') OR verification_state = 'rejected')`,
 		in.TenantID, in.ShiftingEventID, strings.TrimSpace(in.ProofRef),
-		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag))
+		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag),
+		in.CompletedAt.UTC(), in.CompletedByUserID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: submit shifting for verification: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingNotAuthorized
+	}
+
+	updated, err := lockShiftingEvent(ctx, tx, in.TenantID, in.ShiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
+	}
+	if updated.AuthorizationState == "authorized" && updated.CompletedAt != nil &&
+		(updated.EventStatus == domain.ShiftingEventStatusAuthorized || updated.EventStatus == domain.ShiftingEventStatusPendingVerification) {
+		result, err := r.applyAuthorizedCompletedShiftingInTx(ctx, tx, in.TenantID, in.ShiftingEventID,
+			in.CompletedAt.UTC(), in.TraceID, nil)
+		if err != nil {
+			return domain.ShiftingExecutionResult{}, false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ShiftingExecutionResult{}, false, err
+		}
+		committed = true
+		return result, false, nil
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -170,35 +188,27 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = '
 
 	return domain.ShiftingExecutionResult{
 		ShiftingEventID:   in.ShiftingEventID,
-		EventStatus:       domain.ShiftingEventStatusPendingVerification,
+		EventStatus:       updated.EventStatus,
 		DestinationParkID: destParkID,
 		DestinationShedID: destShedID,
 		MovedGoatIDs:      goatIDs,
 	}, false, nil
 }
 
-// ApplyVerifiedShiftingEvent relocates the animals of a movement whose video a verifier has APPROVED,
-// and flips it 'pending_verification' -> 'applied'. This is the consumer half of the 2026-07-26
-// rule: it runs from the verification.verdict.approved consumer, NOT from the operator's phone, and
-// it is the ONLY place a shifting movement writes an animal's canonical location.
+// ApplyVerifiedShiftingEvent records an approved evidence verdict. For new rows it changes only
+// verification_state: Park Head approval + operator completion have already applied the move (or
+// will do so when the missing gate arrives). The historic method name remains for event-consumer
+// compatibility.
 //
-// ATOMICITY mirrors the old completion path: one transaction locks the row, relocates through
-// identity's transaction-scoped seam, and flips the status; any failure rolls the whole thing back,
-// so there is never an 'applied' row whose animals did not move.
-//
-// IDEMPOTENCY: a re-delivered verdict on an already-'applied' movement returns applied=false and
-// relocates nobody. A verdict that arrives when the movement is no longer 'pending_verification'
-// (canceled, bounced back to authorized, superseded) is ignored as a stale delivery.
+// A pre-000049 pending_verification row is rollout debt from the superseded verifier gate. If its
+// approval and legacy completion both exist, this method applies that row once before recording the
+// evidence verdict so an in-flight movement is not stranded. New rows never rely on this branch.
+// Re-delivered verdicts are idempotent and cannot relocate an already-applied movement again.
 func (r *Repository) ApplyVerifiedShiftingEvent(
 	ctx context.Context, in domain.ShiftingVerifiedApplyCommand,
 ) (domain.ShiftingExecutionResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-
-	if r.identityTx == nil {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"counts: apply verified shifting event %s: identity write seam is not wired", in.ShiftingEventID)
-	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -216,137 +226,75 @@ func (r *Repository) ApplyVerifiedShiftingEvent(
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 
-	goatIDs, destParkID, destShedID, err := r.shiftingMovementSet(ctx, tx, in.TenantID, in.ShiftingEventID)
+	goatIDs, destParkID, destShedID, err := r.shiftingProposedMovementSet(ctx, tx, in.TenantID, in.ShiftingEventID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 
-	// Already applied: a re-delivered verdict must not move the herd onward.
-	if current.EventStatus == domain.ShiftingEventStatusApplied {
-		return domain.ShiftingExecutionResult{
-			ShiftingEventID:   in.ShiftingEventID,
-			EventStatus:       current.EventStatus,
-			DestinationParkID: destParkID,
-			DestinationShedID: destShedID,
-			MovedGoatIDs:      goatIDs,
-			AppliedAt:         current.AppliedAt,
-			AppliedBy:         current.AppliedBy,
-		}, false, nil
-	}
-
-	// A verdict for a movement that is no longer awaiting verification is a stale delivery (the move
-	// was canceled or bounced back before the verifier's approval landed). Ignore it rather than
-	// resurrecting a retired movement.
-	if current.EventStatus != domain.ShiftingEventStatusPendingVerification {
+	if current.EventStatus != domain.ShiftingEventStatusPending &&
+		current.EventStatus != domain.ShiftingEventStatusPendingVerification &&
+		current.EventStatus != domain.ShiftingEventStatusApplied {
 		return domain.ShiftingExecutionResult{
 			ShiftingEventID: in.ShiftingEventID,
 			EventStatus:     current.EventStatus,
 		}, false, nil
 	}
 
-	if len(goatIDs) == 0 {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"%w: shifting event %s names no animals to move",
-			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
+	// Compatibility for a pre-000049 row that already had approval + completion but was waiting on
+	// the old verifier gate: apply the two satisfied business gates before recording the verdict.
+	if current.EventStatus == domain.ShiftingEventStatusPendingVerification && current.AuthorizationState == "authorized" {
+		if current.CompletedAt == nil || current.CompletedBy == nil {
+			if _, err := tx.Exec(ctx, `
+UPDATE shifting_events
+SET completed_at = COALESCE(completed_at, $3::timestamptz),
+    completed_by = COALESCE(completed_by, $4::uuid)
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+				in.TenantID, in.ShiftingEventID, in.VerifiedAt.UTC(), in.VerifiedByUserID); err != nil {
+				return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: stamp legacy shifting completion: %w", err)
+			}
+		}
+		if _, err := r.applyAuthorizedCompletedShiftingInTx(ctx, tx, in.TenantID, in.ShiftingEventID,
+			in.VerifiedAt.UTC(), in.TraceID, nil); err != nil {
+			return domain.ShiftingExecutionResult{}, false, err
+		}
 	}
 
-	sourceParkID, sourceShedID, err := r.readShiftingEventSourceLocation(ctx, tx, in.TenantID, in.ShiftingEventID)
+	tag, err := tx.Exec(ctx, `
+UPDATE shifting_events
+SET verification_state = 'verified',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND event_status IN ('pending', 'pending_verification', 'applied')
+  AND verification_state <> 'verified'`, in.TenantID, in.ShiftingEventID)
 	if err != nil {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read shifting source location: %w", err)
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: mark shifting verification approved: %w", err)
 	}
 
-	// The destination cohort tag the OPERATOR supplied at completion (for the profile cross-check) was
-	// persisted on the row, because the relocation runs here at approval, not at completion. A tag on
-	// the command overrides it (unused today; the consumer supplies none).
-	destinationTag := in.DestinationTag
-	if destinationTag == "" {
-		var persistedTag *string
-		if err := tx.QueryRow(ctx,
-			`SELECT completion_destination_tag FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
-			in.TenantID, in.ShiftingEventID).Scan(&persistedTag); err != nil {
-			return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read completion destination tag: %w", err)
-		}
-		if persistedTag != nil {
-			destinationTag = *persistedTag
-		}
-	}
-
-	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
-		TenantID:       in.TenantID,
-		ActorID:        in.VerifiedByUserID,
-		GoatIDs:        goatIDs,
-		FromParkID:     sourceParkID,
-		FromShedID:     sourceShedID,
-		ToParkID:       destParkID,
-		ToShedID:       destShedID,
-		DestinationTag: destinationTag,
-		TraceID:        in.TraceID,
-		Reason:         "counts shifting verified " + in.ShiftingEventID,
-		// The relocation is stamped with the moment of VERIFICATION -- when the move became real.
-		OccurredAt:              in.VerifiedAt,
-		OutboxIdempotencyPrefix: "counts-shifting-verified:" + in.ShiftingEventID,
-	})
+	final, err := lockShiftingEvent(ctx, tx, in.TenantID, in.ShiftingEventID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
-	if len(moved.MovedGoatIDs) != len(goatIDs) {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"%w: shifting event %s named %d animals but %d were movable",
-			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID, len(goatIDs), len(moved.MovedGoatIDs))
-	}
-
-	var (
-		appliedAt time.Time
-		appliedBy string
-	)
-	if err := tx.QueryRow(ctx, `
-UPDATE shifting_events
-SET event_status = 'applied',
-    verification_state = 'verified',
-    applied_at = $3::timestamptz,
-    applied_by = $4::uuid,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'pending_verification'
-RETURNING applied_at, applied_by::text`,
-		in.TenantID, in.ShiftingEventID, in.VerifiedAt.UTC(), in.VerifiedByUserID).Scan(&appliedAt, &appliedBy); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingNotAuthorized
-		}
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: apply verified shifting event: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 	committed = true
-
-	srcPark, srcShed := "", ""
-	if sourceParkID != nil {
-		srcPark = *sourceParkID
-	}
-	if sourceShedID != nil {
-		srcShed = *sourceShedID
-	}
 	return domain.ShiftingExecutionResult{
 		ShiftingEventID:   in.ShiftingEventID,
-		EventStatus:       domain.ShiftingEventStatusApplied,
+		EventStatus:       final.EventStatus,
 		DestinationParkID: destParkID,
 		DestinationShedID: destShedID,
-		SourceParkID:      srcPark,
-		SourceShedID:      srcShed,
-		MovedGoatIDs:      moved.MovedGoatIDs,
-		AppliedAt:         &appliedAt,
-		AppliedBy:         &appliedBy,
-	}, true, nil
+		MovedGoatIDs:      goatIDs,
+		AppliedAt:         final.AppliedAt,
+		AppliedBy:         final.AppliedBy,
+	}, tag.RowsAffected() == 1, nil
 }
 
-// BounceShiftingEventForRework returns a movement whose video a verifier REJECTED to 'authorized',
-// so the operator sees it again in the pending-execution queue and re-records the video. NOTHING
-// relocates. It runs from the verification.verdict.rework consumer.
+// BounceShiftingEventForRework marks rejected evidence for re-shoot while preserving movement state.
+// Applied goat location and census truth are never rolled back.
 //
-// Idempotent: only a 'pending_verification' row is bounced; a verdict re-delivered after the
-// movement already moved on (re-completed, applied, canceled) is a no-op.
+// Re-delivered verdicts are idempotent. A verdict for a terminal rejected/canceled movement is a
+// no-op; an applied row remains applied while its evidence is reopened for re-shoot.
 func (r *Repository) BounceShiftingEventForRework(
 	ctx context.Context, in domain.ShiftingReworkCommand,
 ) error {
@@ -355,13 +303,13 @@ func (r *Repository) BounceShiftingEventForRework(
 
 	tag, err := r.pool.Exec(ctx, `
 UPDATE shifting_events
-SET event_status = 'authorized',
-    verification_state = 'rejected',
+SET verification_state = 'rejected',
     completion_idempotency_key = NULL,
     completion_request_fingerprint = NULL,
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND event_status = 'pending_verification'`,
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND event_status IN ('pending', 'pending_verification', 'applied')`,
 		in.TenantID, in.ShiftingEventID)
 	if err != nil {
 		return fmt.Errorf("counts: bounce shifting event for rework: %w", err)
@@ -490,12 +438,18 @@ RETURNING canceled_at, canceled_by::text, cancel_reason`,
 type lockedShiftingEvent struct {
 	EventStatus        string
 	AuthorizationState string
+	VerificationState  string
 
 	DestinationParkID string
 	DestinationShedID string
 
-	AppliedAt *time.Time
-	AppliedBy *string
+	AppliedAt                *time.Time
+	AppliedBy                *string
+	CompletedAt              *time.Time
+	CompletedBy              *string
+	CompletionDestinationTag *string
+	ManagementStageMode      *string
+	TargetManagementStage    *string
 
 	CanceledAt   *time.Time
 	CanceledBy   *string
@@ -512,18 +466,20 @@ type lockedShiftingEvent struct {
 func lockShiftingEvent(ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string) (lockedShiftingEvent, error) {
 	var out lockedShiftingEvent
 	err := tx.QueryRow(ctx, `
-SELECT event_status, authorization_state,
+SELECT event_status, authorization_state, verification_state,
        destination_park_id::text, destination_shed_id::text,
-       applied_at, applied_by::text,
+       applied_at, applied_by::text, completed_at, completed_by::text,
+       completion_destination_tag, management_stage_mode, target_management_stage,
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
        cancel_idempotency_key, cancel_request_fingerprint
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
-		&out.EventStatus, &out.AuthorizationState,
+		&out.EventStatus, &out.AuthorizationState, &out.VerificationState,
 		&out.DestinationParkID, &out.DestinationShedID,
-		&out.AppliedAt, &out.AppliedBy,
+		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
+		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage,
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
 		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint)
@@ -534,6 +490,92 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		return lockedShiftingEvent{}, fmt.Errorf("counts: lock shifting event: %w", err)
 	}
 	return out, nil
+}
+
+// applyAuthorizedCompletedShiftingInTx is the single relocation writer. Its caller already holds
+// the shifting row lock. It runs only after both independent gates are durable and commits goat
+// identity, stage/location events, outbox, and the shifting applied state in one transaction.
+func (r *Repository) applyAuthorizedCompletedShiftingInTx(
+	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string, appliedAt time.Time, traceID string,
+	approvedGoatIDs []string,
+) (domain.ShiftingExecutionResult, error) {
+	if r.identityTx == nil {
+		return domain.ShiftingExecutionResult{}, fmt.Errorf(
+			"counts: apply authorized completed shifting event %s: identity write seam is not wired", shiftingEventID)
+	}
+	current, err := lockShiftingEvent(ctx, tx, tenantID, shiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, err
+	}
+	if current.AuthorizationState != "authorized" ||
+		(current.EventStatus != domain.ShiftingEventStatusAuthorized && current.EventStatus != domain.ShiftingEventStatusPendingVerification) ||
+		current.CompletedAt == nil || current.CompletedBy == nil {
+		return domain.ShiftingExecutionResult{}, fmt.Errorf(
+			"%w: shifting event %s does not have both approval and operator completion",
+			ports.ErrShiftingExecutionIncomplete, shiftingEventID)
+	}
+	goatIDs := approvedGoatIDs
+	destParkID, destShedID := current.DestinationParkID, current.DestinationShedID
+	if len(goatIDs) == 0 {
+		goatIDs, destParkID, destShedID, err = r.shiftingMovementSet(ctx, tx, tenantID, shiftingEventID)
+		if err != nil {
+			return domain.ShiftingExecutionResult{}, err
+		}
+	}
+	if len(goatIDs) == 0 {
+		return domain.ShiftingExecutionResult{}, fmt.Errorf(
+			"%w: shifting event %s names no approved animals", ports.ErrShiftingExecutionIncomplete, shiftingEventID)
+	}
+	sourceParkID, sourceShedID, err := r.readShiftingEventSourceLocation(ctx, tx, tenantID, shiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, err
+	}
+	destinationTag := ""
+	if current.TargetManagementStage != nil {
+		destinationTag = *current.TargetManagementStage
+	} else if current.CompletionDestinationTag != nil { // legacy pre-selection row
+		destinationTag = *current.CompletionDestinationTag
+	}
+	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
+		TenantID: tenantID, ActorID: *current.CompletedBy, GoatIDs: goatIDs,
+		FromParkID: sourceParkID, FromShedID: sourceShedID,
+		ToParkID: destParkID, ToShedID: destShedID, DestinationTag: destinationTag,
+		TraceID: traceID, Reason: "counts shifting approved and operator-completed " + shiftingEventID,
+		OccurredAt: appliedAt.UTC(), OutboxIdempotencyPrefix: "counts-shifting-applied:" + shiftingEventID,
+	})
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, err
+	}
+	if len(moved.MovedGoatIDs) != len(goatIDs) {
+		return domain.ShiftingExecutionResult{}, fmt.Errorf(
+			"%w: shifting event %s named %d animals but %d were movable",
+			ports.ErrShiftingExecutionIncomplete, shiftingEventID, len(goatIDs), len(moved.MovedGoatIDs))
+	}
+	var stampedAt time.Time
+	var stampedBy string
+	if err := tx.QueryRow(ctx, `
+UPDATE shifting_events
+SET event_status = 'applied', applied_at = $3::timestamptz, applied_by = $4::uuid,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND authorization_state = 'authorized' AND event_status IN ('authorized', 'pending_verification')
+RETURNING applied_at, applied_by::text`, tenantID, shiftingEventID, appliedAt.UTC(), *current.CompletedBy).
+		Scan(&stampedAt, &stampedBy); err != nil {
+		return domain.ShiftingExecutionResult{}, fmt.Errorf("counts: apply authorized completed shifting: %w", err)
+	}
+	srcPark, srcShed := "", ""
+	if sourceParkID != nil {
+		srcPark = *sourceParkID
+	}
+	if sourceShedID != nil {
+		srcShed = *sourceShedID
+	}
+	return domain.ShiftingExecutionResult{
+		ShiftingEventID: shiftingEventID, EventStatus: domain.ShiftingEventStatusApplied,
+		SourceParkID: srcPark, SourceShedID: srcShed,
+		DestinationParkID: destParkID, DestinationShedID: destShedID,
+		MovedGoatIDs: moved.MovedGoatIDs, AppliedAt: &stampedAt, AppliedBy: &stampedBy,
+	}, nil
 }
 
 // readShiftingEventSourceLocation reads the expected source park and shed for a shifting event.
@@ -604,29 +646,68 @@ WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`,
 	return decoded.GoatIDs, destParkID, destShedID, nil
 }
 
+// shiftingProposedMovementSet reads the one linked approval payload whether its Park Head decision
+// is still pending or already approved. It is used for Actions and operator completion only; the
+// relocation writer above deliberately calls shiftingMovementSet, which accepts approved payloads
+// exclusively.
+func (r *Repository) shiftingProposedMovementSet(
+	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string,
+) (goatIDs []string, destParkID, destShedID string, err error) {
+	var payload []byte
+	err = tx.QueryRow(ctx, `
+SELECT car.payload, se.destination_park_id::text, se.destination_shed_id::text
+FROM shifting_events se
+LEFT JOIN LATERAL (
+    SELECT ar.payload
+    FROM counts_approval_requests ar
+    WHERE ar.tenant_id = se.tenant_id AND ar.shifting_event_id = se.shifting_event_id
+      AND ar.status IN ('pending', 'approved')
+    ORDER BY CASE ar.status WHEN 'approved' THEN 0 ELSE 1 END, ar.raised_at DESC
+    LIMIT 1
+) car ON true
+WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`, tenantID, shiftingEventID).
+		Scan(&payload, &destParkID, &destShedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", "", ports.ErrShiftingEventNotFound
+		}
+		return nil, "", "", fmt.Errorf("counts: read proposed shifting movement set: %w", err)
+	}
+	if len(payload) == 0 {
+		return nil, destParkID, destShedID, nil
+	}
+	var decoded struct {
+		GoatIDs []string `json:"goat_ids"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, "", "", fmt.Errorf("counts: decode proposed shifting movement set: %w", err)
+	}
+	if len(decoded.GoatIDs) > identityports.MaxRelocateGoatsPerCommand {
+		return nil, "", "", fmt.Errorf("%w: shifting event %s names %d animals, above the %d bulk-relocate bound",
+			ports.ErrShiftingExecutionIncomplete, shiftingEventID, len(decoded.GoatIDs), identityports.MaxRelocateGoatsPerCommand)
+	}
+	return decoded.GoatIDs, destParkID, destShedID, nil
+}
+
 // ---------------------------------------------------------------------------
 // Pending-execution queue
 // ---------------------------------------------------------------------------
 
-// ListShiftingEventsPendingExecution returns one keyset page of AUTHORIZED movements.
+// ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
 // projection-review: canonical-source read, not a projection. GRAIN = one row per shifting_event,
 // which is the queue's natural unit of work (an operator executes a movement, not an animal). The
-// only aggregate is animal_count, and it is computed from ONE array on ONE approval request per
-// event -- the LEFT JOIN to counts_approval_requests is 1:1 by (tenant_id, shifting_event_id, and
-// status='approved'), which counts_approval_requests_shifting_link_check keeps single-valued -- so
+// only aggregate is animal_count, computed from ONE selected pending/approved request payload per
+// event. The LATERAL selector is bounded to LIMIT 1 and prefers approved over pending, so
 // there is no many-side to fan out and no possibility of a join multiplying the count. The animal
 // preview is a LATERAL over a SLICE of that same array, so it cannot inflate the row either, and
 // the count is read from the full array rather than from the preview, keeping the displayed total
 // independent of the preview bound and of page size.
 //
-// Keyset, not OFFSET: this queue is drained by several operators at once, so an offset page would
-// skip or repeat movements while one of them pages. The predicate and ORDER BY match
-// shifting_events_pending_execution_idx (and ..._park_idx when park_id is supplied), both partial
-// on event_status='authorized', so a page is an index range scan bounded by the page size rather
-// than a filter over every movement the tenant has ever recorded. The optional source_shed_id is a
-// residual equality on top of that same authorized index range -- the farm -> shed cascade always
-// pins the park too, so the shed narrows an already park-bounded set, not the whole tenant.
+// Keyset, not OFFSET: rows may transition while an operator pages. The business date is converted
+// to one inclusive/exclusive UTC range by the service; indexed columns stay bare. ORDER BY and the
+// cursor match shifting_events_actions_history_idx, so the selected date/status reads an index
+// range bounded by page size instead of scanning the tenant's full movement history.
 func (r *Repository) ListShiftingEventsPendingExecution(
 	ctx context.Context, q domain.ShiftingExecutionQuery,
 ) (domain.ShiftingExecutionPage, error) {
@@ -639,49 +720,76 @@ func (r *Repository) ListShiftingEventsPendingExecution(
 	}
 
 	var (
-		cursorAuthorizedAt any
-		cursorID           any
-		parkFilter         any
-		shedFilter         any
+		cursorRaisedAt any
+		cursorID       any
+		raisedFrom     any
+		raisedBefore   any
 	)
 	if q.Cursor != nil {
-		cursorAuthorizedAt = q.Cursor.AuthorizedAt.UTC()
+		cursorRaisedAt = q.Cursor.AuthorizedAt.UTC()
 		cursorID = q.Cursor.ShiftingEventID
 	}
+	if q.RaisedFrom != nil {
+		raisedFrom = q.RaisedFrom.UTC()
+	}
+	if q.RaisedBefore != nil {
+		raisedBefore = q.RaisedBefore.UTC()
+	}
+	status := q.Status
+	if status == "" {
+		status = "all"
+	}
+	var sourceParkID, sourceShedID any
 	if q.SourceParkID != "" {
-		parkFilter = q.SourceParkID
+		sourceParkID = q.SourceParkID
 	}
 	if q.SourceShedID != "" {
-		shedFilter = q.SourceShedID
+		sourceShedID = q.SourceShedID
 	}
 
 	// Fetch one extra row to decide whether a next page exists, without a second COUNT query.
 	rows, err := r.pool.Query(ctx, `
 WITH page AS (
-    SELECT se.shifting_event_id, se.priority, se.category,
+	    SELECT se.shifting_event_id, se.event_status, se.verification_state,
+	           CASE WHEN (((se.event_status IN ('pending', 'authorized')) AND se.proof_ref IS NULL)
+	                           OR se.verification_state = 'rejected')
+	                THEN 'execute' ELSE 'none' END AS primary_action_key,
+	           se.priority, se.category,
            se.source_park_id, se.source_shed_id,
            se.destination_park_id, se.destination_shed_id,
            se.authorized_by, se.authorized_at, se.raised_at, se.effective_at
     FROM shifting_events se
     WHERE se.tenant_id = $1::uuid
-      AND se.event_status = 'authorized'
-      AND ($2::uuid IS NULL OR se.source_park_id = $2::uuid)
-      AND ($7::uuid IS NULL OR se.source_shed_id = $7::uuid)
-      AND ($3::timestamptz IS NULL
-           OR (se.authorized_at, se.shifting_event_id) < ($3::timestamptz, $4::uuid))
-    ORDER BY se.authorized_at DESC, se.shifting_event_id DESC
-    LIMIT $5
+	      AND se.event_status <> 'canceled'
+	      AND ($2::timestamptz IS NULL OR se.raised_at >= $2::timestamptz)
+	      AND ($3::timestamptz IS NULL OR se.raised_at < $3::timestamptz)
+	      AND ($4::text = 'all'
+	           OR ($4::text = 'pending' AND se.event_status = 'pending' AND se.verification_state <> 'rejected')
+	           OR ($4::text = 'authorized' AND se.event_status = 'authorized' AND se.verification_state <> 'rejected')
+	           OR ($4::text = 'rework' AND se.verification_state = 'rejected')
+	           OR ($4::text = 'completed' AND se.event_status = 'applied' AND se.verification_state <> 'rejected'))
+	      AND ($9::uuid IS NULL OR se.source_park_id = $9::uuid)
+	      AND ($10::uuid IS NULL OR se.source_shed_id = $10::uuid)
+	      AND ($5::timestamptz IS NULL
+	           OR (se.raised_at, se.shifting_event_id) < ($5::timestamptz, $6::uuid))
+	    ORDER BY se.raised_at DESC, se.shifting_event_id DESC
+	    LIMIT $7
 ), req AS (
     SELECT p.shifting_event_id,
            car.raised_by_user_id,
            ARRAY(SELECT jsonb_array_elements_text(car.payload -> 'goat_ids'))::uuid[] AS goat_ids
     FROM page p
-    LEFT JOIN counts_approval_requests car
-           ON car.tenant_id = $1::uuid
-          AND car.shifting_event_id = p.shifting_event_id
-          AND car.status = 'approved'
+    LEFT JOIN LATERAL (
+        SELECT ar.raised_by_user_id, ar.payload
+        FROM counts_approval_requests ar
+        WHERE ar.tenant_id = $1::uuid AND ar.shifting_event_id = p.shifting_event_id
+          AND ar.status IN ('pending', 'approved')
+        ORDER BY CASE ar.status WHEN 'approved' THEN 0 ELSE 1 END, ar.raised_at DESC
+        LIMIT 1
+    ) car ON true
 )
-SELECT p.shifting_event_id::text, p.priority, p.category,
+	SELECT p.shifting_event_id::text, p.event_status, p.verification_state, p.primary_action_key,
+	       p.priority, p.category,
        p.source_park_id::text, src_park.name, p.source_shed_id::text, src_shed.name,
        p.destination_park_id::text, dst_park.name,
        p.destination_shed_id::text, dst_shed.name,
@@ -701,7 +809,7 @@ LEFT JOIN LATERAL (
                'display_id', g.display_id,
                'tag', tag.identifier_value
            ) ORDER BY g.display_id) AS animals
-    FROM unnest(r.goat_ids[1:$6]) AS gid
+	    FROM unnest(r.goat_ids[1:$8]) AS gid
     JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gid
     LEFT JOIN LATERAL (
         SELECT gi.identifier_value
@@ -712,9 +820,9 @@ LEFT JOIN LATERAL (
         LIMIT 1
     ) tag ON true
 ) preview ON true
-ORDER BY p.authorized_at DESC, p.shifting_event_id DESC`,
-		q.TenantID, parkFilter, cursorAuthorizedAt, cursorID, pageSize+1,
-		domain.MaxShiftingExecutionAnimalPreview, shedFilter)
+ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
+		q.TenantID, raisedFrom, raisedBefore, status, cursorRaisedAt, cursorID, pageSize+1,
+		domain.MaxShiftingExecutionAnimalPreview, sourceParkID, sourceShedID)
 	if err != nil {
 		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: list shifting events pending execution: %w", err)
 	}
@@ -728,7 +836,8 @@ ORDER BY p.authorized_at DESC, p.shifting_event_id DESC`,
 			animalsRaw []byte
 		)
 		if err := rows.Scan(
-			&item.ShiftingEventID, &item.Priority, &item.Category,
+			&item.ShiftingEventID, &item.EventStatus, &item.VerificationState, &item.PrimaryActionKey,
+			&item.Priority, &item.Category,
 			&item.SourceParkID, &item.SourceParkName, &item.SourceShedID, &item.SourceShedName,
 			&item.DestinationParkID, &item.DestinationParkName,
 			&item.DestinationShedID, &item.DestinationShedName,
@@ -758,12 +867,8 @@ ORDER BY p.authorized_at DESC, p.shifting_event_id DESC`,
 	page := domain.ShiftingExecutionPage{}
 	if len(items) > pageSize {
 		last := items[pageSize-1]
-		var authorizedAt time.Time
-		if last.AuthorizedAt != nil {
-			authorizedAt = *last.AuthorizedAt
-		}
 		cursor, err := domain.EncodeShiftingExecutionCursor(domain.ShiftingExecutionCursor{
-			AuthorizedAt:    authorizedAt,
+			AuthorizedAt:    last.RaisedAt,
 			ShiftingEventID: last.ShiftingEventID,
 		})
 		if err != nil {
@@ -773,5 +878,40 @@ ORDER BY p.authorized_at DESC, p.shifting_event_id DESC`,
 		items = items[:pageSize]
 	}
 	page.Items = items
+	if q.RaisedFrom != nil && q.RaisedBefore != nil {
+		if err := r.pool.QueryRow(ctx, `SELECT
+ count(*) FILTER (WHERE event_status <> 'canceled'),
+ count(*) FILTER (WHERE event_status='pending' AND verification_state <> 'rejected'),
+ count(*) FILTER (WHERE event_status='authorized' AND verification_state <> 'rejected'),
+ count(*) FILTER (WHERE verification_state='rejected'),
+ count(*) FILTER (WHERE event_status='applied' AND verification_state <> 'rejected')
+FROM shifting_events WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3`,
+			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC()).Scan(
+			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
+			&page.StatusCounts.Rework, &page.StatusCounts.Completed); err != nil {
+			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting actions summary: %w", err)
+		}
+		prevRows, err := r.pool.Query(ctx, `SELECT to_char((raised_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'), count(*)
+FROM shifting_events
+WHERE tenant_id=$1::uuid AND event_status <> 'canceled'
+  AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
+GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
+ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC())
+		if err != nil {
+			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting previous dates: %w", err)
+		}
+		defer prevRows.Close()
+		page.PreviousDates = []domain.ShiftingPreviousDate{}
+		for prevRows.Next() {
+			var d domain.ShiftingPreviousDate
+			if err := prevRows.Scan(&d.Date, &d.ActionCount); err != nil {
+				return domain.ShiftingExecutionPage{}, err
+			}
+			page.PreviousDates = append(page.PreviousDates, d)
+		}
+		if err := prevRows.Err(); err != nil {
+			return domain.ShiftingExecutionPage{}, err
+		}
+	}
 	return page, nil
 }

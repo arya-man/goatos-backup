@@ -36,15 +36,16 @@ import javax.inject.Inject
 
 /**
  * The Shifting EXECUTE screen (`/counts/shifting/execute/{shifting_event_id}`) — an operator
- * confirming an approved movement physically happened.
+ * recording operator completion for a raised or approved movement.
  *
  * Two independent, offline-first writes:
- *  - **Mandatory video** (`enqueueProofUpload`): captured LIVE with the in-app camera OR picked from
- *    the device gallery, registered against the destination shed with the movement id in metadata,
+ *  - **Mandatory video** (`enqueueProofUpload`): captured LIVE with the in-app camera and registered
+ *    against the destination shed with the movement id in metadata,
  *    uploaded to GCS via the same signed-URL path as vaccination proof. It is REQUIRED (maintainer
  *    decision, 2026-07-26): completion stays disabled until a video is recorded/uploaded, and a
- *    verifier must approve it before the move is applied.
- *  - **Mark done** (`enqueueShiftingComplete`): the write that RELOCATES the animals. Idempotency is
+ *    verifier reviews it independently after the task.
+ *  - **Mark done** (`enqueueShiftingComplete`): stores completion and relocates only when Park Head
+ *    approval already exists; otherwise approval applies it later. Idempotency is
  *    a STABLE `SavedStateHandle`-persisted key keyed to the movement, so a resend after process
  *    death collapses onto the original relocation instead of moving the herd twice.
  *
@@ -74,7 +75,7 @@ class ShiftingExecuteViewModel @Inject constructor(
     // The PROOF_UPLOAD outbox item id from recordVideo, persisted so a process-death mid-flow still
     // couples the mandatory video to the completion. The complete carries this id so the sync engine
     // can resolve the uploaded proof_id and send it as proof_ref (maintainer decision, 2026-07-26:
-    // a shed move is applied only after a verifier approves the operator's video).
+    // verification reviews evidence independently of the approval + completion apply gate).
     private val proofOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_PROOF_OUTBOX_ITEM_ID)
 
     private val _state = MutableStateFlow(ShiftingExecuteUiState(shiftingEventId = shiftingEventId))
@@ -272,9 +273,9 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val META_CAPTURED_END_MS = "captured_end_ms"
         const val UNKNOWN_LOCATION = "—"
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
-        const val SYNCED_MESSAGE = "Movement completed. The animals are now at the destination shed."
+        const val SYNCED_MESSAGE = "Completion recorded. The move applies when Park Head approval is also present."
         const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
         const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record or upload it again."
-        const val VIDEO_REQUIRED = "Record the video first — a verifier reviews it before the move is applied."
+        const val VIDEO_REQUIRED = "Record the video first — it is required evidence for this task."
     }
 }

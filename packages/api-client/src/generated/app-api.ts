@@ -1673,7 +1673,7 @@ export interface paths {
         put?: never;
         /**
          * Record an operator-reported shifting (movement) event for approval.
-         * @description Records a movement of a cohort into a destination shed, as reported by a field operator on the phone, and raises the approval request a park_head decides. The event is recorded for review: authorization_state is 'pending', verification_state is 'unverified' and event_status is 'pending' - an operator REPORTS a movement, they do not self-authorize it. NOTHING IS APPLIED until the request is approved via POST /app/counts/approvals/{request_id}/approve. Approving it authorizes the movement AND relocates the animals named in goat_ids to the destination shed. goat_ids is REQUIRED and must name at least one animal: a submit that names nobody is rejected here, at submit time, with 400 missing_goat_ids, so the reporting operator learns immediately rather than the approver discovering it later. Idempotent via the Idempotency-Key header: an exact replay returns the original shifting_event_id with idempotent_replay=true and records no second movement; a same-key/different-payload replay is rejected with 409.
+         * @description Records a movement of a cohort into a destination shed, as reported by a field operator on the phone, and raises the approval request a park_head decides. The event is recorded for review: authorization_state is 'pending', verification_state is 'unverified' and event_status is 'pending' - an operator REPORTS a movement, they do not self-authorize it. Park Head approval and operator completion are independent; the transaction receiving the second fact relocates the animals named in goat_ids. goat_ids is REQUIRED and must name at least one animal: a submit that names nobody is rejected here, at submit time, with 400 missing_goat_ids, so the reporting operator learns immediately rather than the approver discovering it later. Every named animal must be a current, non-merged herd member; dead, sold, transferred, or otherwise exited animals are rejected with 422 goat_not_shiftable before any event or approval request is written. A destination must stay inside the animal's current park. Idempotent via the Idempotency-Key header: an exact replay returns the original shifting_event_id with idempotent_replay=true and records no second movement; a same-key/different-payload replay is rejected with 409.
          */
         post: operations["recordAppCountsShiftingEvent"];
         delete?: never;
@@ -1850,8 +1850,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List authorized shiftings waiting to be physically executed.
-         * @description The operator's execution queue: movements that have been APPROVED but whose animals have not moved yet (event_status='authorized'). Each row carries what an operator needs in order to act - where the animals are now, where they are going, the category and priority, who approved it and when - plus the movement's full animal_count and a bounded preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. PARK SCOPE: park_id is an OPTIONAL filter matching the movement's SOURCE park (where the animals currently are - an operator has to go there to collect them). Omitting it returns every park. It is a client filter today rather than a per-operator scope derived from the caller, because no per-operator park assignment data exists yet; deriving it now would return an empty queue for every operator. SHED SCOPE: shed_id is an OPTIONAL filter matching the movement's SOURCE shed, the second half of the operator's farm -> shed cascade. It is normally supplied together with park_id (the shed narrows a park), but may be sent alone. Omitting it returns every shed.
+         * List shifting Actions from raise through execution and evidence rework.
+         * @description The operator's Shifting Actions history: newly raised movements appear immediately, before Park Head approval; authorized and evidence-rework movements remain actionable; completed movements remain visible. Each row carries where the animals are/were, where they are going, approval fields when present, plus the full animal_count and a preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. Date is the movement's raised business day in Asia/Kolkata. Status buckets are disjoint and backend-owned; completed rows are read-only (`primary_action_key=none`).
          */
         get: operations["listAppCountsShiftingPendingExecution"];
         put?: never;
@@ -1873,7 +1873,7 @@ export interface paths {
         put?: never;
         /**
          * Confirm a shifting happened and submit its MANDATORY video for verification.
-         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-26). This does NOT relocate the animals and does NOT move the count: it flips the movement to event_status='pending_verification' and queues the video in the verifier's queue. The relocation happens only when a verifier APPROVES that video (the movement then flips to 'applied' and the count moves); a REJECTED video bounces the movement back to 'authorized' for the operator to re-shoot. proof_ref (a proof_artifact id for the video) is REQUIRED - a completion with no video is refused with 422 proof_required, because there is nothing for a verifier to approve. Valid ONLY from event_status='authorized'. A movement still pending approval, or already rejected or canceled, is refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
+         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates. If approval already exists, this request atomically relocates the animals and moves the count; otherwise it keeps event_status='pending' with completion stamps and approval applies the move later. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. proof_ref (a proof_artifact id for the video) is REQUIRED - a completion with no video is refused with 422 proof_required, because there is nothing for a verifier to approve. Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or canceled movements are refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
          */
         post: operations["completeAppCountsShiftingEvent"];
         delete?: never;
@@ -5371,6 +5371,8 @@ export interface components {
         ShiftingDestinationsResponse: {
             /** @description Active parks, ordered by name. Always present; an empty array means the tenant has no active park configured, never null. */
             parks: components["schemas"]["ShiftingDestinationPark"][];
+            /** @description Active backend-owned management-stage vocabulary. */
+            management_stages?: string[];
         };
         ShiftingDestinationPark: {
             /**
@@ -5391,6 +5393,8 @@ export interface components {
             shed_id: string;
             /** @description Display name for the shed option. NOT unique across parks; only meaningful within its parent park. */
             name: string;
+            /** @description Distinct stages currently represented by live animals in this shed. */
+            management_stages: string[];
         };
         RecordShiftingEventRequest: {
             /**
@@ -5403,10 +5407,20 @@ export interface components {
              * @description Shed the cohort moved out of. Omit for an intake with no tracked origin.
              */
             source_shed_id?: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The selected animal's current park. Shed shifts are intra-park only; clients derive and lock this value from the animal lookup rather than offering another farm picker.
+             */
             destination_park_id: string;
             /** Format: uuid */
             destination_shed_id: string;
+            /**
+             * @description Mandatory raise-time decision for the post-shift management stage.
+             * @enum {string}
+             */
+            management_stage_mode: "keep_current" | "select_stage" | "destination_stage";
+            /** @description Required for select_stage/destination_stage; omitted for keep_current. */
+            target_management_stage?: string;
             /**
              * Format: date-time
              * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
@@ -5871,15 +5885,34 @@ export interface components {
             items: components["schemas"]["CountsShiftingPendingExecutionItem"][];
             /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
             next_cursor?: string;
+            status_counts: components["schemas"]["CountsShiftingActionStatusCounts"];
+            previous_dates: components["schemas"]["CountsShiftingPreviousDate"][];
+        };
+        CountsShiftingActionStatusCounts: {
+            all: number;
+            pending: number;
+            authorized: number;
+            rework: number;
+            completed: number;
+        };
+        CountsShiftingPreviousDate: {
+            /** Format: date */
+            date: string;
+            action_count: number;
         };
         CountsShiftingPendingExecutionItem: {
             /** Format: uuid */
             shifting_event_id: string;
             /**
-             * @description Always 'authorized' on this queue - the read is filtered to it.
+             * @description Canonical movement state; applied is shown as rework only when verification was rejected.
              * @enum {string}
              */
-            event_status: "authorized";
+            event_status: "pending" | "authorized" | "applied";
+            /**
+             * @description Backend-owned row action. Completed rows are none and cannot open execution.
+             * @enum {string}
+             */
+            primary_action_key: "execute" | "none";
             /** @enum {string} */
             priority: "high" | "low";
             /** @enum {string} */
@@ -9163,6 +9196,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -9435,10 +9469,10 @@ export interface operations {
     listAppCountsShiftingPendingExecution: {
         parameters: {
             query?: {
-                /** @description Optional. Filters to movements whose SOURCE park is this park. Omit for all parks. */
-                park_id?: string;
-                /** @description Optional. Filters to movements whose SOURCE shed is this shed (the farm -> shed cascade). Normally sent with park_id. Omit for all sheds. */
-                shed_id?: string;
+                /** @description Optional Asia/Kolkata business date. Omit for all dates. */
+                date?: string;
+                /** @description Disjoint workflow bucket. Defaults to all. */
+                status?: "all" | "pending" | "authorized" | "rework" | "completed";
                 /** @description Server-capped at 20. */
                 page_size?: number;
                 /** @description Opaque keyset cursor from a previous page's next_cursor. */
@@ -9450,7 +9484,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of authorized movements awaiting execution. */
+            /** @description One page of date/status-filtered Shifting Actions history. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9479,7 +9513,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description MANDATORY. The proof_artifact id of the video the operator recorded to prove the animals physically moved. The move is applied only after a verifier approves it. */
+                    /** @description MANDATORY. The proof_artifact id of the video the operator recorded to prove the animals physically moved. Verification reviews it independently of movement apply. */
                     proof_ref: string;
                     /** @description OPTIONAL destination management_stage the moved animals adopt. Needed only when the destination shed is empty; for an occupied shed the server derives it and a supplied value must agree with the shed's configured profile. */
                     destination_tag?: string;
@@ -9487,7 +9521,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Movement submitted for verification (event_status='pending_verification'); nothing relocated yet, or the original result replayed. */
+            /** @description Operator completion recorded. Status remains pending while Park Head approval is absent, applied when both gates exist, or the original result replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

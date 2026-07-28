@@ -51,6 +51,8 @@ type ShiftingEvent struct {
 	SourceShedID            *string
 	DestinationParkID       string
 	DestinationShedID       string
+	ManagementStageMode     string
+	TargetManagementStage   string
 	RaisedAt                time.Time
 	EffectiveAt             time.Time
 	AuthorizedAt            *time.Time
@@ -535,7 +537,8 @@ type CountsBreakdownQuery struct {
 // This is a bounded CONFIG CATALOG (2 parks, ~154 sheds for the current tenant), not a feed: it is
 // fetched whole, cached on-device, and never paginated. See the guard annotations on the query.
 type ShiftingDestinationCatalog struct {
-	Parks []ShiftingDestinationPark
+	Parks            []ShiftingDestinationPark
+	ManagementStages []string
 }
 
 // ShiftingDestinationPark is one park and the sheds that belong to it.
@@ -550,8 +553,9 @@ type ShiftingDestinationPark struct {
 
 // ShiftingDestinationShed is one selectable destination shed.
 type ShiftingDestinationShed struct {
-	ShedID string
-	Name   string
+	ShedID           string
+	Name             string
+	ManagementStages []string
 }
 
 // GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting
@@ -561,6 +565,12 @@ type ShiftingDestinationShed struct {
 // ShiftingEventImpact, so the single-animal path stays a cheap indexed lookup.
 type GoatShiftingFact struct {
 	GoatID string
+	// LifecycleStatus / ExitedAt distinguish an existing but terminal animal from a goat id that
+	// genuinely does not resolve. Only lifecycle_status='alive' with no exit stamp may shift;
+	// health states such as sick/quarantine remain separate facts and do not make a live goat
+	// ineligible for an intra-park shed move.
+	LifecycleStatus string
+	ExitedAt        *time.Time
 	// BreedID is the canonical breed FK when the animal has one; nil when the goat carries only a
 	// free-text breed or none at all.
 	BreedID *string

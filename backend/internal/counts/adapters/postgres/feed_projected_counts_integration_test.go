@@ -108,7 +108,7 @@ func insertFeedProjShifting(
 	}
 
 	// The applied-shape CHECK requires applied_at exactly when event_status='applied'.
-	var appliedAt any
+	var appliedAt, completedAt, completedBy any
 	if eventStatus == "applied" {
 		appliedAt = approvedAt.Add(24 * time.Hour)
 	}
@@ -118,6 +118,8 @@ func insertFeedProjShifting(
 	var proofRef any
 	if eventStatus == "pending_verification" || eventStatus == "applied" {
 		proofRef = key + ":proof"
+		completedAt = approvedAt.Add(12 * time.Hour)
+		completedBy = countsOperator
 	}
 
 	var eventID string
@@ -126,17 +128,18 @@ INSERT INTO shifting_events (
   tenant_id, logical_shifting_event_key, priority, category,
   source_park_id, source_shed_id, destination_park_id, destination_shed_id,
   raised_at, effective_at, authorized_at, authorization_state, event_status, applied_at, proof_ref,
+  completed_at, completed_by,
   source_system, source_ref, payload_hash, idempotency_key, request_fingerprint
 ) VALUES (
   $1::uuid, $2, $3, 'growth',
   $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-  $8, $8, $8, $9, $10, $11, $12,
+  $8, $8, $8, $9, $10, $11, $12, $13, $14::uuid,
   'manual_review', $2, $2, $2, $2
 )
 RETURNING shifting_event_id`,
 		countsTenant, key, priority,
 		sourcePark, sourceShedArg, feedProjPark, destShed,
-		approvedAt, authState, eventStatus, appliedAt, proofRef,
+		approvedAt, authState, eventStatus, appliedAt, proofRef, completedAt, completedBy,
 	).Scan(&eventID); err != nil {
 		t.Fatalf("seed shifting event %s: %v", key, err)
 	}
@@ -274,10 +277,9 @@ func TestFeedProjectionStatusMatrixCountsPendingVerificationExcludesApplied(t *t
 			wantDelta:   5,
 		},
 		{
-			// The verification-gate case (maintainer decision 2026-07-27): the operator has completed
-			// with a video, but a verifier has not approved, so the animals are NOT yet relocated in
-			// goats. It must still contribute or the destination shed is under-fed until approval.
-			name:        "a pending_verification movement is not yet relocated and still contributes",
+			// Compatibility shape from the superseded verifier gate: authorization still makes it a
+			// feed input until the lazy compatibility apply runs.
+			name:        "an authorized legacy pending_verification movement still contributes",
 			authState:   "authorized",
 			eventStatus: "pending_verification",
 			wantDelta:   5,

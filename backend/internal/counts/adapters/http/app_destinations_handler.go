@@ -16,7 +16,8 @@ import (
 // a typed name.
 
 type appShiftingDestinationsResponse struct {
-	Parks []appShiftingDestinationPark `json:"parks"`
+	Parks            []appShiftingDestinationPark `json:"parks"`
+	ManagementStages []string                     `json:"management_stages"`
 }
 
 type appShiftingDestinationPark struct {
@@ -26,8 +27,9 @@ type appShiftingDestinationPark struct {
 }
 
 type appShiftingDestinationShed struct {
-	ShedID string `json:"shed_id"`
-	Name   string `json:"name"`
+	ShedID           string   `json:"shed_id"`
+	Name             string   `json:"name"`
+	ManagementStages []string `json:"management_stages"`
 }
 
 // ListShiftingDestinations returns the active park -> shed cascade for the caller's tenant.
@@ -59,7 +61,7 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 	for _, park := range catalog.Parks {
 		sheds := make([]appShiftingDestinationShed, 0, len(park.Sheds))
 		for _, shed := range park.Sheds {
-			sheds = append(sheds, appShiftingDestinationShed{ShedID: shed.ShedID, Name: shed.Name})
+			sheds = append(sheds, appShiftingDestinationShed{ShedID: shed.ShedID, Name: shed.Name, ManagementStages: shed.ManagementStages})
 		}
 		parks = append(parks, appShiftingDestinationPark{
 			ParkID: park.ParkID,
@@ -68,7 +70,7 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 		})
 	}
 
-	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks})
+	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks, ManagementStages: catalog.ManagementStages})
 }
 
 // Breed vocabulary for the operator's birth form.
