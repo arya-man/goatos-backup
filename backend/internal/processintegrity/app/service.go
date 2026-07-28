@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
+
+var generatedLabelSuffixRE = regexp.MustCompile(`\s+\d{8,}$`)
 
 type Service struct {
 	repo  ports.Repository
@@ -401,7 +404,7 @@ func humanAlertTitle(raw string) string {
 }
 
 func alertDetail(row domain.Row) string {
-	base := fmt.Sprintf("%s / %s", row.ParkName, row.ShedName)
+	base := fmt.Sprintf("%s / %s", cleanExecutiveLocationLabel(row.ParkName), cleanExecutiveLocationLabel(row.ShedName))
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
 		return fmt.Sprintf("%s: %d animals assigned over %d operator slots; latest safe %s", base, row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap, latestSafeOrDue(row))
@@ -411,10 +414,11 @@ func alertDetail(row domain.Row) string {
 		}
 		return base + ": " + string(row.DriveCapacityState)
 	}
-	if row.BlockerReason != nil && *row.BlockerReason != "" {
-		return base + ": " + *row.BlockerReason
-	}
 	return base
+}
+
+func cleanExecutiveLocationLabel(label string) string {
+	return generatedLabelSuffixRE.ReplaceAllString(strings.TrimSpace(label), "")
 }
 
 func latestSafeOrDue(row domain.Row) string {
