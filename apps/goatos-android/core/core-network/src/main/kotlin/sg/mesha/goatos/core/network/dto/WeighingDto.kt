@@ -138,6 +138,7 @@ data class WeighingRosterRowDto(
 @Serializable
 data class WeighingRosterResponseDto(
     @SerialName("items") val items: List<WeighingRosterRowDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
 )
 
