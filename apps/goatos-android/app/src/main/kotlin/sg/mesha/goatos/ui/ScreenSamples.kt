@@ -200,12 +200,13 @@ fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
     scanInput = "RFID004821",
     weightInput = "18.4",
     individualDrafts = listOf(
-        WeighingDraftUiRow("draft-1", "RFID 004821 · 18.4 kg", proofReady = true, readyToSubmit = true),
-        WeighingDraftUiRow("draft-2", "RFID 004839 · 17.9 kg", proofReady = false, readyToSubmit = false),
+        WeighingDraftUiRow("draft-1", "goat-078", "RFID 004821 · 18.4 kg", proofReady = true, readyToSubmit = true),
+        WeighingDraftUiRow("draft-2", "goat-079", "RFID 004839 · 17.9 kg", proofReady = false, readyToSubmit = false),
     ),
     visibleRows = listOf(
         WeighingRosterUiRow(
             id = "row-1",
+            animalId = "goat-078",
             displayAnimalId = "RFID 004821",
             expectedLocationLabel = "Gandhi 1",
             actualLocationLabel = "Gandhi 1",
@@ -215,6 +216,7 @@ fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
         ),
         WeighingRosterUiRow(
             id = "row-2",
+            animalId = "goat-079",
             displayAnimalId = "RFID 004839",
             expectedLocationLabel = "Gandhi 1",
             actualLocationLabel = "Castro 2",
@@ -224,6 +226,7 @@ fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
         ),
         WeighingRosterUiRow(
             id = "row-3",
+            animalId = "goat-080",
             displayAnimalId = "RFID 004847",
             expectedLocationLabel = "Gandhi 1",
             actualLocationLabel = null,
@@ -233,6 +236,7 @@ fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
         ),
         WeighingRosterUiRow(
             id = "row-4",
+            animalId = "goat-081",
             displayAnimalId = "RFID 005001",
             expectedLocationLabel = "Gandhi 1",
             actualLocationLabel = "Gandhi 1",
