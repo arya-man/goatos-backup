@@ -96,6 +96,24 @@ class WeighingViewModelTest {
         assertNull(repository.updatedDraft)
     }
 
+    @Test
+    fun `read failure hides raw localhost transport detail from weighing screen`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            plannerCatalogResult = AppResult.Err("Failed to connect to localhost/127.0.0.1:8080"),
+        )
+        val vm = weighingViewModel(repository = repository)
+        backgroundScope.launch(dispatcher) {
+            vm.state.collect {}
+        }
+
+        advanceUntilIdle()
+
+        assertEquals(
+            "Couldn't load weighing. Check the laptop backend or network, then refresh.",
+            vm.state.value.message,
+        )
+    }
+
     private fun weighingViewModel(repository: FakeWeighingRepository): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
@@ -126,7 +144,9 @@ class WeighingViewModelTest {
         override fun onKeyEvent(event: KeyEvent): Boolean = false
     }
 
-    private class FakeWeighingRepository : WeighingRepository {
+    private class FakeWeighingRepository(
+        private val plannerCatalogResult: AppResult<WeighingPlannerCatalog>? = null,
+    ) : WeighingRepository {
         var createdDraft: WeighingPlanDraft? = null
             private set
         var updatedDraft: WeighingPlanDraft? = null
@@ -138,7 +158,7 @@ class WeighingViewModelTest {
         override suspend fun listAssignments(): AppResult<List<WeighingAssignment>> = AppResult.Ok(emptyList())
 
         override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> =
-            AppResult.Ok(
+            plannerCatalogResult ?: AppResult.Ok(
                 WeighingPlannerCatalog(
                     parks = listOf(
                         WeighingPlannerPark(
