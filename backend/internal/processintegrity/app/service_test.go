@@ -214,6 +214,27 @@ func TestVaccinationCommandSurfacesUseHumanDoseLabel(t *testing.T) {
 	}
 }
 
+func TestProtocolAdherenceForcesVaccinationCategory(t *testing.T) {
+	repo := &fakeRepo{result: domain.ListResult{}}
+	svc := NewService(repo)
+	category := domain.CategoryFeedDirection
+
+	if _, err := svc.ProtocolAdherence(context.Background(), domain.Query{
+		TenantID: "tenant-1",
+		Category: &category,
+	}); err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+
+	if len(repo.listQueries) != 1 {
+		t.Fatalf("list calls = %d", len(repo.listQueries))
+	}
+	got := repo.listQueries[0].Category
+	if got == nil || *got != domain.CategoryVaccination {
+		t.Fatalf("category = %v, want vaccination", got)
+	}
+}
+
 func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
 	row := processRow("raw-drive-name", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)

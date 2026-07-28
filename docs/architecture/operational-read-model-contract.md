@@ -549,11 +549,28 @@ This architecture is working when:
 
 ## Immediate Action Items
 
-1. Fix `ControlTowerAlert.partition_label` contract drift.
-2. Fix Protocol Adherence summary truncation and restore whole-result summary
-   behavior.
-3. Fix selected-drive scoping so recurring rules do not bleed across drives.
-4. Add a vaccination golden fixture covering Calendar, Protocol Adherence,
-   Control Tower, Admin Web, and Android.
-5. Write the vertical onboarding checklist into the engineering gate.
-6. Use weighing as the first module to implement the clean pluggable pattern.
+### Landed
+
+- `ControlTowerAlert.partition_label` contract drift is fixed across the
+  shared contract surfaces.
+- Protocol Adherence preserves row pagination while returning whole-result
+  summary truth from repository-owned scoped rows.
+- Protocol Adherence selected-drive scoping is repository-owned and no longer
+  relies on service-side rule/date filtering.
+- Control Tower/admin-web render typed backend fields directly instead of
+  parsing detail strings or relying on global shared fallback tables.
+- Android Calendar, Control Tower, Adherence, and execution DTOs have been
+  brought back to the current OpenAPI-owned field shape.
+
+### Pending
+
+1. Add a vaccination golden fixture covering Calendar, Action Center, Protocol
+   Adherence, Control Tower, Workflows, Admin Web, Android, reporting, and
+   generated clients.
+2. Add semantic drift guards for Go/OpenAPI/TypeScript/Kotlin/frontend contract
+   agreement. `make operational-read-model-contract-guard` is currently a
+   discoverability/static-text guard only.
+3. Write the vertical onboarding checklist into the engineering gate.
+4. Add a backend-owned whole-result Sheds day/adherence summary so Android does
+   not need a "load all rows" fallback.
+5. Use weighing as the first module to implement the clean pluggable pattern.

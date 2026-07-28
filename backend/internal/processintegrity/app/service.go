@@ -68,6 +68,8 @@ func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domai
 
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
+	category := domain.CategoryVaccination
+	q.Category = &category
 	q.IncludeCompleted = true
 	q.IncludeAdherenceSummary = true
 	q.ScopeLatestDrive = true
