@@ -73,13 +73,17 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	q = s.defaults(q)
 	q.IncludeCompleted = true
 	q.IncludeAdherenceSummary = true
+	if q.Limit < 500 {
+		q.Limit = 500
+	}
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
 	}
 	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
+	result.Rows = driveScopedAdherenceRows(result.Rows, q.AsOf)
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
-	summary := result.AdherenceSummary
+	summary := adherenceSummaryForRows(result.Rows)
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
 			RowID:                   row.RowID,
@@ -109,10 +113,72 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 		Source:     domain.SourceAPI,
 		Summary:    summary,
 		Rows:       rows,
-		TotalCount: result.TotalCount,
-		NextCursor: result.NextCursor,
+		TotalCount: int64(len(rows)),
+		NextCursor: nil,
 		Projection: result.Projection,
 	}, nil
+}
+
+func driveScopedAdherenceRows(rows []domain.Row, asOf time.Time) []domain.Row {
+	if len(rows) == 0 {
+		return rows
+	}
+	selectedRule := ""
+	selectedDue := time.Time{}
+	for _, row := range rows {
+		if row.Category != domain.CategoryVaccination || row.RuleID == "" {
+			continue
+		}
+		if !asOf.IsZero() && row.DueAt.After(asOf) {
+			continue
+		}
+		if selectedRule == "" || row.DueAt.After(selectedDue) {
+			selectedRule = row.RuleID
+			selectedDue = row.DueAt
+		}
+	}
+	if selectedRule == "" {
+		for _, row := range rows {
+			if row.Category != domain.CategoryVaccination || row.RuleID == "" {
+				continue
+			}
+			if selectedRule == "" || row.DueAt.Before(selectedDue) {
+				selectedRule = row.RuleID
+				selectedDue = row.DueAt
+			}
+		}
+	}
+	if selectedRule == "" {
+		return rows
+	}
+	scoped := make([]domain.Row, 0, len(rows))
+	for _, row := range rows {
+		if row.RuleID == selectedRule {
+			scoped = append(scoped, row)
+		}
+	}
+	return scoped
+}
+
+func adherenceSummaryForRows(rows []domain.Row) domain.AdherenceSummary {
+	summary := domain.AdherenceSummary{}
+	for _, row := range rows {
+		summary.ExpectedCount += row.ExpectedCount
+		summary.CompletedCount += row.CompletedCount
+		if !row.ProcessIntact {
+			summary.OpenGapCount++
+		}
+		if row.WorkState == domain.WorkStateDeferred {
+			summary.DeferredCount += max(row.DeferredCount, 1)
+		}
+		if row.ProcessIntact {
+			summary.ProcessIntactCount++
+		}
+	}
+	if summary.ExpectedCount > 0 {
+		summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+	}
+	return summary
 }
 
 func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.ControlTowerResponse, error) {

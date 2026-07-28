@@ -460,34 +460,69 @@ func TestControlTowerShowsMedicalDefersDistinctFromOverCapWork(t *testing.T) {
 	}
 }
 
-func TestProtocolAdherenceSummaryUsesFullFilteredSetNotCurrentPage(t *testing.T) {
+func TestProtocolAdherenceScopesSummaryToLatestDriveRule(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	pageRow := processRow("page-row", domain.WorkStateCompleted, domain.SeverityOK, due)
-	pageRow.ExpectedCount = 1
-	pageRow.CompletedCount = 1
-	fullSummary := domain.AdherenceSummary{
-		ExpectedCount:      1000,
-		CompletedCount:     900,
-		OpenGapCount:       25,
-		DeferredCount:      75,
-		ProcessIntactCount: 975,
-		AdherencePercent:   90,
-	}
+	history := processRow("history", domain.WorkStateCompleted, domain.SeverityOK, due)
+	history.RuleID = "rule-history"
+	history.ExpectedCount = 95
+	history.CompletedCount = 95
+	history.ProcessIntact = true
+	currentDone := processRow("current-done", domain.WorkStateCompleted, domain.SeverityOK, due.Add(24*time.Hour))
+	currentDone.RuleID = "rule-current"
+	currentDone.ExpectedCount = 114
+	currentDone.CompletedCount = 114
+	currentDone.ProcessIntact = true
+	currentPending := processRow("current-pending", domain.WorkStateVerificationPending, domain.SeverityWatch, due.Add(24*time.Hour))
+	currentPending.RuleID = "rule-current"
+	currentPending.ExpectedCount = 210
+	currentPending.CompletedCount = 0
+	currentPending.ProcessIntact = false
 	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows:             []domain.Row{pageRow},
-		TotalCount:       1000,
-		AdherenceSummary: fullSummary,
-	}}).WithClock(func() time.Time { return due })
+		Rows: []domain.Row{history, currentDone, currentPending},
+	}}).WithClock(func() time.Time { return due.Add(48 * time.Hour) })
 
 	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", Limit: 1})
 	if err != nil {
 		t.Fatalf("adherence: %v", err)
 	}
-	if got.Summary != fullSummary {
-		t.Fatalf("summary=%+v want full filtered summary %+v", got.Summary, fullSummary)
+	if got.Summary.ExpectedCount != 324 || got.Summary.CompletedCount != 114 || got.Summary.OpenGapCount != 1 {
+		t.Fatalf("summary=%+v, want current drive only", got.Summary)
 	}
-	if len(got.Rows) != 1 || got.Rows[0].RowID != "page-row" {
-		t.Fatalf("rows=%+v, want current page row preserved", got.Rows)
+	if len(got.Rows) != 2 || got.Rows[0].RowID != "current-done" || got.Rows[1].RowID != "current-pending" {
+		t.Fatalf("rows=%+v, want only current drive rows", got.Rows)
+	}
+	if repoQueries := svc.repo.(*fakeRepo).listQueries; len(repoQueries) != 1 || repoQueries[0].Limit != 500 {
+		t.Fatalf("repo query should request enough rows for drive scoping, got %+v", repoQueries)
+	}
+}
+
+func TestProtocolAdherenceAsOfDoesNotSelectFutureDrive(t *testing.T) {
+	asOf := time.Date(2026, 7, 21, 18, 29, 59, 0, time.UTC)
+	historyDue := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	futureDue := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
+	history := processRow("history", domain.WorkStateCompleted, domain.SeverityOK, historyDue)
+	history.RuleID = "rule-history"
+	history.ExpectedCount = 324
+	history.CompletedCount = 324
+	history.ProcessIntact = true
+	future := processRow("future", domain.WorkStateScheduled, domain.SeverityWatch, futureDue)
+	future.RuleID = "rule-current"
+	future.ExpectedCount = 324
+	future.CompletedCount = 0
+	future.ProcessIntact = true
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows: []domain.Row{future, history},
+	}}).WithClock(func() time.Time { return asOf })
+
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", AsOf: asOf})
+	if err != nil {
+		t.Fatalf("adherence: %v", err)
+	}
+	if got.Summary.ExpectedCount != 324 || got.Summary.CompletedCount != 324 || got.Summary.AdherencePercent != 100 {
+		t.Fatalf("summary=%+v, want latest non-future drive complete", got.Summary)
+	}
+	if len(got.Rows) != 1 || got.Rows[0].RowID != "history" {
+		t.Fatalf("rows=%+v, want historical drive only", got.Rows)
 	}
 }
 
