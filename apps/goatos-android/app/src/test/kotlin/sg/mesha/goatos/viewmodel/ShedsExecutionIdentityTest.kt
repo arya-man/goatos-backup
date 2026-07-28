@@ -57,7 +57,7 @@ class ShedsExecutionIdentityTest {
         val rows = listOf(
             VaccinationExecutionRowDto(
                 batchId = "drive-current",
-                currentAssignmentDate = "2026-07-24",
+                dueDate = "2026-07-24",
                 targetCount = 114,
                 openCount = 0,
                 doneCount = 114,
@@ -65,21 +65,21 @@ class ShedsExecutionIdentityTest {
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-current",
-                currentAssignmentDate = "2026-07-25",
+                dueDate = "2026-07-25",
                 targetCount = 210,
                 openCount = 210,
                 doneCount = 0,
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-future",
-                currentAssignmentDate = "2026-07-26",
+                dueDate = "2026-07-26",
                 targetCount = 324,
                 openCount = 324,
                 doneCount = 0,
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-old",
-                currentAssignmentDate = "2026-07-24",
+                dueDate = "2026-07-24",
                 targetCount = 438,
                 openCount = 0,
                 doneCount = 438,
@@ -181,10 +181,9 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `execution schedule date prefers backend current assignment date over legacy due date`() {
+    fun `execution schedule date uses OpenAPI dueDate field`() {
         val row = VaccinationExecutionRowDto(
-            currentAssignmentDate = "2026-08-03",
-            dueDate = "2026-07-30",
+            dueDate = "2026-08-03",
         )
 
         assertEquals("2026-08-03", row.currentScheduleDate)

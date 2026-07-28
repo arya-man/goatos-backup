@@ -61,7 +61,8 @@ Center, Protocol Adherence, Workflows, admin-web detail pages, Android
 execution/proof screens, OpenAPI/generated clients, or any new vertical/module
 such as shifting, counts, breeding, weighing, feed, or procurement. It is the
 default pattern for pluggable verticals: canonical facts -> grain-explicit
-operational read model -> shared surface adapters. Machine guard:
+operational read model -> shared surface adapters. Discoverability/static-text
+guard:
 `make operational-read-model-contract-guard`.
 
 ## Leadership Assistant Coverage Skill

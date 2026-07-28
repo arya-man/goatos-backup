@@ -223,12 +223,14 @@ Mandatory rules for Claude, Codex, and human developers:
    shared summaries, Calendar representation, Control Tower representation, and
    mobile/admin surface contract.
 7. Cross-surface golden fixtures are the proof: the same fixture must make
-   Calendar, Protocol Adherence, Control Tower, Admin Web, Android, and reporting
-   agree on the facts they share.
+   Calendar, Action Center, Protocol Adherence, Control Tower, Workflows, Admin
+   Web, Android, and reporting agree on the facts they share.
 
 Run `make operational-read-model-contract-guard` for any change touching shared
 read models, OpenAPI, admin-web command lenses, Android execution/proof screens,
-or new vertical/module onboarding. This guard is part of local CI.
+or new vertical/module onboarding. This discoverability/static-text guard is
+part of local CI, but it is not a semantic Go/OpenAPI/Kotlin/frontend drift
+checker yet.
 
 Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
 batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/

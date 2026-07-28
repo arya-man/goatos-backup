@@ -34,11 +34,6 @@ data class VaccinationExecutionRowDto(
     @SerialName("doneCount") val doneCount: Int = 0,
     @SerialName("driveId") val driveId: String? = null,
     @SerialName("driveName") val driveName: String? = null,
-    @SerialName("effectiveScheduleDate") val effectiveScheduleDate: String? = null,
-    @SerialName("currentAssignmentDate") val currentAssignmentDate: String? = null,
-    @SerialName("assignmentPlannedDate") val assignmentPlannedDate: String? = null,
-    @SerialName("plannedDate") val plannedDate: String? = null,
-    @SerialName("scheduledDate") val scheduledDate: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     // Enums modeled as String (see VaccinationExecutionWorkState / *Severity / *SOPStatus /
     // *ProofStatus / *VerificationStatus in app-api.yaml). Kept as String so an
@@ -63,19 +58,12 @@ data class VaccinationExecutionRowDto(
 /**
  * Current operator-day schedule date for vaccination execution surfaces.
  *
- * The backend may keep original medical due dates for audit/history. Android must render the
- * current effective drive date when the backend sends one, and only fall back to legacy `dueDate`
- * for older responses that do not yet expose assignment-aware fields.
+ * The OpenAPI `VaccinationExecutionRow` contract currently exposes only `dueDate`.
+ * Assignment-aware schedule fields must be added to backend/OpenAPI/generated clients
+ * before Android consumes them.
  */
 val VaccinationExecutionRowDto.currentScheduleDate: String?
-    get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
-        dueDate,
-    ).firstOrNull { !it.isNullOrBlank() }
+    get() = dueDate
 
 @Serializable
 data class VaccinationExecutionResponseDto(
