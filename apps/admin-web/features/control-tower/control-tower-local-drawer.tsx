@@ -28,19 +28,12 @@ function alertId(record: ControlTowerDrawerRecord): string {
 }
 
 function evidenceSummary(alert: ControlTowerAlert, pageContract: AdminUiPageContract): string {
-  const detail = alert.detail.trim();
-  const scope = detail.split(":")[0]?.trim() ?? "";
-  const evidenceCopy = copy(pageContract, `evidence.${alert.work_state}`);
-  if (evidenceCopy) {
-    const scopePrefix = copy(pageContract, "evidence.scope_prefix");
-    return scope ? `${evidenceCopy}. ${scopePrefix}: ${scope}` : evidenceCopy;
-  }
-  switch (alert.work_state) {
-    default: {
-      const state = optionLabel(pageContract, "work_state_filter_chips", alert.work_state) || copy(pageContract, "label.not_ready");
-      return detail ? `${state}: ${detail}` : state;
-    }
-  }
+  const evidence = alert.evidence_summary?.trim();
+  const proof = alert.proof_summary?.trim();
+  if (evidence && proof) return `${evidence}. ${proof}`;
+  if (evidence) return evidence;
+  if (proof) return proof;
+  return optionLabel(pageContract, "work_state_filter_chips", alert.work_state) || copy(pageContract, "label.not_ready");
 }
 
 export function ControlTowerLocalDrawer({
@@ -123,6 +116,7 @@ function ControlTowerAlertDrawer({
         <div className="metagrid">
           <div><div className="k">{copy(pageContract, "label.gap")}</div><div className="v"><Tag tone={optionTone(pageContract, "work_state_filter_chips", alert.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag></div></div>
           <div><div className="k">{copy(pageContract, "label.severity")}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", alert.severity) as Tone}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag></div></div>
+          <div><div className="k">Scope</div><div className="v">{alert.scope_label}</div></div>
           <div><div className="k">{copy(pageContract, "label.detail")}</div><div className="v">{alert.detail}</div></div>
           <div><div className="k">{copy(pageContract, "label.owner")}</div><div className="v">{owner}</div></div>
           <div><div className="k">{copy(pageContract, "label.next_action")}</div><div className="v">{alert.next_action}</div></div>

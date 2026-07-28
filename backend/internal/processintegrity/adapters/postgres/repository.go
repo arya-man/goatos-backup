@@ -109,6 +109,9 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		); err != nil {
 			return domain.ListResult{}, fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
 		}
+		if summary.ExpectedCount > 0 {
+			summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+		}
 		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
 	} else {
 		var err error
@@ -1197,7 +1200,13 @@ derived AS (
       ELSE 'assigned'
     END AS owner_state,
     CASE
-      WHEN stateful.batch_id IS NOT NULL THEN 'batch:' || stateful.batch_id::text || ':rule:' || stateful.rule_id::text || ':shed:' || stateful.shed_uuid::text
+      WHEN stateful.batch_id IS NOT NULL THEN
+        'batch:' || stateful.batch_id::text ||
+        ':rule:' || stateful.rule_id::text ||
+        ':protocol_version:' || stateful.protocol_version_id::text ||
+        ':shed:' || stateful.shed_uuid::text ||
+        ':partition:' || COALESCE(NULLIF(stateful.partition_label, ''), 'whole') ||
+        ':date:' || (stateful.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date::text
       ELSE 'obligation:' || stateful.obligation_id
     END AS row_id,
     CASE stateful.work_state

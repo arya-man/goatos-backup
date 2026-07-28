@@ -10494,6 +10494,11 @@ components:
         - work_state
         - title
         - detail
+        - scope_label
+        - evidence_summary
+        - proof_summary
+        - proof_state
+        - verification_state
         - park_id
         - park_name
         - shed_id
@@ -10513,6 +10518,16 @@ components:
           type: string
         detail:
           type: string
+        scope_label:
+          type: string
+        evidence_summary:
+          type: string
+        proof_summary:
+          type: string
+        proof_state:
+          $ref: "#/components/schemas/ProcessIntegrityProofState"
+        verification_state:
+          $ref: "#/components/schemas/ProcessIntegrityVerificationState"
         park_id:
           type: string
           format: uuid
