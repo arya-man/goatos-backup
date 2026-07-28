@@ -164,6 +164,42 @@ func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
 	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
 }
 
+func TestRefreshAvailabilityClassifiesUnavailableHerdTruthAndClosesResolvedScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	execWeighingTestSQL(t, ctx, pool, `UPDATE goats SET health_status='icu' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, repoTenant, repoAnimal)
+
+	if err := repo.RefreshAvailability(ctx, repoTenant, repoCampaign); err != nil {
+		t.Fatalf("refresh availability: %v", err)
+	}
+
+	var animalStatus, availability string
+	if err := pool.QueryRow(ctx, `
+SELECT status, availability_status
+FROM weighing_expected_animals
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, repoTenant, repoCampaign, repoAnimal).
+		Scan(&animalStatus, &availability); err != nil {
+		t.Fatalf("read expected animal: %v", err)
+	}
+	if animalStatus != "unavailable" || availability != "icu" {
+		t.Fatalf("expected animal = (%s, %s), want (unavailable, icu)", animalStatus, availability)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	assertCampaignStatus(t, ctx, pool, domain.StatusPublished)
+
+	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:after-unavailable-refresh", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record shed observation: %v", err)
+	}
+	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
+}
+
 func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
