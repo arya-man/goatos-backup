@@ -186,7 +186,7 @@ type rowScanner interface {
 
 func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var row domain.Row
-	var batchID, taskID, submissionID, completionID, cohortID, goatID, driveName, sopVersionID pgtype.Text
+	var batchID, taskID, submissionID, completionID, partitionLabel, cohortID, goatID, driveName, sopVersionID pgtype.Text
 	var taskRowVersion pgtype.Int4
 	var windowStart, windowEnd, latestEvidenceAt, driveLatestSafeDate pgtype.Timestamptz
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
@@ -212,6 +212,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&row.ParkName,
 		&row.ShedID,
 		&row.ShedName,
+		&partitionLabel,
 		&cohortID,
 		&goatID,
 		&row.AnimalStage,
@@ -273,6 +274,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.SOPTaskVersion = int32Ptr(taskRowVersion)
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
+	row.PartitionLabel = textPtr(partitionLabel)
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
@@ -741,6 +743,7 @@ raw AS (
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
+    NULLIF(gsp.partition_label, '') AS goat_partition_label,
     oi.completed_at,
     te.asof_terminal_type,
     te.has_terminal_event,
@@ -915,6 +918,7 @@ grouped AS (
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
+    CASE WHEN COUNT(DISTINCT located.goat_partition_label) = 1 THEN MAX(located.goat_partition_label) ELSE NULL END AS partition_label,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
@@ -1648,6 +1652,7 @@ SELECT
   park_name,
   shed_id,
   shed_name,
+  partition_label,
   cohort_id,
   goat_id,
   animal_stage,

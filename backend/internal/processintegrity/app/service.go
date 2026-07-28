@@ -80,6 +80,8 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
 			RowID:                   row.RowID,
+			ShedName:                row.ShedName,
+			PartitionLabel:          row.PartitionLabel,
 			Expected:                expectedText(row),
 			Actual:                  actualText(row),
 			Gap:                     gapText(row),

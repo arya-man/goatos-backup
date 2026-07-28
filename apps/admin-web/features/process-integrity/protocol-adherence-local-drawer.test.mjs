@@ -21,6 +21,14 @@ test("process-integrity vaccination rows share the vaccination display mapper", 
 	assert.match(pageSource, /readableAdherenceExpected[\s\S]+vaccinationDriveDisplayName/);
 });
 
+test("protocol-adherence expected detail prefers shed and partition context", () => {
+	assert.match(pageSource, /function adherenceLocationDetail/);
+	assert.match(pageSource, /row\.shed_name/);
+	assert.match(pageSource, /row\.partition_label/);
+	assert.match(pageSource, /expectedDetail = adherenceLocationDetail\(row\) \|\| expected\.detail/);
+	assert.match(pageSource, /expectedDetail: locationDetail \|\| expected\.detail/);
+});
+
 test("protocol-adherence tolerates stale work-state values from staging data", () => {
 	assert.match(contractSource, /const PROCESS_WORK_STATE_OPTIONS/);
 	assert.match(contractSource, /proof_pending[\s\S]+Proof pending/);

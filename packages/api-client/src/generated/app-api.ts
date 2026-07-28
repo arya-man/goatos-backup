@@ -3771,6 +3771,8 @@ export interface components {
         };
         AdherenceRow: {
             row_id: string;
+            shed_name: string;
+            partition_label?: string;
             expected: string;
             actual: string;
             gap: string;
