@@ -7,6 +7,7 @@
     <string name="verify_module_birth">ಜನನ</string>
     <string name="verify_module_death">ಮರಣ</string>
     <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
+    <string name="verify_module_weighing">ತೂಕ</string>
     <string name="verify_module_shifting">ಸ್ಥಳಾಂತರ</string>
     <string name="verify_module_packing">ಪ್ಯಾಕಿಂಗ್</string>
     <string name="verify_module_feed_direction">ಆಹಾರ ನಿರ್ದೇಶನ</string>
@@ -19,6 +20,10 @@
     <string name="verify_action_queue_empty_subtitle">ಸಲ್ಲಿಸಿದ ಲಸಿಕೆ ವೀಡಿಯೊಗಳು ನಿರ್ದೇಶಕರ ಪರಿಶೀಲನೆಗೆ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ</string>
     <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="verify_scope_all">ಎಲ್ಲಾ</string>
+    <string name="verify_scope_individual">ಪ್ರತ್ಯೇಕ (%1$d)</string>
+    <string name="verify_scope_lumpsum">ಒಟ್ಟು ತೂಕ (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d ಸಾಲುಗಳು · %2$d ವೀಡಿಯೊಗಳು</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
     <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>

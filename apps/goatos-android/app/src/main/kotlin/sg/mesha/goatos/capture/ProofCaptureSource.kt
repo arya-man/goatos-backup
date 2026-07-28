@@ -35,6 +35,13 @@ enum class ProofCapturePrompt {
     FEED_TRANSPORT,
 }
 
+data class ProofCaptureContext(
+    val title: String,
+    val primaryTag: String,
+    val secondaryTag: String? = null,
+    val workLabel: String = "",
+)
+
 /**
  * Port for the Submit recording-form's `video_proof` capture. Production camera capture uses
  * LIVE in-app CameraX (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, see
@@ -45,7 +52,7 @@ enum class ProofCapturePrompt {
 interface ProofCaptureSource {
     /** Suspends until a video has been captured (production: launches the camera intent and
      *  awaits its result), or returns null if the operator cancelled. */
-    suspend fun captureVideo(): CapturedVideo?
+    suspend fun captureVideo(captureContext: ProofCaptureContext? = null): CapturedVideo?
 
     /** Captures with workflow-specific guidance. [taskTitle] is backend-owned workflow copy and
      * replaces the generic module recorder heading when supplied. Existing callers deliberately
@@ -68,17 +75,14 @@ interface ProofCaptureSource {
  */
 class DelegatingProofCaptureSource : ProofCaptureSource {
     @Volatile
-    private var delegate: (suspend (ProofCapturePrompt, String?) -> CapturedVideo?)? = null
+    private var delegate: (suspend (ProofCaptureContext?) -> CapturedVideo?)? = null
     @Volatile
     private var pickerDelegate: (suspend () -> CapturedVideo?)? = null
     @Volatile
     private var generation: Int = 0
 
     @Synchronized
-    fun bind(
-        launch: suspend (ProofCapturePrompt, String?) -> CapturedVideo?,
-        pick: suspend () -> CapturedVideo?,
-    ): Int {
+    fun bind(launch: suspend (ProofCaptureContext?) -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
         generation += 1
         val token = generation
         delegate = launch
@@ -95,13 +99,9 @@ class DelegatingProofCaptureSource : ProofCaptureSource {
         pickerDelegate = null
     }
 
-    override suspend fun captureVideo(): CapturedVideo? {
-        return captureVideo(ProofCapturePrompt.VACCINATION)
-    }
-
-    override suspend fun captureVideo(prompt: ProofCapturePrompt, taskTitle: String?): CapturedVideo? {
+    override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         val launch = delegate
-        return launch?.invoke(prompt, taskTitle)
+        return launch?.invoke(captureContext)
     }
 
     override suspend fun pickVideo(): CapturedVideo? {
@@ -121,7 +121,7 @@ class FakeProofCaptureSource(
         results.add(video)
     }
 
-    override suspend fun captureVideo(): CapturedVideo? {
+    override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         captureCount++
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }

@@ -1154,6 +1154,9 @@ raw AS (
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id
    AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id
+   AND prd.rule_id = pr.rule_id
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
@@ -1190,10 +1193,16 @@ raw AS (
   LEFT JOIN LATERAL (
     SELECT
       vda_guess.operator_id,
-      (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      (COALESCE(override.override_date, vda_guess.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
       vda_guess.physical_shed,
       vda_guess.partition_label
     FROM vaccination_drive_assignments vda_guess
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = vda_guess.tenant_id
+     AND override.park_id = vda_guess.park_id
+     AND (override.original_drive_date = vda_guess.planned_date OR override.override_date = vda_guess.planned_date)
+     AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+     AND override.canceled_at IS NULL
     WHERE vda_guess.tenant_id = oi.tenant_id
       AND vda_guess.batch_id = oi.batch_id
       AND vda_guess.shed_id = CASE
@@ -1213,10 +1222,19 @@ raw AS (
   -- Member path: formatted assignment when membership exists
   LEFT JOIN LATERAL (
     SELECT
-      assignment.operator_id,
-      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
-      assignment.physical_shed,
-      assignment.partition_label
+      member_assignment.operator_id,
+      (COALESCE(override.override_date, member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      member_assignment.physical_shed,
+      member_assignment.partition_label
+    FROM vaccination_drive_assignments member_assignment
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = member_assignment.tenant_id
+     AND override.park_id = member_assignment.park_id
+     AND (override.original_drive_date = member_assignment.planned_date OR override.override_date = member_assignment.planned_date)
+     AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+     AND override.canceled_at IS NULL
+    WHERE member_assignment.tenant_id = assignment.tenant_id
+      AND member_assignment.assignment_id = assignment.assignment_id
   ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id

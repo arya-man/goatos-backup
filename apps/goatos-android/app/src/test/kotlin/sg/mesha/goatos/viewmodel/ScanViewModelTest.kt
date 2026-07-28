@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -232,6 +233,91 @@ class ScanViewModelTest {
     fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+        assertEquals("duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
+    fun `secondary tag for same goat records duplicate attempt but does not count twice`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(scanRow("goat-1", "901007000504418", "obl-1", secondaryTag = "901007000504419")),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("901007000504418")
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+        reader.emit("901007000504419")
+        advanceUntilIdle()
+
+        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(1, scanCaptures.recordScanCalls)
+        assertEquals(
+            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE),
+            scanAttempts.calls.map { it.outcome },
+        )
+        assertEquals(listOf(RfidScanTagRole.PRIMARY, RfidScanTagRole.SECONDARY), scanAttempts.calls.map { it.tagRole })
+        assertEquals("goat-1", scanAttempts.calls[1].goatId)
+        assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        assertEquals(1, scanVm.state.value.doneCount)
+        assertEquals("secondary duplicate stays out of the visible scan list", 1, scanVm.state.value.feed.size)
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+    }
+
+    @Test
+    fun `rescan of proof missing goat opens proof path without recording another roster capture`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
@@ -251,57 +337,15 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         reader.emit("TAG-100")
+        advanceUntilIdle()
         reader.emit("TAG-100")
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
-        assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
-        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(2, scanVm.state.value.feed.size)
-        assertTrue(scanVm.state.value.feed.first().vaccineLabel.startsWith("already scanned"))
-        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-    }
-
-    @Test
-    fun `secondary tag for same goat records duplicate attempt but does not count twice`() = runTest(dispatcher) {
-        val scanCaptures = FakeScanCaptureRepository()
-        val scanAttempts = FakeScanAttemptRepository()
-        val reader = FakeRfidReaderPort()
-        val scanVm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(
-                    rows = listOf(scanRow("goat-1", "901007000504418", "obl-1", secondaryTag = "901007000504419")),
-                ),
-            ),
-            reader = reader,
-            scanCaptureRepository = scanCaptures,
-            scanAttemptRepository = scanAttempts,
-            proofCaptureRepository = FakeProofCaptureRepository(),
-            proofCaptureSource = FakeProofCaptureSource(),
-            bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
-        )
-        backgroundScope.launch { scanVm.state.collect {} }
-        advanceUntilIdle()
-
-        reader.emit("901007000504418")
-        reader.emit("901007000504419")
-        advanceUntilIdle()
-
-        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
-        assertEquals(1, scanCaptures.recordScanCalls)
-        assertEquals(
-            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE),
-            scanAttempts.calls.map { it.outcome },
-        )
-        assertEquals(listOf(RfidScanTagRole.PRIMARY, RfidScanTagRole.SECONDARY), scanAttempts.calls.map { it.tagRole })
-        assertEquals("goat-1", scanAttempts.calls[1].goatId)
-        assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
-        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-        assertEquals(1, scanVm.state.value.doneCount)
-        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+        assertEquals("proof rescan must not create a second roster capture", 1, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+        assertEquals("proof_rescan", scanAttempts.calls[1].reason)
+        assertNull("proof rescan is not a duplicate notice", scanVm.state.value.duplicateNotice)
     }
 
     @Test

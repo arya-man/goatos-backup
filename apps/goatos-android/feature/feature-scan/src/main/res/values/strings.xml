@@ -4,25 +4,33 @@
     <string name="scan_back_cd">Back</string>
     <string name="scan_header_eyebrow">Vaccination</string>
     <string name="scan_header_title">Shed scan</string>
-    <string name="scan_switch_shed">Switch shed</string>
-    <string name="scan_list_title_default">Scanned goats</string>
     <string name="scan_feed_empty">No taps yet</string>
     <string name="scan_badge_two_tags">2 tags</string>
     <string name="scan_search_placeholder">Search either RFID tag…</string>
     <string name="scan_search_empty">No matching animals</string>
     <string name="scan_load_more">Load more</string>
     <string name="scan_loading_more">Loading…</string>
-    <string name="scan_add_clip">Add camera clip</string>
-    <string name="scan_proof_needed">Camera proof needed</string>
-    <string name="scan_proof_uploading">Uploading proof…</string>
-    <plurals name="scan_proof_action_needed">
-        <item quantity="one">%1$d animal needs a proof video before you can submit</item>
-        <item quantity="other">%1$d animals need a proof video before you can submit</item>
-    </plurals>
-    <plurals name="scan_proof_synced">
-        <item quantity="one">%1$d clip synced</item>
-        <item quantity="other">%1$d clips synced</item>
-    </plurals>
-    <string name="scan_proof_retry">Upload failed · tap to retry</string>
+    <string name="scan_scanned_goats_title">Scanned goats</string>
     <string name="scan_submit_default">Finalize shed</string>
+    <string name="scan_scanned_goats_help">Record proof on each goat row. One clear camera clip can cover all vaccines given to that goat.</string>
+    <string name="scan_one_animal_needs_proof">1 animal needs proof. Scan it again to record video before submit.</string>
+    <string name="scan_many_animals_need_proof">%1$d animals need proof. Scan them again to record video before submit.</string>
+    <string name="scan_proof_retry_action">Retry</string>
+    <string name="scan_switch_shed">Switch shed</string>
+    <string name="scan_switch_shed_title">Switch shed</string>
+    <string name="scan_switch_shed_subtitle">You can return to any shed without losing synced progress.</string>
+    <string name="scan_switch_shed_loading">Loading drive sheds…</string>
+    <string name="scan_switch_shed_empty">No other sheds are available in this drive.</string>
+    <string name="scan_switch_shed_current">CURRENT</string>
+    <string name="scan_switch_shed_progress_fmt">%1$d/%2$d scanned · %3$d clips · %4$d synced</string>
+    <string name="scan_switch_shed_synced">Draft synced</string>
+    <string name="scan_switch_shed_not_started">Not started</string>
+    <plurals name="scan_switch_shed_attention">
+        <item quantity="one">%1$d item needs attention</item>
+        <item quantity="other">%1$d items need attention</item>
+    </plurals>
+    <plurals name="scan_switch_shed_syncing">
+        <item quantity="one">%1$d item syncing</item>
+        <item quantity="other">%1$d items syncing</item>
+    </plurals>
 </resources>

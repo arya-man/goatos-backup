@@ -76,6 +76,7 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 			t.Fatalf("%s query must join vaccination_drive_assignments", name)
 		}
 		if !strings.Contains(sql, "assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'") &&
+			!strings.Contains(sql, "member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata'") &&
 			!strings.Contains(sql, "drive_date.assignment_planned_date") {
 			t.Fatalf("%s query must derive an India-business execution date from assignment.planned_date", name)
 		}
@@ -85,18 +86,19 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 	}
 
 	requiredFragments := map[string]string{
-		"execution horizon":     "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
-		"execution bucket":      "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
-		"operations horizon":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
-		"operations next due":   "MIN(effective.execution_due_at) FILTER",
-		"schedule horizon":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
-		"schedule next due":     "MIN(windowed.execution_due_at) FILTER",
-		"scan roster status":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
-		"shed summary next due": "MIN(effective.execution_due_at) FILTER",
-		"shed animal filter":    "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
-		"hybrid member path":    "vda_member.assignment_planned_at",
-		"hybrid guess fallback": "vda_guess.assignment_planned_at",
-		"member coalesce logic": "COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at",
+		"execution horizon":       "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"execution bucket":        "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"operations horizon":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"operations next due":     "MIN(effective.execution_due_at) FILTER",
+		"schedule horizon":        "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
+		"schedule next due":       "MIN(windowed.execution_due_at) FILTER",
+		"scan roster status":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
+		"shed summary next due":   "MIN(effective.execution_due_at) FILTER",
+		"shed animal filter":      "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
+		"hybrid member path":      "vda_member.assignment_planned_at",
+		"hybrid guess fallback":   "vda_guess.assignment_planned_at",
+		"member coalesce logic":   "COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at",
+		"execution date override": "vaccination_drive_date_overrides override",
 	}
 	combined := strings.Join([]string{
 		vaccinationExecutionSQL,
@@ -751,6 +753,72 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	if movedAfterClear := driveAssignmentRowFor(augustAfterClear, "2026-08-05", "Gandhi"); movedAfterClear != nil && containsString(movedAfterClear.VaccineCodes, "PPR") {
 		t.Fatalf("august rows after clear still contain moved PPR: %#v", movedAfterClear)
 	}
+}
+
+func TestListVaccinationExecutionUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "ettt dimension for execution override",
+		`INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+		 VALUES ($1, $2, $3, 'vaccination', 'ET_TT', 'D1', 'ET_TT')`,
+		testTenant, testVersion, testRule)
+	execProjectionSQL(t, ctx, pool, "execution assignment raw date",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'K1 Shed', 'whole', 1, ARRAY[$6::uuid], 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed, testRule)
+
+	repo := NewRepository(pool, 5*time.Second)
+	assertExecutionBusinessDate := func(label, want string) {
+		t.Helper()
+		rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+			TenantID:  testTenant,
+			AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			Limit:     10,
+		})
+		if err != nil {
+			t.Fatalf("%s: ListVaccinationExecution: %v", label, err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("%s: rows = %#v, want one execution row", label, rows)
+		}
+		if rows[0].DueAt == nil {
+			t.Fatalf("%s: DueAt nil", label)
+		}
+		got := rows[0].DueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+		if got != want {
+			t.Fatalf("%s: execution business date = %s, want %s (row=%#v)", label, got, want, rows[0])
+		}
+		if rows[0].OperatorName == nil || *rows[0].OperatorName != "Operator A" {
+			t.Fatalf("%s: operator = %v, want Operator A", label, rows[0].OperatorName)
+		}
+	}
+
+	assertExecutionBusinessDate("no override keeps raw assignment date", "2026-06-24")
+	execProjectionSQL(t, ctx, pool, "unrelated vaccine override ignored",
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
+		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("different vaccine override ignored", "2026-06-24")
+
+	execProjectionSQL(t, ctx, pool, "matching vaccine override moves execution date",
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
+		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', 'move ET_TT execution', $3)`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("active matching override moves execution date", "2026-06-30")
+
+	execProjectionSQL(t, ctx, pool, "canceled matching override reverts execution date",
+		`UPDATE vaccination_drive_date_overrides
+		 SET canceled_at = TIMESTAMPTZ '2026-06-25 00:00:00+00',
+		     canceled_by = $3,
+		     cancel_reason = 'revert'
+		 WHERE tenant_id = $1 AND park_id = $2 AND vaccine_code = 'ET_TT' AND original_drive_date = DATE '2026-06-24'`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("canceled matching override ignored", "2026-06-24")
 }
 
 func TestDriveAssignmentsSeededDoneOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixUsesCompletedObligations(t *testing.T) {
