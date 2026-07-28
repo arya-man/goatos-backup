@@ -45,12 +45,17 @@ var shiftingApproverRole = permissions.RoleKey(permissions.TierManager, permissi
 type fakeApprovalRepo struct {
 	ports.Repository
 
-	request    domain.ApprovalRequest
-	getErr     error
-	decisions  []domain.ApprovalDecision
-	decideErr  error
-	listQuery  domain.ApprovalRequestQuery
-	listResult domain.ApprovalRequestPage
+	request     domain.ApprovalRequest
+	getErr      error
+	decisions   []domain.ApprovalDecision
+	decideErr   error
+	listQuery   domain.ApprovalRequestQuery
+	listResult  domain.ApprovalRequestPage
+	subjectPark string
+}
+
+func (f *fakeApprovalRepo) ApprovalSubjectPark(_ context.Context, _, _ string) (string, error) {
+	return f.subjectPark, nil
 }
 
 func (f *fakeApprovalRepo) GetApprovalRequest(context.Context, string, string) (domain.ApprovalRequest, error) {
@@ -515,6 +520,28 @@ func TestParkScopedApproverCanApproveShiftingInTheirPark(t *testing.T) {
 	}
 	if len(repo.decisions) != 1 {
 		t.Fatalf("repo decisions=%d, want 1 — an in-scope decision must be recorded", len(repo.decisions))
+	}
+}
+
+func TestParkScopedManagerCanApproveDeathOnlyInGoatsPark(t *testing.T) {
+	for _, tc := range []struct {
+		name, subjectPark string
+		wantForbidden     bool
+	}{
+		{name: "same park", subjectPark: svcPark},
+		{name: "different park", subjectPark: "77777777-7777-4777-8777-777777777777", wantForbidden: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeDeath), subjectPark: tc.subjectPark}
+			svc := NewApprovalService(repo, &fakePreparer{}, nil)
+			in := newDecisionInput("request-1", true,
+				permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole}))
+			in.CallerParkID = svcPark
+			_, _, err := svc.Decide(context.Background(), in)
+			if got := errors.Is(err, ErrApprovalForbiddenScope); got != tc.wantForbidden {
+				t.Fatalf("forbidden=%v err=%v, want %v", got, err, tc.wantForbidden)
+			}
+		})
 	}
 }
 

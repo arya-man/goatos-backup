@@ -4606,6 +4606,233 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/workflows:
+    get:
+      tags:
+        - Workflows
+      operationId: listAppWorkflows
+      summary: List birth/death follow-up workflow cards for one module and business date.
+      description: >-
+        The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is
+        one workflow instance opened when a birth applies or a death report is staged
+        (goat.created with origin_type=birth opens the kid track plus the shared mother track;
+        counts.death.reported opens the death evidence trail while the goat remains alive). The
+        card fields (actions_done,
+        actions_total, next_action, awaiting_verification) are write-maintained on every action
+        write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death)
+        and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over
+        (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry
+        the requested day's bucket counts over the same key set the page reads, so page size never
+        changes the chips. Gated on CountsWrite - the operator who records the birth/death runs the
+        follow-up work.
+      parameters:
+        - name: module
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - birth
+              - death
+        - name: date
+          in: query
+          required: false
+          description: Business date (Asia/Kolkata) to list; defaults to today IST.
+          schema:
+            type: string
+            format: date
+        - name: filter
+          in: query
+          required: false
+          description: Card bucket filter; defaults to all (excludes canceled).
+          schema:
+            type: string
+            enum:
+              - all
+              - overdue
+              - due
+              - completed
+              - awaiting_video
+        - name: page_size
+          in: query
+          required: false
+          description: Server-capped at 20.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Keyset cursor from a previous page's next_cursor.
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: One page of workflow cards plus the day's chip counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/workflows/{workflow_id}:
+    get:
+      tags:
+        - Workflows
+      operationId: getAppWorkflow
+      summary: Get one workflow's card header, context facts, and operator action list.
+      description: >-
+        The per-goat detail behind a card: the card header, backend-owned context facts (event
+        moment, park/shed, mother link), and every operator action row (at most 13 - the birth kid
+        track's 8 main steps plus the 5-session colostrum strip; colostrum sessions do not count
+        toward actions_total). Internal approval/verification rows are omitted. Only the first
+        incomplete action in each section is enabled; later siblings read blocked=true.
+        Tenant-scoped; gated on CountsWrite.
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The workflow detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/workflows/{workflow_id}/actions/{action_id}/answer:
+    post:
+      tags:
+        - Workflows
+      operationId: answerAppWorkflowAction
+      summary: Answer a question / question_select workflow action.
+      description: >-
+        Records the operator's answer to a question ("Is the kid clean?") or question_select ("Take
+        Weight of Kid" band) action and completes it. A question_select answer must be one of the
+        action's declared options. Idempotent via the Idempotency-Key header: first call applies;
+        an exact replay returns the original result with no side effects; a same-key/
+        different-payload replay is rejected with 409; a NEW key against an already-completed
+        action is rejected with 409 action_already_completed. A later sibling submitted before its
+        predecessor completes is rejected with 409 action_out_of_sequence. The card counters are
+        maintained in the same transaction. Gated on CountsWrite.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerWorkflowActionRequest"
+      responses:
+        "200":
+          description: Answer recorded (or replayed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowActionWriteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/workflows/{workflow_id}/actions/{action_id}/complete:
+    post:
+      tags:
+        - Workflows
+      operationId: completeAppWorkflowAction
+      summary: Complete an action-type workflow step (optionally with a video proof).
+      description: >-
+        Marks an action-type step done ("Iodine dipping of umbilical cord", a colostrum session, a
+        death evidence video). A requires_video action without proof_ref is rejected 422
+        proof_required - the proof is a server-minted proof id from /app/proofs/*, never bytes.
+        Initial death videos remain staged until the existing admin-web approval accepts the death;
+        that approval applies the lifecycle/count change and releases ONE death_evidence item
+        carrying BOTH videos. The hidden internal review completes only on the verifier's approve
+        verdict; a rework verdict resets both operator videos for sequential re-shoot, and the
+        completed re-shoot pair returns directly to Verify without a second admin approval.
+        Internal approval actions are never operator-completable. A later sibling submitted before
+        its predecessor completes is rejected with 409 action_out_of_sequence. Idempotent via the
+        Idempotency-Key header exactly like answer. Gated on CountsWrite.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteWorkflowActionRequest"
+      responses:
+        "200":
+          description: Completion recorded (or replayed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowActionWriteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting-events/pending-execution:
     get:
       tags:
@@ -14338,14 +14565,333 @@ components:
         idempotent_replay:
           description: True when this result was returned from a previous identical request rather than a new write.
           type: boolean
+    WorkflowSubject:
+      description: The card's animal header (backend-owned display fields).
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - tag
+        - role_label
+        - sex
+        - breed
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+        tag:
+          description: The animal's working identifier (permanent RFID, else temporary tag; may be empty).
+          type: string
+        role_label:
+          description: Operator-facing subject role ("Kid", "Mother", "Died").
+          type: string
+        sex:
+          type: string
+        breed:
+          type: string
+    WorkflowNextAction:
+      description: The card's next-step summary.
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - title
+        - due_at
+        - overdue
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        overdue:
+          type: boolean
+    WorkflowChips:
+      description: >-
+        Per-day chip counts. Every bucket groups the SAME (tenant, module, event_date)
+        workflow_instances key set the page reads, so the chips are independent of page size.
+      type: object
+      additionalProperties: false
+      required:
+        - all
+        - overdue
+        - due
+        - completed
+        - awaiting_video
+      properties:
+        all:
+          type: integer
+        overdue:
+          type: integer
+        due:
+          type: integer
+        completed:
+          type: integer
+        awaiting_video:
+          type: integer
+    WorkflowCard:
+      description: One workflow list card (write-maintained counters; no join fan-out).
+      type: object
+      required:
+        - workflow_id
+        - module
+        - template_key
+        - subject
+        - event_at
+        - event_date
+        - park_label
+        - shed_label
+        - actions_done
+        - actions_total
+        - next_action
+        - awaiting_verification
+        - state
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        module:
+          type: string
+          enum:
+            - birth
+            - death
+        template_key:
+          type: string
+          enum:
+            - birth_kid
+            - birth_mother
+            - death
+        subject:
+          $ref: "#/components/schemas/WorkflowSubject"
+        event_at:
+          type: string
+          format: date-time
+        event_date:
+          type: string
+          format: date
+        park_label:
+          type: string
+        shed_label:
+          type: string
+        actions_done:
+          type: integer
+        actions_total:
+          type: integer
+        next_action:
+          oneOf:
+            - $ref: "#/components/schemas/WorkflowNextAction"
+            - type: "null"
+        awaiting_verification:
+          type: boolean
+        state:
+          type: string
+          enum:
+            - open
+            - completed
+            - canceled
+    WorkflowListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - chips
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowCard"
+        chips:
+          $ref: "#/components/schemas/WorkflowChips"
+        next_cursor:
+          type:
+            - string
+            - "null"
+    WorkflowFact:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+        - value
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+    WorkflowActionRow:
+      description: One operator step of a workflow (template-instantiated; only status/answer/proof mutate).
+      type: object
+      required:
+        - action_id
+        - action_key
+        - seq
+        - section
+        - action_type
+        - title
+        - detail
+        - requires_video
+        - due_at
+        - status
+        - blocked
+        - answer_value
+        - proof_ref
+        - completed_by_label
+        - completed_at
+        - verification_status
+      properties:
+        action_id:
+          type: string
+          format: uuid
+        action_key:
+          type: string
+        seq:
+          type: integer
+        section:
+          type: string
+          enum:
+            - main
+            - colostrum_session
+        action_type:
+          type: string
+          enum:
+            - question
+            - question_select
+            - action
+            - approval
+        title:
+          type: string
+        detail:
+          type: string
+        requires_video:
+          type: boolean
+        options:
+          description: question_select bands; absent for other action types.
+          type: array
+          items:
+            type: string
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        status:
+          type: string
+          enum:
+            - pending
+            - in_review
+            - completed
+            - rework
+            - canceled
+        blocked:
+          description: True when an earlier operator action in the same section is incomplete.
+          type: boolean
+        answer_value:
+          type:
+            - string
+            - "null"
+        proof_ref:
+          type:
+            - string
+            - "null"
+        completed_by_label:
+          type: string
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        verification_status:
+          description: Empty, or pending/rework/approved for verification-gated steps.
+          type: string
+    WorkflowDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/WorkflowCard"
+        - type: object
+          required:
+            - facts
+            - actions
+          properties:
+            facts:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowFact"
+            actions:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowActionRow"
+    AnswerWorkflowActionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - answer_value
+      properties:
+        answer_value:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CompleteWorkflowActionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        proof_ref:
+          description: Server-minted proof id from /app/proofs/*; MANDATORY for requires_video actions.
+          type: string
+          minLength: 1
+          maxLength: 200
+    WorkflowActionWriteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - workflow_id
+        - action_id
+        - status
+        - workflow_state
+        - actions_done
+        - actions_total
+        - awaiting_verification
+        - completed_at
+        - idempotent_replay
+      properties:
+        workflow_id:
+          type: string
+          format: uuid
+        action_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        workflow_state:
+          type: string
+        actions_done:
+          type: integer
+        actions_total:
+          type: integer
+        awaiting_verification:
+          type: boolean
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        idempotent_replay:
+          type: boolean
     RecordBirthEventRequest:
       description: >-
         The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it
         may be omitted, but if present it must be 'birth'.
-        Exactly ONE primary identity is required: a permanent animal_identifier_1 (the RFID) OR a
-        temporary_identifier (a provisional tag for a kid not yet permanently tagged). Providing both,
-        or neither, is rejected by the backend. A temporary-tagged kid carries no active
-        animal_identifier_1 and is promoted to a permanent RFID later.
+        Identity: at most ONE primary identity may be supplied - a permanent animal_identifier_1
+        (the RFID) OR a temporary_identifier (a provisional tag). Providing both is rejected. When
+        NEITHER is supplied, the server auto-generates a provisional temporary tag ("K-" + 6 random
+        digits) and stores it on the request, so the app never scans an RFID at birth
+        (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later
+        through the "Tag the kid" step / Awaiting RFID flow.
       type: object
       additionalProperties: false
       required:
@@ -14419,6 +14965,13 @@ components:
           format: date
         dob_estimated:
           type: boolean
+        time_of_birth:
+          description: >-
+            Optional birth time (HH:MM, 24-hour, IST wall clock). Stored as goats.time_of_birth and
+            used by the birth follow-up workflow to anchor time-offset steps; absent means unknown
+            and readers fall back to 07:00 IST.
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
         origin_type:
           description: Optional. When present it must be 'birth'; any other value is rejected.
           type: string

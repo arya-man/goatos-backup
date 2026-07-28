@@ -1762,6 +1762,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List birth/death follow-up workflow cards for one module and business date.
+         * @description The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is one workflow instance opened when a birth or death APPLIED (goat.created with origin_type=birth opens the kid track plus the shared mother track; goat.exited with exit_reason=died opens the death evidence trail). The card fields (actions_done, actions_total, next_action, awaiting_verification) are write-maintained on every action write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death) and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry the requested day's bucket counts over the same key set the page reads, so page size never changes the chips. Gated on CountsWrite - the operator who records the birth/death runs the follow-up work.
+         */
+        get: operations["listAppWorkflows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one workflow's card header, context facts, and full action list.
+         * @description The per-goat detail behind a card: the card header, backend-owned context facts (event moment, park/shed, mother link), and every action row (at most 13 - the birth kid track's 8 main steps plus the 5-session colostrum strip; colostrum sessions do not count toward actions_total). An approval action reads blocked=true while the videos it signs off are not both in. Tenant-scoped; gated on CountsWrite.
+         */
+        get: operations["getAppWorkflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/workflows/{workflow_id}/actions/{action_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a question / question_select workflow action.
+         * @description Records the operator's answer to a question ("Is the kid clean?") or question_select ("Take Weight of Kid" band) action and completes it. A question_select answer must be one of the action's declared options. Idempotent via the Idempotency-Key header: first call applies; an exact replay returns the original result with no side effects; a same-key/ different-payload replay is rejected with 409; a NEW key against an already-completed action is rejected with 409 action_already_completed. The card counters are maintained in the same transaction. Gated on CountsWrite.
+         */
+        post: operations["answerAppWorkflowAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/workflows/{workflow_id}/actions/{action_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete an action-type workflow step (optionally with a video proof).
+         * @description Marks an action-type step done ("Iodine dipping of umbilical cord", a colostrum session, a death evidence video). A requires_video action without proof_ref is rejected 422 proof_required - the proof is a server-minted proof id from /app/proofs/*, never bytes. Completing the SECOND death video flips the park-head sign-off to in_review and enqueues ONE death_evidence verification item carrying BOTH videos (idempotency key counts-death-evidence:<workflow_id>); the sign-off then completes only on the verifier's approve verdict, and a rework verdict resets both videos for a re-shoot. Approval actions are never operator-completable. Idempotent via the Idempotency-Key header exactly like answer. Gated on CountsWrite.
+         */
+        post: operations["completeAppWorkflowAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/shifting-events/pending-execution": {
         parameters: {
             query?: never;
@@ -5366,7 +5446,120 @@ export interface components {
             /** @description True when this result was returned from a previous identical request rather than a new write. */
             idempotent_replay: boolean;
         };
-        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. Exactly ONE primary identity is required: a permanent animal_identifier_1 (the RFID) OR a temporary_identifier (a provisional tag for a kid not yet permanently tagged). Providing both, or neither, is rejected by the backend. A temporary-tagged kid carries no active animal_identifier_1 and is promoted to a permanent RFID later. */
+        /** @description The card's animal header (backend-owned display fields). */
+        WorkflowSubject: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's working identifier (permanent RFID, else temporary tag; may be empty). */
+            tag: string;
+            /** @description Operator-facing subject role ("Kid", "Mother", "Died"). */
+            role_label: string;
+            sex: string;
+            breed: string;
+        };
+        /** @description The card's next-step summary. */
+        WorkflowNextAction: {
+            key: string;
+            title: string;
+            /** Format: date-time */
+            due_at: string | null;
+            overdue: boolean;
+        };
+        /** @description Per-day chip counts. Every bucket groups the SAME (tenant, module, event_date) workflow_instances key set the page reads, so the chips are independent of page size. */
+        WorkflowChips: {
+            all: number;
+            overdue: number;
+            due: number;
+            completed: number;
+            awaiting_video: number;
+        };
+        /** @description One workflow list card (write-maintained counters; no join fan-out). */
+        WorkflowCard: {
+            /** Format: uuid */
+            workflow_id: string;
+            /** @enum {string} */
+            module: "birth" | "death";
+            /** @enum {string} */
+            template_key: "birth_kid" | "birth_mother" | "death";
+            subject: components["schemas"]["WorkflowSubject"];
+            /** Format: date-time */
+            event_at: string;
+            /** Format: date */
+            event_date: string;
+            park_label: string;
+            shed_label: string;
+            actions_done: number;
+            actions_total: number;
+            next_action: components["schemas"]["WorkflowNextAction"] | null;
+            awaiting_verification: boolean;
+            /** @enum {string} */
+            state: "open" | "completed" | "canceled";
+        };
+        WorkflowListResponse: {
+            items: components["schemas"]["WorkflowCard"][];
+            chips: components["schemas"]["WorkflowChips"];
+            next_cursor: string | null;
+        };
+        WorkflowFact: {
+            label: string;
+            value: string;
+        };
+        /** @description One step of a workflow (template-instantiated; only status/answer/proof mutate). */
+        WorkflowActionRow: {
+            /** Format: uuid */
+            action_id: string;
+            action_key: string;
+            seq: number;
+            /** @enum {string} */
+            section: "main" | "colostrum_session";
+            /** @enum {string} */
+            action_type: "question" | "question_select" | "action" | "approval";
+            title: string;
+            detail: string;
+            requires_video: boolean;
+            /** @description question_select bands; absent for other action types. */
+            options?: string[];
+            /** Format: date-time */
+            due_at: string | null;
+            /** @enum {string} */
+            status: "pending" | "in_review" | "completed" | "rework" | "canceled";
+            /** @description True for an approval step whose prerequisite videos are not both in yet. */
+            blocked: boolean;
+            answer_value: string | null;
+            proof_ref: string | null;
+            completed_by_label: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** @description Empty, or pending/rework/approved for verification-gated steps. */
+            verification_status: string;
+        };
+        WorkflowDetailResponse: components["schemas"]["WorkflowCard"] & {
+            facts: components["schemas"]["WorkflowFact"][];
+            actions: components["schemas"]["WorkflowActionRow"][];
+        };
+        AnswerWorkflowActionRequest: {
+            answer_value: string;
+        };
+        CompleteWorkflowActionRequest: {
+            /** @description Server-minted proof id from /app/proofs/*; MANDATORY for requires_video actions. */
+            proof_ref?: string;
+        };
+        WorkflowActionWriteResponse: {
+            /** Format: uuid */
+            workflow_id: string;
+            /** Format: uuid */
+            action_id: string;
+            status: string;
+            workflow_state: string;
+            actions_done: number;
+            actions_total: number;
+            awaiting_verification: boolean;
+            /** Format: date-time */
+            completed_at: string | null;
+            idempotent_replay: boolean;
+        };
+        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. Identity: at most ONE primary identity may be supplied - a permanent animal_identifier_1 (the RFID) OR a temporary_identifier (a provisional tag). Providing both is rejected. When NEITHER is supplied, the server auto-generates a provisional temporary tag ("K-" + 6 random digits) and stores it on the request, so the app never scans an RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
         RecordBirthEventRequest: {
             /** @description The permanent RFID. Provide this OR temporary_identifier, never both. */
             animal_identifier_1?: string | null;
@@ -5394,6 +5587,8 @@ export interface components {
              */
             dob: string;
             dob_estimated?: boolean;
+            /** @description Optional birth time (HH:MM, 24-hour, IST wall clock). Stored as goats.time_of_birth and used by the birth follow-up workflow to anchor time-offset steps; absent means unknown and readers fall back to 07:00 IST. */
+            time_of_birth?: string;
             /**
              * @description Optional. When present it must be 'birth'; any other value is rejected.
              * @constant
@@ -9056,6 +9251,138 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppWorkflows: {
+        parameters: {
+            query: {
+                module: "birth" | "death";
+                /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
+                date?: string;
+                /** @description Card bucket filter; defaults to all (excludes canceled). */
+                filter?: "all" | "overdue" | "due" | "completed" | "awaiting_video";
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of workflow cards plus the day's chip counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workflow detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    answerAppWorkflowAction: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                workflow_id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerWorkflowActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Answer recorded (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowActionWriteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeAppWorkflowAction: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                workflow_id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CompleteWorkflowActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Completion recorded (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowActionWriteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -1,6 +1,6 @@
 # Shifting requires verifier-approved video before the count moves
 
-**Status:** Accepted — maintainer decision, 2026-07-26.
+**Status:** Accepted — maintainer decision, 2026-07-26; camera-source clarification 2026-07-28.
 **Supersedes (for shifting only):** the 2026-07-19 "operator completion applies the move" rule.
 
 ## Context
@@ -30,6 +30,9 @@ raise -> pending -> APPROVED (authorized; NOTHING moves)                     [ma
   shed. This lag is accepted deliberately in exchange for verified movement.
 - **The video is mandatory.** A completion with no `proof_ref` is rejected (`422 proof_required`)
   before any state changes — there is nothing for a verifier to approve.
+- **The operator records it with the live in-app camera.** Shifting exposes no gallery/import
+  control. The captured file still uploads automatically through the proof outbox. This source rule
+  does not alter Vaccination, whose existing gallery picker remains allowed.
 - **Rejection bounces to `authorized`.** The operator re-records and re-submits; nothing relocated.
 - **Birth and death are unchanged.** Those approvals still apply immediately, because for them the
   approval *is* the record of the fact.

@@ -1,6 +1,7 @@
 # Feed distribution AND packing require a verifier-approved video before a session is completed
 
-**Status:** Accepted — maintainer decision, 2026-07-26.
+**Status:** Accepted — maintainer decision, 2026-07-26; sequential camera-source clarification
+2026-07-28.
 **Supersedes:** the "operator marks a shed-session fed (optional video), row completed at submit"
 behaviour as the operator completion path for BOTH feed DIRECTION and feed PACKING. Direction was
 gated first; packing was gated in a follow-up decision the same day (see
@@ -37,9 +38,10 @@ A feed-direction shed-session now passes through a verification gate, for **both
 `experiment` workflows:
 
 ```
-generated session (the ration; operator sees only the two upload prompts, not the ration detail)
-  -> operator uploads a MANDATORY feed-distribution VIDEO + a MANDATORY water-distribution proof
-     (water may be PHOTO OR VIDEO)
+generated session (the ration; operator sees only the two proof prompts, not the ration detail)
+  -> operator records a MANDATORY feed-distribution VIDEO with the live in-app camera
+  -> only then the water action enables; operator records a MANDATORY water proof
+     with the live in-app camera (PHOTO OR VIDEO)
   -> PENDING VERIFICATION (status='pending_verification'; NOTHING is completed yet)     [operator, feed.write]
   -> verifier APPROVES -> COMPLETED (the session is done NOW)                           [verifier, verification.review]
   -> verifier REJECTS  -> REWORK (operator re-shoots + re-submits)                      [verifier, verification.review]
@@ -51,6 +53,9 @@ generated session (the ration; operator sees only the two upload prompts, not th
 - **Both proofs are mandatory.** A completion missing the feed-distribution video OR the water proof
   is rejected (`422 proof_required`) before any state changes — there is nothing for a verifier to
   approve. The feed-distribution proof must be a video; the water proof may be a photo or a video.
+- **Capture is sequential and camera-only.** Water capture cannot start until the feed video is
+  recorded. Feed Distribution exposes no gallery/import control for either proof. Automatic outbox
+  upload remains unchanged. Vaccination is explicitly outside this rule and retains gallery upload.
 - **One Accept per session covers both proofs.** The two media travel on a single verification item;
   the verifier approves (or rejects) the pair together.
 - **Rejection bounces to `rework`.** The operator re-records and re-submits, which returns the row to
@@ -128,8 +133,11 @@ The same day distribution was gated, the maintainer extended the gate to feed **
 with one difference: packing needs **ONE mandatory video** (no water proof), so it is a strictly
 simpler single-proof version of the distribution flow.
 
+Packing exposes only live in-app camera recording; it has no gallery/import option. Proof upload
+after capture remains automatic. This does not change Vaccination's gallery picker.
+
 ```
-packing session -> operator uploads ONE MANDATORY packing VIDEO
+packing session -> operator records ONE MANDATORY packing VIDEO with the live in-app camera
   -> PENDING VERIFICATION (feed_packing_completions.status='pending_verification'; NOTHING completed)
   -> verifier APPROVES -> COMPLETED (feed.packing.completed emitted)
   -> verifier REJECTS  -> REWORK (operator re-shoots + re-submits)

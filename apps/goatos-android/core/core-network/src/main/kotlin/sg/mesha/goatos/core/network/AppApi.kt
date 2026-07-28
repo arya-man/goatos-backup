@@ -69,6 +69,11 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
 const val APP_TASK_PAGE_SIZE = 20
@@ -755,6 +760,50 @@ interface AppApi {
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
+
+    /**
+     * GET /app/workflows — the Birth/Death follow-up work list
+     * (docs/decisions/birth-death-workflows.md): one card per (template, subject goat) workflow
+     * opened when the event APPLIED. Scoped to ONE [module] (`birth`|`death`) and one Asia/Kolkata
+     * business [date] (`YYYY-MM-DD`, default today IST); [filter] is the backend bucket
+     * (`all|overdue|due|completed|awaiting_video`). Keyset-paginated and server-capped at 20; the
+     * response also carries the day's chip counts computed over the same key set the page reads.
+     */
+    suspend fun listWorkflows(
+        module: String,
+        date: String? = null,
+        filter: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): WorkflowListResponseDto
+
+    /** GET /app/workflows/{workflow_id} — one workflow's card header, context facts, and full
+     *  bounded action list (≤13 rows). */
+    suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto
+
+    /**
+     * POST /app/workflows/{workflow_id}/actions/{action_id}/answer — answers a question /
+     * question_select action and completes it. Drained through the offline outbox with a stable
+     * [idempotencyKey]: an exact replay returns the original result with `idempotent_replay=true`.
+     */
+    suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    /**
+     * POST /app/workflows/{workflow_id}/actions/{action_id}/complete — completes an `action`-type
+     * step. `proof_ref` is MANDATORY when the action `requires_video` (missing → 422
+     * `proof_required`). Same stable-key replay contract as answer.
+     */
+    suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto
 }
 
 /**
@@ -1178,6 +1227,33 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto =
         CountsApprovalDecisionResponseDto(approvalRequestId = requestId, status = "rejected")
+
+    override suspend fun listWorkflows(
+        module: String,
+        date: String?,
+        filter: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): WorkflowListResponseDto = WorkflowListResponseDto()
+
+    override suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto =
+        WorkflowDetailResponseDto(workflowId = workflowId)
+
+    override suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
+
+    override suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
 }
 
 /**

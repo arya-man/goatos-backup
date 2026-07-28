@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_detail_death_video">ಮರಣದ ವೀಡಿಯೊ</string>
+    <string name="verify_detail_post_mortem_video">ಮರಣೋತ್ತರ ಪರೀಕ್ಷೆಯ ವೀಡಿಯೊ</string>
+    <string name="verify_module_birth">ಜನನ</string>
+    <string name="verify_module_death">ಮರಣ</string>
     <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
     <string name="verify_module_shifting">ಸ್ಥಳಾಂತರ</string>
     <string name="verify_module_packing">ಪ್ಯಾಕಿಂಗ್</string>

@@ -333,6 +333,9 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 			"approval request has already been decided", err)
 	case errors.Is(err, ports.ErrApprovalEffectIncomplete):
 		h.writeError(w, r, http.StatusConflict, "approval_effect_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
+		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
+			"both death videos must be uploaded before approval", err)
 	case errors.Is(err, countsapp.ErrApprovalInvalidStoredPayload):
 		h.writeError(w, r, http.StatusConflict, "approval_payload_not_applicable",
 			"the stored request can no longer be applied", err)

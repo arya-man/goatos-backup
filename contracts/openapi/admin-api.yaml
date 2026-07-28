@@ -5069,6 +5069,13 @@ components:
           format: date
         dob_estimated:
           type: boolean
+        time_of_birth:
+          description: >-
+            Optional birth time (HH:MM, 24-hour, IST wall clock). Stored as goats.time_of_birth and
+            carried on the goat.created payload for the birth follow-up workflow opener; absent
+            means unknown (readers fall back to 07:00 IST).
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
         origin_type:
           type: string
           enum:

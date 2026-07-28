@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -670,11 +671,6 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	fields["origin_type"] = json.RawMessage(`"birth"`)
-	forwarded, err := json.Marshal(fields)
-	if err != nil {
-		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
-		return
-	}
 
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -692,19 +688,55 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// AUTO PROVISIONAL ID (maintainer decision 2026-07-27, docs/decisions/birth-death-workflows.md):
+	// the operator does NOT scan an RFID at birth. When the app supplies NEITHER animal_identifier_1
+	// NOR temporary_identifier, the server derives a provisional temporary tag ("K-" + 6 digits, from
+	// the client idempotency key) and injects it into the body BEFORE prepare, so the stored approval
+	// payload is fully explicit and approval replays it verbatim. The derivation must stay
+	// key-deterministic — see deriveProvisionalTemporaryTag. The kid lives under this tag until "Tag
+	// the kid" promotes it to the permanent RFID. Explicitly supplied identifiers keep today's
+	// behavior (admin path unchanged).
+	autoProvisional := !jsonFieldPresent(fields, "animal_identifier_1") && !jsonFieldPresent(fields, "temporary_identifier")
+
 	// Validate NOW, apply NEVER (here). PrepareCreateAdminGoat runs the identical decode,
 	// normalization, dob<=entry_date rule, identifier-uniqueness check and location resolution that
 	// creating the goat would run, so a malformed submission is rejected on the operator's phone
 	// immediately -- but it has NO side effects, and the command it returns is discarded. The kid
 	// is created, and its vaccination obligations generated, only when the request is approved.
-	if _, err := h.validator.PrepareCreateAdminGoat(r.Context(), identityapp.CreateAdminGoatInput{
-		TenantID:       tenantID,
-		ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
-		IdempotencyKey: clientKey,
-		TraceID:        appTraceID(r),
-		RawBody:        forwarded,
-	}); err != nil {
-		h.writeAppError(w, r, err)
+	//
+	// With an auto-generated provisional tag, the identifier-uniqueness check doubles as the
+	// generation's collision probe: a "already belongs to animal" rejection regenerates the tag and
+	// retries (bounded), instead of surfacing a conflict the operator never caused.
+	var forwarded []byte
+	const maxProvisionalAttempts = 5
+	for attempt := 0; ; attempt++ {
+		if autoProvisional {
+			raw, err := json.Marshal(deriveProvisionalTemporaryTag(clientKey, attempt))
+			if err != nil {
+				h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+				return
+			}
+			fields["temporary_identifier"] = json.RawMessage(raw)
+		}
+		forwarded, err = json.Marshal(fields)
+		if err != nil {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+			return
+		}
+		_, prepErr := h.validator.PrepareCreateAdminGoat(r.Context(), identityapp.CreateAdminGoatInput{
+			TenantID:       tenantID,
+			ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
+			IdempotencyKey: clientKey,
+			TraceID:        appTraceID(r),
+			RawBody:        forwarded,
+		})
+		if prepErr == nil {
+			break
+		}
+		if autoProvisional && attempt < maxProvisionalAttempts-1 && isIdentifierOwnedError(prepErr) {
+			continue
+		}
+		h.writeAppError(w, r, prepErr)
 		return
 	}
 
@@ -941,6 +973,49 @@ func stableHash(domainSeparator string, payload []byte) string {
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(payload)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// jsonFieldPresent reports whether a decoded body carries a non-null, non-empty string field.
+// A JSON null or "" reads as absent, matching identity's trimOptionalString normalization.
+func jsonFieldPresent(fields map[string]json.RawMessage, key string) bool {
+	raw, ok := fields[key]
+	if !ok {
+		return false
+	}
+	var value *string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		// A non-string shape is left for identity's strict decode to reject with a specific error.
+		return true
+	}
+	return value != nil && strings.TrimSpace(*value) != ""
+}
+
+// deriveProvisionalTemporaryTag mints the "K-" + 6 digit provisional tag for a newborn recorded
+// without any identifier.
+//
+// The tag is DERIVED FROM THE CLIENT IDEMPOTENCY KEY, never random. It is injected into the request
+// body before that body is marshalled, and the same body feeds the approval request fingerprint —
+// so a random tag makes every retry of one Idempotency-Key look like a changed payload, which the
+// approval store rejects as ErrIdempotencyConflict (409). The Android write path is the offline
+// outbox, which retries the same key until it gets a response, so that would wedge the operator's
+// queue forever on a birth that already recorded. Deriving the tag makes a retry rebuild a
+// byte-identical body and replay cleanly.
+//
+// attempt salts the derivation so the bounded collision-retry loop walks to a different tag while
+// each attempt stays reproducible on replay.
+func deriveProvisionalTemporaryTag(clientKey string, attempt int) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "goatos-provisional-kid-tag:%s:%d", clientKey, attempt))
+	n := binary.BigEndian.Uint64(sum[:8]) % 1000000
+	return fmt.Sprintf("K-%06d", n)
+}
+
+// isIdentifierOwnedError matches identity's identifier-uniqueness rejection
+// ("<type> already belongs to animal <id>"), the only prepare failure a regenerated provisional
+// tag can heal.
+func isIdentifierOwnedError(err error) bool {
+	var appErr *identityapp.Error
+	return errors.As(err, &appErr) && appErr.Code == "invalid_goat_create" &&
+		strings.Contains(appErr.Message, "already belongs to animal")
 }
 
 func trimOptionalPtr(v *string) *string {

@@ -416,6 +416,12 @@ data class CountsBirthEventRequestDto(
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String,
     @SerialName("dob") val dob: String,
+    /**
+     * Optional birth time (`HH:MM`, 24-hour, IST wall clock — docs/decisions/birth-death-workflows.md).
+     * Stored as `goats.time_of_birth` and used by the birth follow-up workflow to anchor its
+     * time-offset steps; absent means unknown and the backend falls back to 07:00 IST.
+     */
+    @SerialName("time_of_birth") val timeOfBirth: String? = null,
     @SerialName("entry_date") val entryDate: String,
     @SerialName("dam_id") val damId: String? = null,
     @SerialName("sire_or_lot") val sireOrLot: String? = null,

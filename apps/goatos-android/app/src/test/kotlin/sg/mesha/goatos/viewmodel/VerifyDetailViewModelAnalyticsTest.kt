@@ -40,7 +40,9 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyMediaLabel
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
+import sg.mesha.goatos.feature.verify.verificationMediaLabel
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VerifyDetailViewModelAnalyticsTest {
@@ -51,6 +53,14 @@ class VerifyDetailViewModelAnalyticsTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun `death evidence gives the two proof videos distinct ordered labels`() {
+        assertEquals(VerifyMediaLabel.DEATH_VIDEO, verificationMediaLabel("death_evidence", 0))
+        assertEquals(VerifyMediaLabel.POST_MORTEM_VIDEO, verificationMediaLabel("death_evidence", 1))
+        assertEquals(null, verificationMediaLabel("death_evidence", 2))
+        assertEquals(null, verificationMediaLabel("vaccination_proof", 0))
+    }
 
     @Test
     fun `detail open and playback events include bounded proof watch analytics`() = runTest(dispatcher) {

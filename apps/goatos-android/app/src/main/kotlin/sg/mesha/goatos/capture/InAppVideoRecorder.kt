@@ -74,7 +74,10 @@ import java.io.File
  * out or the capture completes (performance/memory rule).
  */
 @Composable
-fun InAppVideoRecorderOverlay(onResult: (CapturedVideo?) -> Unit) {
+fun InAppVideoRecorderOverlay(
+    prompt: ProofCapturePrompt = ProofCapturePrompt.VACCINATION,
+    onResult: (CapturedVideo?) -> Unit,
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { ProofCameraSession() }
@@ -202,6 +205,7 @@ fun InAppVideoRecorderOverlay(onResult: (CapturedVideo?) -> Unit) {
             modifier = Modifier.fillMaxSize(),
         )
         RecorderHeader(
+            prompt = prompt,
             isRecording = isRecording,
             elapsedSeconds = elapsedSeconds,
             cameraError = cameraError,
@@ -232,11 +236,13 @@ fun InAppVideoRecorderOverlay(onResult: (CapturedVideo?) -> Unit) {
 
 @Composable
 private fun RecorderHeader(
+    prompt: ProofCapturePrompt,
     isRecording: Boolean,
     elapsedSeconds: Int,
     cameraError: String?,
     modifier: Modifier = Modifier,
 ) {
+    val copy = recorderCopyResources(prompt)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -245,7 +251,7 @@ private fun RecorderHeader(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = stringResource(R.string.proof_camera_title),
+            text = stringResource(copy.title),
             color = MeshaColors.Ink,
             fontSize = 18.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -255,12 +261,52 @@ private fun RecorderHeader(
             text = when {
                 cameraError != null -> cameraError
                 isRecording -> stringResource(R.string.proof_camera_recording_time, elapsedSeconds)
-                else -> stringResource(R.string.proof_camera_instruction)
+                else -> stringResource(copy.instruction)
             },
             color = if (cameraError != null) MeshaColors.Danger else MeshaColors.Ink,
             fontSize = 13.sp,
         )
     }
+}
+
+internal data class RecorderCopyResources(
+    val title: Int,
+    val instruction: Int,
+)
+
+internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyResources = when (prompt) {
+    ProofCapturePrompt.VACCINATION -> RecorderCopyResources(
+        R.string.proof_camera_title,
+        R.string.proof_camera_instruction,
+    )
+    ProofCapturePrompt.BIRTH -> RecorderCopyResources(
+        R.string.proof_camera_birth_title,
+        R.string.proof_camera_birth_instruction,
+    )
+    ProofCapturePrompt.DEATH -> RecorderCopyResources(
+        R.string.proof_camera_death_title,
+        R.string.proof_camera_death_instruction,
+    )
+    ProofCapturePrompt.POST_MORTEM -> RecorderCopyResources(
+        R.string.proof_camera_post_mortem_title,
+        R.string.proof_camera_post_mortem_instruction,
+    )
+    ProofCapturePrompt.SHIFTING -> RecorderCopyResources(
+        R.string.proof_camera_shifting_title,
+        R.string.proof_camera_shifting_instruction,
+    )
+    ProofCapturePrompt.FEED_DISTRIBUTION -> RecorderCopyResources(
+        R.string.proof_camera_feed_distribution_title,
+        R.string.proof_camera_feed_distribution_instruction,
+    )
+    ProofCapturePrompt.WATER_DISTRIBUTION -> RecorderCopyResources(
+        R.string.proof_camera_water_distribution_title,
+        R.string.proof_camera_water_distribution_instruction,
+    )
+    ProofCapturePrompt.FEED_PACKING -> RecorderCopyResources(
+        R.string.proof_camera_feed_packing_title,
+        R.string.proof_camera_feed_packing_instruction,
+    )
 }
 
 @Composable

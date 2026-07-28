@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -95,22 +96,20 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     fun onEvent(event: FeedPackingCompleteEvent) {
         when (event) {
-            FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo(fromGallery = false)
-            FeedPackingCompleteEvent.PickPackingVideo -> capturePackingVideo(fromGallery = true)
+            FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo()
             FeedPackingCompleteEvent.MarkDone -> markDone()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
-    /** MANDATORY packing video — a LIVE camera clip ([fromGallery] false) or one picked from the
-     *  gallery ([fromGallery] true); either enqueues a PROOF_UPLOAD on the shed-session group so it
+    /** MANDATORY packing video — a LIVE in-app camera clip. It enqueues a PROOF_UPLOAD on the shed-session group so it
      *  drains before the completion. */
-    private fun capturePackingVideo(fromGallery: Boolean) {
+    private fun capturePackingVideo() {
         if (_state.value.isCapturingVideo || _state.value.videoCaptured || shedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                if (fromGallery) proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
+                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_PACKING)
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed packing video capture failed")
                 null
@@ -127,8 +126,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 subjectType = "shed",
                 subjectId = shedId,
                 // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
-                // capture_source (in_app_camera | gallery_picker) + the capture window. They come
-                // straight off the captured clip; omitting them is rejected 400 invalid_proof.
+                // capture_source + the capture window. This flow permits only the live in-app
+                // camera; omitting them is rejected 400 invalid_proof.
                 metadata = mapOf(
                     META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),

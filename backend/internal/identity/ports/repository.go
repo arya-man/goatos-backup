@@ -342,10 +342,13 @@ type CreateAdminGoatCommand struct {
 	HealthStatus         *string
 	WeightKg             *float64
 	DamID                *string
-	SireOrLot            *string
-	PhotoURL             *string
-	SourceRecordID       *string
-	EvidenceRefs         []domain.EvidenceRef
+	// TimeOfBirth is the optional HH:MM (24h, IST) birth time stored as goats.time_of_birth and
+	// carried on the goat.created payload for the birth workflow opener.
+	TimeOfBirth    *string
+	SireOrLot      *string
+	PhotoURL       *string
+	SourceRecordID *string
+	EvidenceRefs   []domain.EvidenceRef
 }
 
 // ResolveReproductiveMatchCommand asks whether a bulk-import row's identifiers

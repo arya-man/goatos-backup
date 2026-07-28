@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -103,7 +104,7 @@ class FeedCompleteViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo()
+                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_DISTRIBUTION)
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed complete video capture failed")
                 null

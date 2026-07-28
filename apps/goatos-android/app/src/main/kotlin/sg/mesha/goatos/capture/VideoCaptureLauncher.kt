@@ -33,7 +33,7 @@ import java.io.File
 @Composable
 fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
     val context = LocalContext.current
-    var recorderRequested by remember { mutableStateOf(false) }
+    var recorderPrompt by remember { mutableStateOf<ProofCapturePrompt?>(null) }
     val resultChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
     // Carry only the raw picked Uri back on the main thread; the (potentially large) copy into
     // app-private storage runs off-main inside the suspend `pick` delegate below, so importing a
@@ -45,8 +45,8 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
 
     DisposableEffect(source) {
         val bindToken = source.bind(
-            launch = {
-                recorderRequested = true
+            launch = { prompt ->
+                recorderPrompt = prompt
                 resultChannel.receive()
             },
             pick = {
@@ -61,7 +61,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
         onDispose { source.unbind(bindToken) }
     }
 
-    if (recorderRequested) {
+    recorderPrompt?.let { prompt ->
         // This must be a real modal window. Rendering the recorder as a sibling before the
         // Scan/Submit screen puts the live preview *behind* that screen in Compose draw order:
         // the camera runs, but the operator still sees (and can touch) the RFID UI. A full-screen
@@ -77,9 +77,10 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
             ),
         ) {
             InAppVideoRecorderOverlay(
+                prompt = prompt,
                 onResult = { result ->
-                    if (recorderRequested) {
-                        recorderRequested = false
+                    if (recorderPrompt != null) {
+                        recorderPrompt = null
                         resultChannel.trySend(result)
                     }
                 },

@@ -67,6 +67,37 @@ interface OutboxDao {
     )
     fun observeActive(): Flow<List<OutboxEntity>>
 
+    /**
+     * Bounded active rows for one ordering group and a small caller-owned op-type set. Used by
+     * offline-first read-model reconciliation so a network refresh cannot erase a command that is
+     * still queued, in flight, or retryable locally. Terminal conflicts/exhausted rows are excluded
+     * so authoritative backend rework is allowed through.
+     */
+    @Query(
+        "SELECT * FROM outbox WHERE groupKey = :groupKey AND opType IN (:opTypes) AND (" +
+            "status IN ('QUEUED', 'IN_FLIGHT') OR " +
+            "(status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts)) " +
+            "ORDER BY createdAt ASC LIMIT :limit",
+    )
+    suspend fun findActiveForGroup(
+        groupKey: String,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity>
+
+    /** Batched variant for paged read-model reconciliation; avoids one outbox query per card. */
+    @Query(
+        "SELECT * FROM outbox WHERE groupKey IN (:groupKeys) AND opType IN (:opTypes) AND (" +
+            "status IN ('QUEUED', 'IN_FLIGHT') OR " +
+            "(status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts)) " +
+            "ORDER BY createdAt ASC LIMIT :limit",
+    )
+    suspend fun findActiveForGroups(
+        groupKeys: List<String>,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity>
+
     /** Observes ONE row by id through EVERY status, including terminal SUCCEEDED/conflict/
      *  attempt-exhausted (R50-030: leadership close must follow its own submission to a terminal
      *  state even when that row is older than the bounded recent-terminal window, which

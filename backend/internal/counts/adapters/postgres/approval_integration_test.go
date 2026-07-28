@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identitydomain "github.com/vgoats/goatos/backend/internal/identity/domain"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -58,6 +60,18 @@ type fakeIdentityTx struct {
 	lastRelocate identityports.RelocateGoatsCommand
 
 	newGoatID string
+}
+
+type fakeDeathEvidenceTxGate struct {
+	ready bool
+	calls int
+}
+
+func (f *fakeDeathEvidenceTxGate) PrepareDeathEvidenceForApprovalInTx(
+	_ context.Context, _ pgx.Tx, _, _ string,
+) (bool, error) {
+	f.calls++
+	return f.ready, nil
 }
 
 func (f *fakeIdentityTx) CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd identityports.CreateAdminGoatCommand) (*identityports.AdminGoatMutationResult, error) {
@@ -131,7 +145,9 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, cmd.TenantID, goatID, cmd.To
 func newApprovalRepo(t *testing.T, pool *pgxpool.Pool, identity IdentityTxWriter) *Repository {
 	t.Helper()
 	seedCustodianParty(t, context.Background(), pool)
-	return NewRepository(pool, 10*time.Second).WithIdentityTxWriter(identity)
+	return NewRepository(pool, 10*time.Second).
+		WithIdentityTxWriter(identity).
+		WithDeathEvidenceTxGate(&fakeDeathEvidenceTxGate{ready: true})
 }
 
 // goats.custodian_party_id is a real FK. Seeding the party keeps these tests exercising the actual
@@ -660,6 +676,89 @@ SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_t
 // Death guardrail through the approval path
 // ---------------------------------------------------------------------------
 
+func TestDeathSubmissionEmitsOneDurableWorkflowCommand(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newApprovalRepo(t, pool, &fakeIdentityTx{})
+	goatID := "00000000-0000-4000-8000-00000000c018"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+	submission := domain.ApprovalRequestSubmission{
+		TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
+		Payload:       json.RawMessage(`{"goat_id":"` + goatID + `","lifecycle_status":"dead","exit_reason":"died"}`),
+		SubjectGoatID: &goatID, RaisedByUserID: countsOperator, RaisedAt: time.Now(),
+		IdempotencyKey: "death-opens-workflow", RequestFingerprint: "death-opens-workflow-fp",
+	}
+	req, replay, err := repo.CreateApprovalRequest(ctx, submission)
+	if err != nil || replay {
+		t.Fatalf("first submit: replay=%v err=%v", replay, err)
+	}
+	if _, replay, err := repo.CreateApprovalRequest(ctx, submission); err != nil || !replay {
+		t.Fatalf("exact replay: replay=%v err=%v", replay, err)
+	}
+	var (
+		count       int
+		payloadGoat string
+		envelope    []byte
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT count(*), max(payload #>> '{payload,goat_id}'), max(payload::text)::bytea
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type=$2 AND aggregate_id=$3::uuid`,
+		countsTenant, domain.EventDeathReported, req.ApprovalRequestID).Scan(&count, &payloadGoat, &envelope); err != nil {
+		t.Fatalf("read workflow command: %v", err)
+	}
+	if count != 1 || payloadGoat != goatID {
+		t.Fatalf("death workflow commands=%d goat=%q, want one for %s", count, payloadGoat, goatID)
+	}
+	validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
+	if err != nil {
+		t.Fatalf("load domain-event contract: %v", err)
+	}
+	if err := validator.Validate(envelope); err != nil {
+		t.Fatalf("death workflow command violates domain-event contract: %v", err)
+	}
+}
+
+func TestApproveDeathWaitsForBothOperatorVideos(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	identity := &fakeIdentityTx{}
+	gate := &fakeDeathEvidenceTxGate{ready: false}
+	repo := NewRepository(pool, 10*time.Second).
+		WithIdentityTxWriter(identity).
+		WithDeathEvidenceTxGate(gate)
+	seedCustodianParty(t, ctx, pool)
+
+	goatID := "00000000-0000-4000-8000-00000000c019"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+	req, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
+		TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
+		Payload:       json.RawMessage(`{"goat_id":"` + goatID + `","lifecycle_status":"dead","exit_reason":"died"}`),
+		SubjectGoatID: &goatID, RaisedByUserID: countsOperator, RaisedAt: time.Now(),
+		IdempotencyKey: "death-await-videos", RequestFingerprint: "death-await-videos-fp",
+	})
+	if err != nil {
+		t.Fatalf("submit death: %v", err)
+	}
+	_, _, err = repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
+		TenantID: countsTenant, ApprovalRequestID: req.ApprovalRequestID,
+		Status: domain.ApprovalStatusApproved, DecidedByUserID: countsApprover, DecidedAt: time.Now(),
+		IdempotencyKey: "approve-before-videos", RequestFingerprint: "approve-before-videos-fp",
+		Effect: &domain.ApprovalEffect{ExitGoat: identityports.ExitGoatCommand{
+			TenantID: countsTenant, GoatID: goatID, LifecycleStatus: "dead", ExitReason: "died", GuardrailApproved: true,
+		}},
+	})
+	if !errors.Is(err, ports.ErrDeathEvidenceIncomplete) {
+		t.Fatalf("approve before videos err = %v, want ErrDeathEvidenceIncomplete", err)
+	}
+	if got := approvalStatus(t, ctx, pool, req.ApprovalRequestID); got != domain.ApprovalStatusPending {
+		t.Fatalf("approval status = %q, want pending", got)
+	}
+	if identity.exitCalls != 0 {
+		t.Fatalf("identity exit calls = %d, want 0 before both videos", identity.exitCalls)
+	}
+}
+
 // The dead+died pairing must still be enforced when the exit runs from an APPROVAL rather than from
 // the direct route. An approval path that reached a weaker exit would be a way around the
 // guardrail.
@@ -728,6 +827,33 @@ func TestApproveDeathEnforcesCriticalDeathGuardrail(t *testing.T) {
 	}
 	if status != "dead" {
 		t.Fatalf("lifecycle_status=%q, want dead", status)
+	}
+}
+
+// A scoped manager can receive a retried response after the first approval already changed the
+// goat to dead. Scope still comes from the canonical goat park; lifecycle state must not make that
+// idempotent replay look forbidden.
+func TestApprovalSubjectParkRemainsReadableAfterApprovedDeath(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedCustodianParty(t, ctx, pool)
+
+	goatID := "00000000-0000-4000-8000-00000000c020"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET lifecycle_status = 'dead', exit_reason = 'died', exited_at = now()
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, goatID); err != nil {
+		t.Fatalf("mark goat dead: %v", err)
+	}
+
+	repo := NewRepository(pool, 10*time.Second)
+	parkID, err := repo.ApprovalSubjectPark(ctx, countsTenant, goatID)
+	if err != nil {
+		t.Fatalf("read approval subject park after death: %v", err)
+	}
+	if parkID != countsPark {
+		t.Fatalf("approval subject park = %q, want %q", parkID, countsPark)
 	}
 }
 

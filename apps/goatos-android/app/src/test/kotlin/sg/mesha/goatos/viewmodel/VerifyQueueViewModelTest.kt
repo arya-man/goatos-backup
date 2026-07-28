@@ -98,6 +98,32 @@ class VerifyQueueViewModelTest {
         assertFalse(vm.state.value.isRefreshing)
         assertEquals(2, repo.refreshQueueCalls) // once from init, once from this explicit Refresh
     }
+
+    @Test
+    fun `death tab loads the approved death evidence category`() = runTest(dispatcher) {
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(repo, FakeVerifySyncRepository(), NoopAnalytics(), SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.DEATH))
+        advanceUntilIdle()
+
+        assertEquals("death_evidence", repo.lastRefreshCategory)
+    }
+
+    @Test
+    fun `birth tab has its own queue category ready for the later birth producer`() = runTest(dispatcher) {
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(repo, FakeVerifySyncRepository(), NoopAnalytics(), SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.BIRTH))
+        advanceUntilIdle()
+
+        assertEquals("birth_evidence", repo.lastRefreshCategory)
+    }
 }
 
 private class FakeVerifySyncRepository : SyncRepository {
@@ -120,6 +146,8 @@ private class FakeVerifyQueueRepository : VerificationRepository {
         private set
     var refreshActionQueueCalls = 0
         private set
+    var lastRefreshCategory: String? = null
+        private set
 
     override suspend fun queue(category: String?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = error("unused")
 
@@ -128,6 +156,7 @@ private class FakeVerifyQueueRepository : VerificationRepository {
 
     override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
         refreshQueueCalls++
+        lastRefreshCategory = category
         return Result.success(Unit)
     }
 

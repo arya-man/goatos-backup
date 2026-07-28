@@ -2,6 +2,20 @@
 <resources>
     <string name="proof_camera_title">ಲಸಿಕೆ ಪುರಾವೆಯನ್ನು ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_instruction">ಮೇಕೆ ಮತ್ತು ಲಸಿಕೆ ನೀಡುವ ಪ್ರಕ್ರಿಯೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_birth_title">ಜನನದ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_birth_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಹೆರಿಗೆ ನಂತರದ ಆರೈಕೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_death_title">ಸಾವಿನ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_death_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಕಿವಿಯ ಟ್ಯಾಗ್ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_post_mortem_title">ಮರಣೋತ್ತರ ಪರೀಕ್ಷೆಯ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_post_mortem_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಮರಣೋತ್ತರ ಪರೀಕ್ಷೆಯ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_shifting_title">ಸ್ಥಳಾಂತರದ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_shifting_instruction">ಪ್ರಾಣಿಗಳು ಮತ್ತು ತಲುಪುವ ಶೆಡ್ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_feed_distribution_title">ಮೇವು ವಿತರಣೆಯನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_feed_distribution_instruction">ಮೇವು ವಿತರಣೆಯ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_water_distribution_title">ನೀರು ವಿತರಣೆಯನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_water_distribution_instruction">ನೀರು ವಿತರಣೆಯ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_feed_packing_title">ಮೇವು ಪ್ಯಾಕಿಂಗ್ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_feed_packing_instruction">ಮೇವು ಪ್ಯಾಕಿಂಗ್ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$d ಸೆಕೆಂಡು</string>
     <string name="proof_camera_unavailable">ಕ್ಯಾಮೆರಾ ಲಭ್ಯವಿಲ್ಲ. ರದ್ದುಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="proof_camera_cancel">ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ರದ್ದುಮಾಡಿ</string>

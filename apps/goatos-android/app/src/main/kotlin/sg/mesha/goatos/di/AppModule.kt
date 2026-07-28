@@ -44,7 +44,9 @@ import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
+import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
 import sg.mesha.goatos.core.data.DefaultFeedRepository
 import sg.mesha.goatos.core.data.FeedRepository
@@ -339,6 +341,14 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): AwaitingRfidRepository = DefaultAwaitingRfidRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideWorkflowsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        outboxStore: OutboxStore,
+    ): WorkflowsRepository = DefaultWorkflowsRepository(api, database, outboxStore)
 
     @Provides
     @Singleton

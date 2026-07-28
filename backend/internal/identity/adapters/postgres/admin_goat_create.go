@@ -268,12 +268,12 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
 	  management_stage, health_status, custodian_party_id,
 	  current_location_id, farm_id, park_id, shed_id,
-	  created_by, dob, dob_estimated, origin_type, entry_date
+	  created_by, dob, dob_estimated, origin_type, entry_date, time_of_birth
 	) VALUES (
 	  $1::uuid, $2::uuid, $3::text, nullif($4::text, ''), $5::text, $6::date, 'alive',
 	  nullif($7::text, ''), nullif($8::text, ''), $9::uuid,
 	  $10::uuid, $11::uuid, $12::uuid, $10::uuid,
-	  $13::uuid, $6::date, $14::boolean, $15::text, $16::date
+	  $13::uuid, $6::date, $14::boolean, $15::text, $16::date, nullif($17::text, '')::time
 	)`,
 		goatID,
 		cmd.TenantID,
@@ -291,6 +291,7 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		cmd.DOBEstimated,
 		cmd.OriginType,
 		cmd.EntryDate,
+		stringValue(cmd.TimeOfBirth),
 	); err != nil {
 		return nil, err
 	}
@@ -717,12 +718,18 @@ func adminGoatDecisionRecordPayload(cmd ports.CreateAdminGoatCommand, goatID, de
 
 func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID, generationStatus string) ([]byte, error) {
 	return json.Marshal(map[string]any{
-		"goat_id":           goatID,
-		"decision_id":       decisionID,
-		"identifiers":       cmd.Identifiers,
-		"species":           cmd.Species,
-		"origin_type":       cmd.OriginType,
-		"entry_date":        biztime.BusinessDate(cmd.EntryDate),
+		"goat_id":     goatID,
+		"decision_id": decisionID,
+		"identifiers": cmd.Identifiers,
+		"species":     cmd.Species,
+		"origin_type": cmd.OriginType,
+		"entry_date":  biztime.BusinessDate(cmd.EntryDate),
+		// dob/dam_id/sex/time_of_birth are consumed by the tasks module's birth workflow opener
+		// (backend/internal/tasks/app.GoatCreatedWorkflowHandler); see the domain-event registry.
+		"dob":               dobBusinessDate(cmd.DOB),
+		"dam_id":            stringValue(cmd.DamID),
+		"sex":               cmd.Sex,
+		"time_of_birth":     stringValue(cmd.TimeOfBirth),
 		"farm_id":           stringValue(cmd.FarmID),
 		"park_id":           cmd.ParkID,
 		"shed_id":           cmd.ShedID,
@@ -730,6 +737,14 @@ func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID,
 		"source_record_id":  stringValue(cmd.SourceRecordID),
 		"generation_status": generationStatus,
 	})
+}
+
+// dobBusinessDate renders an optional DOB as its India business date ("" when absent).
+func dobBusinessDate(dob *time.Time) string {
+	if dob == nil {
+		return ""
+	}
+	return biztime.BusinessDate(*dob)
 }
 
 func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.GoatSummary, decision domain.DecisionRecordSummary, eventID string, at time.Time, generationStatus string) ([]byte, error) {
@@ -750,12 +765,18 @@ func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.
 		VisibilityScope: locationScopeFromSummary(goat),
 		EvidenceRefs:    cmd.EvidenceRefs,
 		Payload: map[string]any{
-			"goat_id":           goat.GoatID,
-			"decision_id":       decision.DecisionID,
-			"identifiers":       cmd.Identifiers,
-			"species":           cmd.Species,
-			"origin_type":       cmd.OriginType,
-			"entry_date":        biztime.BusinessDate(cmd.EntryDate),
+			"goat_id":     goat.GoatID,
+			"decision_id": decision.DecisionID,
+			"identifiers": cmd.Identifiers,
+			"species":     cmd.Species,
+			"origin_type": cmd.OriginType,
+			"entry_date":  biztime.BusinessDate(cmd.EntryDate),
+			// dob/dam_id/sex/time_of_birth are consumed by the tasks module's birth workflow opener
+			// (backend/internal/tasks/app.GoatCreatedWorkflowHandler); see the domain-event registry.
+			"dob":               dobBusinessDate(cmd.DOB),
+			"dam_id":            stringValue(cmd.DamID),
+			"sex":               cmd.Sex,
+			"time_of_birth":     stringValue(cmd.TimeOfBirth),
 			"farm_id":           stringValue(cmd.FarmID),
 			"park_id":           cmd.ParkID,
 			"shed_id":           cmd.ShedID,

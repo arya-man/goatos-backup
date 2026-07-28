@@ -118,7 +118,8 @@ class RoleChromeScreenshotTest {
             status = NavModuleStatus.AVAILABLE,
             navItems = listOf(
                 NavItem(key = "counts", label = "Counts", href = "/counts"),
-                NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+                NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
+                NavItem(key = "death", label = "Death", href = "/counts/death"),
                 NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
             ),
         ),
@@ -136,7 +137,7 @@ class RoleChromeScreenshotTest {
                 modules = drawerModules(),
             ),
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())
         }
@@ -156,7 +157,7 @@ class RoleChromeScreenshotTest {
             // active-module state (green rail + check) alongside the visible modules, Soon rows,
             // Settings, and Sign-out.
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
             initialDrawerValue = DrawerValue.Open,
             drawerProfile = DrawerProfile(name = "Arun Kumar", role = "Health Asst Mgr · CBE", initials = "AK"),
         ) {
@@ -175,7 +176,7 @@ class RoleChromeScreenshotTest {
                 modules = listOf(vaccinationModule().copy(navItems = vaccinationCloserNavItems())),
             ),
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())
         }
@@ -192,7 +193,7 @@ class RoleChromeScreenshotTest {
                 modules = listOf(vaccinationModule().copy(navItems = vaccinationCloserNavItems())),
             ),
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())
         }
@@ -208,7 +209,7 @@ class RoleChromeScreenshotTest {
                 items = vaccinationFieldNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())
         }
@@ -224,7 +225,7 @@ class RoleChromeScreenshotTest {
                 items = vaccinationFieldNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
-            onNavigate = {},
+            onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())
         }

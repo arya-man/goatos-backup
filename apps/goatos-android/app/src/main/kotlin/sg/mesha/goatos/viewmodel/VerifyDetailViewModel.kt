@@ -271,6 +271,7 @@ class VerifyDetailViewModel @Inject constructor(
         val canDecide = !isActionMode && effectiveStatus == VerificationStatus.PENDING && playableEvidenceAvailable
         return VerifyDetailUiState(
             itemId = itemId,
+            category = category,
             categoryLabel = humanizeCategory(category),
             subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
             media = media.map {

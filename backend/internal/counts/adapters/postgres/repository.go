@@ -58,6 +58,9 @@ type Repository struct {
 	// identityTx applies an approved birth/death/shifting effect inside the approval's own
 	// transaction. Injected via WithIdentityTxWriter; see approval_repository.go.
 	identityTx IdentityTxWriter
+	// deathEvidenceTx proves and releases the two staged death videos inside the same transaction
+	// that applies the approved exit. Injected by composition from the tasks Postgres adapter.
+	deathEvidenceTx DeathEvidenceTxGate
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {

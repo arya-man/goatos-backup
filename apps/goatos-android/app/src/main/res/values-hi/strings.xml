@@ -2,6 +2,20 @@
 <resources>
     <string name="proof_camera_title">टीकाकरण प्रमाण रिकॉर्ड करें</string>
     <string name="proof_camera_instruction">बकरी और टीका लगाने की प्रक्रिया साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_birth_title">जन्म का वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_birth_instruction">पशु और जन्म के बाद की देखभाल साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_death_title">मृत्यु का वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_death_instruction">पशु और कान का टैग साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_post_mortem_title">पोस्टमार्टम वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_post_mortem_instruction">पशु और पोस्टमार्टम की प्रक्रिया साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_shifting_title">स्थानांतरण वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_shifting_instruction">पशु और गंतव्य शेड साफ़ दिखाई देने चाहिए</string>
+    <string name="proof_camera_feed_distribution_title">चारा वितरण रिकॉर्ड करें</string>
+    <string name="proof_camera_feed_distribution_instruction">चारा वितरण का काम साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_water_distribution_title">पानी वितरण रिकॉर्ड करें</string>
+    <string name="proof_camera_water_distribution_instruction">पानी वितरण का काम साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_feed_packing_title">चारा पैकिंग रिकॉर्ड करें</string>
+    <string name="proof_camera_feed_packing_instruction">चारा पैकिंग का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
     <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
     <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>

@@ -2,6 +2,20 @@
 <resources>
     <string name="proof_camera_title">Record vaccination proof</string>
     <string name="proof_camera_instruction">Keep the shed and vaccination work clearly visible</string>
+    <string name="proof_camera_birth_title">Record birth video</string>
+    <string name="proof_camera_birth_instruction">Keep the animal and birth-care work clearly visible</string>
+    <string name="proof_camera_death_title">Record death video</string>
+    <string name="proof_camera_death_instruction">Keep the animal and ear tag clearly visible</string>
+    <string name="proof_camera_post_mortem_title">Record post-mortem video</string>
+    <string name="proof_camera_post_mortem_instruction">Keep the animal and post-mortem work clearly visible</string>
+    <string name="proof_camera_shifting_title">Record shifting video</string>
+    <string name="proof_camera_shifting_instruction">Keep the animals and destination shed clearly visible</string>
+    <string name="proof_camera_feed_distribution_title">Record feed distribution</string>
+    <string name="proof_camera_feed_distribution_instruction">Keep the feed distribution work clearly visible</string>
+    <string name="proof_camera_water_distribution_title">Record water distribution</string>
+    <string name="proof_camera_water_distribution_instruction">Keep the water distribution work clearly visible</string>
+    <string name="proof_camera_feed_packing_title">Record feed packing</string>
+    <string name="proof_camera_feed_packing_instruction">Keep the feed packing work clearly visible</string>
     <string name="proof_camera_recording_time">Recording · %1$d s</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>

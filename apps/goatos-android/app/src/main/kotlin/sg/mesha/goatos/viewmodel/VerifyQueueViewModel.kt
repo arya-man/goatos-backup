@@ -258,6 +258,10 @@ class VerifyQueueViewModel @Inject constructor(
      * leadership close/action step (hence null in the action queue).
      */
     private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
+        // Birth owns a separate queue surface now; its producer/complete flow is intentionally
+        // deferred until the maintainer supplies that contract, so the category is empty today.
+        VerifyModuleTab.BIRTH -> if (isActionQueue) null else BIRTH_CATEGORY
+        VerifyModuleTab.DEATH -> if (isActionQueue) null else DEATH_CATEGORY
         VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
         VerifyModuleTab.SHIFTING -> if (isActionQueue) null else SHIFTING_CATEGORY
         VerifyModuleTab.PACKING -> if (isActionQueue) null else PACKING_CATEGORY
@@ -366,6 +370,8 @@ class VerifyQueueViewModel @Inject constructor(
 }
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
+private const val BIRTH_CATEGORY = "birth_evidence"
+private const val DEATH_CATEGORY = "death_evidence"
 private const val SHIFTING_CATEGORY = "shifting_move"
 // Feed verification categories (backend feeddirection/domain.VerificationCategoryPacking /
 // VerificationCategoryFeed) — kept apart by category exactly as the backend enqueues them.

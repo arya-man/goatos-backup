@@ -376,6 +376,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	trimOptionalString(&normalized.HealthStatus)
 	trimOptionalString(&normalized.ReproductiveStatus)
 	trimOptionalString(&normalized.DamID)
+	trimOptionalString(&normalized.TimeOfBirth)
 	trimOptionalString(&normalized.SireOrLot)
 	trimOptionalString(&normalized.PhotoURL)
 	trimOptionalString(&normalized.SourceRecordID)
@@ -465,6 +466,13 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.WeightKg != nil && *normalized.WeightKg < 0 {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "weight_kg", Code: "invalid", Message: "weight_kg must be non-negative"})
 	}
+	// time_of_birth is optional HH:MM (24h, IST wall clock). Present-but-invalid is rejected, never
+	// silently dropped or defaulted (validate-or-reject rule).
+	if normalized.TimeOfBirth != nil {
+		if _, err := time.Parse("15:04", *normalized.TimeOfBirth); err != nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "time_of_birth", Code: "invalid", Message: "time_of_birth must be HH:MM in 24-hour format"})
+		}
+	}
 	if err := validateEvidenceRefs(normalized.EvidenceRefs, true); err != nil {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "evidence_refs", Code: "invalid", Message: err.Error()})
 	}
@@ -499,6 +507,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		HealthStatus:         normalized.HealthStatus,
 		WeightKg:             normalized.WeightKg,
 		DamID:                normalized.DamID,
+		TimeOfBirth:          normalized.TimeOfBirth,
 		SireOrLot:            normalized.SireOrLot,
 		PhotoURL:             normalized.PhotoURL,
 		SourceRecordID:       normalized.SourceRecordID,

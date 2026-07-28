@@ -32,13 +32,12 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
  * The verifier-gated flow (docs/decisions/feed-distribution-verification.md): the operator records a
- * MANDATORY feed-distribution video AND a MANDATORY water-distribution proof (photo OR video), then
- * submits. Both proofs are required before Submit enables (client-side gate; the backend also rejects
+ * MANDATORY feed-distribution video, then the MANDATORY water-distribution proof (photo OR video)
+ * enables. Both proofs are required before Submit enables (client-side gate; the backend also rejects
  * a blank proof `422 proof_required`). Submitting flips the shed-session to `pending_verification` —
  * NOTHING is completed until a verifier approves the pair.
  *
- * This is a SEPARATE screen from [FeedCompleteScreen] (the untouched Packing path); Packing rows
- * still open [FeedCompleteScreen] (instant, optional video, no verifier).
+ * This is separate from the packing-proof flow.
  */
 
 enum class FeedDistributionStatus { QUEUED, SYNCED, FAILED }
@@ -60,6 +59,11 @@ data class FeedDistributionUiState(
     val canComplete: Boolean = false,
     val result: FeedDistributionResultUi? = null,
 ) {
+    /** The second proof is actionable only after the first proof has been recorded. */
+    val waterCaptureEnabled: Boolean
+        get() = videoCaptured && !waterCaptured && !isCapturingVideo && !isCapturingWater &&
+            result?.status != FeedDistributionStatus.SYNCED && result?.status != FeedDistributionStatus.QUEUED
+
     /** Both mandatory proofs are recorded and the write is not already committed. */
     val submitEnabled: Boolean
         get() = canComplete && videoCaptured && waterCaptured && !isCapturingVideo && !isCapturingWater &&
@@ -70,13 +74,8 @@ sealed interface FeedDistributionEvent {
     /** Record the feed video with the LIVE in-app camera. */
     data object RecordFeedVideo : FeedDistributionEvent
 
-    /** Pick the feed video from the device gallery. */
-    data object PickFeedVideo : FeedDistributionEvent
     data object TakeWaterPhoto : FeedDistributionEvent
     data object RecordWaterVideo : FeedDistributionEvent
-
-    /** Pick the water video from the device gallery. */
-    data object PickWaterVideo : FeedDistributionEvent
     data object MarkDone : FeedDistributionEvent
     data object Back : FeedDistributionEvent
 }
@@ -117,7 +116,7 @@ fun FeedDistributionCompleteScreen(
             fontSize = 12.sp,
         )
 
-        // Tile 1 — MANDATORY feed-distribution video: record live OR upload from the gallery.
+        // Step 1 — MANDATORY live feed-distribution video.
         Text(
             text = stringResource(R.string.feed_dist_video_title),
             color = MeshaColors.Ink,
@@ -133,7 +132,7 @@ fun FeedDistributionCompleteScreen(
                 loading = true,
                 onClick = {},
             )
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            else -> Row {
                 FeedDistActionButton(
                     label = stringResource(R.string.feed_dist_record_video),
                     enabled = !state.isCapturingWater && !committed,
@@ -141,20 +140,13 @@ fun FeedDistributionCompleteScreen(
                     modifier = Modifier.weight(1f),
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                 )
-                FeedDistActionButton(
-                    label = stringResource(R.string.feed_dist_upload_video),
-                    enabled = !state.isCapturingWater && !committed,
-                    primary = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onEvent(FeedDistributionEvent.PickFeedVideo) },
-                )
             }
         }
         state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // Tile 2 — MANDATORY water-distribution proof: photo OR video.
+        // Step 2 — MANDATORY live water-distribution proof: photo OR video. Disabled until step 1.
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 text = stringResource(R.string.feed_dist_water_title),
@@ -181,25 +173,19 @@ fun FeedDistributionCompleteScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FeedDistActionButton(
                         label = stringResource(R.string.feed_dist_take_water_photo),
-                        enabled = !state.isCapturingVideo && !committed,
+                        enabled = state.waterCaptureEnabled,
                         primary = false,
                         modifier = Modifier.weight(1f),
                         onClick = { onEvent(FeedDistributionEvent.TakeWaterPhoto) },
                     )
                     FeedDistActionButton(
                         label = stringResource(R.string.feed_dist_record_water_video),
-                        enabled = !state.isCapturingVideo && !committed,
+                        enabled = state.waterCaptureEnabled,
                         primary = false,
                         modifier = Modifier.weight(1f),
                         onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
                     )
                 }
-                FeedDistActionButton(
-                    label = stringResource(R.string.feed_dist_upload_water_video),
-                    enabled = !state.isCapturingVideo && !committed,
-                    primary = false,
-                    onClick = { onEvent(FeedDistributionEvent.PickWaterVideo) },
-                )
             }
         }
         state.waterMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }

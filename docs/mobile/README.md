@@ -12,6 +12,8 @@ this is the pre-implementation design set the maintainer asked for.
 
 | Doc | What it covers |
 |-----|----------------|
+| [goat-os-mobile-feature-roadmap-manager-2026-07-30.doc](goat-os-mobile-feature-roadmap-manager-2026-07-30.doc) ([DOCX copy](goat-os-mobile-feature-roadmap-manager-2026-07-30.docx)) | Manager-friendly summary of the seven mobile feature flows, delivery plan, decisions, risks, and definition of done |
+| [mobile-feature-action-flows-roadmap-2026-07-30.md](mobile-feature-action-flows-roadmap-2026-07-30.md) | Review-driven action flows and delivery roadmap for Birth, Death, Shifting, Milk Preparation, Health, Feed Transport, and Colostrum Feeding |
 | [prd-operator-mobile.md](prd-operator-mobile.md) | Product requirements: who, what, scope, non-goals, success metrics, constraints |
 | [trd-operator-mobile.md](trd-operator-mobile.md) | Technical requirements: stack, Gradle modules, Clean Architecture layers, offline sync engine, hardware (RFID/camera), auth/RBAC, Firebase integration, security, testing, CI |
 | [system-design.md](system-design.md) | Runtime architecture, data flow, sync state machine, threading model, push/notification flow, analytics taxonomy, boot/bootstrap contract |

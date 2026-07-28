@@ -174,6 +174,10 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
 		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
+		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
+		// so without these an approved birth/death opens no follow-up work locally.
+		eventwiring.RegisterWorkflowConsumers(bus,
+			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

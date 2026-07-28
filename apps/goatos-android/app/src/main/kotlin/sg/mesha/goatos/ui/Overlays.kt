@@ -298,6 +298,7 @@ fun SyncSheet(
     isOnline: Boolean = false,
     syncingCount: Int = 0,
     queuedCount: Int = 0,
+    failedCount: Int = 0,
     queue: List<SyncQueueItem> = emptyList(),
     onRetryAll: () -> Unit = {},
     onDismiss: () -> Unit,
@@ -332,7 +333,7 @@ fun SyncSheet(
                 fontWeight = FontWeight.W600,
             )
             Spacer(Modifier.weight(1f))
-            if (pending > 0) {
+            if (pending > 0 || failedCount > 0) {
                 Text(
                     "↻ ${stringResource(DesignSystemR.string.sync_retry_all)}",
                     color = OverlayTokens.brandD,

@@ -9,6 +9,8 @@ const (
 	EventProjectionExceptionOpened  = "counts.projection_exception.opened"
 	EventProjectionExceptionUpdated = "counts.projection_exception.updated"
 	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
+	EventDeathReported              = "counts.death.reported"
+	EventDeathRejected              = "counts.death.rejected"
 	SourceContractVersionV1         = "counts-shifting-v1"
 )
 

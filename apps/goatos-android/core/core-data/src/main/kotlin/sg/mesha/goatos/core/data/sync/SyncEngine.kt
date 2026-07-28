@@ -19,6 +19,8 @@ import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -232,6 +234,8 @@ class SyncEngine(
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
         OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
+        OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -582,6 +586,40 @@ class SyncEngine(
             payload.shiftingEventId,
             item.idempotencyKey,
             payload.reason,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The two Birth/Death workflow-action writes (docs/decisions/birth-death-workflows.md). Same
+     * idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
+     * verbatim, so an exact retry returns the original result (`idempotent_replay=true`). A NEW key
+     * against an already-completed action is a 409, terminal by [recordFailure]'s check, so it
+     * surfaces instead of retrying forever. A `requires_video` completion resolves its mandatory
+     * proof from the coupled PROOF_UPLOAD outbox row (same group, drained first) exactly like
+     * [dispatchShiftingComplete]'s video; the backend re-rejects a missing proof with `422
+     * proof_required` (also terminal).
+     */
+    private suspend fun dispatchWorkflowActionAnswer(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WorkflowActionAnswerPayload>(item.payloadJson)
+        val response = api.answerWorkflowAction(
+            payload.workflowId,
+            payload.actionId,
+            item.idempotencyKey,
+            WorkflowActionAnswerRequestDto(answerValue = payload.answerValue),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWorkflowActionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WorkflowActionCompletePayload>(item.payloadJson)
+        val response = api.completeWorkflowAction(
+            payload.workflowId,
+            payload.actionId,
+            item.idempotencyKey,
+            WorkflowActionCompleteRequestDto(
+                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+            ),
         )
         return syncJson.encodeToString(response)
     }

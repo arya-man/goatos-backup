@@ -26,6 +26,9 @@ var (
 	// animal/row it was supposed to. The decision transaction is rolled back, so the request stays
 	// pending rather than half-applying.
 	ErrApprovalEffectIncomplete = errors.New("counts: approval effect did not apply completely")
+	// ErrDeathEvidenceIncomplete keeps a death approval pending until both mandatory operator
+	// videos are present in its staged workflow. Counts/lifecycle remain unchanged on this error.
+	ErrDeathEvidenceIncomplete = errors.New("counts: death evidence is incomplete")
 
 	// ErrShiftingEventNotFound is returned when the addressed shifting event does not exist in the
 	// caller's tenant.

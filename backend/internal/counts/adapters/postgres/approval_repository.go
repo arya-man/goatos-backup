@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
 // IdentityTxWriter is the slice of the identity module's Postgres repository that the Counts
@@ -35,11 +36,23 @@ type IdentityTxWriter interface {
 	RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd identityports.RelocateGoatsCommand) (identityports.RelocateGoatsResult, error)
 }
 
+// DeathEvidenceTxGate is implemented by the tasks Postgres repository. The consuming adapter owns
+// this seam so Counts does not import tasks storage. It validates both staged videos and moves the
+// workflow's internal verifier action to in_review inside the approval transaction.
+type DeathEvidenceTxGate interface {
+	PrepareDeathEvidenceForApprovalInTx(ctx context.Context, tx pgx.Tx, tenantID, goatID string) (ready bool, err error)
+}
+
 // WithIdentityTxWriter injects the identity write seam used to apply approved birth/death/shifting
 // effects. A repository without it can still submit and list requests; approving one returns a
 // clear error rather than silently skipping the effect.
 func (r *Repository) WithIdentityTxWriter(w IdentityTxWriter) *Repository {
 	r.identityTx = w
+	return r
+}
+
+func (r *Repository) WithDeathEvidenceTxGate(g DeathEvidenceTxGate) *Repository {
+	r.deathEvidenceTx = g
 	return r
 }
 
@@ -97,6 +110,11 @@ func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	payload := in.Payload
 	if len(payload) == 0 {
@@ -109,7 +127,7 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 		raisedAt = time.Now().In(biztime.DefaultLocation())
 	}
 
-	row := r.pool.QueryRow(ctx, `
+	row := tx.QueryRow(ctx, `
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, shifting_event_id, subject_goat_id,
   status, raised_by_user_id, raised_at, idempotency_key, request_fingerprint
@@ -125,6 +143,14 @@ RETURNING `+approvalRequestColumns,
 
 	created, err := scanApprovalRequest(row)
 	if err == nil {
+		if created.RequestType == domain.ApprovalRequestTypeDeath {
+			if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathReported, created, ""); err != nil {
+				return domain.ApprovalRequest{}, false, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
 		return created, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -132,7 +158,7 @@ RETURNING `+approvalRequestColumns,
 	}
 
 	// The key already existed. Return the original row iff the payload fingerprint matches.
-	existing, err := scanApprovalRequest(r.pool.QueryRow(ctx, `
+	existing, err := scanApprovalRequest(tx.QueryRow(ctx, `
 SELECT `+approvalRequestColumns+`
 FROM counts_approval_requests
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.IdempotencyKey))
@@ -145,7 +171,74 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.Idempotenc
 	if existing.RequestFingerprint != in.RequestFingerprint {
 		return domain.ApprovalRequest{}, false, ports.ErrIdempotencyConflict
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
 	return existing, true, nil
+}
+
+// insertDeathApprovalOutbox keeps submission/rejection and their workflow commands atomic. The
+// event id and idempotency key are deterministic per approval request + transition, so a replay
+// can never open or cancel duplicate work.
+func insertDeathApprovalOutbox(
+	ctx context.Context, tx pgx.Tx, eventType string, req domain.ApprovalRequest, reason string,
+) error {
+	if req.SubjectGoatID == nil || *req.SubjectGoatID == "" {
+		return fmt.Errorf("counts: %s request %s has no subject goat", eventType, req.ApprovalRequestID)
+	}
+	idempotencyKey := eventType + ":" + req.ApprovalRequestID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	occurredAt := req.RaisedAt.UTC()
+	if eventType == domain.EventDeathRejected {
+		occurredAt = time.Now().UTC()
+	}
+	payload, err := json.Marshal(map[string]any{
+		"event_id":         eventID,
+		"event_type":       eventType,
+		"schema_version":   countsEventSchemaVersion,
+		"schema_ref":       countsEventSchemaRef,
+		"aggregate_type":   "counts_approval_request",
+		"aggregate_id":     req.ApprovalRequestID,
+		"occurred_at":      occurredAt.Format(time.RFC3339Nano),
+		"recorded_at":      time.Now().UTC().Format(time.RFC3339Nano),
+		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
+		"idempotency_key":  idempotencyKey,
+		"actor":            map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": nil},
+		"subject_type":     "goat",
+		"subject_id":       *req.SubjectGoatID,
+		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
+		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
+		"payload": map[string]any{
+			"approval_request_id": req.ApprovalRequestID,
+			"goat_id":             *req.SubjectGoatID,
+			"reason":              reason,
+		},
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s envelope: %w", eventType, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer": "counts.ApprovalService", "schema_version": countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey, "event_type": eventType,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s headers: %w", eventType, err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'counts_approval_request', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`, req.TenantID, eventID, eventType, countsEventSchemaVersion,
+		req.ApprovalRequestID, countsEventTopic, payload, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("counts: insert %s outbox: %w", eventType, err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +260,22 @@ WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`, tenantID, approv
 		return domain.ApprovalRequest{}, fmt.Errorf("counts: read approval request: %w", err)
 	}
 	return out, nil
+}
+
+// ApprovalSubjectPark is the indexed, tenant-scoped authority lookup used for death decisions by
+// a park-scoped manager. No payload/free-text value is trusted for scope.
+func (r *Repository) ApprovalSubjectPark(ctx context.Context, tenantID, goatID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var parkID string
+	err := r.pool.QueryRow(ctx, `
+SELECT park_id::text
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(&parkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrGoatNotFound
+	}
+	return parkID, err
 }
 
 // ListApprovalRequests returns one keyset page ordered by (raised_at, approval_request_id) DESC.
@@ -396,6 +505,11 @@ RETURNING `+approvalRequestColumns,
 		}
 		return domain.ApprovalRequest{}, false, fmt.Errorf("counts: decide approval request: %w", err)
 	}
+	if current.RequestType == domain.ApprovalRequestTypeDeath && in.Status == domain.ApprovalStatusRejected {
+		if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathRejected, current, in.Reason); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.ApprovalRequest{}, false, err
@@ -438,6 +552,17 @@ func (r *Repository) applyApprovalEffect(
 		if !ok {
 			return "", "", fmt.Errorf("counts: approve death request %s: effect is not a goat exit command",
 				req.ApprovalRequestID)
+		}
+		if r.deathEvidenceTx == nil {
+			return "", "", fmt.Errorf("counts: approve death request %s: death evidence gate is not wired",
+				req.ApprovalRequestID)
+		}
+		ready, err := r.deathEvidenceTx.PrepareDeathEvidenceForApprovalInTx(ctx, tx, req.TenantID, cmd.GoatID)
+		if err != nil {
+			return "", "", err
+		}
+		if !ready {
+			return "", "", ports.ErrDeathEvidenceIncomplete
 		}
 		// The dead+died guardrail is re-checked inside identity's adapter on this exact path; a
 		// command that did not come from the guarded prepare step fails here rather than exiting an

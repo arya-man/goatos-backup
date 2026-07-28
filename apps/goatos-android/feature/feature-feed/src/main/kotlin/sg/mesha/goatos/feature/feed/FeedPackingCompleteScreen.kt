@@ -68,8 +68,6 @@ sealed interface FeedPackingCompleteEvent {
     /** Record the packing video with the LIVE in-app camera. */
     data object RecordPackingVideo : FeedPackingCompleteEvent
 
-    /** Pick the packing video from the device gallery. */
-    data object PickPackingVideo : FeedPackingCompleteEvent
     data object MarkDone : FeedPackingCompleteEvent
     data object Back : FeedPackingCompleteEvent
 }
@@ -110,7 +108,7 @@ fun FeedPackingCompleteScreen(
             fontSize = 12.sp,
         )
 
-        // Tile — MANDATORY packing video: record live OR upload from the gallery.
+        // Tile — MANDATORY live in-app camera packing video.
         Text(
             text = stringResource(R.string.feed_pack_complete_video_title),
             color = MeshaColors.Ink,
@@ -131,20 +129,13 @@ fun FeedPackingCompleteScreen(
                 loading = true,
                 onClick = {},
             )
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            else -> Row {
                 FeedPackCompleteActionButton(
                     label = stringResource(R.string.feed_pack_complete_record_video),
                     enabled = !committed,
                     primary = false,
                     modifier = Modifier.weight(1f),
                     onClick = { onEvent(FeedPackingCompleteEvent.RecordPackingVideo) },
-                )
-                FeedPackCompleteActionButton(
-                    label = stringResource(R.string.feed_pack_complete_upload_video),
-                    enabled = !committed,
-                    primary = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onEvent(FeedPackingCompleteEvent.PickPackingVideo) },
                 )
             }
         }

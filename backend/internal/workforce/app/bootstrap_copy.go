@@ -95,13 +95,17 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// The census page is Admin/CEO-only: field capture and tenant-wide population
 			// visibility are different authorities (maintainer decision 2026-07-18).
 			{key: "counts", labelKey: "nav.counts", href: "/counts", shared_key: "", priority: 1, requiredPermission: permissions.CountsRead}, //nav-composition:ignore: registry entry
-			// The two capture pages follow CountsWrite, so an Operator or Park Head gets a
-			// two-tab Counts module while Admin/CEO get all three.
-			{key: "birth_death", labelKey: "nav.birth_death", href: "/counts/birth-death", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
-			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			// The capture pages follow CountsWrite, so an Operator or Park Head gets a
+			// capture-only Counts module while Admin/CEO also get census.
+			// Birth and Death split into two modules-with-work-lists (maintainer decision
+			// 2026-07-27, docs/decisions/birth-death-workflows.md): each opens on the
+			// outstanding per-goat SOP actions; recording moves behind the ＋ button.
+			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Awaiting RFID: the list of temporary-tagged goats waiting to be promoted to a permanent
 			// RFID. A capture surface like the two above, so it follows CountsWrite.
-			{key: "awaiting_rfid", labelKey: "nav.awaiting_rfid", href: "/counts/promote", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			{key: "awaiting_rfid", labelKey: "nav.awaiting_rfid", href: "/counts/promote", shared_key: "", priority: 5, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
 			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
@@ -475,7 +479,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.alerts":         "Alerts",
 		"nav.drives":         "Drives",
 		"nav.counts":         "Counts",
-		"nav.birth_death":    "Birth/Death",
+		"nav.birth":          "Birth",
+		"nav.death":          "Death",
 		"nav.shifting":       "Shifting",
 		"nav.awaiting_rfid":  "Awaiting RFID",
 		"nav.feed_direction": "Feed Direction",
@@ -499,7 +504,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.alerts":         "अलर्ट",
 		"nav.drives":         "ड्राइव",
 		"nav.counts":         "गिनती",
-		"nav.birth_death":    "जन्म/मृत्यु",
+		"nav.birth":          "जन्म",
+		"nav.death":          "मृत्यु",
 		"nav.shifting":       "शिफ्टिंग",
 		"nav.awaiting_rfid":  "RFID प्रतीक्षा में",
 		"nav.feed_direction": "फ़ीड दिशा",
@@ -523,7 +529,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.alerts":         "ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":         "ಡ್ರೈವ್‌ಗಳು",
 		"nav.counts":         "ಎಣಿಕೆ",
-		"nav.birth_death":    "ಜನನ/ಮರಣ",
+		"nav.birth":          "ಜನನ",
+		"nav.death":          "ಮರಣ",
 		"nav.shifting":       "ಸ್ಥಳಾಂತರ",
 		"nav.awaiting_rfid":  "RFID ಬಾಕಿ ಇದೆ",
 		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
@@ -547,7 +554,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.alerts":         "అలర్ట్లు",
 		"nav.drives":         "డ్రైవ్‌లు",
 		"nav.counts":         "లెక్కలు",
-		"nav.birth_death":    "జననం/మరణం",
+		"nav.birth":          "జననం",
+		"nav.death":          "మరణం",
 		"nav.shifting":       "షిఫ్టింగ్",
 		"nav.awaiting_rfid":  "RFID కోసం వేచి ఉంది",
 		"nav.feed_direction": "ఫీడ్ దిశ",

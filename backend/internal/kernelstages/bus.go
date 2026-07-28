@@ -13,6 +13,7 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -62,6 +63,10 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
+	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on
+	// every bus so approved births/deaths always open their follow-up work.
+	eventwiring.RegisterWorkflowConsumers(bus,
+		eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
 
 	if logger != nil {
 		logger.Info("kernelstages_domain_event_handlers_registered")

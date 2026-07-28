@@ -2011,6 +2011,8 @@ export interface components {
             /** Format: date */
             dob: string;
             dob_estimated?: boolean;
+            /** @description Optional birth time (HH:MM, 24-hour, IST wall clock). Stored as goats.time_of_birth and carried on the goat.created payload for the birth follow-up workflow opener; absent means unknown (readers fall back to 07:00 IST). */
+            time_of_birth?: string;
             /** @enum {string} */
             origin_type: "birth" | "procured" | "imported";
             /** Format: date */

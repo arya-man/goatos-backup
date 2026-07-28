@@ -474,6 +474,47 @@ val MIGRATION_17_18: Migration = object : Migration(17, 18) {
 }
 
 /**
+ * v19 -> v20: the four Birth/Death workflow read-model tables
+ * (docs/decisions/birth-death-workflows.md): the keyset-paginated card list + its per-scope remote
+ * keys (shaped exactly like the shifting Pending pair), the per-day chips rollup blob, and the
+ * drill-in detail blob. Additive and non-destructive: no existing table is touched, so an installed
+ * APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * As in [MIGRATION_14_15], each CREATE spells its table name out as a literal (never an
+ * interpolated loop) so `make room-migration-guard` can statically match every new v20 @Entity
+ * table against a CREATE here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_19_20: Migration = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_cards` " +
+                "(`queryKey` TEXT NOT NULL, `workflowId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `workflowId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_workflow_cards_queryKey_sortIndex` " +
+                "ON `workflow_cards` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_chips_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+/**
  * v18 -> v19: the "Awaiting RFID" list pair — the Counts promote flow's offline-first read model. One
  * Room row per temporary-tagged goat ([AwaitingRfidItemEntity]) plus its keyset remote key
  * ([AwaitingRfidRemoteKeyEntity]). Additive and non-destructive: no existing table is touched, so an
