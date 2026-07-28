@@ -54,6 +54,7 @@ data class WeighingUiState(
     val plannerMode: Boolean = false,
     val plannerWeekLabel: String = "",
     val plannerPeriodLabel: String = "",
+    val plannerDayTabs: List<WeighingDayTabUiRow> = emptyList(),
     val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
     val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
@@ -98,11 +99,18 @@ data class WeighingPlannerParkUiRow(
     val lumpsumSheds: Int get() = sheds.count { it.category != "individual_animal" }
 }
 
+data class WeighingDayTabUiRow(
+    val dayLabel: String,
+    val dateLabel: String,
+    val selected: Boolean,
+)
+
 data class WeighingPlannerShedUiRow(
     val locationId: String,
     val name: String,
     val kidCount: Int,
     val category: String,
+    val selected: Boolean = false,
 )
 
 data class WeighingPlannerOperatorUiRow(
@@ -152,6 +160,8 @@ fun WeighingScreen(
     onRecordShedPartition: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
+    onTogglePlannerShed: (String) -> Unit = {},
+    onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -214,6 +224,8 @@ fun WeighingScreen(
                         PlannerRootContent(
                             state = state,
                             onCreateOrEditTask = onCreateOrEditTask,
+                            onTogglePlannerShed = onTogglePlannerShed,
+                            onPlannerShedCategory = onPlannerShedCategory,
                         )
                     } else if (state.hasScope) {
                         LinearProgressIndicator(
@@ -298,9 +310,15 @@ fun WeighingScreen(
 private fun PlannerRootContent(
     state: WeighingUiState,
     onCreateOrEditTask: () -> Unit,
+    onTogglePlannerShed: (String) -> Unit,
+    onPlannerShedCategory: (String, String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionTitle(state.plannerPeriodLabel.ifBlank { state.plannerWeekLabel.ifBlank { "THIS WEEK" } })
+        WeekPlanStrip(
+            weekLabel = state.plannerWeekLabel,
+            periodLabel = state.plannerPeriodLabel,
+            tabs = state.plannerDayTabs,
+        )
         if (state.loading) {
             LoadingWorkSkeleton()
             return
@@ -319,16 +337,95 @@ private fun PlannerRootContent(
             busy = state.actionInFlight,
             onCreateOrEditTask = onCreateOrEditTask,
         )
+        PlannerLaneCard()
         SectionTitle("SHEDS & CATEGORY")
-        primaryPark.sheds.take(6).forEachIndexed { index, shed ->
+        primaryPark.sheds.take(6).forEach { shed ->
             PlannerShedCard(
-                shed = shed.copy(category = if (index == 0) "individual_animal" else "per_shed_partition"),
-                selected = index < 3,
+                shed = shed,
+                selected = shed.selected,
+                onToggle = { onTogglePlannerShed(shed.locationId) },
+                onCategory = { category -> onPlannerShedCategory(shed.locationId, category) },
             )
         }
         PlannerSummaryCard(
             park = primaryPark,
             operator = state.plannerOperators.firstOrNull(),
+        )
+    }
+}
+
+@Composable
+private fun WeekPlanStrip(
+    weekLabel: String,
+    periodLabel: String,
+    tabs: List<WeighingDayTabUiRow>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionTitle("WEEK PLAN")
+            Text(
+                text = periodLabel.ifBlank { weekLabel.ifBlank { "THIS WEEK" } },
+                color = MeshaColors.Muted,
+                style = MeshaType.bodyStrong,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            tabs.take(7).forEach { tab ->
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(74.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (tab.selected) MeshaColors.Brand else MeshaColors.Surf)
+                        .border(1.dp, if (tab.selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(14.dp))
+                        .padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = tab.dayLabel,
+                        color = if (tab.selected) MeshaColors.PageBg else MeshaColors.Muted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.W900,
+                    )
+                    Text(
+                        text = tab.dateLabel,
+                        color = if (tab.selected) MeshaColors.PageBg else MeshaColors.Ink,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.W900,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlannerLaneCard() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Brand, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("STEP 1 · LANE", color = MeshaColors.BrandD, style = MeshaType.sectionLabel)
+        Text("Weekly · Kids", color = MeshaColors.Ink, style = MeshaType.cardTitle)
+        Text(
+            "Kids weighing runs weekly. Adults stay out of v1, and each selected shed gets its own category below.",
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
         )
     }
 }
@@ -380,13 +477,16 @@ private fun PlannerParkCard(
         )
         Text(
             text = if (park.hasExistingTask) {
-                "${park.existingCampaignStatus} - ${park.existingCampaignShedCount} sheds. Edit keeps the same campaign."
+                "${park.existingCampaignStatus} - ${park.existingCampaignShedCount} sheds. Creating another task for this park/week is blocked."
             } else {
                 "${park.sheds.size} kid sheds - assign ${operator?.displayName ?: "operator"}."
             },
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )
+        if (park.hasExistingTask) {
+            ExistingTaskSummary(park)
+        }
         Text(
             text = if (park.hasExistingTask) "Edit existing task" else "New task",
             color = if (busy) MeshaColors.Faint else MeshaColors.BrandD,
@@ -408,9 +508,25 @@ private fun PlannerParkCard(
 }
 
 @Composable
+private fun ExistingTaskSummary(park: WeighingPlannerParkUiRow) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.WarnX)
+            .border(1.dp, MeshaColors.Warn, RoundedCornerShape(12.dp)),
+    ) {
+        PlannerSummaryRow("Existing task", "${park.existingCampaignShedCount} sheds")
+        PlannerSummaryRow("Status", park.existingCampaignStatus ?: "Open")
+    }
+}
+
+@Composable
 private fun PlannerShedCard(
     shed: WeighingPlannerShedUiRow,
     selected: Boolean,
+    onToggle: () -> Unit,
+    onCategory: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -418,6 +534,7 @@ private fun PlannerShedCard(
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .clickable(onClick = onToggle)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
@@ -470,11 +587,15 @@ private fun PlannerShedCard(
             PlannerCategorySegment(
                 label = "Individual",
                 active = shed.category == "individual_animal",
+                enabled = selected,
+                onClick = { onCategory("individual_animal") },
                 modifier = Modifier.weight(1f),
             )
             PlannerCategorySegment(
                 label = "Lumpsum",
                 active = shed.category != "individual_animal",
+                enabled = selected,
+                onClick = { onCategory("per_shed_partition") },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -482,10 +603,17 @@ private fun PlannerShedCard(
 }
 
 @Composable
-private fun PlannerCategorySegment(label: String, active: Boolean, modifier: Modifier = Modifier) {
+private fun PlannerCategorySegment(
+    label: String,
+    active: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = label,
         color = when {
+            !enabled -> MeshaColors.Faint
             active && label == "Individual" -> MeshaColors.Info
             active -> MeshaColors.Purple
             else -> MeshaColors.Muted
@@ -493,8 +621,10 @@ private fun PlannerCategorySegment(label: String, active: Boolean, modifier: Mod
         fontSize = 12.sp,
         fontWeight = FontWeight.W900,
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(9.dp))
             .background(if (active) MeshaColors.Surf3 else Color.Transparent)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 8.dp),
     )
 }
@@ -504,6 +634,9 @@ private fun PlannerSummaryCard(
     park: WeighingPlannerParkUiRow,
     operator: WeighingPlannerOperatorUiRow?,
 ) {
+    val selected = park.sheds.filter { it.selected }
+    val individual = selected.filter { it.category == "individual_animal" }
+    val lumpsum = selected.filter { it.category != "individual_animal" }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -512,8 +645,9 @@ private fun PlannerSummaryCard(
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp)),
     ) {
         PlannerSummaryRow("Operator", operator?.displayName ?: "Amit Kumar")
-        PlannerSummaryRow("Individual", "1 sheds - ${park.sheds.firstOrNull()?.kidCount ?: 0} kids")
-        PlannerSummaryRow("Lumpsum", "${park.sheds.drop(1).take(2).size} sheds - ${park.sheds.drop(1).take(2).sumOf { it.kidCount }} in scope")
+        PlannerSummaryRow("Selected", "${selected.size} sheds - ${selected.sumOf { it.kidCount }} kids")
+        PlannerSummaryRow("Individual", "${individual.size} sheds - ${individual.sumOf { it.kidCount }} kids")
+        PlannerSummaryRow("Lumpsum", "${lumpsum.size} sheds - ${lumpsum.sumOf { it.kidCount }} in scope")
     }
 }
 
@@ -556,17 +690,6 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusPill(row.status)
                 CategoryPill(row.category)
-                Box(Modifier.weight(1f))
-                Text(
-                    text = "today 10:12",
-                    color = MeshaColors.Muted,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.W800,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(MeshaColors.Surf3)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
             }
             Text(
                 text = row.label,
@@ -679,37 +802,43 @@ private fun weighingCategoryLabel(category: String): String =
 
 @Composable
 private fun EmptyWorkCard(title: String, body: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .padding(horizontal = 13.dp, vertical = 12.dp),
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MeshaColors.BrandTint),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Module,
-                contentDescription = null,
-                tint = MeshaColors.Brand,
-                modifier = Modifier.size(17.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MeshaColors.BrandTint),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Module,
+                    contentDescription = null,
+                    tint = MeshaColors.Brand,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(title, color = MeshaColors.Ink, style = MeshaType.cardTitle)
         }
-        Spacer(Modifier.width(11.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+        Text(
+            text = body,
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+        )
+        if (body.contains("published", ignoreCase = true)) {
             Text(
-                text = body,
-                color = MeshaColors.Muted,
-                style = MeshaType.cardSubtitle,
-                modifier = Modifier.padding(top = 3.dp),
+                text = "Pull to refresh after leadership publishes the weekly plan.",
+                color = MeshaColors.BrandD,
+                style = MeshaType.cta,
             )
         }
     }
