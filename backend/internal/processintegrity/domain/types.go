@@ -318,6 +318,11 @@ type ControlTowerAlert struct {
 	WorkState               WorkState          `json:"work_state"`
 	Title                   string             `json:"title"`
 	Detail                  string             `json:"detail"`
+	ScopeLabel              string             `json:"scope_label"`
+	EvidenceSummary         string             `json:"evidence_summary"`
+	ProofSummary            string             `json:"proof_summary"`
+	ProofState              ProofState         `json:"proof_state"`
+	VerificationState       VerificationState  `json:"verification_state"`
 	ParkID                  string             `json:"park_id"`
 	ParkName                string             `json:"park_name"`
 	ShedID                  string             `json:"shed_id"`

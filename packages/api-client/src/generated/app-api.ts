@@ -3818,6 +3818,11 @@ export interface components {
             work_state: components["schemas"]["WorkState"];
             title: string;
             detail: string;
+            scope_label: string;
+            evidence_summary: string;
+            proof_summary: string;
+            proof_state: components["schemas"]["ProcessIntegrityProofState"];
+            verification_state: components["schemas"]["ProcessIntegrityVerificationState"];
             /** Format: uuid */
             park_id: string;
             park_name: string;

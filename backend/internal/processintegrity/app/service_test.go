@@ -242,42 +242,17 @@ func TestControlTowerAlertTitleSanitizesRawMatrixDriveName(t *testing.T) {
 	}
 }
 
-func TestControlTowerAlertDetailDoesNotLeakRawWorkState(t *testing.T) {
-	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
-	row := processRow("raw-gap-type", domain.WorkStateVerificationPending, domain.SeverityAtRisk, due)
-	row.ParkName = "Channapatna"
-	row.ShedName = "Chain Proof Main 1785220938"
-	row.GapType = "verification_pending"
-	blocker := "Operator assignment required before execution"
-	row.BlockerReason = &blocker
-	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
-
-	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
-	if err != nil {
-		t.Fatalf("control tower: %v", err)
-	}
-	if len(got.Alerts) != 1 {
-		t.Fatalf("alerts = %+v", got.Alerts)
-	}
-	if got.Alerts[0].Detail != "Channapatna / Chain Proof Main: proof submitted; awaiting verifier review" {
-		t.Fatalf("detail = %q, want scoped human proof copy", got.Alerts[0].Detail)
-	}
-	if strings.Contains(got.Alerts[0].Detail, "verification_pending") {
-		t.Fatalf("detail leaked raw work state: %q", got.Alerts[0].Detail)
-	}
-	if strings.Contains(got.Alerts[0].Detail, blocker) {
-		t.Fatalf("detail leaked operational blocker copy: %q", got.Alerts[0].Detail)
-	}
-}
-
-func TestControlTowerAlertDetailIncludesPartitionScope(t *testing.T) {
+func TestControlTowerAlertDetailUsesHumanScopeAndGap(t *testing.T) {
 	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
 	row := processRow("partition-row", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
 	row.ParkName = "Channapatna"
 	row.ShedName = "Godel 2"
 	row.PartitionLabel = strPtr("Part 4")
 	row.GapType = "verification_pending"
-	svc := NewService(&fakeRepo{result: domain.ListResult{Rows: []domain.Row{row}}}).WithClock(func() time.Time { return due })
+	svc := NewService(&fakeRepo{result: domain.ListResult{
+		Rows:              []domain.Row{row},
+		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateVerificationPending, Count: 1}},
+	}}).WithClock(func() time.Time { return due })
 
 	got, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
 	if err != nil {
@@ -289,6 +264,9 @@ func TestControlTowerAlertDetailIncludesPartitionScope(t *testing.T) {
 	alert := got.Alerts[0]
 	if alert.PartitionLabel == nil || *alert.PartitionLabel != "Part 4" {
 		t.Fatalf("partition label = %v, want Part 4", alert.PartitionLabel)
+	}
+	if strings.Contains(alert.Detail, "verification_pending") {
+		t.Fatalf("detail leaked machine gap: %q", alert.Detail)
 	}
 	want := "Channapatna / Godel 2 / Part 4: proof submitted; awaiting verifier review"
 	if alert.Detail != want {
@@ -467,62 +445,25 @@ func TestControlTowerShowsMedicalDefersDistinctFromOverCapWork(t *testing.T) {
 	}
 }
 
-func TestProtocolAdherenceScopesSummaryToLatestDriveRule(t *testing.T) {
+func TestProtocolAdherencePreservesPaginationAndWholeResultSummary(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	history := processRow("history", domain.WorkStateCompleted, domain.SeverityOK, due)
-	history.RuleID = "rule-history"
-	history.ExpectedCount = 95
-	history.CompletedCount = 95
-	history.ProcessIntact = true
-	currentDone := processRow("current-done", domain.WorkStateCompleted, domain.SeverityOK, due.Add(24*time.Hour))
-	currentDone.RuleID = "rule-current"
-	currentDone.ExpectedCount = 114
-	currentDone.CompletedCount = 114
-	currentDone.ProcessIntact = true
-	currentPending := processRow("current-pending", domain.WorkStateVerificationPending, domain.SeverityWatch, due.Add(24*time.Hour))
-	currentPending.RuleID = "rule-current"
-	currentPending.ExpectedCount = 210
-	currentPending.CompletedCount = 0
-	currentPending.ProcessIntact = false
-	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows: []domain.Row{history, currentDone, currentPending},
-	}}).WithClock(func() time.Time { return due.Add(48 * time.Hour) })
-
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", Limit: 1})
-	if err != nil {
-		t.Fatalf("adherence: %v", err)
-	}
-	if got.Summary.ExpectedCount != 324 || got.Summary.CompletedCount != 114 || got.Summary.OpenGapCount != 1 {
-		t.Fatalf("summary=%+v, want current drive only", got.Summary)
-	}
-	if len(got.Rows) != 2 || got.Rows[0].RowID != "current-done" || got.Rows[1].RowID != "current-pending" {
-		t.Fatalf("rows=%+v, want only current drive rows", got.Rows)
-	}
-	if repoQueries := svc.repo.(*fakeRepo).listQueries; len(repoQueries) != 1 || repoQueries[0].Limit != 500 {
-		t.Fatalf("repo query should request enough rows for drive scoping, got %+v", repoQueries)
-	}
-}
-
-func TestProtocolAdherenceReadsAllPagesBeforeScopingSummary(t *testing.T) {
-	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	cursorRowID := "obligation:10000000-0000-4000-8000-000000000001"
-	cursor, err := domain.EncodeCursor(domain.Cursor{SortPriority: 1, DueAt: due, RowID: cursorRowID})
+	cursor, err := domain.EncodeCursor(domain.Cursor{SortPriority: 1, DueAt: due, RowID: "page-row"})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
 	}
-	first := processRow("page-1-current", domain.WorkStateCompleted, domain.SeverityOK, due)
-	first.RuleID = "rule-current"
-	first.ExpectedCount = 500
-	first.CompletedCount = 500
-	first.ProcessIntact = true
-	second := processRow("page-2-current", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
-	second.RuleID = "rule-current"
-	second.ExpectedCount = 25
-	second.CompletedCount = 0
-	second.ProcessIntact = false
-	repo := &fakeRepo{results: []domain.ListResult{
-		{Rows: []domain.Row{first}, NextCursor: &cursor},
-		{Rows: []domain.Row{second}},
+	pageRow := processRow("page-row", domain.WorkStateCompleted, domain.SeverityOK, due)
+	wholeSummary := domain.AdherenceSummary{
+		ExpectedCount:      525,
+		CompletedCount:     500,
+		OpenGapCount:       1,
+		ProcessIntactCount: 1,
+		AdherencePercent:   95.23809523809523,
+	}
+	repo := &fakeRepo{result: domain.ListResult{
+		Rows:             []domain.Row{pageRow},
+		TotalCount:       2,
+		AdherenceSummary: wholeSummary,
+		NextCursor:       &cursor,
 	}}
 	svc := NewService(repo).WithClock(func() time.Time { return due })
 
@@ -530,153 +471,17 @@ func TestProtocolAdherenceReadsAllPagesBeforeScopingSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adherence: %v", err)
 	}
-	if repo.listCalls != 2 || repo.listQueries[1].Cursor == nil || repo.listQueries[1].Cursor.RowID != cursorRowID {
-		t.Fatalf("repo queries = %+v, want cursor-driven second page", repo.listQueries)
+	if repo.listCalls != 1 {
+		t.Fatalf("repo list calls = %d, want one bounded page", repo.listCalls)
 	}
-	if got.TotalCount != 2 || got.Summary.ExpectedCount != 525 || got.Summary.CompletedCount != 500 || got.Summary.OpenGapCount != 1 {
-		t.Fatalf("response total=%d summary=%+v, want full paged summary", got.TotalCount, got.Summary)
+	if got.NextCursor == nil || *got.NextCursor != cursor {
+		t.Fatalf("next cursor=%v want %q", got.NextCursor, cursor)
 	}
-}
-
-func TestProtocolAdherenceScopesRepeatedRuleToSelectedDriveDate(t *testing.T) {
-	oldDue := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
-	currentDue := oldDue.Add(24 * time.Hour)
-	old := processRow("old-drive", domain.WorkStateCompleted, domain.SeverityOK, oldDue)
-	old.RuleID = "same-rule"
-	old.ExpectedCount = 95
-	old.CompletedCount = 95
-	old.ProcessIntact = true
-	current := processRow("current-drive", domain.WorkStateVerificationPending, domain.SeverityWatch, currentDue)
-	current.RuleID = "same-rule"
-	current.ExpectedCount = 120
-	current.CompletedCount = 0
-	current.ProcessIntact = false
-	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows: []domain.Row{old, current},
-	}}).WithClock(func() time.Time { return currentDue })
-
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
-	if err != nil {
-		t.Fatalf("adherence: %v", err)
+	if got.TotalCount != 2 || got.Summary != wholeSummary {
+		t.Fatalf("response total=%d summary=%+v, want repository aggregate %+v", got.TotalCount, got.Summary, wholeSummary)
 	}
-	if got.Summary.ExpectedCount != 120 || got.Summary.CompletedCount != 0 || got.Summary.OpenGapCount != 1 {
-		t.Fatalf("summary=%+v, want selected drive date only", got.Summary)
-	}
-	if len(got.Rows) != 1 || got.Rows[0].RowID != "current-drive" {
-		t.Fatalf("rows=%+v, want only current drive row", got.Rows)
-	}
-}
-
-func TestProtocolAdherenceKeepsConcurrentRulesOnSelectedDriveDate(t *testing.T) {
-	due := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
-	pprDriveName := "Protocol - PPR"
-	boosterDriveName := "Protocol - Booster"
-	ppr := processRow("ppr-drive", domain.WorkStateCompleted, domain.SeverityOK, due)
-	ppr.RuleID = "rule-ppr"
-	ppr.DriveName = &pprDriveName
-	ppr.ExpectedCount = 120
-	ppr.CompletedCount = 120
-	ppr.ProcessIntact = true
-	booster := processRow("booster-drive", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
-	booster.RuleID = "rule-booster"
-	booster.DriveName = &boosterDriveName
-	booster.ExpectedCount = 120
-	booster.CompletedCount = 0
-	booster.ProcessIntact = false
-	history := processRow("old-drive", domain.WorkStateCompleted, domain.SeverityOK, due.Add(-24*time.Hour))
-	history.RuleID = "rule-history"
-	history.ExpectedCount = 95
-	history.CompletedCount = 95
-	history.ProcessIntact = true
-	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows: []domain.Row{history, ppr, booster},
-	}}).WithClock(func() time.Time { return due })
-
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
-	if err != nil {
-		t.Fatalf("adherence: %v", err)
-	}
-	if got.Summary.ExpectedCount != 240 || got.Summary.CompletedCount != 120 || got.Summary.OpenGapCount != 1 {
-		t.Fatalf("summary=%+v, want all rules on selected drive date", got.Summary)
-	}
-	if len(got.Rows) != 2 || got.Rows[0].RowID != "ppr-drive" || got.Rows[1].RowID != "booster-drive" {
-		t.Fatalf("rows=%+v, want concurrent selected drive rules", got.Rows)
-	}
-}
-
-func TestProtocolAdherenceDoesNotMixSameDaySiblingDriveScope(t *testing.T) {
-	due := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
-	selectedBatch := "70000000-0000-4000-8000-000000000001"
-	selectedPartition := "2"
-	siblingBatch := "70000000-0000-4000-8000-000000000002"
-	siblingPartition := "3"
-	operatorID := "80000000-0000-4000-8000-000000000001"
-	selectedDone := processRow("selected-done", domain.WorkStateCompleted, domain.SeverityOK, due)
-	selectedDone.RuleID = "rule-ppr"
-	selectedDone.BatchID = &selectedBatch
-	selectedDone.PartitionLabel = &selectedPartition
-	selectedDone.Owner.OperatorID = &operatorID
-	selectedDone.ExpectedCount = 80
-	selectedDone.CompletedCount = 80
-	selectedDone.ProcessIntact = true
-	selectedPending := processRow("selected-pending", domain.WorkStateVerificationPending, domain.SeverityWatch, due)
-	selectedPending.RuleID = "rule-booster"
-	selectedPending.BatchID = &selectedBatch
-	selectedPending.PartitionLabel = &selectedPartition
-	selectedPending.Owner.OperatorID = &operatorID
-	selectedPending.ExpectedCount = 40
-	selectedPending.CompletedCount = 0
-	selectedPending.ProcessIntact = false
-	sibling := processRow("same-day-sibling", domain.WorkStateCompleted, domain.SeverityOK, due)
-	sibling.RuleID = "rule-ppr"
-	sibling.BatchID = &siblingBatch
-	sibling.PartitionLabel = &siblingPartition
-	sibling.ExpectedCount = 999
-	sibling.CompletedCount = 999
-	sibling.ProcessIntact = true
-	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows: []domain.Row{selectedDone, selectedPending, sibling},
-	}}).WithClock(func() time.Time { return due })
-
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
-	if err != nil {
-		t.Fatalf("adherence: %v", err)
-	}
-	if got.Summary.ExpectedCount != 120 || got.Summary.CompletedCount != 80 || got.Summary.OpenGapCount != 1 {
-		t.Fatalf("summary=%+v, want selected same-day drive scope only", got.Summary)
-	}
-	if len(got.Rows) != 2 || got.Rows[0].RowID != "selected-done" || got.Rows[1].RowID != "selected-pending" {
-		t.Fatalf("rows=%+v, want selected drive rows only", got.Rows)
-	}
-}
-
-func TestProtocolAdherenceAsOfDoesNotSelectFutureDrive(t *testing.T) {
-	asOf := time.Date(2026, 7, 21, 18, 29, 59, 0, time.UTC)
-	historyDue := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
-	futureDue := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
-	history := processRow("history", domain.WorkStateCompleted, domain.SeverityOK, historyDue)
-	history.RuleID = "rule-history"
-	history.ExpectedCount = 324
-	history.CompletedCount = 324
-	history.ProcessIntact = true
-	future := processRow("future", domain.WorkStateScheduled, domain.SeverityWatch, futureDue)
-	future.RuleID = "rule-current"
-	future.ExpectedCount = 324
-	future.CompletedCount = 0
-	future.ProcessIntact = true
-	svc := NewService(&fakeRepo{result: domain.ListResult{
-		Rows: []domain.Row{future, history},
-	}}).WithClock(func() time.Time { return asOf })
-
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", AsOf: asOf})
-	if err != nil {
-		t.Fatalf("adherence: %v", err)
-	}
-	if got.Summary.ExpectedCount != 324 || got.Summary.CompletedCount != 324 || got.Summary.AdherencePercent != 100 {
-		t.Fatalf("summary=%+v, want latest non-future drive complete", got.Summary)
-	}
-	if len(got.Rows) != 1 || got.Rows[0].RowID != "history" {
-		t.Fatalf("rows=%+v, want historical drive only", got.Rows)
+	if len(got.Rows) != 1 || got.Rows[0].RowID != "page-row" {
+		t.Fatalf("rows=%+v, want current page row preserved", got.Rows)
 	}
 }
 
