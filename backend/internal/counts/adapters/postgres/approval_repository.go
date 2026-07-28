@@ -778,7 +778,7 @@ func (r *Repository) authorizeShiftingEventInTx(
 	tag, err := tx.Exec(ctx, `
 UPDATE shifting_events
 SET authorization_state = 'authorized',
-    event_status = 'authorized',
+    event_status = CASE WHEN event_status = 'pending' THEN 'authorized' ELSE event_status END,
     authorized_at = $3::timestamptz,
     authorized_by = $4::uuid,
     updated_at = now(),
@@ -790,6 +790,21 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_st
 	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("%w: shifting event %s was not pending", ports.ErrApprovalAlreadyDecided, shiftingEventID)
+	}
+	current, err := lockShiftingEvent(ctx, tx, tenantID, shiftingEventID)
+	if err != nil {
+		return err
+	}
+	if current.CompletedAt != nil &&
+		(current.EventStatus == domain.ShiftingEventStatusAuthorized || current.EventStatus == domain.ShiftingEventStatusPendingVerification) {
+		var approvedGoatIDs []string
+		if in.Effect != nil && in.Effect.Shifting != nil {
+			approvedGoatIDs = in.Effect.Shifting.GoatIDs
+		}
+		if _, err := r.applyAuthorizedCompletedShiftingInTx(ctx, tx, tenantID, shiftingEventID,
+			in.DecidedAt.UTC(), in.IdempotencyKey, approvedGoatIDs); err != nil {
+			return err
+		}
 	}
 	return nil
 }

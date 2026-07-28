@@ -321,7 +321,9 @@ class TopLevelChromeTest {
             Routes.SCAN,
             Routes.SUBMIT,
             Routes.RECORD,
-            "/counts/birth/add",
+            Routes.COUNTS_BIRTH_ADD,
+            Routes.COUNTS_DEATH_ADD,
+            Routes.COUNTS_SHIFTING_ADD,
         ).forEach { route ->
             assertFalse(route, drawerAvailable(twoModules.chrome, route, countsRoots))
         }

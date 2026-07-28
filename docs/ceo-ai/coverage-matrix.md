@@ -33,7 +33,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 |---|---|---|
 | GET /herd-register/summary | api + Cube:active_animals | Primary census; aggregate-first |
 | GET /counts/breakdown | api + view:animal_current_scope | Grouped census drilldown |
-| GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Movement backlog |
+| GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Raised/authorized/evidence-rework Actions; census moves only after Park Head approval + operator completion |
 | GET /app/counts/approvals | api + view:counts_movement_daily | Pending census approvals |
 | GET /app/counts/shifting/destinations | EXCLUDED | Operator write-flow picker; not a leadership metric |
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |

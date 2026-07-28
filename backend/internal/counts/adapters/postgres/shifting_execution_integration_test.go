@@ -161,9 +161,8 @@ func TestCancelShiftingIsIdempotent(t *testing.T) {
 // State machine gating
 // ---------------------------------------------------------------------------
 
-// TestCompleteRejectsUnauthorizedStates pins that the relocation is reachable ONLY from
-// 'authorized'. A caller addressing a still-pending movement's id must not be able to execute a
-// movement no approver signed off on.
+// TestCompleteRejectsUnauthorizedStates pins that a pending request may record operator completion
+// but cannot relocate; canceled and unknown movements remain non-completable.
 func TestCompleteRejectsUnauthorizedStates(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -174,9 +173,10 @@ func TestCompleteRejectsUnauthorizedStates(t *testing.T) {
 
 	// PENDING: raised but never approved.
 	pendingEventID, _ := submitShiftingApproval(t, ctx, repo, "gate-pending", []string{goatA})
-	if _, _, err := completeShifting(repo, ctx, "gate-pending", pendingEventID); !errors.Is(err, ports.ErrShiftingNotAuthorized) {
-		t.Fatalf("completing a PENDING movement: err=%v, want ErrShiftingNotAuthorized -- an "+
-			"unapproved movement must not be executable", err)
+	if result, _, err := completeShifting(repo, ctx, "gate-pending", pendingEventID); err != nil {
+		t.Fatalf("recording completion before approval: %v", err)
+	} else if result.EventStatus != domain.ShiftingEventStatusPending {
+		t.Fatalf("status=%q after completion-only, want pending", result.EventStatus)
 	}
 	if got := goatShed(t, ctx, pool, goatA); got != countsShedA {
 		t.Fatalf("goat shed=%s after a refused completion, want it untouched at %s", got, countsShedA)
@@ -250,8 +250,8 @@ func TestCancelRejectsNonAuthorizedStates(t *testing.T) {
 // Pending-execution queue
 // ---------------------------------------------------------------------------
 
-// TestListPendingExecutionReturnsOnlyAuthorizedRows proves the queue is exactly the outstanding
-// execution work: not pending (unapproved) movements, not applied ones, not canceled ones.
+// TestListPendingExecutionReturnsRaisedAndAuthorizedActions proves Actions includes newly raised and
+// approved work, but excludes applied and canceled movements.
 func TestListPendingExecutionReturnsOnlyAuthorizedRows(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -273,6 +273,15 @@ func TestListPendingExecutionReturnsOnlyAuthorizedRows(t *testing.T) {
 	if _, _, err := completeShifting(repo, ctx, "queue-applied", appliedEventID); err != nil {
 		t.Fatalf("complete shifting: %v", err)
 	}
+	// Model the final completed-history state after evidence verification. The Actions history must
+	// retain this row; the old actionable-only query dropped it as soon as rework was closed.
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events
+SET event_status = 'applied', verification_state = 'verified',
+    applied_at = coalesce(applied_at, now()), applied_by = coalesce(applied_by, $3::uuid)
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appliedEventID, countsOperator); err != nil {
+		t.Fatalf("mark completed movement verified: %v", err)
+	}
 
 	canceledEventID := authorizedShifting(t, ctx, pool, repo, "queue-canceled",
 		[]string{"00000000-0000-4000-8000-00000000e004"})
@@ -286,20 +295,53 @@ func TestListPendingExecutionReturnsOnlyAuthorizedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pending execution: %v", err)
 	}
-	if len(page.Items) != 1 {
-		t.Fatalf("pending-execution rows=%d, want exactly 1 (only the authorized movement)", len(page.Items))
+	if len(page.Items) != 3 {
+		t.Fatalf("action rows=%d, want pending + authorized + completed", len(page.Items))
 	}
-	row := page.Items[0]
-	if row.ShiftingEventID != authorizedEventID {
-		t.Fatalf("row=%s, want the authorized movement %s", row.ShiftingEventID, authorizedEventID)
+	var row domain.ShiftingExecutionRow
+	foundPending, foundAuthorized, foundCompleted := false, false, false
+	var completedRow domain.ShiftingExecutionRow
+	for _, candidate := range page.Items {
+		switch candidate.ShiftingEventID {
+		case pendingEventID:
+			foundPending = true
+		case authorizedEventID:
+			foundAuthorized = true
+			row = candidate
+		case appliedEventID:
+			foundCompleted = true
+			completedRow = candidate
+		}
+	}
+	if !foundPending || !foundAuthorized || !foundCompleted {
+		t.Fatalf("actions did not include pending=%t authorized=%t completed=%t",
+			foundPending, foundAuthorized, foundCompleted)
+	}
+	if row.PrimaryActionKey != "execute" || completedRow.PrimaryActionKey != "none" {
+		t.Fatalf("primary actions authorized=%q completed=%q, want execute/none",
+			row.PrimaryActionKey, completedRow.PrimaryActionKey)
+	}
+	from := completedRow.RaisedAt.Add(-time.Second)
+	before := completedRow.RaisedAt.Add(time.Second)
+	completedPage, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, Status: "completed",
+	})
+	if err != nil {
+		t.Fatalf("list completed actions by raised date: %v", err)
+	}
+	if len(completedPage.Items) != 1 || completedPage.Items[0].ShiftingEventID != appliedEventID {
+		t.Fatalf("completed/date rows=%v, want only %s", completedPage.Items, appliedEventID)
+	}
+	if completedPage.StatusCounts.All != 1 || completedPage.StatusCounts.Completed != 1 {
+		t.Fatalf("whole-date status counts=%+v, want all=1 completed=1 independent of completed filter/page", completedPage.StatusCounts)
 	}
 	for _, excluded := range []struct{ id, why string }{
-		{pendingEventID, "still awaiting approval"},
-		{appliedEventID, "already executed"},
 		{canceledEventID, "canceled"},
 	} {
-		if row.ShiftingEventID == excluded.id {
-			t.Fatalf("queue included a movement that is %s", excluded.why)
+		for _, candidate := range page.Items {
+			if candidate.ShiftingEventID == excluded.id {
+				t.Fatalf("queue included a movement that is %s", excluded.why)
+			}
 		}
 	}
 

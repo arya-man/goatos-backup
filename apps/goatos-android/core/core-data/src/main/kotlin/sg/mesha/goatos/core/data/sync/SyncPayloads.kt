@@ -168,8 +168,8 @@ data class ShiftingCompletePayload(
     @SerialName("destination_tag") val destinationTag: String? = null,
     /**
      * Outbox id of the MANDATORY video's PROOF_UPLOAD item (maintainer decision, 2026-07-26). The
-     * dispatcher resolves this item's uploaded proof_id and sends it as `proof_ref`; the shed move
-     * is applied only after a verifier approves that video. Enqueued on the same group as this
+     * dispatcher resolves this item's uploaded proof_id and sends it as `proof_ref`; the second of
+     * Park Head approval and operator completion applies the move. Enqueued on the same group as this
      * completion, so it drains first. Optional-nullable only for backward decode of any pre-upgrade
      * queued row.
      */

@@ -1,88 +1,114 @@
-# Shifting requires verifier-approved video before the count moves
+# Shifting applies after Park Head approval and operator completion
 
-**Status:** Accepted — maintainer decision, 2026-07-26; camera-source clarification 2026-07-28.
-**Supersedes (for shifting only):** the 2026-07-19 "operator completion applies the move" rule.
-
-## Context
-
-Under the 2026-07-19 rule, a shed move (shifting) applied — relocated the animals in `goats` and
-moved the head count — the instant the operator confirmed completion. Completion was self-attested:
-no video, no independent check. Approval was already separated out as authorization-only ("a
-permission slip is not evidence"), and the relocation lived on the operator's completion.
-
-The maintainer decided a shed move must be proved the same way a vaccination is: the operator records
-a **mandatory video**, and an **independent verifier** approves it before the move becomes real.
+**Status:** Accepted — maintainer decision, 2026-07-28.
+**Supersedes:** the 2026-07-26 rule that made verifier approval the relocation/count gate.
 
 ## Decision
 
-A shifting movement now passes through a verification gate:
+A shifting has two independent business gates and one evidence-review track:
 
+```text
+raise -> pending -> visible in Android Actions immediately
+
+Park Head approval ─┐
+                    ├─ when BOTH exist -> APPLIED atomically
+operator completion ┘                    (goat shed/stage + census move)
+
+operator video -> generic Verification -> verified or evidence rework
+                                      -> NEVER relocates or rolls back census
 ```
-raise -> pending -> APPROVED (authorized; NOTHING moves)                     [manager, counts.approve_shifting]
-      -> operator walks the animals + records a MANDATORY video
-      -> PENDING VERIFICATION (event_status='pending_verification'; STILL nothing moves)  [operator, counts.write]
-      -> verifier APPROVES the video -> APPLIED (animals relocate, count moves NOW)       [verifier, verification.review]
-      -> verifier REJECTS the video  -> back to AUTHORIZED (bounce; operator re-shoots)    [verifier, verification.review]
+
+- The Park Head is the approval authority.
+- Approval and completion may arrive in either order. The first fact is stored without relocating;
+  the transaction recording the second fact applies the move.
+- Operator completion requires a live-camera video in `shifting_events.proof_ref`; blank proof is
+  rejected `422 proof_required`.
+- Every raise explicitly chooses `keep_current`, `select_stage`, or `destination_stage`. A selected
+  target is snapshotted on the shifting event; sheds may contain mixed stages and `shed_profiles`
+  is not movement-stage authority. Selecting `Mother` changes only `management_stage` and creates
+  no pregnancy or lactation record.
+- `goats.shed_id` and, when selected by the raise-time choice, `management_stage` update in
+  the same transaction as `shifting_events.event_status='applied'`. Herd Register and Counts read
+  that canonical location, so their count changes at this exact second-gate transaction.
+- Verification is evidence quality only. APPROVE sets `verification_state='verified'`. REWORK sets
+  `verification_state='rejected'` and returns an evidence-rework card to Actions. Neither verdict
+  writes goat location, changes `event_status='applied'`, or reverses a count.
+
+## State transitions
+
+```text
+pending --operator complete--> pending + completed_at/by/proof (approval absent; no move)
+pending --Park Head approve--> authorized            (completion absent; no move)
+
+pending+completed --Park Head approve--> applied     (move/count now)
+authorized --operator complete--> applied             (move/count now)
+
+pending/applied --verifier approve--> same event_status + verified
+pending/applied --verifier rework--> same event_status + rejected
+rejected evidence --operator re-shoot--> same movement state + unverified/new item
 ```
 
-- **The count moves at verifier approval, not at operator completion.** Between completion and
-  approval the animals are physically in the destination shed while the census still reads the source
-  shed. This lag is accepted deliberately in exchange for verified movement.
-- **The video is mandatory.** A completion with no `proof_ref` is rejected (`422 proof_required`)
-  before any state changes — there is nothing for a verifier to approve.
-- **The operator records it with the live in-app camera.** Shifting exposes no gallery/import
-  control. The captured file still uploads automatically through the proof outbox. This source rule
-  does not alter Vaccination, whose existing gallery picker remains allowed.
-- **Rejection bounces to `authorized`.** The operator re-records and re-submits; nothing relocated.
-- **Birth and death are unchanged.** Those approvals still apply immediately, because for them the
-  approval *is* the record of the fact.
+`pending_verification` remains only as a rollout-compatible status for rows created under the
+superseded rule; new completion-before-approval rows stay `pending` and use explicit completion stamps.
 
-The 2026-07-19 rule still stands as the *reason* approval never relocates; only the final leg
-(operator-completion-applies) is superseded, replaced by verifier-approval-applies.
+## Atomic writer and event spine
 
-## Mechanics
+`applyAuthorizedCompletedShiftingInTx` is the only shifting relocation writer. Both
+`CompleteShiftingEvent` (completion second) and `authorizeShiftingEventInTx` (approval second) call
+it while holding the shifting row lock. It:
 
-Shifting reuses the generic Verification module (the same machinery vaccination uses):
+1. proves authorization and stored operator completion;
+2. reads the exact animal set from the approved request payload;
+3. revalidates source placement and the snapshotted destination shed profile;
+4. calls the identity transaction seam to update shed/stage and write identity history;
+5. emits per-animal `goat.location.changed` and, when applicable, `goat.stage_changed` through the
+   transactional outbox; and
+6. flips the shifting event to `applied` with the completing operator as actor.
 
-- **Producer / enqueue** — `CompleteShiftingEvent` flips `authorized -> pending_verification`, stores
-  the video in `shifting_events.proof_ref`, and (via the composition bridge
-  `internal/countsbridge`) enqueues one verification item, category `shifting_move`, with the video as
-  its media ref and a `SourceRef{module: counts, ref_type: shifting_event, ref_id: <shifting_event_id>}`.
-- **Verifier verdict** — the verifier approves/rejects the item in the same queue as vaccination
-  proofs. The verification module emits `verification.verdict.approved` / `verification.verdict.rework`.
-- **Consumer / apply** — `counts/app.ShiftingVerificationHandler` subscribes to both verdict events,
-  filters to `module=counts, ref_type=shifting_event`, and:
-  - approved → `Repository.ApplyVerifiedShiftingEvent` — relocates the animals (the only place a
-    shifting writes canonical location), emits `goat.location.changed` + `goat.stage_changed`, flips
-    to `applied`. Idempotent; a re-delivered verdict relocates nobody.
-  - rejected → `Repository.BounceShiftingEventForRework` — flips back to `authorized`, no relocation.
+Any failure rolls back the second gate and every relocation/event/count effect together. Exact
+completion or approval replay cannot relocate twice.
 
-## Schema
+`CompleteShiftingEvent` also enqueues one generic `shifting_move` verification item through
+`internal/countsbridge`, keyed by shifting event + proof. The verdict consumer remains
+`counts/app.ShiftingVerificationHandler`, but its counts-side effect is evidence state only. A
+pre-000049 legacy row already holding approval + completion may be lazily applied by the approved
+verdict handler once during rollout compatibility; new rows always apply at the second business gate.
 
-Migration `000031_shifting_verification_gate.sql`:
+## Actions read contract
 
-- adds `pending_verification` to the `shifting_events` `event_status` domain;
-- `shifting_events_pending_verification_proof_check` — a `pending_verification` row must carry a
-  non-blank `proof_ref` (the mandatory video);
-- `shifting_events_pending_verification_requires_authorization_check` — a video can only be submitted
-  for a move a manager already authorized.
+`GET /app/counts/shifting-events/pending-execution` is the bounded Android Actions read at
+`shifting_event` grain. It includes:
 
-## Consequences
+- `pending` with no proof — raised, awaiting approval and operator work;
+- `authorized` with no proof — approved, awaiting operator work; and
+- `verification_state='rejected'` — evidence rework, including an already-applied move.
 
-- The head count (herd register / counts breakdown, read live from `goats.shed_id`) reflects a move
-  only after verifier approval. Any surface reading that count is automatically correct — there is
-  one source of truth and it moves at one moment.
-- A move can sit in `pending_verification` indefinitely if no verifier acts; it is visible in the
-  verifier queue and never auto-applies. (A future SLA/escalation on stale `pending_verification`
-  movements is out of scope here.)
-- Idempotency is preserved end to end: completion replay re-enqueues the same item; verdict
-  re-delivery relocates nobody twice.
+It excludes completed `pending` rows and ordinary `applied` rows while evidence review proceeds. The
+query is keyset-paginated by `(raised_at, shifting_event_id)`, limited to 20, and backed
+by the partial indexes in migration `000050_shifting_actions_index.sql`.
+
+## Schema and rollout
+
+- `000031_shifting_verification_gate.sql` remains historical: it introduced mandatory proof and
+  `pending_verification`.
+- `000049_shifting_approval_completion_gate.sql` adds nullable `completed_at`/`completed_by` without
+  redefining a hot-table status constraint; application writes keep proof and completion stamps together.
+- `000050_shifting_actions_index.sql` adds concurrent partial indexes for the Actions query.
+
+## Feed projection
+
+Feed projected counts still begin at Park Head authorization. A normal new row is either
+`authorized` (delta included) or `applied` (canonical goat location already includes the move, so
+delta excluded). The SQL retains the legacy `(pending_verification + authorized)` shape only so an
+in-flight pre-000049 row is not under-fed during rollout. Completion-before-approval does not affect
+feed projection.
 
 ## Proof
 
-- `backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go` — the
-  production-path proof: no-video rejected; completion → `pending_verification` with nothing moved;
-  verifier approval → relocation + count move + idempotent replay; rejection → bounce to `authorized`
-  + re-submit.
-- Registered in `context/architecture/domain-event-registry.json` under
-  `verification.verdict.approved` / `verification.verdict.rework` (counts consumer).
+- `shifting_approval_completion_integration_test.go`: raised Actions visibility; completion-first;
+  approval-first; evidence rejection cannot roll back.
+- `shifting_verification_integration_test.go`: mandatory proof, evidence approve/rework idempotency.
+- `approval_relocate_integration_test.go`: real identity transaction, location/stage events,
+  rollback, stale placement, and raise-time management-stage selection checks.
+- `feed_projected_counts_integration_test.go`: authorization, completion-before-approval, applied,
+  rejected, and legacy rollout status matrix.

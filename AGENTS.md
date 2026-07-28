@@ -149,43 +149,39 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
-Confirmed shed-stage authority and Vaccination handoff rule (maintainer decision
-2026-07-20): a shed move is both a physical shed transition and, when the
-destination profile differs, an operational-stage transition. The destination
-stage comes only from the destination shed's active `shed_profiles` row joined
-through `animal_stage_lookup`; resident goats, the source goat's current stage,
-free text, and shift-reason labels are never configuration authority. Snapshot
-the destination profile ID and `row_version` at authorization and fail closed if
-the profile is missing, inactive, ambiguous, incompatible, or changes before
-completion. Approval is intent only. Verified completion must atomically update
-the goat's `shed_id` and `management_stage`, write identity audit, and publish
+Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
+2026-07-29, SUPERSEDING the 2026-07-20 destination `shed_profiles` authority rule):
+a shed may contain multiple management stages. Every newly raised shifting must choose one
+of three modes: keep the animal's current stage, explicitly select an active stage, or select
+one of the stages currently represented in the destination shed. The request snapshots the
+chosen mode and concrete target; neither `shed_profiles` nor a single inferred resident cohort
+overrides it at completion. Once Park Head approval and operator completion both exist, the
+second-gate transaction must atomically update the goat's `shed_id` and, when selected,
+`management_stage`, write identity audit, and publish
 per-animal `goat.location.changed` plus `goat.stage_changed` when the stage
 changed. Vaccination must consume the result twice: rescope open shed-scoped
 work while preserving in-progress/completed history, then re-evaluate clinical
-eligibility/schedule. Movement must not fabricate pregnancy, health, lactation,
+eligibility/schedule. Selecting `Mother` changes only `goats.management_stage`; movement must
+not create or modify pregnancy or lactation records, and must not fabricate health,
 or other clinical facts; those stay on their authoritative workflows. A real
 shifting-completion → Vaccination E2E test is mandatory—separate producer and
 consumer tests are not closure.
 
-Confirmed shifting verification gate (maintainer decision 2026-07-26,
-SUPERSEDING the 2026-07-19 "operator completion applies the move" rule FOR
-SHIFTING ONLY): a shed move now requires a verifier-approved video before it
-applies. The operator completes with a MANDATORY video (`shifting_events.proof_ref`;
-a proofless completion is rejected 422), which flips the move to
-`pending_verification` and enqueues a `shifting_move` verification item — NOTHING
-relocates and the count does NOT move yet. The animals relocate and the count
-moves ONLY when a verifier APPROVES the video (`ApplyVerifiedShiftingEvent`); a
-REJECTED video bounces the move back to `authorized` for a re-shoot
-(`BounceShiftingEventForRework`). The count (herd register / breakdown, read live
-from `goats.shed_id`) therefore reflects a move at verifier approval, not at
-operator completion; the completion→approval lag is accepted deliberately. Birth
-and death approvals are UNCHANGED (still apply immediately). The 2026-07-19 rule
-remains the REASON approval never relocates; only its final leg is replaced.
-Wiring is the generic Verification module: producer `CompleteShiftingEvent` +
-`internal/countsbridge` enqueue; consumer `counts/app.ShiftingVerificationHandler`
-on `verification.verdict.approved`/`.rework`. Canonical source:
-`docs/decisions/shifting-verification.md`; migration
-`000031_shifting_verification_gate.sql`.
+Confirmed shifting approval + completion gate (maintainer decision 2026-07-28,
+SUPERSEDING the 2026-07-26 "verifier approval applies the move" rule): a raised
+movement appears in Android Actions immediately. Park Head approval and operator
+completion are independent and may arrive in either order; neither first fact
+relocates. Operator completion still requires a MANDATORY live-camera video
+(`shifting_events.proof_ref`; blank is 422). The transaction recording the SECOND
+of approval/completion atomically updates canonical `goats.shed_id` and destination
+stage, publishes location/stage events, flips the movement `applied`, and therefore
+moves Herd Register / Counts. Verification is post-task evidence review only:
+APPROVE marks evidence verified; REWORK creates evidence rework/audit without
+changing the applied movement or rolling back goat location/count. Generic
+Verification enqueue and verdict consumers remain wired, but verdicts do not own
+census truth. Canonical source: `docs/decisions/shifting-verification.md`; forward
+migrations `000049_shifting_approval_completion_gate.sql` and
+`000050_shifting_actions_index.sql`.
 
 Confirmed feed-distribution verification gate (maintainer decision 2026-07-26,
 SUPERSEDING the "operator marks a shed-session fed (optional video), completed at

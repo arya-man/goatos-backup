@@ -50,10 +50,14 @@ var (
 	ErrShiftingExecutionIncomplete = errors.New("counts: shifting completion did not relocate every named animal")
 
 	// ErrGoatNotFound is returned when a goat id named by a shifting request does not resolve to a
-	// live, non-merged animal in the caller's tenant. It fails the write CLOSED rather than
+	// non-merged animal in the caller's tenant. It fails the write CLOSED rather than
 	// deriving an impact for a subset: a movement whose animal cannot be read is a movement whose
 	// destination shed and vaccination obligations would silently disagree with the reported count.
 	ErrGoatNotFound = errors.New("counts: goat not found")
+	// ErrGoatNotShiftable is returned when the goat exists in the tenant but is no longer a
+	// current herd member (dead, sold, transferred, or otherwise exited). Unlike ErrGoatNotFound,
+	// this is an actionable eligibility rejection rather than a missing resource.
+	ErrGoatNotShiftable = errors.New("counts: goat is not eligible for shifting")
 )
 
 type Repository interface {
@@ -111,40 +115,29 @@ type Repository interface {
 	// transaction. An approved request can therefore never be readable while its effect failed to
 	// save. A reject applies no effect.
 	//
-	// For a SHIFTING request the effect is AUTHORIZATION ONLY -- it moves no animals. The
-	// relocation happens later, in CompleteShiftingEvent.
+	// For SHIFTING, approval stores the Park Head gate. If operator completion already exists, this
+	// same transaction applies the movement; otherwise it moves no animals.
 	DecideApprovalRequest(ctx context.Context, in domain.ApprovalDecision) (domain.ApprovalRequest, bool, error)
 
-	// CompleteShiftingEvent SUBMITS an AUTHORIZED movement for verification (maintainer decision,
-	// 2026-07-26). The operator confirms the animals walked and records a MANDATORY video
-	// (ShiftingCompletionCommand.ProofRef); this flips event_status to 'pending_verification', stores
-	// the video, and relocates NOBODY -- the count does not move yet. A blank video is
-	// ErrShiftingProofRequired. The relocation happens later, in ApplyVerifiedShiftingEvent, only
-	// when a verifier approves.
+	// CompleteShiftingEvent stores mandatory video and the operator gate. If Park Head approval is
+	// already stored, it applies the movement atomically; otherwise it waits without moving census.
 	//
 	// Idempotent: an exact replay of an already-submitted (or already-applied) movement returns the
 	// original result; a same-key/different-payload replay is ErrIdempotencyConflict.
 	CompleteShiftingEvent(ctx context.Context, in domain.ShiftingCompletionCommand) (domain.ShiftingExecutionResult, bool, error)
 
-	// ApplyVerifiedShiftingEvent relocates a movement whose video a verifier APPROVED and flips it
-	// 'pending_verification' -> 'applied' in ONE transaction. This is the ONLY place a shifting
-	// movement writes an animal's canonical location; it is driven by the verification.verdict.approved
-	// consumer, never by an operator. A relocation that cannot cover every named animal rolls the
-	// whole apply back. Idempotent: a re-delivered verdict on an already-applied movement relocates
-	// nobody; a verdict for a movement no longer awaiting verification is ignored as stale.
+	// ApplyVerifiedShiftingEvent is the legacy-named evidence approval hook. New rows only change
+	// verification_state; a pre-000049 authorized+completed row may be applied once for rollout.
 	ApplyVerifiedShiftingEvent(ctx context.Context, in domain.ShiftingVerifiedApplyCommand) (domain.ShiftingExecutionResult, bool, error)
 
-	// BounceShiftingEventForRework returns a movement whose video a verifier REJECTED to 'authorized'
-	// so the operator re-records it. It moves NOTHING. Driven by the verification.verdict.rework
-	// consumer. Idempotent: only a 'pending_verification' row is bounced; a re-delivered verdict is a
-	// no-op.
+	// BounceShiftingEventForRework marks evidence rejected and reopens proof submission. It preserves
+	// event_status, goat location, and count.
 	BounceShiftingEventForRework(ctx context.Context, in domain.ShiftingReworkCommand) error
 
 	// CancelShiftingEvent retires an authorized movement that will never be executed. It moves
 	// NOTHING and records the required reason. Idempotent on the same terms as completion.
 	CancelShiftingEvent(ctx context.Context, in domain.ShiftingCancellationCommand) (domain.ShiftingExecutionResult, bool, error)
 
-	// ListShiftingEventsPendingExecution returns one keyset page of AUTHORIZED movements waiting to
-	// be physically executed.
+	// ListShiftingEventsPendingExecution returns one keyset page of raised/authorized/evidence-rework Actions.
 	ListShiftingEventsPendingExecution(ctx context.Context, q domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error)
 }

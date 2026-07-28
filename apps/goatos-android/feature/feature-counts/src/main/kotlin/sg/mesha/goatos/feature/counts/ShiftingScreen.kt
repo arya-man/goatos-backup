@@ -33,7 +33,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
- * Record a shifting — the movement of ONE animal to a new shed (`/counts/shifting`), a hosted
+ * Record a shifting — the movement of ONE animal to a new shed (`/counts/shifting/add`), a hosted
  * destination with Up/Back.
  *
  * The event is REPORTED, not authorized: the backend records it `authorization_state=pending` /
@@ -47,10 +47,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  *     silently relocate an animal nobody looked at.
  *  2. **Current location** — the selected animal's park + shed, READ-ONLY, straight from the
  *     lookup. The operator confirms it; they never type it, and the client never asserts it.
- *  3. **Destination** — two CASCADING dropdowns from the backend catalog: farm (park) first, then
- *     that park's sheds. Changing the park RESETS the shed, because a shed id from another park is
- *     never a valid pairing (and shed NAMES repeat across parks, so the entries are keyed by
- *     `shed_id`, never by name).
+ *  3. **Destination** — the animal's current farm is selected automatically and read-only; the
+ *     operator chooses only a destination shed inside that farm. Goats never shift between farms.
  *  4. **Priority** — High or Low (default).
  *  5. **Category** — Growth / Health / Breeding / Delivery.
  *  6. **Create shifting**.
@@ -73,9 +71,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  * shown read-only so the operator can confirm they picked the right animal before it is relocated;
  * [locationLabel] is the backend's own composed fallback string for when the parts are absent.
  *
- * [rowVersion]/[sex]/[lifecycleStatus] come straight off the search result. Shifting does not use
- * them, but the SAME picker backs the Birth/Death screen's death target, where the operator must
- * confirm the animal's sex + status before recording a death and the write carries the animal's own
+ * [rowVersion]/[sex]/[lifecycleStatus] come straight off the search result. Shifting uses lifecycle
+ * status to reject terminal animals; the SAME picker also backs the Birth/Death screen's death
+ * target, where the operator confirms sex + status and the write carries the animal's own
  * [rowVersion] — never a hand-typed record version.
  */
 @Immutable
@@ -83,6 +81,8 @@ data class ShiftingAnimalUi(
     val goatId: String,
     val displayId: String,
     val tag: String,
+    val parkId: String = "",
+    val shedId: String = "",
     val parkName: String = "",
     val shedName: String = "",
     val locationLabel: String = "",
@@ -96,6 +96,7 @@ data class ShiftingAnimalUi(
 data class ShiftingShedUi(
     val shedId: String,
     val name: String,
+    val managementStages: List<String> = emptyList(),
 )
 
 /** One park a movement may target, with the sheds that belong to it. */
@@ -125,6 +126,10 @@ data class ShiftingUiState(
     /** Set when the catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
 
+    val managementStages: List<String> = emptyList(),
+    val managementStageMode: String = "",
+    val targetManagementStage: String = "",
+
     // --- 4/5. classification -----------------------------------------------------------------
     val priority: String = SHIFTING_PRIORITY_LOW,
     val category: String = SHIFTING_CATEGORY_GROWTH,
@@ -137,6 +142,9 @@ data class ShiftingUiState(
      * operator sees the movement was raised on a fresh form. Cleared when they start the next entry.
      */
     val lastRecordedMessage: String? = null,
+    /** One-shot navigation result consumed by AppNavHost after server-confirmed sync. */
+    val returnToActions: Boolean = false,
+    val submissionNotice: String? = null,
 ) {
     /** The sheds of the currently chosen park — the second dropdown's whole option set. */
     val shedsForSelectedPark: List<ShiftingShedUi>
@@ -151,10 +159,9 @@ const val SHIFTING_PRIORITY_HIGH = "high"
 const val SHIFTING_PRIORITY_LOW = "low"
 
 /**
- * The four movement categories. `health` is the reason the animal picker must NOT filter by
- * health/lifecycle status: that category exists precisely to move sick, treated, quarantined, or
- * ICU animals, and a picker that hid them would make the movements they describe impossible to
- * record.
+ * The four movement categories. `health` is why the picker must not filter by health status: live
+ * sick, treated, quarantined, or ICU animals remain shiftable. Lifecycle status is independent;
+ * dead/transferred/sold animals are terminal and are rejected.
  */
 const val SHIFTING_CATEGORY_GROWTH = "growth"
 const val SHIFTING_CATEGORY_HEALTH = "health"
@@ -168,14 +175,17 @@ sealed interface ShiftingEvent {
     /** Selects THE animal. Selecting another one replaces this; it never appends. */
     data class SelectAnimal(val goatId: String) : ShiftingEvent
 
-    /** Choosing a park RESETS the shed — a shed from another park is never a valid pairing. */
+    /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
     data class SelectDestinationShed(val shedId: String) : ShiftingEvent
+    data class SelectManagementStageMode(val mode: String) : ShiftingEvent
+    data class SelectTargetManagementStage(val stage: String) : ShiftingEvent
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
 
     data object Submit : ShiftingEvent
+    data object NavigationHandled : ShiftingEvent
     data object Back : ShiftingEvent
 }
 
@@ -188,18 +198,13 @@ fun ShiftingScreen(
     state: ShiftingUiState,
     onEvent: (ShiftingEvent) -> Unit = {},
     modifier: Modifier = Modifier,
-    // When false, the caller (the Shifting tab host) already renders the screen header + tab bar, so
-    // the Raise form must not render a second header of its own.
-    showHeader: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        if (showHeader) {
-            CountsFormHeader(
-                title = stringResource(R.string.counts_shifting_title),
-                subtitle = stringResource(R.string.counts_shifting_subtitle),
-                onBack = { onEvent(ShiftingEvent.Back) },
-            )
-        }
+        CountsFormHeader(
+            title = stringResource(R.string.counts_shifting_title),
+            subtitle = stringResource(R.string.counts_shifting_subtitle),
+            onBack = { onEvent(ShiftingEvent.Back) },
+        )
         // The dropdowns below are the pickers; this is only what they currently mean, mirrored.
         val selectedParkName = state.destinationParks.firstOrNull { it.parkId == state.destinationParkId }?.name
         val selectedShedName = state.shedsForSelectedPark.firstOrNull { it.shedId == state.destinationShedId }?.name
@@ -264,20 +269,17 @@ fun ShiftingScreen(
                 }
             }
 
-            // --- 3. Destination: two cascading dropdowns -------------------------------------
+            // --- 3. Destination: current farm is locked; only its sheds are selectable --------
             item(key = "destination-title") {
                 CountsFieldGroupTitle(text = stringResource(R.string.counts_group_to))
             }
             item(key = "destination-park") {
-                CountsDropdownField(
+                CountsTextField(
+                    value = selectedParkName.orEmpty(),
+                    onValueChange = {},
                     label = stringResource(R.string.counts_field_farm),
-                    selectedLabel = selectedParkName,
-                    placeholder = stringResource(R.string.counts_select_farm),
-                    // Keyed by park_id, and disabled until the catalog is in hand so an operator
-                    // cannot open an empty menu and conclude the farm has no parks.
-                    options = state.destinationParks.map { CountsDropdownOption(it.parkId, it.name) },
-                    onSelect = { onEvent(ShiftingEvent.SelectDestinationPark(it)) },
-                    enabled = state.destinationParks.isNotEmpty(),
+                    supporting = stringResource(R.string.counts_shifting_farm_locked),
+                    readOnly = true,
                 )
             }
             item(key = "destination-shed") {
@@ -285,8 +287,8 @@ fun ShiftingScreen(
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
                     selectedLabel = selectedShedName,
-                    placeholder = if (state.destinationParkId.isBlank()) {
-                        stringResource(R.string.counts_select_farm_first)
+                    placeholder = if (state.selectedAnimal == null) {
+                        stringResource(R.string.counts_select_animal_first)
                     } else {
                         stringResource(R.string.counts_select_shed)
                     },
@@ -300,6 +302,43 @@ fun ShiftingScreen(
             state.destinationsMessage?.let { message ->
                 item(key = "destinations-message") {
                     Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                }
+            }
+
+            item(key = "management-stage") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountsFieldGroupTitle(text = stringResource(R.string.counts_shifting_after_title))
+                    CountsDropdownField(
+                        label = stringResource(R.string.counts_shifting_stage_label),
+                        selectedLabel = when (state.managementStageMode) {
+                            "keep_current" -> stringResource(R.string.counts_shifting_stage_keep)
+                            "select_stage" -> stringResource(R.string.counts_shifting_stage_select)
+                            "destination_stage" -> stringResource(R.string.counts_shifting_stage_destination)
+                            else -> null
+                        },
+                        placeholder = stringResource(R.string.counts_shifting_stage_placeholder),
+                        options = listOf(
+                            CountsDropdownOption("keep_current", stringResource(R.string.counts_shifting_stage_keep)),
+                            CountsDropdownOption("select_stage", stringResource(R.string.counts_shifting_stage_select)),
+                            CountsDropdownOption("destination_stage", stringResource(R.string.counts_shifting_stage_destination)),
+                        ),
+                        onSelect = { onEvent(ShiftingEvent.SelectManagementStageMode(it)) },
+                        enabled = true,
+                    )
+                    if (state.managementStageMode == "select_stage" || state.managementStageMode == "destination_stage") {
+                        val options = if (state.managementStageMode == "destination_stage") {
+                            state.shedsForSelectedPark.firstOrNull { it.shedId == state.destinationShedId }?.managementStages.orEmpty()
+                        } else state.managementStages
+                        CountsDropdownField(
+                            label = stringResource(R.string.counts_shifting_new_stage),
+                            selectedLabel = state.targetManagementStage.ifBlank { null },
+                            placeholder = if (options.isEmpty()) stringResource(R.string.counts_shifting_no_stage) else stringResource(R.string.counts_shifting_select_stage),
+                            options = options.map { CountsDropdownOption(it, it) },
+                            onSelect = { onEvent(ShiftingEvent.SelectTargetManagementStage(it)) },
+                            enabled = options.isNotEmpty(),
+                        )
+                    }
+                    Text(stringResource(R.string.counts_shifting_stage_notice), color = MeshaColors.Muted, fontSize = 11.sp)
                 }
             }
 

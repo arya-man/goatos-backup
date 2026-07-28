@@ -368,8 +368,8 @@ interface AppApiService {
 
     @GET("app/counts/shifting-events/pending-execution")
     suspend fun listCountsShiftingPendingExecution(
-        @Query("park_id") parkId: String?,
-        @Query("shed_id") shedId: String?,
+        @Query("date") date: String?,
+        @Query("status") status: String?,
         @Query("page_size") pageSize: Int?,
         @Query("cursor") cursor: String?,
     ): CountsShiftingPendingExecutionResponseDto
@@ -805,12 +805,12 @@ class RetrofitAppApi(
         service.getAppCountsBreeds()
 
     override suspend fun listCountsShiftingPendingExecution(
-        parkId: String?,
-        shedId: String?,
+        date: String?,
+        status: String?,
         pageSize: Int?,
         cursor: String?,
     ): CountsShiftingPendingExecutionResponseDto =
-        service.listCountsShiftingPendingExecution(parkId, shedId, pageSize, cursor)
+        service.listCountsShiftingPendingExecution(date, status, pageSize, cursor)
 
     override suspend fun listCountsTemporaryTaggedGoats(
         pageSize: Int?,

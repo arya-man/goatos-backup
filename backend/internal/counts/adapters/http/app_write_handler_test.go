@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -403,8 +404,9 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder, dest any) {
 // fixture rather than something individual tests opt into.
 func shiftingBody(headCount int) map[string]any {
 	return map[string]any{
-		"destination_park_id": testParkID,
-		"destination_shed_id": testShedID,
+		"destination_park_id":   testParkID,
+		"destination_shed_id":   testShedID,
+		"management_stage_mode": "keep_current",
 		"impacts": []map[string]any{
 			{"breed_key": "sirohi", "breed_label": "Sirohi", "head_count": headCount},
 		},
@@ -1296,9 +1298,10 @@ func TestRecordDeathEventRejectsUnknownFields(t *testing.T) {
 // the exact shape the phone now sends.
 func shiftingBodyNoImpacts(goatIDs ...string) map[string]any {
 	return map[string]any{
-		"destination_park_id": testParkID,
-		"destination_shed_id": testShedID,
-		"goat_ids":            goatIDs,
+		"destination_park_id":   testParkID,
+		"destination_shed_id":   testShedID,
+		"management_stage_mode": "keep_current",
+		"goat_ids":              goatIDs,
 	}
 }
 
@@ -1803,6 +1806,33 @@ func TestRecordShiftingEventFailsClosedWhenTheAnimalDoesNotResolve(t *testing.T)
 	}
 }
 
+// TestRecordShiftingEventRejectsDeadAnimalBeforeRecording reproduces the CBE dead-RFID submit.
+// The goat exists, so the response is a specific eligibility error rather than a misleading 404;
+// critically, neither the movement nor its approval request may be written.
+func TestRecordShiftingEventRejectsDeadAnimalBeforeRecording(t *testing.T) {
+	exitedAt := time.Date(2026, 7, 28, 4, 28, 14, 0, time.UTC)
+	repo := newFakeShiftingRepo()
+	repo.goatFacts = map[string]domain.GoatShiftingFact{testGoatID: {
+		GoatID: testGoatID, LifecycleStatus: "dead", ExitedAt: &exitedAt,
+		BreedKey: "sirohi", BreedLabel: "Sirohi",
+	}}
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+	rec := post(t, mux, appShiftingEventRoute, "shift-dead-goat-1", shiftingBodyNoImpacts(testGoatID))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s, want 422", rec.Code, rec.Body.String())
+	}
+	var envelope identitydomain.ErrorEnvelope
+	decodeBody(t, rec, &envelope)
+	if envelope.Code != "goat_not_shiftable" {
+		t.Fatalf("code=%q, want goat_not_shiftable", envelope.Code)
+	}
+	if repo.inserts != 0 || approvals.submits != 0 {
+		t.Fatalf("inserts=%d submits=%d, want 0/0 for an ineligible animal", repo.inserts, approvals.submits)
+	}
+}
+
 // TestListShiftingDestinationsGroupsShedsUnderTheirPark is the disambiguation proof.
 //
 // Shed names REPEAT across parks -- "Castro 1" exists under both Coimbatore and Channapatna -- so a
@@ -1987,10 +2017,11 @@ func TestNormalizeShiftingEventRequest_CrossParkMove(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := appShiftingEventRequest{
-				SourceParkID:      tt.sourcePark,
-				DestinationParkID: tt.destPark,
-				DestinationShedID: testShedID,
-				GoatIDs:           []string{testGoatID},
+				SourceParkID:        tt.sourcePark,
+				DestinationParkID:   tt.destPark,
+				DestinationShedID:   testShedID,
+				ManagementStageMode: "keep_current",
+				GoatIDs:             []string{testGoatID},
 			}
 			_, err := normalizeShiftingEventRequest(req)
 			if tt.expectError && err == nil {
@@ -2007,9 +2038,10 @@ func TestNormalizeShiftingEventRequest_CrossParkMove(t *testing.T) {
 // P1: Unmovable animals at submit.
 func TestNormalizeShiftingEventRequest_MissingGoatIDs(t *testing.T) {
 	req := appShiftingEventRequest{
-		DestinationParkID: testParkID,
-		DestinationShedID: testShedID,
-		GoatIDs:           []string{}, // Empty goat_ids
+		DestinationParkID:   testParkID,
+		DestinationShedID:   testShedID,
+		ManagementStageMode: "keep_current",
+		GoatIDs:             []string{}, // Empty goat_ids
 	}
 	_, err := normalizeShiftingEventRequest(req)
 	if err == nil {
@@ -2022,9 +2054,10 @@ func TestNormalizeShiftingEventRequest_MissingGoatIDs(t *testing.T) {
 func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
 	// Use only a single animal so we don't need to provide impacts
 	req := appShiftingEventRequest{
-		DestinationParkID: testParkID,
-		DestinationShedID: testShedID,
-		GoatIDs:           []string{testGoatID, testGoatID, testGoatID}, // Has duplicates
+		DestinationParkID:   testParkID,
+		DestinationShedID:   testShedID,
+		ManagementStageMode: "keep_current",
+		GoatIDs:             []string{testGoatID, testGoatID, testGoatID}, // Has duplicates
 	}
 	normalized, err := normalizeShiftingEventRequest(req)
 	if err != nil {
@@ -2036,5 +2069,24 @@ func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
 	}
 	if normalized.GoatIDs[0] != testGoatID {
 		t.Errorf("goat ID mismatch: got %s, want %s", normalized.GoatIDs[0], testGoatID)
+	}
+}
+
+func TestNormalizeShiftingEventRequestRequiresExplicitStageChoice(t *testing.T) {
+	base := appShiftingEventRequest{DestinationParkID: testParkID, DestinationShedID: testShedID, GoatIDs: []string{testGoatID}}
+	if _, err := normalizeShiftingEventRequest(base); err == nil {
+		t.Fatal("missing management-stage choice must be rejected")
+	}
+	base.ManagementStageMode = "select_stage"
+	if _, err := normalizeShiftingEventRequest(base); err == nil {
+		t.Fatal("select_stage without target must be rejected")
+	}
+	base.TargetManagementStage = "Mother"
+	normalized, err := normalizeShiftingEventRequest(base)
+	if err != nil {
+		t.Fatalf("Mother stage choice rejected: %v", err)
+	}
+	if normalized.TargetManagementStage != "Mother" {
+		t.Fatalf("target=%q", normalized.TargetManagementStage)
 	}
 }

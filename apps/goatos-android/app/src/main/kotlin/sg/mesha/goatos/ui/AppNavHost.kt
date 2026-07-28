@@ -60,13 +60,11 @@ import sg.mesha.goatos.feature.feed.FeedPackingScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
-import sg.mesha.goatos.feature.counts.ShiftingHomeScreen
+import sg.mesha.goatos.feature.counts.ShiftingActionsScreen
 import sg.mesha.goatos.feature.counts.RfidPromoteEvent
 import sg.mesha.goatos.feature.counts.RfidPromoteScreen
 import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
-import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
 import sg.mesha.goatos.feature.counts.ShiftingScreen
-import sg.mesha.goatos.feature.counts.ShiftingTab
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
 import sg.mesha.goatos.feature.counts.WorkflowDetailScreen
 import sg.mesha.goatos.feature.counts.WorkflowListEvent
@@ -185,9 +183,11 @@ object Routes {
     // L1 add forms behind each module's ＋ button (hosted destinations with Up/Back, no root chrome).
     const val COUNTS_BIRTH_ADD = "/counts/birth/add"
     const val COUNTS_DEATH_ADD = "/counts/death/add"
+    const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
+    const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
 
-    // The L1 execute destination for one approved movement from the Shifting "Pending" tab. A
+    // The L1 execute destination for one approved movement from Shifting Actions. A
     // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
     // invariant) — NOT a prefix of COUNTS_SHIFTING reused as a drill target.
     const val COUNTS_SHIFTING_EXECUTE_ARG = "shifting_event_id"
@@ -999,18 +999,15 @@ fun AppNavHost(
             )
         }
 
-        // Shifting home: two client-local tabs (Raise | Pending) inside ONE L0 route. Raise is the
-        // existing operator-reports-a-movement form; Pending is the web-approved execution queue.
-        // Switching tabs is local UI state, not navigation; only opening a pending movement (the
-        // execute screen below) is a hosted destination.
-        composable(Routes.COUNTS_SHIFTING) {
-            var selectedTab by rememberSaveable { mutableStateOf(ShiftingTab.RAISE) }
-
-            val raiseVm: ShiftingViewModel = hiltViewModel()
-            val raiseState by raiseVm.state.collectAsStateWithLifecycle()
-
+        // Shifting opens on Actions: the web-approved execution queue. Raising a movement lives
+        // behind the top-right ＋ and opens the separate hosted form below, matching Birth/Death.
+        composable(Routes.COUNTS_SHIFTING) { backStackEntry ->
             val pendingVm: ShiftingPendingViewModel = hiltViewModel()
             val pendingState by pendingVm.state.collectAsStateWithLifecycle()
+            val submissionNotice = remember(backStackEntry) {
+                backStackEntry.savedStateHandle
+                    .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE)
+            }
             val pendingRows = pendingVm.rows.collectAsLazyPagingItems()
             val refreshState = pendingRows.loadState.refresh
             LaunchedEffect(refreshState) {
@@ -1023,45 +1020,55 @@ fun AppNavHost(
             val appendError = (pendingRows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(appendError) { appendError?.let(pendingVm::onRowsLoadFailed) }
 
-            ShiftingHomeScreen(
-                selectedTab = selectedTab,
-                onSelectTab = { selectedTab = it },
-                onBack = { navController.popBackStack() },
-                raiseContent = {
-                    ShiftingScreen(
-                        state = raiseState,
-                        showHeader = false,
-                        onEvent = { event ->
-                            when (event) {
-                                ShiftingEvent.Back -> navController.popBackStack()
-                                else -> raiseVm.onEvent(event)
+            ShiftingActionsScreen(
+                state = pendingState.copy(submissionNotice = submissionNotice),
+                rows = pendingRows,
+                onEvent = { event ->
+                    when (event) {
+                        is ShiftingPendingEvent.OpenMovement ->
+                            navController.navigate(Routes.shiftingExecuteRoute(event.shiftingEventId)) {
+                                launchSingleTop = true
                             }
-                        },
-                    )
-                },
-                pendingContent = {
-                    ShiftingPendingScreen(
-                        state = pendingState,
-                        rows = pendingRows,
-                        onEvent = { event ->
-                            when (event) {
-                                is ShiftingPendingEvent.OpenMovement ->
-                                    navController.navigate(Routes.shiftingExecuteRoute(event.shiftingEventId)) {
-                                        launchSingleTop = true
-                                    }
-                                ShiftingPendingEvent.Refresh -> {
-                                    pendingVm.onEvent(event)
-                                    pendingRows.refresh()
-                                }
-                                else -> pendingVm.onEvent(event)
-                            }
-                        },
-                    )
+                        ShiftingPendingEvent.Raise ->
+                            navController.navigate(Routes.COUNTS_SHIFTING_ADD) { launchSingleTop = true }
+                        ShiftingPendingEvent.Back -> navController.popBackStack()
+                        ShiftingPendingEvent.Refresh -> {
+                            pendingVm.onEvent(event)
+                            pendingRows.refresh()
+                        }
+                        else -> pendingVm.onEvent(event)
+                    }
                 },
             )
         }
 
-        // L1 execute destination: do the physical move, optionally record a video, Mark done.
+        // L1 raise form behind Shifting's ＋ action.
+        composable(Routes.COUNTS_SHIFTING_ADD) {
+            val vm: ShiftingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.returnToActions) {
+                if (state.returnToActions) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE,
+                        state.submissionNotice ?: "Shifting raised successfully.",
+                    )
+                    vm.onEvent(ShiftingEvent.NavigationHandled)
+                    navController.popBackStack()
+                }
+            }
+            ShiftingScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ShiftingEvent.Back -> navController.popBackStack()
+                        ShiftingEvent.NavigationHandled -> vm.onEvent(event)
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // L1 execute destination: do the physical move, record its mandatory video, then submit.
         composable(
             route = Routes.COUNTS_SHIFTING_EXECUTE,
             arguments = listOf(navArgument(Routes.COUNTS_SHIFTING_EXECUTE_ARG) { type = NavType.StringType }),

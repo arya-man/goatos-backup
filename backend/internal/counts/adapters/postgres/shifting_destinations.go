@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 // Read-only support for the operator-facing single-animal shifting flow.
@@ -37,7 +38,12 @@ SELECT
     park.location_id::text,
     park.name,
     shed.location_id::text,
-    shed.name
+    shed.name,
+    COALESCE((SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage))
+              FROM goats g
+              WHERE g.tenant_id=park.tenant_id AND g.shed_id=shed.location_id
+                AND g.lifecycle_status='alive' AND g.exited_at IS NULL
+                AND btrim(COALESCE(g.management_stage,'')) <> ''), ARRAY[]::text[])
 FROM locations park
 LEFT JOIN locations shed
        ON shed.tenant_id = park.tenant_id
@@ -77,7 +83,8 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	for rows.Next() {
 		var parkID, parkName string
 		var shedID, shedName *string
-		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName); err != nil {
+		var shedStages []string
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &shedStages); err != nil {
 			return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog scan: %w", err)
 		}
 		idx, ok := parkIndex[parkID]
@@ -94,15 +101,53 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 		if shedID == nil || shedName == nil {
 			continue
 		}
+		shedStages = nonClinicalShiftingStages(shedStages)
 		out.Parks[idx].Sheds = append(out.Parks[idx].Sheds, domain.ShiftingDestinationShed{
-			ShedID: *shedID,
-			Name:   *shedName,
+			ShedID:           *shedID,
+			Name:             *shedName,
+			ManagementStages: shedStages,
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog rows: %w", err)
 	}
+	stageRows, err := r.pool.Query(ctx, `SELECT stage_code FROM animal_stage_lookup
+WHERE tenant_id=$1::uuid AND status='active' ORDER BY sort_order, stage_code`, tenantID)
+	if err != nil {
+		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting management stages: %w", err)
+	}
+	defer stageRows.Close()
+	for stageRows.Next() {
+		var stage string
+		if err := stageRows.Scan(&stage); err != nil {
+			return domain.ShiftingDestinationCatalog{}, err
+		}
+		if len(nonClinicalShiftingStages([]string{stage})) == 1 {
+			out.ManagementStages = append(out.ManagementStages, stage)
+		}
+	}
+	if err := stageRows.Err(); err != nil {
+		return domain.ShiftingDestinationCatalog{}, err
+	}
 	return out, nil
+}
+
+func nonClinicalShiftingStages(stages []string) []string {
+	out := make([]string, 0, len(stages))
+	for _, stage := range stages {
+		key := strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(stage))), "_")
+		clinical := false
+		for _, blocked := range protocoldomain.MandatoryClinicalDeferStates {
+			if key == strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(blocked))), "_") {
+				clinical = true
+				break
+			}
+		}
+		if !clinical {
+			out = append(out, stage)
+		}
+	}
+	return out
 }
 
 // goatShiftingFactsQuery reads the narrow impact-shaped facts for the named animals.
@@ -111,14 +156,17 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 // (`goat_id = ANY($2::uuid[])`), never `goat_id::text = ANY($2::text[])` -- a column-side cast
 // disables the ordinary index on the stored column.
 //
-// merged_into_goat_id IS NULL AND exited_at IS NULL mirrors the membership predicate identity's
-// relocate path uses, so an animal this query happily describes is an animal the approval could
-// actually move. A merged or exited goat resolves to zero rows and the caller fails closed.
+// merged_into_goat_id IS NULL keeps merged aliases out. Terminal/exited goats deliberately remain
+// visible to this narrow validator so the service can distinguish "this goat exists but cannot be
+// shifted" (422) from "this goat id does not resolve in the tenant" (404). The actual relocation
+// path repeats the current-membership guard under lock.
 //
 // scale-guard:ignore: bounded by MaxRelocateGoatsPerCommand, single set-based read by id
 const goatShiftingFactsQuery = `
 SELECT
     g.goat_id::text,
+    g.lifecycle_status,
+    g.exited_at,
     g.breed_id::text,
     COALESCE(
         NULLIF(btrim(b.canonical_name), ''),
@@ -137,7 +185,6 @@ LEFT JOIN breeds b
 WHERE g.tenant_id = $1::uuid
   AND g.goat_id = ANY($2::uuid[])
   AND g.merged_into_goat_id IS NULL
-  AND g.exited_at IS NULL
 ORDER BY g.goat_id`
 
 // GoatShiftingFacts implements ports.Repository.GoatShiftingFacts.
@@ -166,7 +213,8 @@ func (r *Repository) GoatShiftingFacts(ctx context.Context, tenantID string, goa
 	for rows.Next() {
 		var fact domain.GoatShiftingFact
 		var breedLabel string
-		if err := rows.Scan(&fact.GoatID, &fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex,
+		if err := rows.Scan(&fact.GoatID, &fact.LifecycleStatus, &fact.ExitedAt,
+			&fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex,
 			&fact.ParkID, &fact.ShedID); err != nil {
 			return nil, fmt.Errorf("counts: goat shifting facts scan: %w", err)
 		}

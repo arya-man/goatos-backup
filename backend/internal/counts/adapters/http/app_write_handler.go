@@ -228,15 +228,17 @@ func (h *AppWriteHandler) PromoteTemporaryIdentifier(w http.ResponseWriter, r *h
 // ---------------------------------------------------------------------------
 
 type appShiftingEventRequest struct {
-	SourceParkID      *string                    `json:"source_park_id,omitempty"`
-	SourceShedID      *string                    `json:"source_shed_id,omitempty"`
-	DestinationParkID string                     `json:"destination_park_id"`
-	DestinationShedID string                     `json:"destination_shed_id"`
-	EffectiveAt       *time.Time                 `json:"effective_at,omitempty"`
-	Priority          string                     `json:"priority,omitempty"`
-	Category          string                     `json:"category,omitempty"`
-	ProofRef          *string                    `json:"proof_ref,omitempty"`
-	Impacts           []appShiftingImpactRequest `json:"impacts"`
+	SourceParkID          *string                    `json:"source_park_id,omitempty"`
+	SourceShedID          *string                    `json:"source_shed_id,omitempty"`
+	DestinationParkID     string                     `json:"destination_park_id"`
+	DestinationShedID     string                     `json:"destination_shed_id"`
+	ManagementStageMode   string                     `json:"management_stage_mode"`
+	TargetManagementStage string                     `json:"target_management_stage,omitempty"`
+	EffectiveAt           *time.Time                 `json:"effective_at,omitempty"`
+	Priority              string                     `json:"priority,omitempty"`
+	Category              string                     `json:"category,omitempty"`
+	ProofRef              *string                    `json:"proof_ref,omitempty"`
+	Impacts               []appShiftingImpactRequest `json:"impacts"`
 
 	// GoatIDs names the individual animals this movement covers. REQUIRED, and load-bearing:
 	// approving the request relocates EXACTLY these animals to the destination shed.
@@ -327,6 +329,40 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.writeAppError(w, r, err)
 		return
+	}
+	// Validate against the same backend-owned catalog the form renders. A destination_stage choice
+	// must name one of the (possibly several) stages represented in that exact destination shed;
+	// select_stage may use any active stage. This is raise-time validation and snapshotting, not a
+	// completion-time inference from residents.
+	if normalized.ManagementStageMode != "keep_current" {
+		catalog, catalogErr := h.shifting.ShiftingDestinations(r.Context(), tenantID)
+		if catalogErr != nil {
+			h.writeCountsError(w, r, catalogErr)
+			return
+		}
+		allowed := catalog.ManagementStages
+		if normalized.ManagementStageMode == "destination_stage" {
+			allowed = nil
+			for _, park := range catalog.Parks {
+				for _, shed := range park.Sheds {
+					if shed.ShedID == normalized.DestinationShedID {
+						allowed = shed.ManagementStages
+					}
+				}
+			}
+		}
+		valid := false
+		for _, stage := range allowed {
+			if strings.EqualFold(stage, normalized.TargetManagementStage) {
+				normalized.TargetManagementStage = stage
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			h.writeAppError(w, r, identityapp.BadRequest("invalid_target_management_stage", "target_management_stage is not available for this choice"))
+			return
+		}
 	}
 
 	// CR-05: check that the approval workflow is available BEFORE writing anything.
@@ -439,6 +475,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		SourceShedID:            sourceShedID,
 		DestinationParkID:       normalized.DestinationParkID,
 		DestinationShedID:       normalized.DestinationShedID,
+		ManagementStageMode:     normalized.ManagementStageMode,
+		TargetManagementStage:   normalized.TargetManagementStage,
 		RaisedAt:                raisedAt,
 		EffectiveAt:             effectiveAt,
 		SourceSystem:            appShiftingSourceSystem,
@@ -467,13 +505,15 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// Workflow availability was already checked before the event write (CR-05), so an unconfigured
 	// workflow can no longer leave a permanent orphan here.
 	approvalPayload, err := json.Marshal(struct {
-		ShiftingEventID   string  `json:"shifting_event_id"`
-		DestinationParkID string  `json:"destination_park_id"`
-		DestinationShedID string  `json:"destination_shed_id"`
-		SourceParkID      *string `json:"source_park_id,omitempty"`
-		SourceShedID      *string `json:"source_shed_id,omitempty"`
-		Priority          string  `json:"priority,omitempty"`
-		Category          string  `json:"category,omitempty"`
+		ShiftingEventID       string  `json:"shifting_event_id"`
+		DestinationParkID     string  `json:"destination_park_id"`
+		DestinationShedID     string  `json:"destination_shed_id"`
+		SourceParkID          *string `json:"source_park_id,omitempty"`
+		SourceShedID          *string `json:"source_shed_id,omitempty"`
+		Priority              string  `json:"priority,omitempty"`
+		Category              string  `json:"category,omitempty"`
+		ManagementStageMode   string  `json:"management_stage_mode"`
+		TargetManagementStage string  `json:"target_management_stage"`
 		// Never omitempty: normalizeShiftingEventRequest guarantees a non-empty set, so a stored
 		// payload without goat_ids is a corruption signal the approval path must be able to see.
 		GoatIDs []string `json:"goat_ids"`
@@ -483,11 +523,13 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		DestinationShedID: normalized.DestinationShedID,
 		// The approval payload carries the SAME derived source the event stored, so the request a
 		// park head reads shows the movement's real origin rather than a blank "from".
-		SourceParkID: sourceParkID,
-		SourceShedID: sourceShedID,
-		Priority:     normalized.Priority,
-		Category:     normalized.Category,
-		GoatIDs:      normalized.GoatIDs,
+		SourceParkID:          sourceParkID,
+		SourceShedID:          sourceShedID,
+		Priority:              normalized.Priority,
+		Category:              normalized.Category,
+		ManagementStageMode:   normalized.ManagementStageMode,
+		TargetManagementStage: normalized.TargetManagementStage,
+		GoatIDs:               normalized.GoatIDs,
 	})
 	if err != nil {
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
@@ -524,6 +566,8 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	req.DestinationShedID = strings.TrimSpace(req.DestinationShedID)
 	req.Priority = strings.ToLower(strings.TrimSpace(req.Priority))
 	req.Category = strings.ToLower(strings.TrimSpace(req.Category))
+	req.ManagementStageMode = strings.ToLower(strings.TrimSpace(req.ManagementStageMode))
+	req.TargetManagementStage = strings.TrimSpace(req.TargetManagementStage)
 	if req.EffectiveAt != nil {
 		// Normalize to UTC so two representations of the same instant are the same request.
 		utc := req.EffectiveAt.UTC()
@@ -534,6 +578,15 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	}
 	if req.DestinationShedID == "" {
 		return req, identityapp.BadRequest("missing_destination_shed_id", "destination_shed_id is required")
+	}
+	if req.ManagementStageMode != "keep_current" && req.ManagementStageMode != "select_stage" && req.ManagementStageMode != "destination_stage" {
+		return req, identityapp.BadRequest("invalid_management_stage_mode", "management_stage_mode must be keep_current, select_stage, or destination_stage")
+	}
+	if req.ManagementStageMode != "keep_current" && req.TargetManagementStage == "" {
+		return req, identityapp.BadRequest("missing_target_management_stage", "target_management_stage is required for the selected management stage option")
+	}
+	if req.ManagementStageMode == "keep_current" && req.TargetManagementStage != "" {
+		return req, identityapp.BadRequest("unexpected_target_management_stage", "target_management_stage must be omitted when keeping the current stage")
 	}
 	// P0-1: Cross-park move prevention. Goats never move between parks; shed moves exist only
 	// within one park. Validate that source_park_id == destination_park_id when a source is supplied.
@@ -1100,12 +1153,14 @@ func (h *AppWriteHandler) writeCountsError(w http.ResponseWriter, r *http.Reques
 	case errors.Is(err, ports.ErrIdempotencyInProgress):
 		h.writeError(w, r, http.StatusConflict, "idempotency_in_progress",
 			"a request with this Idempotency-Key is still in progress", err)
-	// A named animal that does not resolve is the operator's problem to fix (wrong RFID, animal
-	// already exited/merged), so it is a 404 with a specific code -- not a 500, and not a silent
-	// success with a placeholder impact.
+	// A named animal that genuinely does not resolve is a 404. An existing terminal animal is a
+	// distinct 422 eligibility error so a dead/sold/exited RFID never reads as a missing route.
 	case errors.Is(err, ports.ErrGoatNotFound):
 		h.writeError(w, r, http.StatusNotFound, "goat_not_found",
-			"one or more goat_ids did not resolve to a live animal in this tenant", err)
+			"one or more goat_ids did not resolve in this tenant", err)
+	case errors.Is(err, ports.ErrGoatNotShiftable):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "goat_not_shiftable",
+			"this animal is no longer active and cannot be shifted", err)
 	case errors.Is(err, countsapp.ErrImpactNotDerivable):
 		h.writeError(w, r, http.StatusBadRequest, "missing_impacts",
 			"the animals in this movement form a mixed cohort (same breed and shed but differing stage/age/sex); supply explicit impacts to state the cohort split", err)

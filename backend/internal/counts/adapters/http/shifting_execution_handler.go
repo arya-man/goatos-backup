@@ -43,7 +43,7 @@ const (
 type ShiftingExecutionWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompleteShiftingInput) (domain.ShiftingExecutionResult, bool, error)
 	Cancel(ctx context.Context, in countsapp.CancelShiftingInput) (domain.ShiftingExecutionResult, bool, error)
-	ListPendingExecution(ctx context.Context, tenantID, sourceParkID, sourceShedID string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
+	ListPendingExecution(ctx context.Context, tenantID, businessDate, status string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
 }
 
 // WithShiftingExecutionWorkflow injects the execution service. A handler without it answers 501
@@ -102,8 +102,8 @@ type appShiftingExecutionResponse struct {
 	IdempotentReplay bool `json:"idempotent_replay"`
 }
 
-// CompleteShiftingEvent records that an authorized movement physically happened. THIS is where the
-// animals relocate.
+// CompleteShiftingEvent records operator completion. It relocates only when Park Head approval is
+// already present; otherwise the later approval transaction applies the move.
 func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.Request) {
 	tenantID, actorID, eventID, clientKey, ok := h.executionPreamble(w, r)
 	if !ok {
@@ -112,11 +112,11 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 
 	// The completion body carries a MANDATORY proof_ref (the operator's video, maintainer decision
 	// 2026-07-26) and an OPTIONAL destination_tag. The movement's animals, destination shed, and
-	// authorization are all already recorded, so no animal set is accepted here (that would let the
+	// proposed animal set is already recorded, so no animal set is accepted here (that would let the
 	// operator's phone relocate a herd the approver never signed off on). The destination_tag is only
 	// consulted when the destination shed is empty; for an occupied shed the server derives the
 	// cohort and a supplied value must agree with it. A completion with no video is rejected: the
-	// move is applied only after a verifier approves that video.
+	// video is reviewed independently after the approval + completion business gate.
 	var (
 		destinationTag string
 		proofRef       string
@@ -298,13 +298,16 @@ func istLabel(t *time.Time) *string {
 // ---------------------------------------------------------------------------
 
 type appShiftingPendingExecutionResponse struct {
-	Items      []appShiftingPendingExecutionItem `json:"items"`
-	NextCursor string                            `json:"next_cursor,omitempty"`
+	Items         []appShiftingPendingExecutionItem `json:"items"`
+	NextCursor    string                            `json:"next_cursor,omitempty"`
+	StatusCounts  domain.ShiftingActionStatusCounts `json:"status_counts"`
+	PreviousDates []domain.ShiftingPreviousDate     `json:"previous_dates"`
 }
 
 type appShiftingPendingExecutionItem struct {
-	ShiftingEventID string `json:"shifting_event_id"`
-	EventStatus     string `json:"event_status"`
+	ShiftingEventID  string `json:"shifting_event_id"`
+	EventStatus      string `json:"event_status"`
+	PrimaryActionKey string `json:"primary_action_key"`
 
 	Priority string `json:"priority"`
 	Category string `json:"category"`
@@ -343,7 +346,7 @@ type appShiftingPendingExecutionAnimal struct {
 	Tag       *string `json:"tag,omitempty"`
 }
 
-// ListShiftingPendingExecution returns one keyset page of authorized movements awaiting execution.
+// ListShiftingPendingExecution returns one keyset page of raised/authorized/evidence-rework Actions.
 func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -372,8 +375,8 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 	}
 
 	page, err := h.execution.ListPendingExecution(r.Context(), tenantID,
-		strings.TrimSpace(r.URL.Query().Get("park_id")),
-		strings.TrimSpace(r.URL.Query().Get("shed_id")), pageSize,
+		strings.TrimSpace(r.URL.Query().Get("date")),
+		strings.TrimSpace(r.URL.Query().Get("status")), pageSize,
 		strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		h.writeShiftingExecutionError(w, r, err)
@@ -389,10 +392,9 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 			})
 		}
 		items = append(items, appShiftingPendingExecutionItem{
-			ShiftingEventID: row.ShiftingEventID,
-			// Every row on this queue is authorized by construction -- the read is filtered to it --
-			// but naming the status keeps the client from inferring it from the route.
-			EventStatus:         domain.ShiftingEventStatusAuthorized,
+			ShiftingEventID:     row.ShiftingEventID,
+			EventStatus:         row.EventStatus,
+			PrimaryActionKey:    row.PrimaryActionKey,
 			Priority:            row.Priority,
 			Category:            row.Category,
 			SourceParkID:        row.SourceParkID,
@@ -416,7 +418,7 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK,
-		appShiftingPendingExecutionResponse{Items: items, NextCursor: page.NextCursor})
+		appShiftingPendingExecutionResponse{Items: items, NextCursor: page.NextCursor, StatusCounts: page.StatusCounts, PreviousDates: page.PreviousDates})
 }
 
 // ---------------------------------------------------------------------------
@@ -429,8 +431,8 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusNotFound, "shifting_event_not_found", "shifting event not found", err)
 	case errors.Is(err, ports.ErrShiftingNotAuthorized):
 		// 400, not 409: the caller addressed a movement that is in the wrong state for this
-		// transition (still pending approval, already rejected, already canceled). The message
-		// names the actual state so an operator is told WHY rather than just refused.
+		// transition (already rejected, canceled, or otherwise terminal). Pending approval is a
+		// valid completion state under the independent approval + completion gate.
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)

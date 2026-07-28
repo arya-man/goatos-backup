@@ -543,28 +543,27 @@ interface AppApi {
     suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
 
     /**
-     * GET /app/counts/shifting-events/pending-execution — the operator's Pending tab: movements
-     * that were APPROVED in web (event_status='authorized') and whose animals have NOT moved yet.
-     * Keyset-paginated and server-capped at 20 rows. [parkId]/[shedId] are the operator's farm ->
-     * shed cascade filter, matching the movement's SOURCE location (where the animals stand now);
-     * both optional, [shedId] normally sent with [parkId]. The app renders what arrives and never
-     * re-derives the authorized filter locally.
+     * GET /app/counts/shifting-events/pending-execution — the operator's Actions queue: newly raised,
+     * authorized, and applied movements needing evidence rework.
+     * Keyset-paginated and server-capped at 20 rows. [date] is the Asia/Kolkata raised business day
+     * and [status] is a disjoint backend-owned Actions bucket.
      */
     suspend fun listCountsShiftingPendingExecution(
-        parkId: String? = null,
-        shedId: String? = null,
+        date: String? = null,
+        status: String? = null,
         pageSize: Int? = null,
         cursor: String? = null,
     ): CountsShiftingPendingExecutionResponseDto
 
     /**
-     * POST /app/counts/shifting-events/{id}/complete — confirms an authorized movement physically
-     * happened. THIS is the "Mark done" call that relocates the animals in `goats`, flips
-     * event_status to 'applied', and publishes goat.location.changed / goat.stage_changed. Drained
-     * through the offline outbox with a stable [idempotencyKey]: a server-committed-but-client-
-     * unrecorded retry returns the ORIGINAL relocation (idempotent_replay=true) instead of moving
-     * the herd twice. The body is optional; the mobile flow sends an empty [destinationTag] and
-     * lets the server derive the destination cohort.
+     * POST /app/counts/shifting-events/{id}/complete — records the operator's mandatory live-camera
+     * video and completion gate. It can run before or after Park Head approval. If approval already
+     * exists, this transaction relocates the animals and returns `applied`; otherwise it returns
+     * `pending`, and the later approval transaction performs the move. Evidence verification is a
+     * post-task review and cannot roll the herd or census back. Drained through the offline outbox
+     * with a stable [idempotencyKey], so a server-committed-but-client-unrecorded retry cannot apply
+     * twice. The mobile flow sends an empty [destinationTag] and lets the server derive the
+     * destination cohort.
      */
     suspend fun completeCountsShiftingEvent(
         shiftingEventId: String,
@@ -1093,8 +1092,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto = CountsBreedsResponseDto()
 
     override suspend fun listCountsShiftingPendingExecution(
-        parkId: String?,
-        shedId: String?,
+        date: String?,
+        status: String?,
         pageSize: Int?,
         cursor: String?,
     ): CountsShiftingPendingExecutionResponseDto = CountsShiftingPendingExecutionResponseDto()

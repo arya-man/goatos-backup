@@ -362,17 +362,11 @@ class DefaultCountsRepository(
             q = trimmed,
             parkId = parkId?.takeIf { it.isNotBlank() },
             locationId = shedId?.takeIf { it.isNotBlank() },
-            // Deliberately NO lifecycle-status filter. Which animals may be moved is a backend
-            // rule, and a client-invented filter here gets it wrong in both directions:
-            //   - the goats vocabulary has no "active" state at all (it is
-            //     alive/sick/under_treatment/quarantine/icu/dead/sold/... ), so an invented value
-            //     silently matches nothing and the picker finds no animal ever;
-            //   - filtering to "alive" would hide precisely the sick / under_treatment /
-            //     quarantine / icu animals that the `medical` and `quarantine` shifting
-            //     CATEGORIES exist to move, making those movements impossible to record.
-            // The endpoint is already scope-filtered to what this caller may see, and the
-            // approval path is what authorizes the relocation.
-            status = null,
+            // Shifting can select only current herd members. Health is a separate field, so
+            // status=alive still includes sick / under_treatment / quarantine / ICU goats while
+            // excluding dead, sold, transferred, and otherwise exited animals at lookup time.
+            // The write endpoint repeats this rule for stale/offline clients.
+            status = "alive",
             limit = COUNTS_ANIMAL_LOOKUP_PAGE_SIZE,
             cursor = null,
         ).items
