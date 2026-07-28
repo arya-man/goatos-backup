@@ -276,7 +276,7 @@ class WeighingViewModel @Inject constructor(
 
     private fun refreshScope() {
         viewModelScope.launch {
-            when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_LIMIT)) {
+            when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS)) {
                 is AppResult.Ok -> {
                     if (refreshed.value == 0 && category != PER_SHED_PARTITION_CATEGORY) {
                         message.value = "No animals are assigned to this weighing scope."
@@ -616,7 +616,7 @@ class WeighingViewModel @Inject constructor(
 
     private companion object {
         const val ROSTER_WINDOW_SIZE = 40
-        const val ROSTER_SYNC_LIMIT = 5000 // mobile-guard:ignore: weighing roster API has no cursor yet; Room UI reads stay windowed and off-page RFID needs cached scope truth
+        const val ROSTER_SYNC_MAX_ROWS = 10_000
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
         const val SHED_PARTITION_PROOF_FIELD_KEY = "weighing_shed_partition_video"

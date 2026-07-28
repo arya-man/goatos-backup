@@ -110,6 +110,7 @@ class WeighingRepositoryTest {
             override suspend fun getWeighingRoster(
                 campaignId: String,
                 campaignShedId: String,
+                cursor: String?,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
                 items = listOf(
@@ -145,6 +146,46 @@ class WeighingRepositoryTest {
         assertEquals("animal-9", match.row?.animalId)
         assertEquals("tenant-live", match.row?.tenantId)
         assertEquals("wrong_shed", match.outcome)
+    }
+
+    @Test
+    fun `refresh scope follows roster cursors and keeps off-page RFID matchable`() = runTest {
+        val requested = mutableListOf<Pair<String?, Int>>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                cursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto {
+                requested += cursor to limit
+                return if (cursor == null) {
+                    WeighingRosterResponseDto(
+                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-page-1", "WG-RFID-0001", 1)),
+                        nextCursor = "cursor-page-2",
+                    )
+                } else {
+                    WeighingRosterResponseDto(
+                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-page-2", "WG-RFID-5001", 101)),
+                        nextCursor = null,
+                    )
+                }
+            }
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            tenantId = "tenant-live",
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+
+        assertEquals(2, (refreshed as AppResult.Ok).value)
+        assertEquals(listOf(null to 20, "cursor-page-2" to 20), requested)
+        val match = repository.matchTag(scopeKey, "WG-RFID-5001")
+        assertEquals("animal-page-2", match.row?.animalId)
     }
 
     @Test
@@ -521,6 +562,27 @@ class WeighingRepositoryTest {
         availabilityStatus = null,
         seq = seq,
         updatedAt = 1L,
+    )
+
+    private fun rosterDto(
+        campaignId: String,
+        campaignShedId: String,
+        animalId: String,
+        tag: String,
+        seq: Long,
+    ) = WeighingRosterRowDto(
+        campaignId = campaignId,
+        campaignShedId = campaignShedId,
+        animalId = animalId,
+        displayAnimalId = animalId,
+        primaryIdentifier = tag,
+        expectedLocationId = "shed-a",
+        expectedLocationLabel = "Kid Shed A",
+        currentLocationId = "shed-a",
+        currentLocationLabel = "Kid Shed A",
+        status = "pending",
+        availabilityStatus = "expected_shed",
+        seq = seq,
     )
 
     private fun syncedProof(id: String, subjectId: String, serverProofId: String) = ProofCaptureEntity(

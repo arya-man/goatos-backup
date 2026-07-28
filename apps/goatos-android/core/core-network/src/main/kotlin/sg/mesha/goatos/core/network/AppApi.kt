@@ -353,6 +353,7 @@ interface AppApi {
     suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
+        cursor: String? = null,
         limit: Int = 250,
     ): WeighingRosterResponseDto
 
@@ -1019,6 +1020,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
+        cursor: String?,
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 

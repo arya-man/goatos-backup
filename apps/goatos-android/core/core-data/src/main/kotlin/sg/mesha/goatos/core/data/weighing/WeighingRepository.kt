@@ -146,7 +146,7 @@ interface WeighingRepository {
     suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
     suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
-    suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, limit: Int = 5000): AppResult<Int>
+    suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = 10_000): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
@@ -241,13 +241,26 @@ class DefaultWeighingRepository(
         campaignId: String,
         workGroupId: String,
         campaignShedId: String,
-        limit: Int,
+        maxRows: Int,
     ): AppResult<Int> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing roster sync is not configured.")
         val key = weighingScopeKey(campaignId, workGroupId, campaignShedId)
         runCatching {
-            val response = client.getWeighingRoster(campaignId, campaignShedId, limit.coerceIn(1, 5000))
-            val rows = response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+            val safetyLimit = maxRows.coerceIn(1, MAX_ROSTER_SYNC_ROWS)
+            val rows = mutableListOf<WeighingRosterRowEntity>() // mobile-guard:ignore: bounded by safetyLimit and kept until successful atomic Room replace
+            var cursor: String? = null
+            do {
+                val remaining = safetyLimit - rows.size
+                val response = client.getWeighingRoster(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    cursor = cursor,
+                    limit = minOf(ROSTER_SYNC_PAGE_SIZE, remaining),
+                )
+                rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+                val next = response.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                cursor = next
+            } while (cursor != null && rows.size < safetyLimit)
             rosterDao.replaceScope(key, rows)
             AppResult.Ok(rows.size)
         }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
@@ -495,6 +508,11 @@ class DefaultWeighingRepository(
         if (existing.status == SyncItemStatus.QUEUED || existing.status == SyncItemStatus.FAILED) {
             sync.cancelOutboxItemIfPending(existing.id)
         }
+    }
+
+    private companion object {
+        const val ROSTER_SYNC_PAGE_SIZE = 20
+        const val MAX_ROSTER_SYNC_ROWS = 10_000
     }
 }
 
