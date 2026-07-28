@@ -52,6 +52,72 @@ data class WeighingCampaignListResponseDto(
 )
 
 @Serializable
+data class WeighingPlannerCatalogResponseDto(
+    @SerialName("parks") val parks: List<WeighingPlannerParkDto> = emptyList(),
+    @SerialName("operators") val operators: List<WeighingPlannerOperatorDto> = emptyList(),
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+@Serializable
+data class WeighingPlannerParkDto(
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("name") val name: String = "",
+    @SerialName("kid_count") val kidCount: Int = 0,
+    @SerialName("sheds") val sheds: List<WeighingPlannerShedDto> = emptyList(),
+    @SerialName("existing_campaign") val existingCampaign: WeighingCampaignSummaryDto? = null,
+)
+
+@Serializable
+data class WeighingPlannerShedDto(
+    @SerialName("location_id") val locationId: String = "",
+    @SerialName("name") val name: String = "",
+    @SerialName("kid_count") val kidCount: Int = 0,
+)
+
+@Serializable
+data class WeighingCampaignSummaryDto(
+    @SerialName("campaign_id") val campaignId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("period_start_date") val periodStartDate: String = "",
+    @SerialName("period_end_date") val periodEndDate: String = "",
+    @SerialName("start_business_date") val startBusinessDate: String = "",
+    @SerialName("operator_user_id") val operatorUserId: String = "",
+    @SerialName("shed_count") val shedCount: Int = 0,
+)
+
+@Serializable
+data class WeighingPlannerOperatorDto(
+    @SerialName("user_id") val userId: String = "",
+    @SerialName("display_name") val displayName: String = "",
+    @SerialName("display_code") val displayCode: String = "",
+)
+
+@Serializable
+data class WeighingCreateCampaignRequestDto(
+    @SerialName("park_id") val parkId: String,
+    @SerialName("period_start_date") val periodStartDate: String,
+    @SerialName("period_end_date") val periodEndDate: String,
+    @SerialName("start_business_date") val startBusinessDate: String,
+    @SerialName("planned_cap_per_day") val plannedCapPerDay: Int,
+    @SerialName("operator_user_id") val operatorUserId: String,
+    @SerialName("sheds") val sheds: List<WeighingCreateCampaignShedDto>,
+)
+
+@Serializable
+data class WeighingCreateCampaignShedDto(
+    @SerialName("location_id") val locationId: String,
+    @SerialName("location_type") val locationType: String,
+    @SerialName("display_name") val displayName: String,
+    @SerialName("weighing_category") val weighingCategory: String,
+)
+
+@Serializable
+data class WeighingCampaignResponseDto(
+    @SerialName("campaign") val campaign: WeighingCampaignDto = WeighingCampaignDto(),
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+@Serializable
 data class WeighingRosterRowDto(
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("campaign_shed_id") val campaignShedId: String = "",

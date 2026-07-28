@@ -18,8 +18,10 @@ import (
 
 type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
+	UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
+	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
@@ -41,7 +43,9 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /weighing/campaigns", h.ListCampaigns)
 	mux.HandleFunc("POST /weighing/campaigns", h.CreateCampaign)
+	mux.HandleFunc("PUT /weighing/campaigns/{campaign_id}", h.UpdateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
+	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.ListCampaigns)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
@@ -96,6 +100,23 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
+	var req createCampaignRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	c, err := h.service.UpdateCampaign(r.Context(), actor(r), r.PathValue("campaign_id"), domain.UpdateCampaign{
+		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
+		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+	})
+	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) PlannerCatalog(w http.ResponseWriter, r *http.Request) {
+	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"))
+	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {

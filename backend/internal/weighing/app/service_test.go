@@ -237,11 +237,17 @@ type fakeRepo struct {
 func (f fakeRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain.Campaign, error) {
 	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
 }
+func (f fakeRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign) (domain.Campaign, error) {
+	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
+}
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
 func (f fakeRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
+}
+func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
+	return domain.PlannerCatalog{}, nil
 }
 func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
@@ -352,8 +358,19 @@ func (r *scenarioRepo) PublishCampaign(_ context.Context, tenantID, campaignID, 
 	return r.campaign, nil
 }
 
+func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ domain.UpdateCampaign) (domain.Campaign, error) {
+	if campaignID != r.campaign.CampaignID {
+		return domain.Campaign{}, ports.ErrNotFound
+	}
+	return r.campaign, nil
+}
+
 func (r *scenarioRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
+}
+
+func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
+	return domain.PlannerCatalog{}, nil
 }
 
 func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, limit int) (domain.RosterPage, error) {

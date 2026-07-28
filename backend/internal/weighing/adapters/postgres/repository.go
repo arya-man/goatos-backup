@@ -91,6 +91,87 @@ RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4,
 	return c, nil
 }
 
+func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	defer tx.Rollback(ctx)
+	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_updated", cmd.IdempotencyKey); err != nil || ok {
+		return existing, err
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE weighing_campaigns
+SET park_id=$3::uuid,
+    period_start_date=$4::date,
+    period_end_date=$5::date,
+    start_business_date=$6::date,
+    planned_cap_per_day=$7,
+    operator_user_id=$8::uuid,
+    updated_at=now(),
+    row_version=row_version+1
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status <> 'completed'
+  AND status <> 'canceled'`,
+		cmd.TenantID, campaignID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Campaign{}, ports.ErrImmutable
+	}
+	for _, shed := range cmd.Sheds {
+		var campaignShedID string
+		err = tx.QueryRow(ctx, `
+WITH upserted AS (
+  INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
+  SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+    CASE WHEN $6 = 'individual_animal' THEN (
+      SELECT count(*)::int FROM goats g WHERE g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
+    ) ELSE 1 END
+  ON CONFLICT (tenant_id, campaign_id, location_id)
+  DO UPDATE SET
+    location_type=EXCLUDED.location_type,
+    display_name=EXCLUDED.display_name,
+    weighing_category=EXCLUDED.weighing_category,
+    expected_animal_count=EXCLUDED.expected_animal_count,
+    updated_at=now()
+  WHERE weighing_campaign_sheds.status <> 'completed'
+  RETURNING campaign_shed_id
+)
+INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
+SELECT $1::uuid, $2::uuid, g.goat_id, $3::uuid, $5, upserted.campaign_shed_id
+FROM upserted
+JOIN goats g ON g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
+WHERE $6 = 'individual_animal'
+ON CONFLICT DO NOTHING
+RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
+			Scan(&campaignShedID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
+		}
+		if err != nil {
+			return domain.Campaign{}, err
+		}
+		if shed.WeighingCategory == domain.CategoryPerShedPartition {
+			if _, err := tx.Exec(ctx, `UPDATE weighing_expected_animals SET status='canceled', updated_at=now() WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid AND status <> 'weighed'`, cmd.TenantID, campaignID, campaignShedID); err != nil {
+				return domain.Campaign{}, err
+			}
+		}
+	}
+	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, c); err != nil {
+		return domain.Campaign{}, err
+	}
+	return c, tx.Commit(ctx)
+}
+
 func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -172,6 +253,143 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 		return domain.CampaignPage{}, err
 	}
 	return domain.CampaignPage{Items: out, NextCursor: nextCursor}, nil
+}
+
+// PlannerCatalog returns the bounded Android planner vocabulary: active parks, their active kid
+// sheds with current kid counts, active field operators, and existing park/week campaigns.
+//
+// mobile-guard:ignore: bounded park/shed/operator catalog cached on-device, not a paginated feed
+// scale-guard:ignore: bounded physical-location catalog; kid counts are grouped server-side
+func (r *Repository) PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string) (domain.PlannerCatalog, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+WITH shed_counts AS (
+  SELECT
+    g.current_location_id AS shed_id,
+    count(*)::int AS kid_count
+  FROM goats g
+  WHERE g.tenant_id=$1::uuid
+    AND g.lifecycle_status='alive'
+    AND COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)
+    AND g.current_location_id IS NOT NULL
+  GROUP BY g.current_location_id
+),
+existing AS (
+  SELECT
+    wc.park_id,
+    wc.campaign_id::text,
+    wc.status,
+    wc.period_start_date::text,
+    wc.period_end_date::text,
+    wc.start_business_date::text,
+    wc.operator_user_id::text,
+    count(wcs.campaign_shed_id)::int AS shed_count
+  FROM weighing_campaigns wc
+  LEFT JOIN weighing_campaign_sheds wcs
+    ON wcs.tenant_id=wc.tenant_id
+   AND wcs.campaign_id=wc.campaign_id
+  WHERE wc.tenant_id=$1::uuid
+    AND wc.period_start_date=$2::date
+    AND wc.status <> 'canceled'
+  GROUP BY wc.park_id, wc.campaign_id
+)
+SELECT
+  park.location_id::text,
+  park.name,
+  shed.location_id::text,
+  shed.name,
+  COALESCE(sc.kid_count, 0)::int,
+  existing.campaign_id,
+  existing.status,
+  existing.period_start_date,
+  existing.period_end_date,
+  existing.start_business_date,
+  existing.operator_user_id,
+  COALESCE(existing.shed_count, 0)::int
+FROM locations park
+LEFT JOIN locations shed
+       ON shed.tenant_id=park.tenant_id
+      AND shed.parent_location_id=park.location_id
+      AND shed.location_type='shed'
+      AND shed.status='active'
+      AND shed.retired_at IS NULL
+LEFT JOIN shed_counts sc ON sc.shed_id=shed.location_id
+LEFT JOIN existing ON existing.park_id=park.location_id
+WHERE park.tenant_id=$1::uuid
+  AND park.location_type='park'
+  AND park.status='active'
+  AND park.retired_at IS NULL
+ORDER BY park.display_order, park.name, park.location_id, shed.display_order, shed.name, shed.location_id`, tenantID, periodStartDate)
+	if err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	defer rows.Close()
+	out := domain.PlannerCatalog{Parks: []domain.PlannerPark{}, Operators: []domain.PlannerOperator{}}
+	parkIndex := map[string]int{}
+	for rows.Next() {
+		var parkID, parkName string
+		var shedID, shedName *string
+		var kidCount int
+		var existingID, existingStatus, existingStart, existingEnd, existingBusinessDate, existingOperator *string
+		var existingShedCount int
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &kidCount, &existingID, &existingStatus, &existingStart, &existingEnd, &existingBusinessDate, &existingOperator, &existingShedCount); err != nil {
+			return domain.PlannerCatalog{}, err
+		}
+		idx, ok := parkIndex[parkID]
+		if !ok {
+			park := domain.PlannerPark{ParkID: parkID, Name: parkName, Sheds: []domain.PlannerShed{}}
+			if existingID != nil {
+				park.ExistingCampaign = &domain.CampaignSummary{
+					CampaignID:        *existingID,
+					Status:            deref(existingStatus),
+					PeriodStartDate:   deref(existingStart),
+					PeriodEndDate:     deref(existingEnd),
+					StartBusinessDate: deref(existingBusinessDate),
+					OperatorUserID:    deref(existingOperator),
+					ShedCount:         existingShedCount,
+				}
+			}
+			out.Parks = append(out.Parks, park)
+			idx = len(out.Parks) - 1
+			parkIndex[parkID] = idx
+		}
+		if shedID == nil || shedName == nil {
+			continue
+		}
+		out.Parks[idx].Sheds = append(out.Parks[idx].Sheds, domain.PlannerShed{
+			LocationID: *shedID,
+			Name:       *shedName,
+			KidCount:   kidCount,
+		})
+		out.Parks[idx].KidCount += kidCount
+	}
+	if err := rows.Err(); err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	operatorRows, err := r.pool.Query(ctx, `
+SELECT user_id::text, display_name, display_code
+FROM workforce_members
+WHERE tenant_id=$1::uuid
+  AND status='active'
+  AND user_id IS NOT NULL
+  AND primary_role_hint='operator'
+ORDER BY display_name, display_code, user_id`, tenantID)
+	if err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	defer operatorRows.Close()
+	for operatorRows.Next() {
+		var operator domain.PlannerOperator
+		if err := operatorRows.Scan(&operator.UserID, &operator.DisplayName, &operator.DisplayCode); err != nil {
+			return domain.PlannerCatalog{}, err
+		}
+		out.Operators = append(out.Operators, operator)
+	}
+	if err := operatorRows.Err(); err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	return out, nil
 }
 
 func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
@@ -961,6 +1179,13 @@ func nullableTime(value time.Time) any {
 		return nil
 	}
 	return value
+}
+
+func deref(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func nullUUID(id string) any {

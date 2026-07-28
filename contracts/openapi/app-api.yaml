@@ -173,6 +173,40 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/campaigns/{campaign_id}:
+    put:
+      tags:
+        - Weighing
+      operationId: updateWeighingCampaign
+      summary: Edit an existing weekly kids Weighing campaign without creating a duplicate park/week task.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWeighingCampaignRequest"
+      responses:
+        "200":
+          description: Weighing campaign updated or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /weighing/campaigns/{campaign_id}/publish:
     post:
       tags:
@@ -214,6 +248,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WeighingCampaignListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/planner/catalog:
+    get:
+      tags:
+        - Weighing
+      operationId: appWeighingPlannerCatalog
+      summary: Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards.
+      parameters:
+        - name: period_start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Bounded Weighing planner catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingPlannerCatalogResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -14055,6 +14117,109 @@ components:
       properties:
         campaign:
           $ref: "#/components/schemas/WeighingCampaign"
+        trace_id:
+          type: string
+    WeighingPlannerCampaignSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - status
+        - period_start_date
+        - period_end_date
+        - start_business_date
+        - operator_user_id
+        - shed_count
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/WeighingCampaignStatus"
+        period_start_date:
+          type: string
+          format: date
+        period_end_date:
+          type: string
+          format: date
+        start_business_date:
+          type: string
+          format: date
+        operator_user_id:
+          type: string
+          format: uuid
+        shed_count:
+          type: integer
+          minimum: 0
+    WeighingPlannerShed:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - name
+        - kid_count
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kid_count:
+          type: integer
+          minimum: 0
+    WeighingPlannerPark:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - name
+        - kid_count
+        - sheds
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kid_count:
+          type: integer
+          minimum: 0
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingPlannerShed"
+        existing_campaign:
+          $ref: "#/components/schemas/WeighingPlannerCampaignSummary"
+    WeighingPlannerOperator:
+      type: object
+      additionalProperties: false
+      required:
+        - user_id
+        - display_name
+        - display_code
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        display_code:
+          type: string
+    WeighingPlannerCatalogResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - parks
+        - operators
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingPlannerPark"
+        operators:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingPlannerOperator"
         trace_id:
           type: string
     WeighingRosterRow:

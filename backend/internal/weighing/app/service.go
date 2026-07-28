@@ -33,6 +33,24 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	return s.repo.CreateCampaign(ctx, cmd)
 }
 
+func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+		return domain.Campaign{}, ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) {
+		return domain.Campaign{}, ports.ErrInvalidArgument
+	}
+	cmd.TenantID = actor.TenantID
+	cmd.CreatedBy = actor.UserID
+	if err := validateCreate(cmd); err != nil {
+		return domain.Campaign{}, err
+	}
+	if cmd.PlannedCapPerDay <= 0 {
+		cmd.PlannedCapPerDay = 100
+	}
+	return s.repo.UpdateCampaign(ctx, campaignID, cmd)
+}
+
 func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
 		return domain.Campaign{}, ports.ErrForbidden
@@ -56,6 +74,18 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor 
 		limit = 100
 	}
 	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
+}
+
+func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error) {
+	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
+	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	if !canPlan && !canMonitor {
+		return domain.PlannerCatalog{}, ports.ErrForbidden
+	}
+	if strings.TrimSpace(periodStartDate) == "" {
+		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
+	}
+	return s.repo.PlannerCatalog(ctx, actor.TenantID, strings.TrimSpace(periodStartDate))
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {

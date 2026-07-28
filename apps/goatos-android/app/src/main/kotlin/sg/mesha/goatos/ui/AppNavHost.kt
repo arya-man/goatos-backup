@@ -709,6 +709,8 @@ fun AppNavHost(
                 onScanSubmit = vm::submitTypedScan,
                 onWeightChange = vm::onWeightInputChange,
                 onRecordIndividual = vm::recordIndividual,
+                onRecordShedPartition = vm::recordShedPartition,
+                onCreateOrEditTask = vm::createOrEditDefaultPlan,
                 onRefresh = vm::refresh,
                 onOpenAssignment = { assignment ->
                     navController.navigate(
