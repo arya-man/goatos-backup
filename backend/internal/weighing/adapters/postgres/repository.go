@@ -542,7 +542,7 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	  FROM weighing_campaigns
 	  WHERE tenant_id=$1::uuid
 	    AND campaign_id=$2::uuid
-	    AND status IN ('published','in_progress')
+	    AND status IN ('published','in_progress','delayed')
 	    AND operator_user_id=$7::uuid
 	), expected AS (
 	  SELECT
@@ -630,7 +630,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	  FROM weighing_campaigns
 	  WHERE tenant_id=$1::uuid
 	    AND campaign_id=$2::uuid
-	    AND status IN ('published','in_progress')
+	    AND status IN ('published','in_progress','delayed')
 	    AND operator_user_id=$7::uuid
 	), scope AS (
 	  SELECT cs.campaign_shed_id, cs.location_id
@@ -706,7 +706,7 @@ SET status='completed',
   row_version=row_version+1
 WHERE wc.tenant_id=$1::uuid
   AND wc.campaign_id=$2::uuid
-  AND wc.status IN ('published', 'in_progress')
+  AND wc.status IN ('published', 'in_progress', 'delayed')
   AND EXISTS (
     SELECT 1
     FROM weighing_campaign_sheds cs
@@ -1029,7 +1029,7 @@ func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx 
 	if err != nil {
 		return err
 	}
-	if status != domain.StatusPublished && status != domain.StatusInProgress {
+	if status != domain.StatusPublished && status != domain.StatusInProgress && status != domain.StatusDelayed {
 		return ports.ErrImmutable
 	}
 	if operatorID != cmd.RecordedBy {
@@ -1081,7 +1081,7 @@ func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pg
 	if err != nil {
 		return err
 	}
-	if status != domain.StatusPublished && status != domain.StatusInProgress {
+	if status != domain.StatusPublished && status != domain.StatusInProgress && status != domain.StatusDelayed {
 		return ports.ErrImmutable
 	}
 	if operatorID != cmd.RecordedBy {

@@ -6,6 +6,7 @@ const (
 	StatusDraft      = "draft"
 	StatusPublished  = "published"
 	StatusInProgress = "in_progress"
+	StatusDelayed    = "delayed"
 	StatusCompleted  = "completed"
 
 	CategoryIndividualAnimal   = "individual_animal"
