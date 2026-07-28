@@ -18,7 +18,7 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
-const defaultFixturePath = "../../fixtures/weighing-e2e-2026-07-29/weighing-seed.json"
+const defaultFixturePath = "../fixtures/weighing-e2e-2026-07-29/weighing-seed.json"
 
 type fixture struct {
 	FixtureID        string                   `json:"fixture_id"`
@@ -27,10 +27,15 @@ type fixture struct {
 	Campaign         campaignFixture          `json:"campaign"`
 	Personas         []personaFixture         `json:"personas"`
 	SelectedScopes   []scopeFixture           `json:"selected_scopes"`
+	WorkGroups       []workGroupFixture       `json:"work_groups"`
 	Animals          []animalFixture          `json:"animals"`
 	ProofArtifacts   []proofFixture           `json:"proof_artifacts"`
 	Observations     []observationFixture     `json:"observations"`
 	ShedObservations []shedObservationFixture `json:"shed_observations"`
+	MobileContract   mobileContractFixture    `json:"mobile_contract"`
+	ScaleProfile     scaleProfileFixture      `json:"scale_profile"`
+	ExpectedProgress expectedProgressFixture  `json:"expected_progress"`
+	E2ESteps         []string                 `json:"e2e_steps"`
 }
 
 type campaignFixture struct {
@@ -59,6 +64,13 @@ type scopeFixture struct {
 	ExpectedAnimalCount int    `json:"expected_animal_count"`
 }
 
+type workGroupFixture struct {
+	WorkGroupID           string   `json:"work_group_id"`
+	EffectiveBusinessDate string   `json:"effective_business_date"`
+	CampaignShedIDs       []string `json:"campaign_shed_ids"`
+	Status                string   `json:"status"`
+}
+
 type animalFixture struct {
 	AnimalID               string  `json:"animal_id"`
 	RFID                   string  `json:"rfid"`
@@ -75,6 +87,7 @@ type proofFixture struct {
 	SubjectScope    string `json:"subject_scope"`
 	ProofMode       string `json:"proof_mode"`
 	UploadState     string `json:"upload_state"`
+	RetryAttempts   int    `json:"retry_attempts"`
 }
 
 type observationFixture struct {
@@ -88,6 +101,7 @@ type observationFixture struct {
 	ActualLocationLabel   *string `json:"actual_location_label"`
 	ProofArtifactID       string  `json:"proof_artifact_id"`
 	IDempotencyKey        string  `json:"idempotency_key"`
+	OffPageScan           bool    `json:"off_page_scan"`
 }
 
 type shedObservationFixture struct {
@@ -97,7 +111,41 @@ type shedObservationFixture struct {
 	WeighingResult    struct {
 		TotalWeightKG float64 `json:"total_weight_kg"`
 	} `json:"weighing_result"`
-	ProofArtifactID string `json:"proof_artifact_id"`
+	ProofArtifactID                        string `json:"proof_artifact_id"`
+	MustNotCreateIndividualWeights         bool   `json:"must_not_create_individual_weights"`
+	MustNotUpdateLatestTrustedAnimalWeight bool   `json:"must_not_update_latest_trusted_animal_weight"`
+}
+
+type mobileContractFixture struct {
+	RoomFirst                            bool     `json:"room_first"`
+	OutboxIdempotent                     bool     `json:"outbox_idempotent"`
+	ProcessDeathSafe                     bool     `json:"process_death_safe"`
+	SignOutWipeTables                    []string `json:"sign_out_wipe_tables"`
+	RFIDTerminatorsSwallowedOnlyOnRoutes []string `json:"rfid_terminators_swallowed_only_on_routes"`
+	OffPageScanExpected                  struct {
+		MustUpdateScanFeedWithoutFetchAll bool `json:"must_update_scan_feed_without_fetch_all"`
+	} `json:"off_page_scan_expected"`
+}
+
+type scaleProfileFixture struct {
+	ExpectedCampaignAnimals int      `json:"expected_campaign_animals"`
+	VisiblePageSize         int      `json:"visible_page_size"`
+	ForbiddenReadShapes     []string `json:"forbidden_read_shapes"`
+}
+
+type expectedProgressFixture struct {
+	IndividualExpectedTotal            int `json:"individual_expected_total"`
+	IndividualWeighedExpected          int `json:"individual_weighed_expected"`
+	IndividualPendingExpected          int `json:"individual_pending_expected"`
+	IndividualUnavailableExpected      int `json:"individual_unavailable_expected"`
+	IndividualClosedByLeadership       int `json:"individual_closed_by_leadership"`
+	PerShedPartitionSelectedTotal      int `json:"per_shed_partition_selected_total"`
+	PerShedPartitionCompleted          int `json:"per_shed_partition_completed"`
+	PerShedPartitionPending            int `json:"per_shed_partition_pending"`
+	PerShedPartitionProofBlocked       int `json:"per_shed_partition_proof_blocked"`
+	PerShedPartitionClosedByLeadership int `json:"per_shed_partition_closed_by_leadership"`
+	WrongShedExpected                  int `json:"wrong_shed_expected"`
+	NotInCampaignScans                 int `json:"not_in_campaign_scans"`
 }
 
 func main() {
@@ -124,8 +172,8 @@ func run(args []string, stdout io.Writer) error {
 	if err := validateFixture(fx); err != nil {
 		return err
 	}
-	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d animals=%d proofs=%d observations=%d shed_observations=%d",
-		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.ShedObservations))
+	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d work_groups=%d animals=%d proofs=%d observations=%d shed_observations=%d scale_animals=%d",
+		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.WorkGroups), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.ShedObservations), fx.ScaleProfile.ExpectedCampaignAnimals)
 	if *dryRun {
 		fmt.Fprintf(stdout, "weighing E2E seed dry-run ok: %s\n", summary)
 		return nil
@@ -148,7 +196,7 @@ func run(args []string, stdout io.Writer) error {
 
 func loadFixture(path string) (fixture, error) {
 	var fx fixture
-	clean := filepath.Clean(path)
+	clean := resolveFixturePath(path)
 	body, err := os.ReadFile(clean)
 	if err != nil {
 		return fx, fmt.Errorf("read fixture %s: %w", clean, err)
@@ -157,6 +205,29 @@ func loadFixture(path string) (fixture, error) {
 		return fx, fmt.Errorf("parse fixture %s: %w", clean, err)
 	}
 	return fx, nil
+}
+
+func resolveFixturePath(path string) string {
+	clean := filepath.Clean(path)
+	if filepath.IsAbs(clean) || fileExists(clean) {
+		return clean
+	}
+	if filepath.Clean(path) == filepath.Clean(defaultFixturePath) {
+		for _, candidate := range []string{
+			filepath.Join("..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json"),
+			filepath.Join("fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json"),
+		} {
+			if fileExists(candidate) {
+				return candidate
+			}
+		}
+	}
+	return clean
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func validateFixture(fx fixture) error {
@@ -194,12 +265,42 @@ func validateFixture(fx fixture) error {
 		}
 		scopes[s.CampaignShedID] = s
 	}
+	for _, group := range fx.WorkGroups {
+		if group.WorkGroupID == "" {
+			return errors.New("work_group_id is required")
+		}
+		if len(group.CampaignShedIDs) == 0 {
+			return fmt.Errorf("work group %s must preserve selected scope membership", group.WorkGroupID)
+		}
+		for _, scopeID := range group.CampaignShedIDs {
+			if _, ok := scopes[scopeID]; !ok {
+				return fmt.Errorf("work group %s references unknown campaign_shed_id %s", group.WorkGroupID, scopeID)
+			}
+		}
+	}
+	if !hasDelayedWorkGroup(fx) {
+		return errors.New("fixture must include delayed roll-forward work group")
+	}
 	proofs := map[string]bool{}
+	retryProofs := 0
+	removedProofs := 0
 	for _, p := range fx.ProofArtifacts {
 		if p.ProofArtifactID == "" {
 			return errors.New("proof_artifact_id is required")
 		}
 		proofs[p.ProofArtifactID] = true
+		if p.UploadState == "accepted_after_retry" && p.RetryAttempts > 0 {
+			retryProofs++
+		}
+		if p.UploadState == "uploaded_unsubmitted_removed_before_acceptance" {
+			removedProofs++
+		}
+	}
+	if retryProofs == 0 {
+		return errors.New("fixture must cover proof upload retry")
+	}
+	if removedProofs == 0 {
+		return errors.New("fixture must cover uploaded-but-unsubmitted proof removal")
 	}
 	for _, animal := range fx.Animals {
 		if animal.AnimalID == "" || animal.DisplayID == "" {
@@ -215,13 +316,116 @@ func validateFixture(fx fixture) error {
 		if !proofs[observation.ProofArtifactID] {
 			return fmt.Errorf("observation %s references unknown proof %s", observation.ObservationID, observation.ProofArtifactID)
 		}
+		if observation.WeightKG <= 0 {
+			return fmt.Errorf("observation %s weight must be positive", observation.ObservationID)
+		}
 	}
 	for _, observation := range fx.ShedObservations {
 		if !proofs[observation.ProofArtifactID] {
 			return fmt.Errorf("shed observation %s references unknown proof %s", observation.ShedObservationID, observation.ProofArtifactID)
 		}
+		scope := scopes[observation.CampaignShedID]
+		if scope.WeighingCategory != "per_shed_partition" {
+			return fmt.Errorf("shed observation %s must target per-shed/partition scope", observation.ShedObservationID)
+		}
+		if !observation.MustNotCreateIndividualWeights || !observation.MustNotUpdateLatestTrustedAnimalWeight {
+			return fmt.Errorf("shed observation %s must assert no individual/latest trusted weight mutation", observation.ShedObservationID)
+		}
+	}
+	if err := validateExpectedProgress(fx); err != nil {
+		return err
+	}
+	if err := validateMobileAndScaleContract(fx); err != nil {
+		return err
 	}
 	return nil
+}
+
+func hasDelayedWorkGroup(fx fixture) bool {
+	for _, group := range fx.WorkGroups {
+		if group.Status == "delayed" && group.EffectiveBusinessDate > fx.Campaign.PeriodEndDate {
+			return true
+		}
+	}
+	return false
+}
+
+func validateExpectedProgress(fx fixture) error {
+	p := fx.ExpectedProgress
+	if p.IndividualExpectedTotal == 0 && p.PerShedPartitionSelectedTotal == 0 {
+		return errors.New("expected_progress is required")
+	}
+	if p.IndividualExpectedTotal != p.IndividualWeighedExpected+p.IndividualPendingExpected+p.IndividualUnavailableExpected+p.IndividualClosedByLeadership {
+		return errors.New("individual progress buckets must be disjoint and complete")
+	}
+	if p.PerShedPartitionSelectedTotal != p.PerShedPartitionCompleted+p.PerShedPartitionPending+p.PerShedPartitionProofBlocked+p.PerShedPartitionClosedByLeadership {
+		return errors.New("per-shed progress buckets must be disjoint and complete")
+	}
+	wrongShed := 0
+	notInCampaign := 0
+	offPage := 0
+	for _, observation := range fx.Observations {
+		switch observation.LocationMatchStatus {
+		case "other_shed":
+			wrongShed++
+			if observation.ExpectedLocationLabel == nil || observation.ActualLocationLabel == nil {
+				return fmt.Errorf("wrong-shed observation %s must keep expected and actual shed labels", observation.ObservationID)
+			}
+		case "not_in_campaign":
+			notInCampaign++
+		}
+		if observation.OffPageScan {
+			offPage++
+		}
+	}
+	if p.WrongShedExpected != wrongShed {
+		return fmt.Errorf("wrong_shed_expected=%d does not match observations=%d", p.WrongShedExpected, wrongShed)
+	}
+	if p.NotInCampaignScans != notInCampaign {
+		return fmt.Errorf("not_in_campaign_scans=%d does not match observations=%d", p.NotInCampaignScans, notInCampaign)
+	}
+	if offPage == 0 {
+		return errors.New("fixture must cover off-page scans")
+	}
+	return nil
+}
+
+func validateMobileAndScaleContract(fx fixture) error {
+	mobile := fx.MobileContract
+	if !mobile.RoomFirst || !mobile.OutboxIdempotent || !mobile.ProcessDeathSafe {
+		return errors.New("mobile contract must be Room-first, outbox-idempotent, and process-death safe")
+	}
+	if !contains(mobile.SignOutWipeTables, "weighing_outbox") || !contains(mobile.SignOutWipeTables, "weighing_observations") || !contains(mobile.SignOutWipeTables, "weighing_shed_observations") {
+		return errors.New("mobile contract sign-out wipe must include weighing observation and outbox tables")
+	}
+	if len(mobile.RFIDTerminatorsSwallowedOnlyOnRoutes) != 1 || mobile.RFIDTerminatorsSwallowedOnlyOnRoutes[0] != "WeighingScanRoute" {
+		return errors.New("RFID Enter/Tab swallowing must be scoped only to WeighingScanRoute")
+	}
+	if !mobile.OffPageScanExpected.MustUpdateScanFeedWithoutFetchAll {
+		return errors.New("off-page scan contract must update feed without fetching all animals")
+	}
+	scale := fx.ScaleProfile
+	if scale.ExpectedCampaignAnimals < 5000 {
+		return errors.New("scale profile must cover 5k+ animals")
+	}
+	if scale.VisiblePageSize > 20 {
+		return errors.New("scale profile visible page size must stay phone-sized")
+	}
+	for _, forbidden := range []string{"load_all_animals_for_progress", "linear_scan_rfid_lookup", "visible_page_totals_as_campaign_totals", "order_by_limit_1_for_membership"} {
+		if !contains(scale.ForbiddenReadShapes, forbidden) {
+			return fmt.Errorf("scale profile must forbid %s", forbidden)
+		}
+	}
+	return nil
+}
+
+func contains(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func importFixture(ctx context.Context, pool *pgxpool.Pool, fx fixture) error {
