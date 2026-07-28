@@ -414,7 +414,7 @@ func alertDetail(row domain.Row) string {
 	if row.BlockerReason != nil && *row.BlockerReason != "" {
 		return base + ": " + *row.BlockerReason
 	}
-	return base + ": " + row.GapType
+	return base
 }
 
 func latestSafeOrDue(row domain.Row) string {

@@ -549,6 +549,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.next_action":                "Next action",
 			"label.evidence":                   "Evidence",
 			"label.not_ready":                  "not ready",
+			"evidence.verification_pending":    "Proof submitted; awaiting verifier review",
+			"evidence.proof_pending":           "Proof not submitted yet",
+			"evidence.rejected":                "Proof rejected; rework required",
+			"evidence.blocked":                 "Evidence blocked by configuration or SOP issue",
+			"evidence.late":                    "Required proof is late",
+			"evidence.completed":               "Proof accepted",
 		}
 	case "action-center":
 		return map[string]string{
