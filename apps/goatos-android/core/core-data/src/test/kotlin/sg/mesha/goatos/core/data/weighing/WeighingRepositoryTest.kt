@@ -27,6 +27,15 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerParkDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 
@@ -136,6 +145,126 @@ class WeighingRepositoryTest {
         assertEquals("animal-9", match.row?.animalId)
         assertEquals("tenant-live", match.row?.tenantId)
         assertEquals("wrong_shed", match.outcome)
+    }
+
+    @Test
+    fun `planner catalog maps parks sheds operators and existing campaign guard`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
+                WeighingPlannerCatalogResponseDto(
+                    parks = listOf(
+                        WeighingPlannerParkDto(
+                            parkId = "park-cpt",
+                            name = "CPT - Channapatna",
+                            kidCount = 144,
+                            sheds = listOf(
+                                WeighingPlannerShedDto(locationId = "shed-castro-1", name = "Castro 1", kidCount = 80),
+                                WeighingPlannerShedDto(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64),
+                            ),
+                            existingCampaign = WeighingCampaignSummaryDto(
+                                campaignId = "campaign-existing",
+                                status = "in_progress",
+                                periodStartDate = periodStartDate,
+                                periodEndDate = "2026-08-02",
+                                startBusinessDate = periodStartDate,
+                                operatorUserId = "operator-amit",
+                                shedCount = 2,
+                            ),
+                        ),
+                    ),
+                    operators = listOf(WeighingPlannerOperatorDto(userId = "operator-amit", displayName = "Amit Kumar", displayCode = "AMIT")),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.plannerCatalog("2026-07-27") as AppResult.Ok
+
+        assertEquals("CPT - Channapatna", result.value.parks.single().name)
+        assertEquals("campaign-existing", result.value.parks.single().existingCampaign?.campaignId)
+        assertEquals(listOf("Castro 1", "Castro 2"), result.value.parks.single().sheds.map { it.name })
+        assertEquals("Amit Kumar", result.value.operators.single().displayName)
+    }
+
+    @Test
+    fun `create and publish plan sends shed categories and returns operator assignment`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            lateinit var createRequest: WeighingCreateCampaignRequestDto
+            var publishedCampaignId: String? = null
+
+            override suspend fun createWeighingCampaign(
+                idempotencyKey: String,
+                request: WeighingCreateCampaignRequestDto,
+            ): WeighingCampaignResponseDto {
+                createRequest = request
+                return WeighingCampaignResponseDto(campaign = weighingCampaign(status = "draft"))
+            }
+
+            override suspend fun publishWeighingCampaign(campaignId: String, idempotencyKey: String): WeighingCampaignResponseDto {
+                publishedCampaignId = campaignId
+                return WeighingCampaignResponseDto(campaign = weighingCampaign(status = "published"))
+            }
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.createAndPublishPlan(planDraft()) as AppResult.Ok
+
+        assertEquals("campaign-plan", api.publishedCampaignId)
+        assertEquals(listOf("individual_animal", "per_shed_partition"), api.createRequest.sheds.map { it.weighingCategory })
+        assertEquals("Castro 1", result.value?.label)
+    }
+
+    @Test
+    fun `edit existing draft updates same campaign and publishes without duplicate create`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            var createCalls = 0
+            var updateCampaignId: String? = null
+            var publishCampaignId: String? = null
+
+            override suspend fun createWeighingCampaign(
+                idempotencyKey: String,
+                request: WeighingCreateCampaignRequestDto,
+            ): WeighingCampaignResponseDto {
+                createCalls++
+                return WeighingCampaignResponseDto(campaign = weighingCampaign(status = "draft"))
+            }
+
+            override suspend fun updateWeighingCampaign(
+                campaignId: String,
+                idempotencyKey: String,
+                request: WeighingCreateCampaignRequestDto,
+            ): WeighingCampaignResponseDto {
+                updateCampaignId = campaignId
+                return WeighingCampaignResponseDto(campaign = weighingCampaign(campaignId = campaignId, status = "draft"))
+            }
+
+            override suspend fun publishWeighingCampaign(campaignId: String, idempotencyKey: String): WeighingCampaignResponseDto {
+                publishCampaignId = campaignId
+                return WeighingCampaignResponseDto(campaign = weighingCampaign(campaignId = campaignId, status = "published"))
+            }
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.updatePlan("campaign-existing", planDraft()) as AppResult.Ok
+
+        assertEquals(0, api.createCalls)
+        assertEquals("campaign-existing", api.updateCampaignId)
+        assertEquals("campaign-existing", api.publishCampaignId)
+        assertEquals("Castro 1", result.value?.label)
     }
 
     @Test
@@ -311,6 +440,57 @@ class WeighingRepositoryTest {
             scannedIdentifier = tag,
             weightKg = weightKg,
         )
+
+    private fun planDraft() = WeighingPlanDraft(
+        parkId = "park-cpt",
+        periodStartDate = "2026-07-27",
+        periodEndDate = "2026-08-02",
+        startBusinessDate = "2026-07-27",
+        plannedCapPerDay = 100,
+        operatorUserId = "operator-amit",
+        sheds = listOf(
+            WeighingPlannerShed(locationId = "shed-castro-1", name = "Castro 1", kidCount = 80, category = "individual_animal"),
+            WeighingPlannerShed(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64, category = "per_shed_partition"),
+        ),
+    )
+
+    private fun weighingCampaign(
+        campaignId: String = "campaign-plan",
+        status: String,
+    ) = WeighingCampaignDto(
+        campaignId = campaignId,
+        tenantId = "tenant",
+        parkId = "park-cpt",
+        periodStartDate = "2026-07-27",
+        periodEndDate = "2026-08-02",
+        startBusinessDate = "2026-07-27",
+        status = status,
+        plannedCapPerDay = 100,
+        operatorUserId = "operator-amit",
+        createdBy = "ceo",
+        sheds = listOf(
+            WeighingCampaignShedDto(
+                campaignShedId = "campaign-shed-castro-1",
+                campaignId = campaignId,
+                locationId = "shed-castro-1",
+                locationType = "shed",
+                displayName = "Castro 1",
+                expectedAnimalCount = 80,
+                weighingCategory = "individual_animal",
+                status = "pending",
+            ),
+            WeighingCampaignShedDto(
+                campaignShedId = "campaign-shed-castro-2",
+                campaignId = campaignId,
+                locationId = "shed-castro-2",
+                locationType = "shed",
+                displayName = "Castro 2",
+                expectedAnimalCount = 1,
+                weighingCategory = "per_shed_partition",
+                status = "pending",
+            ),
+        ),
+    )
 
     private fun rosterRow(
         animalId: String,
