@@ -4907,7 +4907,7 @@ paths:
       tags:
         - Counts
       operationId: completeAppCountsShiftingEvent
-      summary: Confirm a shifting happened and submit its MANDATORY video for verification.
+      summary: Confirm a shifting happened and submit its mandatory live-camera evidence.
       description: >-
         Records that an operator physically moved the animals AND uploaded the mandatory video proof
         (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates.
@@ -4915,8 +4915,12 @@ paths:
         otherwise it keeps event_status='pending' with completion stamps and approval applies the move later.
         Verification reviews the video afterward. Approval marks evidence verified; rejection creates
         evidence rework and never rolls back goat location or census truth.
-        proof_ref (a proof_artifact id for the video) is REQUIRED - a completion with no video is
-        refused with 422 proof_required, because there is nothing for a verifier to approve.
+        Low priority requires proof_ref only. High priority embeds feed packing and feeding inside
+        Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three
+        are reviewed together in one Shifting verification item. The packing proof does not complete
+        the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint
+        returned by the pending-execution read; missing config blocks with 422 and changed config
+        blocks with 409 so the server never guesses feed.
         Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or
         canceled movements are refused with 400 shifting_not_authorized.
         ANY operator holding counts.write may complete a movement, not only the operator who raised
@@ -4948,6 +4952,18 @@ paths:
                   description: >-
                     MANDATORY. The proof_artifact id of the video the operator recorded to prove the
                     animals physically moved. Verification reviews it independently of movement apply.
+                feed_packing_proof_ref:
+                  type: string
+                  minLength: 1
+                  description: MANDATORY for high priority. Live-camera proof of Shifting's embedded feed-packing step.
+                feed_given_proof_ref:
+                  type: string
+                  minLength: 1
+                  description: MANDATORY for high priority. Live-camera proof of configured feed being given to the moved animals.
+                feed_config_fingerprint:
+                  type: string
+                  minLength: 1
+                  description: MANDATORY for high priority. Echo of the ready feed requirement fingerprint.
                 destination_tag:
                   type: string
                   description: >-
@@ -15631,6 +15647,7 @@ components:
       required:
         - shifting_event_id
         - event_status
+        - verification_state
         - primary_action_key
         - priority
         - category
@@ -15652,6 +15669,10 @@ components:
           description: Canonical movement state; applied is shown as rework only when verification was rejected.
           type: string
           enum: [pending, authorized, applied]
+        verification_state:
+          description: Evidence-review state. Rejected requires fresh evidence and never rolls back an applied move.
+          type: string
+          enum: [unverified, verified, rejected]
         primary_action_key:
           description: Backend-owned row action. Completed rows are none and cannot open execution.
           type: string
@@ -15725,6 +15746,38 @@ components:
           maxItems: 5
           items:
             $ref: "#/components/schemas/CountsShiftingPendingExecutionAnimal"
+        feed_requirement:
+          description: Backend-owned destination ration for high-priority shifting; absent for low priority.
+          $ref: "#/components/schemas/CountsShiftingFeedRequirement"
+    CountsShiftingFeedRequirement:
+      type: object
+      additionalProperties: false
+      required: [status, animal_count, items]
+      properties:
+        status:
+          type: string
+          enum: [ready, blocked]
+        blocked_reason:
+          type: string
+        fingerprint:
+          type: string
+          description: Present only when ready; completion must echo it to reject stale feed config.
+        target_management_stage:
+          type: string
+        animal_count:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [feed_item_label, quantity_grams]
+            properties:
+              feed_item_label: { type: string }
+              quantity_grams:
+                type: string
+                description: Exact decimal total grams for all animals in this movement.
     CountsShiftingPendingExecutionAnimal:
       type: object
       additionalProperties: false

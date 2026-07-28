@@ -33,7 +33,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 |---|---|---|
 | GET /herd-register/summary | api + Cube:active_animals | Primary census; aggregate-first |
 | GET /counts/breakdown | api + view:animal_current_scope | Grouped census drilldown |
-| GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Raised/authorized/evidence-rework Actions; census moves only after Park Head approval + operator completion |
+| GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Raised/authorized/evidence-rework Actions; census moves only after Park Head approval + operator completion. High-priority feed requirement/fingerprint is operator execution detail, not a leadership KPI; leadership movement state remains covered at event/day grain. |
 | GET /app/counts/approvals | api + view:counts_movement_daily | Pending census approvals |
 | GET /app/counts/shifting/destinations | EXCLUDED | Operator write-flow picker; not a leadership metric |
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |
@@ -161,7 +161,7 @@ tracked as gaps below.
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |
-| shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue |
+| shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue. High-priority feed proof refs, fingerprint, and requirement snapshot are EXCLUDED evidence/config detail; verification backlog remains covered by verification_queue_status. |
 | goat_births | EXCLUDED — per-child canonical mother relationship and delivery litter size used by the operator birth workflow; leadership birth/mortality reporting remains on governed Counts aggregates |
 | procurement_loads, procurement_load_goats, arrival_intake_reviews, procurement_source_health_checks, procurement_hf_vaccination_evidence | procurement_pipeline, source_entry_health_status |
 | sop_tasks, sop_submissions, sop_task_submission_fanouts | sop_execution_status, ops_exception_queue |

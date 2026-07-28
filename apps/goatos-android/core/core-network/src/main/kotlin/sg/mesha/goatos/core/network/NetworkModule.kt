@@ -842,11 +842,20 @@ class RetrofitAppApi(
         idempotencyKey: String,
         destinationTag: String?,
         proofRef: String,
+        feedPackingProofRef: String?,
+        feedGivenProofRef: String?,
+        feedConfigFingerprint: String?,
     ): CountsShiftingExecutionResponseDto =
         service.completeCountsShiftingEvent(
             shiftingEventId,
             idempotencyKey,
-            CountsShiftingCompleteRequestDto(proofRef = proofRef, destinationTag = destinationTag),
+            CountsShiftingCompleteRequestDto(
+                proofRef = proofRef,
+                feedPackingProofRef = feedPackingProofRef,
+                feedGivenProofRef = feedGivenProofRef,
+                feedConfigFingerprint = feedConfigFingerprint,
+                destinationTag = destinationTag,
+            ),
         )
 
     override suspend fun cancelCountsShiftingEvent(

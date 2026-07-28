@@ -57,6 +57,9 @@ data class ShiftingExecuteAnimalUi(
 )
 
 @Immutable
+data class ShiftingFeedItemUi(val label: String, val quantityGrams: String)
+
+@Immutable
 data class ShiftingExecuteUiState(
     val shiftingEventId: String = "",
     val loading: Boolean = true,
@@ -68,10 +71,19 @@ data class ShiftingExecuteUiState(
     val animalCount: Int = 0,
     val animals: List<ShiftingExecuteAnimalUi> = emptyList(),
     val animalsTruncated: Boolean = false,
+    val highPriority: Boolean = false,
+    val feedConfigStatus: String = "not_required",
+    val feedConfigBlockedReason: String? = null,
+    val feedConfigFingerprint: String? = null,
+    val feedTargetStage: String? = null,
+    val feedItems: List<ShiftingFeedItemUi> = emptyList(),
     /** Mandatory video: false until captured/queued. Gates [canComplete]. */
     val videoCaptured: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
+    val feedPackingVideoCaptured: Boolean = false,
+    val feedGivenVideoCaptured: Boolean = false,
+    val capturingStep: String? = null,
     /** The "Mark done" write result. */
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val canComplete: Boolean = false,
@@ -80,6 +92,8 @@ data class ShiftingExecuteUiState(
 sealed interface ShiftingExecuteEvent {
     /** Record the mandatory move video with the LIVE in-app camera. */
     data object RecordVideo : ShiftingExecuteEvent
+    data object RecordFeedPackingVideo : ShiftingExecuteEvent
+    data object RecordFeedGivenVideo : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
 }
@@ -107,8 +121,27 @@ fun ShiftingExecuteScreen(
                     fontSize = 14.sp,
                 )
                 else -> {
+                    val committed = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED
                     MovementCard(state)
-                    VideoCard(state, onEvent)
+                    if (state.highPriority) FeedRequirementCard(state)
+                    EvidenceVideoCard(
+                        title = "Shifting video (required)", captured = state.videoCaptured,
+                        capturing = state.capturingStep == "shifting", committed = committed,
+                        onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
+                    )
+                    if (state.highPriority) {
+                        EvidenceVideoCard(
+                            title = "Feed packing video (required)", captured = state.feedPackingVideoCaptured,
+                            capturing = state.capturingStep == "packing", committed = committed,
+                            onClick = { onEvent(ShiftingExecuteEvent.RecordFeedPackingVideo) },
+                        )
+                        EvidenceVideoCard(
+                            title = "Feed given to animal video (required)", captured = state.feedGivenVideoCaptured,
+                            capturing = state.capturingStep == "feeding", committed = committed,
+                            onClick = { onEvent(ShiftingExecuteEvent.RecordFeedGivenVideo) },
+                        )
+                    }
+                    state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
                     if (state.result.status != CountsWriteStatus.IDLE) {
                         CountsResultBanner(state.result)
                     }
@@ -161,39 +194,64 @@ private fun MovementCard(state: ShiftingExecuteUiState) {
 }
 
 @Composable
-private fun VideoCard(state: ShiftingExecuteUiState, onEvent: (ShiftingExecuteEvent) -> Unit) {
-    val committed = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED
+private fun FeedRequirementCard(state: ShiftingExecuteUiState) {
+    Column(modifier = cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Feed required for this shifting", color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.W700)
+        state.feedTargetStage?.let { Text("Operational stage: $it", color = MeshaColors.Muted, fontSize = 12.sp) }
+        if (state.feedConfigStatus == "ready") {
+            state.feedItems.forEach { item ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(item.label, color = MeshaColors.Ink, fontSize = 13.sp)
+                    Text("${item.quantityGrams} g", color = MeshaColors.BrandD, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                }
+            }
+        } else {
+            Text(
+                state.feedConfigBlockedReason ?: "Feed configuration is unavailable. Refresh before continuing.",
+                color = MeshaColors.Warn,
+                fontSize = 12.sp,
+            )
+        }
+        Text("This packing proof belongs only to this Shifting task.", color = MeshaColors.Faint, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun EvidenceVideoCard(
+    title: String,
+    captured: Boolean,
+    capturing: Boolean,
+    committed: Boolean,
+    onClick: () -> Unit,
+) {
     Column(modifier = cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Video (required)", color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
-            if (state.videoCaptured) {
+            Text(title, color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            if (captured) {
                 Icon(MeshaIcons.CheckCircle, contentDescription = "captured", tint = MeshaColors.Ok, modifier = Modifier.size(18.dp))
             }
         }
         when {
-            // Recording in progress: a single, non-tappable loader row.
-            state.isCapturingVideo -> VideoActionButton(
+            capturing -> VideoActionButton(
                 icon = null,
-                label = "Adding video…",
+                label = "Recording…",
                 enabled = false,
                 loading = true,
                 onClick = {},
             )
-            // Re-recording replaces the clip until the operator marks the move done.
             else -> Row {
                 VideoActionButton(
                     icon = MeshaIcons.Video,
-                    label = if (state.videoCaptured) "Re-record" else "Record video",
+                    label = if (captured) "Re-record" else "Record live video",
                     enabled = !committed,
                     modifier = Modifier.weight(1f),
-                    onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
+                    onClick = onClick,
                 )
             }
         }
-        state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
-        if (!state.videoCaptured && !state.isCapturingVideo) {
+        if (!captured && !capturing) {
             Text(
-                "A video is required. A verifier reviews it before the move is applied.",
+                "Live camera only. This evidence is reviewed after the task; it does not control the herd move.",
                 color = MeshaColors.Faint,
                 fontSize = 11.sp,
             )

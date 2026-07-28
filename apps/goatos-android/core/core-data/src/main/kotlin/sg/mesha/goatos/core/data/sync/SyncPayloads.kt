@@ -150,17 +150,14 @@ data class CountsApprovalDecisionPayload(
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SHIFTING_COMPLETE].
  *
- * The "Mark done" that RELOCATES the animals. The SHIFTING EVENT ID is the outbox group key, so two
- * actions on the same movement can never drain concurrently or out of order. [destinationTag] is
- * normally null — the server derives the destination cohort from the destination shed's profile; it
- * is only sent when completing into an empty shed.
+ * The "Mark done" that may RELOCATE the animals when Park Head approval is already present. The
+ * SHIFTING EVENT ID is the outbox group key, so actions on the same movement cannot drain
+ * concurrently or out of order. The target stage was snapshotted when the movement was raised.
  *
- * The OPTIONAL video is deliberately NOT carried here. It is captured and uploaded through the
- * existing [sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD] op — registered against
- * the destination shed with `shifting_event_id` in its metadata — so it flows to GCS via the same
- * signed-URL path as vaccination proof, independently of this completion. Completion is not gated on
- * it (video is optional for now), and coupling the two would make a movement in a dead-signal shed
- * un-completable until its video finished uploading.
+ * Every movement couples its mandatory shifting video to this completion. High-priority movements
+ * additionally couple mandatory feed-packing and feed-given videos plus the destination Feed Config
+ * fingerprint shown to the operator. All proof uploads drain before this completion, and the backend
+ * rejects changed or unavailable feed configuration instead of accepting guessed feed details.
  */
 @Serializable
 data class ShiftingCompletePayload(
@@ -174,6 +171,12 @@ data class ShiftingCompletePayload(
      * queued row.
      */
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
+    /** Required together with [feedGivenProofOutboxItemId] for a high-priority movement. */
+    @SerialName("feed_packing_proof_outbox_item_id") val feedPackingProofOutboxItemId: String? = null,
+    /** Required together with [feedPackingProofOutboxItemId] for a high-priority movement. */
+    @SerialName("feed_given_proof_outbox_item_id") val feedGivenProofOutboxItemId: String? = null,
+    /** Semantic fingerprint of the exact active feed requirement rendered for a high task. */
+    @SerialName("feed_config_fingerprint") val feedConfigFingerprint: String? = null,
 )
 
 /**

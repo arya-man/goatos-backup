@@ -21,8 +21,17 @@ operator video -> generic Verification -> verified or evidence rework
 - The Park Head is the approval authority.
 - Approval and completion may arrive in either order. The first fact is stored without relocating;
   the transaction recording the second fact applies the move.
-- Operator completion requires a live-camera video in `shifting_events.proof_ref`; blank proof is
-  rejected `422 proof_required`.
+- Low-priority operator completion requires one live-camera shifting video in
+  `shifting_events.proof_ref`; that existing flow is unchanged.
+- High-priority shifting embeds feed packing and feeding inside Shifting. It shows the exact
+  destination ration resolved from active Feed Config against the snapshotted target management
+  stage and the moved animals' breed groups. Three live-camera videos are mandatory: shifting,
+  feed packing, and feed being given to the animal(s).
+- Embedded packing evidence is shifting-scoped only. It never creates or completes a separate Feed
+  Packing or Feed Distribution session.
+- Missing high-priority feed config blocks the task. The app echoes a semantic config fingerprint;
+  completion re-resolves it while holding the shifting row lock and rejects changed config with
+  `409 feed_config_changed`. No feed type or quantity is guessed.
 - Every raise explicitly chooses `keep_current`, `select_stage`, or `destination_stage`. A selected
   target is snapshotted on the shifting event; sheds may contain mixed stages and `shed_profiles`
   is not movement-stage authority. Selecting `Mother` changes only `management_stage` and creates
@@ -69,7 +78,8 @@ Any failure rolls back the second gate and every relocation/event/count effect t
 completion or approval replay cannot relocate twice.
 
 `CompleteShiftingEvent` also enqueues one generic `shifting_move` verification item through
-`internal/countsbridge`, keyed by shifting event + proof. The verdict consumer remains
+`internal/countsbridge`, keyed by shifting event + proof set. Low priority carries one video; high
+priority carries all three videos together. The verdict consumer remains
 `counts/app.ShiftingVerificationHandler`, but its counts-side effect is evidence state only. A
 pre-000049 legacy row already holding approval + completion may be lazily applied by the approved
 verdict handler once during rollout compatibility; new rows always apply at the second business gate.
@@ -83,6 +93,10 @@ verdict handler once during rollout compatibility; new rows always apply at the 
 - `authorized` with no proof — approved, awaiting operator work; and
 - `verification_state='rejected'` — evidence rework, including an already-applied move.
 
+High-priority rows also carry one backend-owned `feed_requirement` at shifting-event grain: `ready`
+with fingerprint/stage/feed totals, or `blocked` with the exact reason. Quantity covers the full
+approved animal set, never the bounded animal preview.
+
 It excludes completed `pending` rows and ordinary `applied` rows while evidence review proceeds. The
 query is keyset-paginated by `(raised_at, shifting_event_id)`, limited to 20, and backed
 by the partial indexes in migration `000050_shifting_actions_index.sql`.
@@ -94,6 +108,8 @@ by the partial indexes in migration `000050_shifting_actions_index.sql`.
 - `000049_shifting_approval_completion_gate.sql` adds nullable `completed_at`/`completed_by` without
   redefining a hot-table status constraint; application writes keep proof and completion stamps together.
 - `000050_shifting_actions_index.sql` adds concurrent partial indexes for the Actions query.
+- `000053_high_priority_shifting_feed_evidence.sql` adds nullable feed-proof, fingerprint, and
+  requirement-snapshot columns while preserving low-priority and historical rows.
 
 ## Feed projection
 
@@ -107,7 +123,10 @@ feed projection.
 
 - `shifting_approval_completion_integration_test.go`: raised Actions visibility; completion-first;
   approval-first; evidence rejection cannot roll back.
-- `shifting_verification_integration_test.go`: mandatory proof, evidence approve/rework idempotency.
+- `shifting_verification_integration_test.go`: low/high proof gates, exact feed resolution,
+  stale-config rejection, evidence snapshot, and approve/rework idempotency.
+- `countsbridge/shifting_verification_enqueue_test.go`: three high-priority videos stay together in
+  one Shifting verification item.
 - `approval_relocate_integration_test.go`: real identity transaction, location/stage events,
   rollback, stale placement, and raise-time management-stage selection checks.
 - `feed_projected_counts_integration_test.go`: authorization, completion-before-approval, applied,

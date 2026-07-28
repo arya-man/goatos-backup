@@ -96,7 +96,6 @@ func (r *Repository) CompleteShiftingEvent(
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
-
 	// Already submitted for verification, or already applied. Answer with the original result rather
 	// than enqueuing / relocating a second time.
 	if (current.CompletedAt != nil || current.EventStatus == domain.ShiftingEventStatusPendingVerification ||
@@ -118,6 +117,31 @@ func (r *Repository) CompleteShiftingEvent(
 			AppliedAt:         current.AppliedAt,
 			AppliedBy:         current.AppliedBy,
 		}, true, nil
+	}
+
+	var feedSnapshot []byte
+	if current.Priority == "high" {
+		if strings.TrimSpace(in.FeedPackingProofRef) == "" || strings.TrimSpace(in.FeedGivenProofRef) == "" {
+			return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingFeedProofsRequired
+		}
+		requirements, err := loadShiftingFeedRequirements(ctx, tx, in.TenantID,
+			[]string{in.ShiftingEventID}, in.CompletedAt)
+		if err != nil {
+			return domain.ShiftingExecutionResult{}, false, err
+		}
+		requirement := requirements[in.ShiftingEventID]
+		if requirement.Status != "ready" || requirement.Fingerprint == "" {
+			return domain.ShiftingExecutionResult{}, false, fmt.Errorf("%w: %s",
+				ports.ErrShiftingFeedConfigBlocked, requirement.BlockedReason)
+		}
+		if strings.TrimSpace(in.FeedConfigFingerprint) == "" ||
+			strings.TrimSpace(in.FeedConfigFingerprint) != requirement.Fingerprint {
+			return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingFeedConfigChanged
+		}
+		feedSnapshot, err = json.Marshal(requirement)
+		if err != nil {
+			return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: encode shifting feed requirement: %w", err)
+		}
 	}
 
 	if current.EventStatus != domain.ShiftingEventStatusPending &&
@@ -144,6 +168,10 @@ UPDATE shifting_events
 SET event_status = event_status,
     verification_state = 'unverified',
     proof_ref = $3,
+    feed_packing_proof_ref = CASE WHEN priority = 'high' THEN nullif($9, '') ELSE NULL END,
+    feed_given_proof_ref = CASE WHEN priority = 'high' THEN nullif($10, '') ELSE NULL END,
+    feed_config_fingerprint = CASE WHEN priority = 'high' THEN nullif($11, '') ELSE NULL END,
+    feed_requirement_snapshot = CASE WHEN priority = 'high' THEN $12::jsonb ELSE NULL END,
     completion_destination_tag = nullif($6, ''),
     completion_idempotency_key = nullif($4, ''),
     completion_request_fingerprint = nullif($5, ''),
@@ -155,7 +183,9 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
   AND (event_status IN ('pending', 'authorized') OR verification_state = 'rejected')`,
 		in.TenantID, in.ShiftingEventID, strings.TrimSpace(in.ProofRef),
 		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag),
-		in.CompletedAt.UTC(), in.CompletedByUserID)
+		in.CompletedAt.UTC(), in.CompletedByUserID,
+		strings.TrimSpace(in.FeedPackingProofRef), strings.TrimSpace(in.FeedGivenProofRef),
+		strings.TrimSpace(in.FeedConfigFingerprint), feedSnapshot)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: submit shifting for verification: %w", err)
 	}
@@ -439,6 +469,7 @@ type lockedShiftingEvent struct {
 	EventStatus        string
 	AuthorizationState string
 	VerificationState  string
+	Priority           string
 
 	DestinationParkID string
 	DestinationShedID string
@@ -466,7 +497,7 @@ type lockedShiftingEvent struct {
 func lockShiftingEvent(ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string) (lockedShiftingEvent, error) {
 	var out lockedShiftingEvent
 	err := tx.QueryRow(ctx, `
-SELECT event_status, authorization_state, verification_state,
+SELECT event_status, authorization_state, verification_state, priority,
        destination_park_id::text, destination_shed_id::text,
        applied_at, applied_by::text, completed_at, completed_by::text,
        completion_destination_tag, management_stage_mode, target_management_stage,
@@ -476,7 +507,7 @@ SELECT event_status, authorization_state, verification_state,
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
-		&out.EventStatus, &out.AuthorizationState, &out.VerificationState,
+		&out.EventStatus, &out.AuthorizationState, &out.VerificationState, &out.Priority,
 		&out.DestinationParkID, &out.DestinationShedID,
 		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
 		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage,
@@ -862,6 +893,23 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: list shifting events pending execution: %w", err)
+	}
+	highIDs := make([]string, 0, len(items))
+	for i := range items {
+		if items[i].Priority == "high" {
+			highIDs = append(highIDs, items[i].ShiftingEventID)
+		}
+	}
+	if len(highIDs) > 0 {
+		requirements, err := loadShiftingFeedRequirements(ctx, r.pool, q.TenantID, highIDs, time.Now())
+		if err != nil {
+			return domain.ShiftingExecutionPage{}, err
+		}
+		for i := range items {
+			if req, ok := requirements[items[i].ShiftingEventID]; ok {
+				items[i].FeedRequirement = &req
+			}
+		}
 	}
 
 	page := domain.ShiftingExecutionPage{}

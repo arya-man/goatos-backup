@@ -28,6 +28,7 @@ enum class ProofCapturePrompt {
     DEATH,
     POST_MORTEM,
     SHIFTING,
+    SHIFTING_FEED_GIVEN,
     FEED_DISTRIBUTION,
     WATER_DISTRIBUTION,
     FEED_PACKING,

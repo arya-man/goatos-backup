@@ -570,6 +570,9 @@ interface AppApi {
         idempotencyKey: String,
         destinationTag: String? = null,
         proofRef: String,
+        feedPackingProofRef: String? = null,
+        feedGivenProofRef: String? = null,
+        feedConfigFingerprint: String? = null,
     ): CountsShiftingExecutionResponseDto
 
     /**
@@ -1118,6 +1121,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         destinationTag: String?,
         proofRef: String,
+        feedPackingProofRef: String?,
+        feedGivenProofRef: String?,
+        feedConfigFingerprint: String?,
     ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
         shiftingEventId = shiftingEventId,
         eventStatus = "pending_verification",

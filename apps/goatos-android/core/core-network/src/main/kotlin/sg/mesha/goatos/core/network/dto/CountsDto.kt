@@ -272,6 +272,7 @@ data class CountsShiftingEventResponseDto(
 data class CountsShiftingPendingExecutionItemDto(
     @SerialName("shifting_event_id") val shiftingEventId: String = "",
     @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("verification_state") val verificationState: String = "unverified",
     @SerialName("primary_action_key") val primaryActionKey: String = "none",
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
@@ -293,6 +294,23 @@ data class CountsShiftingPendingExecutionItemDto(
     @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("animals_truncated") val animalsTruncated: Boolean = false,
     @SerialName("animals") val animals: List<CountsShiftingPendingExecutionAnimalDto> = emptyList(),
+    @SerialName("feed_requirement") val feedRequirement: CountsShiftingFeedRequirementDto? = null,
+)
+
+@Serializable
+data class CountsShiftingFeedRequirementDto(
+    val status: String = "blocked",
+    @SerialName("blocked_reason") val blockedReason: String? = null,
+    val fingerprint: String? = null,
+    @SerialName("target_management_stage") val targetManagementStage: String? = null,
+    @SerialName("animal_count") val animalCount: Int = 0,
+    val items: List<CountsShiftingFeedRequirementItemDto> = emptyList(),
+)
+
+@Serializable
+data class CountsShiftingFeedRequirementItemDto(
+    @SerialName("feed_item_label") val feedItemLabel: String = "",
+    @SerialName("quantity_grams") val quantityGrams: String = "0",
 )
 
 /** One animal preview on a pending-execution row: enough to find it in a shed. */
@@ -376,6 +394,9 @@ data class CountsShiftingCompleteRequestDto(
      * reviews this video afterward. A blank/absent value is rejected 422 proof_required.
      */
     @SerialName("proof_ref") val proofRef: String,
+    @SerialName("feed_packing_proof_ref") val feedPackingProofRef: String? = null,
+    @SerialName("feed_given_proof_ref") val feedGivenProofRef: String? = null,
+    @SerialName("feed_config_fingerprint") val feedConfigFingerprint: String? = null,
     @SerialName("destination_tag") val destinationTag: String? = null,
 )
 

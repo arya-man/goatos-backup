@@ -86,9 +86,12 @@ type ShiftingCompletionCommand struct {
 
 	// ProofRef is the MANDATORY video the operator records to prove the animals physically moved
 	// (maintainer decision, 2026-07-26). It is a proof_artifact id; the completion is rejected when
-	// it is blank. The video travels into the queued verification item's MediaRefs, and the move is
-	// applied only when a verifier approves it.
-	ProofRef string
+	// it is blank. The video travels into the queued verification item's MediaRefs. Verification is
+	// evidence review only; Park Head approval + operator completion own the move.
+	ProofRef              string
+	FeedPackingProofRef   string
+	FeedGivenProofRef     string
+	FeedConfigFingerprint string
 
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
 	// animals adopt. It is only needed when the destination shed is EMPTY (no existing animals to
@@ -245,8 +248,25 @@ type ShiftingExecutionRow struct {
 
 	// AnimalCount is the FULL size of the movement; Animals is a bounded preview of at most
 	// MaxShiftingExecutionAnimalPreview of them. See MaxShiftingExecutionAnimalPreview.
-	AnimalCount int
-	Animals     []ShiftingExecutionAnimal
+	AnimalCount     int
+	Animals         []ShiftingExecutionAnimal
+	FeedRequirement *ShiftingFeedRequirement
+}
+
+// ShiftingFeedRequirement is the exact destination ration shown for a high-priority movement.
+// A blocked requirement has no fingerprint and cannot be submitted.
+type ShiftingFeedRequirement struct {
+	Status                string                        `json:"status"`
+	BlockedReason         string                        `json:"blocked_reason,omitempty"`
+	Fingerprint           string                        `json:"fingerprint,omitempty"`
+	TargetManagementStage string                        `json:"target_management_stage,omitempty"`
+	AnimalCount           int                           `json:"animal_count"`
+	Items                 []ShiftingFeedRequirementItem `json:"items"`
+}
+
+type ShiftingFeedRequirementItem struct {
+	FeedItemLabel string `json:"feed_item_label"`
+	QuantityGrams string `json:"quantity_grams"`
 }
 
 // ShiftingExecutionAnimal identifies one animal in a movement well enough for an operator to find
