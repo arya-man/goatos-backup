@@ -227,7 +227,13 @@ class DefaultWeighingRepository(
         runCatching {
             val updateIdem = "weighing:update:$campaignId:${draft.periodStartDate}:${draft.sheds.joinToString(",") { "${it.locationId}:${it.category}" }}"
             val updated = client.updateWeighingCampaign(campaignId, updateIdem, draft.toCreateRequest()).campaign
-            AppResult.Ok(updated.toAssignments().firstOrNull())
+            val visible = if (updated.status == "draft") {
+                val publishIdem = "weighing:publish:$campaignId"
+                client.publishWeighingCampaign(campaignId, publishIdem).campaign
+            } else {
+                updated
+            }
+            AppResult.Ok(visible.toAssignments().firstOrNull())
         }.getOrElse { AppResult.Err(it.message ?: "Could not update weighing plan.") }
     }
 

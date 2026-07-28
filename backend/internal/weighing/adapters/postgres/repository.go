@@ -147,7 +147,14 @@ SELECT $1::uuid, $2::uuid, g.goat_id, $3::uuid, $5, upserted.campaign_shed_id
 FROM upserted
 JOIN goats g ON g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
 WHERE $6 = 'individual_animal'
-ON CONFLICT DO NOTHING
+ON CONFLICT (campaign_id, animal_id)
+DO UPDATE SET
+  expected_location_id=EXCLUDED.expected_location_id,
+  expected_location_label=EXCLUDED.expected_location_label,
+  campaign_shed_id=EXCLUDED.campaign_shed_id,
+  status=CASE WHEN weighing_expected_animals.status='weighed' THEN weighing_expected_animals.status ELSE 'pending' END,
+  availability_status=CASE WHEN weighing_expected_animals.status='weighed' THEN weighing_expected_animals.availability_status ELSE 'expected_shed' END,
+  updated_at=now()
 RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
