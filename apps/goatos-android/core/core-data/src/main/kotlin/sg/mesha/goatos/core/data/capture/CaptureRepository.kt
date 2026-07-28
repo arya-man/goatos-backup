@@ -226,6 +226,7 @@ interface ScanAttemptRepository {
 class DefaultScanAttemptRepository(
     private val dao: RfidScanAttemptDao,
     private val syncRepository: SyncRepository? = null,
+    private val appScope: CoroutineScope = CoroutineScope(DefaultDispatchers.io),
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -267,7 +268,7 @@ class DefaultScanAttemptRepository(
         )
         val inserted = withContext(dispatchers.io) { dao.insert(entity) }
         if (inserted <= 0L) return
-        syncRepository?.enqueueScanAttempt(
+        when (val result = syncRepository?.enqueueScanAttempt(
             taskId = taskId,
             groupKey = taskId,
             idempotencyKey = idempotencyKey,
@@ -282,7 +283,41 @@ class DefaultScanAttemptRepository(
                 reason = reason?.takeIf { it.isNotBlank() },
                 capturedAtMs = durableCapturedAtMs,
             ),
-        )
+        )) {
+            is AppResult.Ok -> followAttemptOutboxItem(id, result.value)
+            is AppResult.Err -> dao.updateStatus(id, EntitySyncStatus.FAILED.name)
+            null -> Unit
+        }
+    }
+
+    private fun followAttemptOutboxItem(rowId: String, outboxItemId: String) {
+        val repo = syncRepository ?: return
+        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
+            try {
+                repo.observeItem(outboxItemId)
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .transformWhile { item ->
+                        emit(item)
+                        item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
+                    }
+                    .collect { item ->
+                        when {
+                            item.status == SyncItemStatus.IN_FLIGHT ->
+                                dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name)
+                            item.status == SyncItemStatus.SUCCEEDED ->
+                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name)
+                            item.isDeadLetter || item.conflict ->
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name)
+                            else -> Unit
+                        }
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SQLException) {
+                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+            }
+        }
     }
 
     override suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow> = withContext(dispatchers.io) {
@@ -668,7 +703,7 @@ class DefaultProofCaptureRepository(
         )
         when (
             val result = syncRepository.enqueueProofUpload(
-                groupKey = scopeId.ifBlank { entity.taskId },
+                groupKey = proofUploadGroupKey(entity, scopeId),
                 idempotencyKey = entity.idempotencyKey,
                 request = request,
                 localFilePath = entity.localUri,
@@ -682,6 +717,14 @@ class DefaultProofCaptureRepository(
             is AppResult.Err -> dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, result.message)
         }
     }
+
+    private fun proofUploadGroupKey(entity: ProofCaptureEntity, scopeId: String): String =
+        when {
+            entity.proofSubject.equals(ProofSubject.GOAT.wireValue, ignoreCase = true) &&
+                !entity.subjectId.isNullOrBlank() -> entity.subjectId.orEmpty()
+            scopeId.isNotBlank() -> scopeId
+            else -> entity.taskId
+        }
 
     /** R50-029: follows one outbox item to ITS terminal state via observeItem (by-id, window-independent),
      *  then stops — [transformWhile] ends the collection right after the terminal emission, so this

@@ -468,7 +468,8 @@ object AppModule {
     fun provideScanAttemptRepository(
         dao: RfidScanAttemptDao,
         syncRepository: SyncRepository,
-    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository)
+        appScope: CoroutineScope,
+    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository, appScope)
 
     @Provides
     @Singleton

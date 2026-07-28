@@ -30,6 +30,7 @@ import sg.mesha.goatos.feature.verify.VerifyCategoryOption
 import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
+import sg.mesha.goatos.feature.verify.VerifyScopeType
 import sg.mesha.goatos.feature.verify.VerifyTone
 import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import javax.inject.Inject
@@ -263,6 +264,7 @@ class VerifyQueueViewModel @Inject constructor(
         VerifyModuleTab.BIRTH -> if (isActionQueue) null else BIRTH_CATEGORY
         VerifyModuleTab.DEATH -> if (isActionQueue) null else DEATH_CATEGORY
         VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
+        VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
         VerifyModuleTab.SHIFTING -> if (isActionQueue) null else SHIFTING_CATEGORY
         VerifyModuleTab.PACKING -> if (isActionQueue) null else PACKING_CATEGORY
         VerifyModuleTab.FEED_DIRECTION -> if (isActionQueue) null else FEED_DISTRIBUTION_CATEGORY
@@ -359,18 +361,50 @@ class VerifyQueueViewModel @Inject constructor(
         val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
             .joinToString(" · ")
+        val mediaCount = media.size
+        val firstMedia = media.firstOrNull()
+        val scopeType = weighingScopeType()
         return VerificationQueueRow(
             id = itemId,
             category = category,
             categoryLabel = humanizeCategory(category),
             title = title,
             subtitle = subtitle,
+            scopeType = scopeType,
+            shedLabel = shedLabel ?: subjectLabel.orEmpty(),
+            animalLabel = when (scopeType) {
+                VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
+                VerifyScopeType.LUMP_SUM -> ""
+                VerifyScopeType.OTHER -> ""
+            },
+            weightLabel = firstMedia?.answer.orEmpty(),
+            mediaCountLabel = when (mediaCount) {
+                0 -> ""
+                1 -> "1 video"
+                else -> "$mediaCount videos"
+            },
+            parkLabel = parkLabel.orEmpty(),
+            operatorLabel = operatorName.orEmpty(),
+            capturedAtLabel = capturedAt,
             statusTone = statusTone(status),
         )
+    }
+
+    private fun VerificationQueueItem.weighingScopeType(): VerifyScopeType {
+        if (category != WEIGHING_CATEGORY) return VerifyScopeType.OTHER
+        val refType = source.refType.lowercase()
+        val label = listOfNotNull(subjectLabel, shedLabel, media.firstOrNull()?.label).joinToString(" ").lowercase()
+        return when {
+            refType.contains("shed") || refType.contains("lump") || label.contains("lump") || label.contains("shed weight") ->
+                VerifyScopeType.LUMP_SUM
+            else ->
+                VerifyScopeType.INDIVIDUAL
+        }
     }
 }
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
+private const val WEIGHING_CATEGORY = "weighing_proof"
 private const val BIRTH_CATEGORY = "birth_evidence"
 private const val DEATH_CATEGORY = "death_evidence"
 private const val SHIFTING_CATEGORY = "shifting_move"

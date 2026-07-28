@@ -52,7 +52,6 @@ import sg.mesha.goatos.ui.sampleScanState
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.sampleSubmitState
 import sg.mesha.goatos.ui.sampleTimetableState
-import sg.mesha.goatos.feature.weighing.WeighingScreen
 
 /**
  * Debug-only screenshot harness. Renders a single screen with mock-matching sample fixture data
@@ -94,41 +93,7 @@ class GalleryActivity : ComponentActivity() {
                                     if (event == ScanEvent.ReconnectReader) screen = "rfid"
                                 },
                             )
-                            "scan_two_tags_two_vaccines" -> ScanScreen(state = galleryScanTwoTagsTwoVaccines())
-                            "scan_duplicate" -> ScanScreen(state = galleryScanDuplicateTag())
-                            "scan_unknown" -> ScanScreen(state = galleryScanUnknownTag())
-                            "scan_wrong_shed" -> ScanScreen(state = galleryScanWrongShed())
-                            "scan_proof_missing" -> ScanScreen(state = galleryScanProofMissing())
-                            "scan_proof_uploading" -> ScanScreen(state = galleryScanProofUploading())
-                            "scan_proof_failed" -> ScanScreen(state = galleryScanProofFailed())
-                            "scan_proof_synced" -> ScanScreen(state = galleryScanProofSynced())
-                            "scan_offline_queued" -> ScanScreen(state = galleryScanOfflineQueued())
-                            "scan_font_overflow" -> ScanScreen(state = galleryScanFontOverflowStress())
-                            "scan_pending_sheet" -> GalleryBottomSheetCase(title = "Pending", rows = galleryBottomSheetRows("pending"))
-                            "scan_done_sheet" -> GalleryBottomSheetCase(title = "Done", rows = galleryBottomSheetRows("done"))
-                            "scan_skipped_sheet" -> GalleryBottomSheetCase(title = "Skipped", rows = galleryBottomSheetRows("skipped"))
-                            "scan_camera_one_vaccine" -> GalleryAutoProofCameraFrame(
-                                title = "Recording proof",
-                                stateLabel = "RFID accepted",
-                                primaryTag = "901007000504418",
-                                secondaryTag = null,
-                                vaccineLabel = "ET+TT",
-                                hint = "Keep the animal tag and vaccination visible. Stop when the proof is clear.",
-                            )
-                            "scan_camera_two_tags_two_vaccines" -> GalleryAutoProofCameraFrame(
-                                title = "Recording proof",
-                                stateLabel = "RFID accepted · 2 tags matched",
-                                primaryTag = "901007000504407",
-                                secondaryTag = "901007000504407B",
-                                vaccineLabel = "ET+TT · PPR",
-                                hint = "One clip covers both due vaccines for this animal.",
-                            )
                             "submit" -> SubmitScreen(state = sampleSubmitState())
-                            "submit_offline_queued" -> SubmitScreen(state = gallerySubmitOfflineQueued())
-                            "weighing_individual" -> WeighingScreen(state = galleryWeighingIndividualProof())
-                            "weighing_lumpsum" -> WeighingScreen(state = galleryWeighingLumpsumProof())
-                            "weighing_wrong_shed" -> WeighingScreen(state = galleryWeighingWrongShed())
-                            "weighing_offline_queued" -> WeighingScreen(state = galleryWeighingOfflineQueued())
                             "overview" -> ShedsScreen(state = sampleShedsState())
                             "record" -> RecordScreen(state = sampleRecordState())
                             "rfid" -> BleRfidScannerScreen(
@@ -173,6 +138,25 @@ class GalleryActivity : ComponentActivity() {
         }
     }
 }
+
+private data class GalleryCase(val key: String, val label: String, val group: String)
+
+private fun edgeCaseGalleryCases(): List<GalleryCase> = listOf(
+    GalleryCase("login", "Login", "Auth"),
+    GalleryCase("calendar", "Calendar", "Vaccination"),
+    GalleryCase("calendar_coverage", "Calendar coverage", "Vaccination"),
+    GalleryCase("sheds", "Sheds", "Overview"),
+    GalleryCase("scan", "Scan", "Execution"),
+    GalleryCase("submit", "Submit", "Execution"),
+    GalleryCase("record", "Record", "Execution"),
+    GalleryCase("rfid", "RFID", "Device"),
+    GalleryCase("rfid_scan", "RFID scan", "Device"),
+    GalleryCase("rfid_hid", "RFID HID", "Device"),
+    GalleryCase("rfid_mock", "RFID mock", "Device"),
+    GalleryCase("alerts", "Alerts", "Profile"),
+    GalleryCase("you", "You", "Profile"),
+    GalleryCase("timetable", "Timetable", "Schedule"),
+)
 
 @androidx.compose.runtime.Composable
 private fun GalleryIndex(cases: List<GalleryCase>, onOpen: (String) -> Unit) {

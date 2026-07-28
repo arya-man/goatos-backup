@@ -10,6 +10,7 @@
     <string name="verify_module_birth">Birth</string>
     <string name="verify_module_death">Death</string>
     <string name="verify_module_vaccination">Vaccination</string>
+    <string name="verify_module_weighing">Weighing</string>
     <string name="verify_module_shifting">Shifting</string>
     <string name="verify_module_packing">Packing</string>
     <string name="verify_module_feed_direction">Feed direction</string>
@@ -22,6 +23,10 @@
     <string name="verify_action_queue_empty_subtitle">Submitted vaccination videos will appear here for Director review</string>
     <string name="verify_queue_load_more">Load more</string>
     <string name="verify_queue_loading_more">Loading more…</string>
+    <string name="verify_scope_all">All</string>
+    <string name="verify_scope_individual">Individual (%1$d)</string>
+    <string name="verify_scope_lumpsum">Lump-sum (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d rows · %2$d videos</string>
 
     <string name="verify_detail_close">Close</string>
     <string name="verify_detail_fullscreen">Open video fullscreen</string>

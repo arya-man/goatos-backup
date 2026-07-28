@@ -15,10 +15,11 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,23 +28,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -54,13 +56,12 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Row
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import kotlinx.coroutines.delay
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import java.io.File
 
 /**
@@ -75,8 +76,7 @@ import java.io.File
  */
 @Composable
 fun InAppVideoRecorderOverlay(
-    prompt: ProofCapturePrompt = ProofCapturePrompt.VACCINATION,
-    taskTitle: String? = null,
+    captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -92,7 +92,6 @@ fun InAppVideoRecorderOverlay(
     var resultDelivered by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
-    var elapsedSeconds by remember { mutableIntStateOf(0) }
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -107,7 +106,6 @@ fun InAppVideoRecorderOverlay(
         val output = FileOutputOptions.Builder(file).build()
         cancelled = false
         startedAtMs = System.currentTimeMillis()
-        elapsedSeconds = 0
         activeRecording = capture.output
             .prepareRecording(context, output)
             // No audio: RECORD_AUDIO is not part of the mandatory capture-permission set.
@@ -154,10 +152,9 @@ fun InAppVideoRecorderOverlay(
 
     BackHandler(onBack = ::cancelRecording)
 
-    LaunchedEffect(isRecording, startedAtMs) {
-        while (isRecording) {
-            elapsedSeconds = ((System.currentTimeMillis() - startedAtMs) / 1_000L).toInt().coerceAtLeast(0)
-            delay(250)
+    LaunchedEffect(cameraReady, isRecording, resultDelivered) {
+        if (cameraReady && !isRecording && !resultDelivered) {
+            startRecording()
         }
     }
 
@@ -172,11 +169,12 @@ fun InAppVideoRecorderOverlay(
         }
     }
 
+    // Camera preview is edge-to-edge; only overlay content pads for system bars —
+    // insets on the root would letterbox the preview inside black bars.
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+            .background(Color.Black),
     ) {
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
@@ -198,177 +196,254 @@ fun InAppVideoRecorderOverlay(
                     )
                 }
             },
-            onRelease = { view ->
+            onRelease = {
                 cameraReady = false
                 videoCapture = null
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
         )
-        RecorderHeader(
-            prompt = prompt,
-            taskTitle = taskTitle,
-            isRecording = isRecording,
-            elapsedSeconds = elapsedSeconds,
-            cameraError = cameraError,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
-        Row(
+        // Directional scrims keep the live preview clear while making overlay text legible.
+        Box(
             Modifier
                 .fillMaxWidth()
+                .height(200.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.62f), Color.Transparent),
+                    ),
+                ),
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(320.dp)
                 .align(Alignment.BottomCenter)
-                .padding(24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            RecorderControl(
-                icon = MeshaIcons.Close,
-                contentDescription = stringResource(R.string.proof_camera_cancel),
-                onClick = ::cancelRecording,
+            ProofCardHeader(
+                cameraError = cameraError,
+                modifier = Modifier.fillMaxWidth(),
             )
-            RecordButton(
+            Spacer(Modifier.height(10.dp))
+            RecordingPills(isRecording = isRecording)
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CaptureSubjectPanel(
+                context = captureContext,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.proof_camera_instruction),
+                color = MeshaColors.Ink.copy(alpha = 0.82f),
+                style = MeshaType.caption,
+            )
+            Spacer(Modifier.height(12.dp))
+            StopRecordingButton(
                 isRecording = isRecording,
                 enabled = cameraReady,
                 onClick = { if (isRecording) finishRecording() else startRecording() },
+                modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.size(48.dp)) // balances the cancel control without adding an action.
         }
     }
 }
 
 @Composable
-private fun RecorderHeader(
-    prompt: ProofCapturePrompt,
-    taskTitle: String?,
-    isRecording: Boolean,
-    elapsedSeconds: Int,
-    cameraError: String?,
+private fun ProofCardHeader(cameraError: String?, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf.copy(alpha = 0.88f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(MeshaColors.BrandTint),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(
+                text = if (cameraError == null) stringResource(R.string.proof_camera_recording_title) else stringResource(R.string.proof_camera_title),
+                color = MeshaColors.Ink,
+                style = MeshaType.screenTitle,
+            )
+            Text(
+                text = cameraError ?: stringResource(R.string.proof_camera_auto_opened),
+                color = if (cameraError == null) MeshaColors.BrandD else MeshaColors.Danger,
+                style = MeshaType.caption,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CaptureSubjectPanel(
+    context: ProofCaptureContext?,
     modifier: Modifier = Modifier,
 ) {
-    val copy = recorderCopyResources(prompt)
+    val primary = context?.primaryTag?.takeIf { it.isNotBlank() } ?: return
+    val secondary = context.secondaryTag?.takeIf { it.isNotBlank() }
+    val workLabels = context.workLabel
+        .split("·", ",")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.Black.copy(alpha = 0.68f))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf.copy(alpha = 0.92f))
+            .border(1.dp, MeshaColors.Brand.copy(alpha = 0.8f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 18.dp, vertical = 16.dp),
     ) {
         Text(
-            text = recorderHeaderTitle(taskTitle, stringResource(copy.title)),
-            color = MeshaColors.Ink,
-            fontSize = 18.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            text = context.title.takeIf { it.isNotBlank() } ?: stringResource(R.string.proof_camera_title),
+            color = MeshaColors.BrandD,
+            style = MeshaType.caption,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = when {
-                cameraError != null -> cameraError
-                isRecording -> stringResource(R.string.proof_camera_recording_time, elapsedSeconds)
-                else -> stringResource(copy.instruction)
-            },
-            color = if (cameraError != null) MeshaColors.Danger else MeshaColors.Ink,
-            fontSize = 13.sp,
+            text = primary,
+            color = MeshaColors.Ink,
+            style = MeshaType.headerTitle,
+        )
+        if (secondary != null) {
+            Spacer(Modifier.height(8.dp))
+            InfoChip(text = "2 tags", tone = ChipTone.Neutral)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = secondary,
+                color = MeshaColors.Muted,
+                style = MeshaType.bodyStrong,
+            )
+        }
+        if (workLabels.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                workLabels.forEach { label ->
+                    InfoChip(text = label, tone = ChipTone.Work)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordingPills(
+    isRecording: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        InfoChip(text = stringResource(R.string.proof_camera_live_proof), tone = ChipTone.Work)
+        if (isRecording) InfoChip(text = stringResource(R.string.proof_camera_rec), tone = ChipTone.Danger)
+    }
+}
+
+@Composable
+private fun InfoChip(text: String, tone: ChipTone) {
+    val background = when (tone) {
+        ChipTone.Work -> MeshaColors.Brand.copy(alpha = 0.22f)
+        ChipTone.Neutral -> MeshaColors.Surf3
+        ChipTone.Danger -> MeshaColors.Danger.copy(alpha = 0.2f)
+    }
+    val foreground = when (tone) {
+        ChipTone.Work -> MeshaColors.BrandD
+        ChipTone.Neutral -> MeshaColors.Muted
+        ChipTone.Danger -> MeshaColors.Danger
+    }
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(background)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text = text,
+            color = foreground,
+            style = MeshaType.pill,
         )
     }
 }
 
-internal data class RecorderCopyResources(
-    val title: Int,
-    val instruction: Int,
-)
-
-internal fun recorderHeaderTitle(taskTitle: String?, fallbackTitle: String): String =
-    taskTitle?.trim()?.takeIf(String::isNotEmpty) ?: fallbackTitle
-
-internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyResources = when (prompt) {
-    ProofCapturePrompt.VACCINATION -> RecorderCopyResources(
-        R.string.proof_camera_title,
-        R.string.proof_camera_instruction,
-    )
-    ProofCapturePrompt.BIRTH -> RecorderCopyResources(
-        R.string.proof_camera_birth_title,
-        R.string.proof_camera_birth_instruction,
-    )
-    ProofCapturePrompt.DEATH -> RecorderCopyResources(
-        R.string.proof_camera_death_title,
-        R.string.proof_camera_death_instruction,
-    )
-    ProofCapturePrompt.POST_MORTEM -> RecorderCopyResources(
-        R.string.proof_camera_post_mortem_title,
-        R.string.proof_camera_post_mortem_instruction,
-    )
-    ProofCapturePrompt.SHIFTING -> RecorderCopyResources(
-        R.string.proof_camera_shifting_title,
-        R.string.proof_camera_shifting_instruction,
-    )
-    ProofCapturePrompt.SHIFTING_FEED_GIVEN -> RecorderCopyResources(
-        R.string.proof_camera_shifting_feed_given_title,
-        R.string.proof_camera_shifting_feed_given_instruction,
-    )
-    ProofCapturePrompt.FEED_DISTRIBUTION -> RecorderCopyResources(
-        R.string.proof_camera_feed_distribution_title,
-        R.string.proof_camera_feed_distribution_instruction,
-    )
-    ProofCapturePrompt.WATER_DISTRIBUTION -> RecorderCopyResources(
-        R.string.proof_camera_water_distribution_title,
-        R.string.proof_camera_water_distribution_instruction,
-    )
-    ProofCapturePrompt.FEED_PACKING -> RecorderCopyResources(
-        R.string.proof_camera_feed_packing_title,
-        R.string.proof_camera_feed_packing_instruction,
-    )
-    ProofCapturePrompt.FEED_TRANSPORT -> RecorderCopyResources(
-        R.string.proof_camera_feed_transport_title,
-        R.string.proof_camera_feed_transport_instruction,
-    )
+private enum class ChipTone {
+    Work,
+    Neutral,
+    Danger,
 }
 
 @Composable
-private fun RecorderControl(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
+private fun StopRecordingButton(
+    isRecording: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(MeshaColors.Surf3),
-    ) {
-        Icon(icon, contentDescription = contentDescription, tint = MeshaColors.Ink)
-    }
-}
-
-@Composable
-private fun RecordButton(isRecording: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val actionDescription = stringResource(
         if (isRecording) R.string.proof_camera_stop_recording else R.string.proof_camera_start_recording,
     )
     val recordingState = stringResource(
         if (isRecording) R.string.proof_camera_state_recording else R.string.proof_camera_state_ready,
     )
-    Box(
-        Modifier
-            .minimumInteractiveComponentSize()
-            .size(72.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.56f))
-            .border(3.dp, if (enabled) MeshaColors.Ink else MeshaColors.Muted, CircleShape)
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MeshaColors.Brand,
+            contentColor = MeshaColors.OnBrand,
+            disabledContainerColor = MeshaColors.Surf3,
+            disabledContentColor = MeshaColors.Faint,
+        ),
+        shape = RoundedCornerShape(20.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp)
             .semantics {
                 contentDescription = actionDescription
                 stateDescription = recordingState
                 role = Role.Button
-            }
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
+            },
     ) {
-        Box(
-            Modifier
-                .size(if (isRecording) 26.dp else 56.dp)
-                .clip(if (isRecording) androidx.compose.foundation.shape.RoundedCornerShape(7.dp) else CircleShape)
-                .background(if (enabled) MeshaColors.Danger else MeshaColors.Muted),
+        Icon(MeshaIcons.Video, contentDescription = null)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = if (isRecording) stringResource(R.string.proof_camera_stop_label) else stringResource(R.string.proof_camera_start_label),
+            style = MeshaType.button,
         )
     }
 }

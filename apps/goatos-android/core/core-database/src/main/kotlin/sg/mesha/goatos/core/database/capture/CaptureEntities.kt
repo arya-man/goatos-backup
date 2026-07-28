@@ -137,6 +137,9 @@ interface RfidScanAttemptDao {
     @Query("SELECT * FROM rfid_scan_attempt WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
     suspend fun listForTask(taskId: String, limit: Int = MAX_ATTEMPTS_PER_TASK): List<RfidScanAttemptEntity>
 
+    @Query("UPDATE rfid_scan_attempt SET syncStatus = :status WHERE id = :id")
+    suspend fun updateStatus(id: String, status: String)
+
     @Query("DELETE FROM rfid_scan_attempt WHERE taskId = :taskId")
     suspend fun clearForTask(taskId: String)
 
