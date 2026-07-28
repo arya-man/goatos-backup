@@ -136,6 +136,42 @@ func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.
 	}
 }
 
+func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.4,
+		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:complete-scope", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	assertScopeStatus(t, ctx, pool, repoShedScope, "pending")
+	assertCampaignStatus(t, ctx, pool, domain.StatusPublished)
+
+	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:complete-campaign", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record shed observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
+
+	_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.5,
+		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:after-complete", RecordedBy: repoOperator,
+	})
+	if !errors.Is(err, ports.ErrImmutable) {
+		t.Fatalf("completed campaign animal err=%v, want immutable", err)
+	}
+}
+
 func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -204,6 +240,28 @@ ON CONFLICT (proof_id) DO UPDATE SET upload_state=EXCLUDED.upload_state, proof_t
 func setCampaignStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) {
 	t.Helper()
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaigns SET status=$1 WHERE tenant_id=$2::uuid AND campaign_id=$3::uuid`, status, repoTenant, repoCampaign)
+}
+
+func assertCampaignStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want string) {
+	t.Helper()
+	var got string
+	if err := pool.QueryRow(ctx, `SELECT status FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, repoCampaign).Scan(&got); err != nil {
+		t.Fatalf("read campaign status: %v", err)
+	}
+	if got != want {
+		t.Fatalf("campaign status=%s, want %s", got, want)
+	}
+}
+
+func assertScopeStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignShedID, want string) {
+	t.Helper()
+	var got string
+	if err := pool.QueryRow(ctx, `SELECT status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, campaignShedID).Scan(&got); err != nil {
+		t.Fatalf("read scope status: %v", err)
+	}
+	if got != want {
+		t.Fatalf("scope %s status=%s, want %s", campaignShedID, got, want)
+	}
 }
 
 func execWeighingTestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
