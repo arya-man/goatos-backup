@@ -35,9 +35,8 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // status chips below always stay obligation-grain (dose work items).
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
   const submittedAnimals = "submitted_animals" in summary && typeof summary.submitted_animals === "number" ? summary.submitted_animals : 0;
-  const displayCompleted = Math.max(coverage.completed, submittedAnimals);
   const hasSubmittedPending = submittedAnimals > coverage.completed;
-  const pct = driveCoveragePct(displayCompleted, coverage.total);
+  const pct = driveCoveragePct(coverage.completed, coverage.total);
   const chips = driveStatusChips(summary);
   const vaccineLabels = summary.vaccine_labels.filter((label) => label.trim().length > 0);
   const visibleVaccines = vaccineLabels.slice(0, 3);
@@ -76,7 +75,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         </svg>
         <div className="ptx">
           <div>
-            <span className="big">{displayCompleted}</span>
+            <span className="big">{coverage.completed}</span>
             <span className="u"> / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}</span>
           </div>
           {hasSubmittedPending ? (
@@ -104,7 +103,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
           {chips.map((chip) => (
             <div key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
               <div className={`d c-${driveStatusClass(chip.key)}`} />
-              {chip.count} {chip.key === "submitted" ? "submitted" : optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+              {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
             </div>
           ))}
         </div>

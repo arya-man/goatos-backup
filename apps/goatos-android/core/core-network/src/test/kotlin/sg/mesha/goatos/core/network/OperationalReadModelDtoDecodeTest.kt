@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.AdherenceRowDto
+import sg.mesha.goatos.core.network.dto.DriveSummaryDto
 import sg.mesha.goatos.core.network.dto.ControlTowerAlertDto
 
 class OperationalReadModelDtoDecodeTest {
@@ -34,7 +35,14 @@ class OperationalReadModelDtoDecodeTest {
               "owner": {},
               "next_action": "Verifier to accept or reject proof",
               "evidence_link": "/workflows/alert-1",
-              "obligation_id": "obligation-1"
+              "obligation_id": "obligation-1",
+              "drive_capacity_state": "over_cap",
+              "drive_animals_required": 120,
+              "drive_animals_assigned": 90,
+              "drive_operator_cap": 60,
+              "drive_available_operators": 2,
+              "drive_latest_safe_date": "2026-07-28T00:00:00Z",
+              "drive_medical_defer_reason": "icu"
             }
             """.trimIndent(),
         )
@@ -45,6 +53,13 @@ class OperationalReadModelDtoDecodeTest {
         assertEquals("Awaiting verifier review", dto.proofSummary)
         assertEquals("uploaded", dto.proofState)
         assertEquals("pending", dto.verificationState)
+        assertEquals("over_cap", dto.driveCapacityState)
+        assertEquals(120, dto.driveAnimalsRequired)
+        assertEquals(90, dto.driveAnimalsAssigned)
+        assertEquals(60, dto.driveOperatorCap)
+        assertEquals(2, dto.driveAvailableOperators)
+        assertEquals("2026-07-28T00:00:00Z", dto.driveLatestSafeDate)
+        assertEquals("icu", dto.driveMedicalDeferReason)
     }
 
     @Test
@@ -65,6 +80,7 @@ class OperationalReadModelDtoDecodeTest {
         )
 
         assertNull(dto.partitionLabel)
+        assertNull(dto.driveCapacityState)
     }
 
     @Test
@@ -104,5 +120,36 @@ class OperationalReadModelDtoDecodeTest {
         assertEquals(1, full.driveAvailableOperators)
         assertNull(mixed.partitionLabel)
         assertNull(mixed.driveCapacityState)
+    }
+
+    @Test
+    fun `calendar drive summary decodes submitted buckets separately from completed`() {
+        val dto = json.decodeFromString<DriveSummaryDto>(
+            """
+            {
+              "park_name": "Channapatna",
+              "due_date": "2026-07-28",
+              "shed_count": 2,
+              "sheds_completed": 0,
+              "vaccine_labels": ["ET+TT"],
+              "total_count": 10,
+              "completed_count": 0,
+              "submitted_count": 10,
+              "total_animals": 10,
+              "completed_animals": 0,
+              "submitted_animals": 10,
+              "remaining_count": 0,
+              "due_count": 0,
+              "overdue_count": 0,
+              "deferred_count": 0,
+              "owner_label": "PC"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(0, dto.completedCount)
+        assertEquals(10, dto.submittedCount)
+        assertEquals(0, dto.completedAnimals)
+        assertEquals(10, dto.submittedAnimals)
     }
 }

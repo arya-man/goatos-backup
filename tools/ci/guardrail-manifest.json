@@ -132,6 +132,17 @@
       "notes": "Keeps the pluggable vertical/read-model contract discoverable for Claude, Codex, build skills, review lenses, frontend/mobile lenses, and local CI."
     },
     {
+      "id": "critical-animal-action-availability",
+      "script": "tools/agent-hooks/check-critical-animal-action-availability.mjs",
+      "makeTarget": "critical-animal-action-availability-guard",
+      "realCheck": "node tools/agent-hooks/check-critical-animal-action-availability.mjs",
+      "selfTest": "node tools/agent-hooks/check-critical-animal-action-availability.mjs --self-test",
+      "owningDoc": "docs/features/critical-animal-action-guardrails.md",
+      "requiredInCI": true,
+      "ciStep": "critical-animal-action-availability-guard",
+      "notes": "Keeps ICU/quarantine/death/high-risk movement interim fail-closed rules visible until full policy-pack modules ship."
+    },
+    {
       "id": "leadership-assistant-coverage",
       "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
       "makeTarget": "leadership-assistant-coverage-guard",

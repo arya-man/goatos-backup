@@ -210,6 +210,7 @@ func TestApproveShiftingThroughRealIdentityRepositoryDoesNotMoveAnimals(t *testi
 	goatIDs := []string{goatA, goatB}
 	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
 	seedApprovalGoat(t, ctx, pool, goatB, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
 
 	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "real-shift-1", goatIDs)
 
@@ -685,6 +686,36 @@ SELECT count(*) FROM goats
 WHERE tenant_id = $1::uuid AND management_stage = 'K1'
   AND merged_into_goat_id IS NULL AND exited_at IS NULL`, countsTenant); got != 0 {
 		t.Fatalf("live K1 animals after the shift=%d, want 0 -- the mover must no longer be fed as K1", got)
+	}
+}
+
+func TestCompleteShiftingFailsClosedWhenDestinationProfileDriftsAfterAuthorization(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c103"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+	seedShedProfile(t, ctx, pool, countsShedB, "K2")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "profile-drift-1", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "profile-drift-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	seedShedProfile(t, ctx, pool, countsShedB, "K3")
+	_, _, err := completeShifting(repo, ctx, "profile-drift-1", shiftingEventID)
+	if !errors.Is(err, identityports.ErrDestinationTagConflict) {
+		t.Fatalf("complete err=%v, want ErrDestinationTagConflict after destination profile drift", err)
+	}
+	if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+		t.Fatalf("mover shed=%s after rejected completion, want source shed %s", got, countsShedA)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "K1" {
+		t.Fatalf("mover management_stage=%q after rejected completion, want unchanged K1", got)
+	}
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after rejected completion, want authorized for retry/review", got)
 	}
 }
 

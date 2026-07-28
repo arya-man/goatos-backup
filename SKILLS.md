@@ -65,6 +65,17 @@ operational read model -> shared surface adapters. Discoverability/static-text
 guard:
 `make operational-read-model-contract-guard`.
 
+Critical animal action guardrails:
+
+```text
+docs/features/critical-animal-action-guardrails.md
+```
+
+Load this contract whenever a change touches quarantine, ICU, death,
+contagious-disease isolation, high-risk movement, vaccination defer/reopen,
+weighing availability, or sale/allocation blockers. Interim availability guard:
+`make critical-animal-action-availability-guard`.
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a

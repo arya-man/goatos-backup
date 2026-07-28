@@ -57,6 +57,7 @@
     <string name="calendar_drive_open">ಡ್ರೈವ್ ತೆರೆಯಿರಿ</string>
     <!-- Status chips (redesigned card) -->
     <string name="calendar_drive_done">%1$d ಪೂರ್ಣ</string>
+    <string name="calendar_drive_submitted">%1$d ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="calendar_drive_due">%1$d ಬಾಕಿ</string>
     <string name="calendar_drive_overdue">%1$d ಮೀರಿದ</string>
     <string name="calendar_drive_deferred">%1$d ಮುಂದೂಡಲಾಗಿದೆ</string>

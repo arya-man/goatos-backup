@@ -232,6 +232,16 @@ or new vertical/module onboarding. This discoverability/static-text guard is
 part of local CI, but it is not a semantic Go/OpenAPI/Kotlin/frontend drift
 checker yet.
 
+## Critical Animal Action Guardrails Are Mandatory
+
+Quarantine, ICU, death, contagious-disease isolation, high-risk movement, and
+sale/allocation blockers are critical animal actions, not ordinary CRUD. Until a
+complete policy-pack module owns a transition, every route/UI/action must fail
+closed or return a deterministic guardrail-required reason as described in
+`docs/features/critical-animal-action-guardrails.md`. Run
+`make critical-animal-action-availability-guard` for movement, health,
+vaccination defer/reopen, weighing availability, or Goat Passport changes.
+
 Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
 batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/
 verification truth in WF, CT, AC, Calendar, Android, or verifier queues. Shed

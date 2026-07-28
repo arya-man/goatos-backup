@@ -161,7 +161,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const closeDrawerHref = hrefWith({ ct_alert: undefined });
   const alertDrawerHref = (alert: ControlTowerAlert) => `${closeDrawerHref}#ct_alert=${encodeURIComponent(alert.row_id)}`;
   const workflowRecordHref = (alert: ControlTowerAlert) =>
-    scopeHref(alert.evidence_link || `/workflows/${encodeURIComponent(alert.row_id)}`, scope, {}, { from: "control-tower" });
+    scopeHref(`/workflows/${encodeURIComponent(alert.row_id)}`, scope, {}, { from: "control-tower" });
   const actionCenterHref = (alert: ControlTowerAlert) => scopeHref("/action-center", scope, {}, { ac_row: alert.row_id });
   const drawerRecords: ControlTowerDrawerRecord[] = alerts.map((alert) => ({
     alert,

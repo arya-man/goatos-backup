@@ -78,6 +78,11 @@ canonical write owner, row/summary grain, bucket disjointness, stable scope
 identity, whole-result summary behavior, and every consuming surface. Run
 `make operational-read-model-contract-guard`.
 
+Critical animal actions (quarantine, ICU, death, contagious disease isolation,
+high-risk movement, weighing availability exclusions, and sale/allocation
+blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
+Run `make critical-animal-action-availability-guard` when touching those paths.
+
 CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
 `ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
 action_center, vaccination_operator_status) that read canonical vaccination/

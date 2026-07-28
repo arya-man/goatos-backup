@@ -95,6 +95,9 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
+	if err := validateDestinationProfileSnapshot(cmd, profile); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
 	// effectiveStage is the CONFIGURED destination cohort; destination_profile_id and
 	// destination_profile_row_version are the SNAPSHOT of the profile that authorised this cohort,
 	// persisted onto the goat.stage_changed identity event + outbox payload so a completion is
@@ -235,6 +238,20 @@ func isClinicalDestinationStage(stage string) bool {
 		}
 	}
 	return false
+}
+
+func validateDestinationProfileSnapshot(cmd ports.RelocateGoatsCommand, profile destinationProfile) error {
+	if strings.TrimSpace(cmd.ExpectedDestinationProfileID) == "" &&
+		cmd.ExpectedDestinationProfileRowVersion == 0 &&
+		strings.TrimSpace(cmd.ExpectedDestinationStage) == "" {
+		return nil
+	}
+	if strings.TrimSpace(cmd.ExpectedDestinationProfileID) != profile.destinationProfileID ||
+		cmd.ExpectedDestinationProfileRowVersion != profile.destinationProfileRowVersion ||
+		!strings.EqualFold(strings.TrimSpace(cmd.ExpectedDestinationStage), profile.stage) {
+		return ports.ErrDestinationTagConflict
+	}
+	return nil
 }
 
 // insertRelocationIdentityEvents takes the row locks and writes the canonical per-animal
