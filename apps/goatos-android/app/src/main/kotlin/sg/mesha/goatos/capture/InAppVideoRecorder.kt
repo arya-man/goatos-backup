@@ -76,6 +76,7 @@ import java.io.File
 @Composable
 fun InAppVideoRecorderOverlay(
     prompt: ProofCapturePrompt = ProofCapturePrompt.VACCINATION,
+    taskTitle: String? = null,
     onResult: (CapturedVideo?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -206,6 +207,7 @@ fun InAppVideoRecorderOverlay(
         )
         RecorderHeader(
             prompt = prompt,
+            taskTitle = taskTitle,
             isRecording = isRecording,
             elapsedSeconds = elapsedSeconds,
             cameraError = cameraError,
@@ -237,6 +239,7 @@ fun InAppVideoRecorderOverlay(
 @Composable
 private fun RecorderHeader(
     prompt: ProofCapturePrompt,
+    taskTitle: String?,
     isRecording: Boolean,
     elapsedSeconds: Int,
     cameraError: String?,
@@ -251,7 +254,7 @@ private fun RecorderHeader(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = stringResource(copy.title),
+            text = recorderHeaderTitle(taskTitle, stringResource(copy.title)),
             color = MeshaColors.Ink,
             fontSize = 18.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -273,6 +276,9 @@ internal data class RecorderCopyResources(
     val title: Int,
     val instruction: Int,
 )
+
+internal fun recorderHeaderTitle(taskTitle: String?, fallbackTitle: String): String =
+    taskTitle?.trim()?.takeIf(String::isNotEmpty) ?: fallbackTitle
 
 internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyResources = when (prompt) {
     ProofCapturePrompt.VACCINATION -> RecorderCopyResources(

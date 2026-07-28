@@ -49,7 +49,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "GoatCreatedWorkflowHandler.HandleEvent filters origin_type=birth, reads the canonical goats row (dob/time_of_birth/sex/park/shed) by PK, and opens the birth_kid workflow plus the shared birth_mother workflow when the payload's dam_id resolves to a canonical animal (docs/decisions/birth-death-workflows.md). It parses the payload keys dob, dam_id, sex, and time_of_birth added by the identity producer for exactly this consumer, so none of those keys is accept-and-discard."
+          "notes": "GoatCreatedWorkflowHandler.HandleEvent filters origin_type=birth, reads the canonical goats row (dob/time_of_birth/sex/park/shed) by PK, and opens the birth_kid workflow linked to the canonical mother plus the shared birth_mother workflow. For new births the identity producer resolves the scanned mother RFID before approval, persists mother_goat_id + litter_size in goat_births atomically with kid creation, and emits that canonical UUID as dam_id; unresolved dam handling remains only for legacy events. The consumer parses dob, dam_id, sex, and time_of_birth; the tasks repository uses that canonical event moment to include remaining birth-day colostrum slots before their 15-minute cutoff plus all five next-day slots, so none of those event keys is accept-and-discard. Each scheduled round is hard-gated until its stored due_at and then remains available; Tag the kid waits for every other kid task, including the entire scheduled series."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -342,7 +342,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "DeathVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=workflow_death_signoff (distinct from shifting) and completes the internal verifier-review action/workflow. ONE death_evidence item carries BOTH videos. Its idempotency key includes workflow, review round, and proof refs; verifier rejection resets both uploads while leaving the admin-approved death/count applied, and the second re-shoot returns directly to Verify."
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -390,7 +390,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "DeathVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=workflow_death_signoff and calls Repository.BounceDeathVideosForRework, resetting both death video actions to 'rework' (proofs cleared, re-shoot mandatory) and the sign-off back to pending."
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -710,7 +710,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "IdentifierAddedWorkflowHandler.HandleEvent filters action=attach + identifier_type=animal_identifier_1 (the PERMANENT RFID; temporary tags and animal_identifier_2 are ignored) and completes the pending 'Tag the kid' step on the goat's open birth_kid workflow. The promote flow stays the single writer of identifier truth; the client never chains this (docs/decisions/birth-death-workflows.md)."
+          "notes": "A permanent primary RFID promotion records the assigned identifier on the pending Tag the kid task, but does not complete it. The task completes only through its mandatory video command; the identity promote transaction remains the sole writer of goat identifier truth."
         }
       ],
       "owningDoc": "docs/decisions/birth-death-workflows.md",

@@ -213,9 +213,12 @@ type AdminGoatCreateRequest struct {
 	// ReproductiveStatus is optional. When present on a row whose identifiers
 	// match an existing goat, the bulk import applies it via the event-emitting
 	// ReproductiveGoat transition instead of treating the row as a create conflict.
-	ReproductiveStatus *string       `json:"reproductive_status,omitempty"`
-	WeightKg           *float64      `json:"weight_kg,omitempty"`
-	DamID              *string       `json:"dam_id,omitempty"`
+	ReproductiveStatus *string  `json:"reproductive_status,omitempty"`
+	WeightKg           *float64 `json:"weight_kg,omitempty"`
+	DamID              *string  `json:"dam_id,omitempty"`
+	// LitterSize is the number born in this delivery (1, 2, or 3). Each kid is still created as
+	// its own goat; the same delivery size is recorded on every sibling's birth row.
+	LitterSize         *int          `json:"litter_size,omitempty"`
 	SireOrLot          *string       `json:"sire_or_lot,omitempty"`
 	PhotoURL           *string       `json:"photo_url,omitempty"`
 	SourceRecordID     *string       `json:"source_record_id,omitempty"`

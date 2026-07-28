@@ -177,6 +177,8 @@ type QueueFilterOptions struct {
 // MediaItem is one resolved, streamable media reference for display.
 type MediaItem struct {
 	ProofID     string `json:"proof_id"`
+	Label       string `json:"label,omitempty"`
+	Answer      string `json:"answer,omitempty"`
 	DownloadURL string `json:"download_url"`
 	MimeType    string `json:"mime_type,omitempty"`
 	DurationMS  *int64 `json:"duration_ms,omitempty"`

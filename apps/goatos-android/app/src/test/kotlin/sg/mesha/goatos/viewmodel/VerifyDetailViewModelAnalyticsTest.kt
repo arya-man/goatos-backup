@@ -40,9 +40,7 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
-import sg.mesha.goatos.feature.verify.VerifyMediaLabel
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
-import sg.mesha.goatos.feature.verify.verificationMediaLabel
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VerifyDetailViewModelAnalyticsTest {
@@ -55,11 +53,19 @@ class VerifyDetailViewModelAnalyticsTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `death evidence gives the two proof videos distinct ordered labels`() {
-        assertEquals(VerifyMediaLabel.DEATH_VIDEO, verificationMediaLabel("death_evidence", 0))
-        assertEquals(VerifyMediaLabel.POST_MORTEM_VIDEO, verificationMediaLabel("death_evidence", 1))
-        assertEquals(null, verificationMediaLabel("death_evidence", 2))
-        assertEquals(null, verificationMediaLabel("vaccination_proof", 0))
+    fun `backend task title and recorded answer are preserved for every verification video`() = runTest(dispatcher) {
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "birth_evidence")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("Mother's Medicine", "ORS water"), vm.state.value.media.map { it.taskTitle })
+        assertEquals(listOf("No", null), vm.state.value.media.map { it.answer })
     }
 
     @Test
@@ -226,8 +232,8 @@ private class FakeVerifyDetailRepository : VerificationRepository {
         rowVersion = 7,
         evidenceAvailable = true,
         media = listOf(
-            VerificationMediaItem(proofId = "proof-1", downloadUrl = "/proof-1.mp4", mimeType = "video/mp4", durationMs = 10_000),
-            VerificationMediaItem(proofId = "proof-2", downloadUrl = "/proof-2.mp4", mimeType = "video/mp4", durationMs = 8_000),
+            VerificationMediaItem(proofId = "proof-1", label = "Mother's Medicine", answer = "No", downloadUrl = "/proof-1.mp4", mimeType = "video/mp4", durationMs = 10_000),
+            VerificationMediaItem(proofId = "proof-2", label = "ORS water", downloadUrl = "/proof-2.mp4", mimeType = "video/mp4", durationMs = 8_000),
         ),
     )
     private val response = VerificationQueueResponseDto(items = listOf(item))

@@ -606,7 +606,10 @@ class SyncEngine(
             payload.workflowId,
             payload.actionId,
             item.idempotencyKey,
-            WorkflowActionAnswerRequestDto(answerValue = payload.answerValue),
+            WorkflowActionAnswerRequestDto(
+                answerValue = payload.answerValue,
+                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+            ),
         )
         return syncJson.encodeToString(response)
     }

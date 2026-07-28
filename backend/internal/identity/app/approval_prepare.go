@@ -10,6 +10,29 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 )
 
+type birthProvisionalPrefixRepository interface {
+	BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error)
+}
+
+// BirthProvisionalPrefix returns the canonical park code used for a newborn's temporary identity
+// (CBE/CPT today). It is resolved server-side from the validated placement, never trusted from a
+// client label.
+func (s *Service) BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error) {
+	repo, ok := s.repo.(birthProvisionalPrefixRepository)
+	if !ok {
+		return "", NotImplemented("birth_provisional_prefix_unavailable", "birth provisional identifier prefix is not configured")
+	}
+	prefix, err := repo.BirthProvisionalPrefix(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(parkID))
+	if err != nil {
+		return "", mapRepoErr(err)
+	}
+	prefix = strings.ToUpper(strings.TrimSpace(prefix))
+	if prefix != "CBE" && prefix != "CPT" {
+		return "", BadRequest("unsupported_birth_park", "birth placement must resolve to CBE or CPT")
+	}
+	return prefix, nil
+}
+
 // Prepare seam for approval workflows.
 //
 // A module that holds a write PENDING until it is approved has to do the work in two halves at two

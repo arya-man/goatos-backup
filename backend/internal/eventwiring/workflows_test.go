@@ -6,7 +6,7 @@ import (
 
 // TestRegisterWorkflowConsumersRegistersAll is the drift guard for the birth/death workflow engine:
 // every process with a domain bus must register the goat.created / goat.exited /
-// goat.identifier.added openers and the death_evidence verdict appliers, or an approved birth/death
+// goat.identifier.added openers and the birth/death evidence verdict appliers, or a birth/death
 // silently opens no follow-up work (and a park head's verdict is dropped). All five binaries call
 // RegisterWorkflowConsumers, so asserting its subscription set here is enough to catch a dropped
 // handler. A nil service is fine: nothing is published, so no handler method runs.
@@ -21,8 +21,8 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 		"goat.created":                  1,
 		"goat.exited":                   1,
 		"goat.identifier.added":         1,
-		"verification.verdict.approved": 1,
-		"verification.verdict.rework":   1,
+		"verification.verdict.approved": 2,
+		"verification.verdict.rework":   2,
 	}
 	for eventType, wantCount := range want {
 		if got := bus.subs[eventType]; got != wantCount {

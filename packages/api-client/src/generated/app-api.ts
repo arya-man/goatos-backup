@@ -1692,8 +1692,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record a birth from the operator app, for approval.
-         * @description Records a birth AS A PENDING REQUEST. It creates NO animal: no goats row is written and no goat.created event is emitted, so the kid's vaccination obligations are NOT generated until a ceo_internal approves the request via POST /app/counts/approvals/{request_id}/approve. The response therefore carries an approval_request_id and no goat_id. The payload is fully VALIDATED at submit time against the same goat-creation rules the admin POST /admin/goats route applies - origin_type pinned to 'birth' (it may be omitted, but if present it must be 'birth'), dob required and not after entry_date, identifier uniqueness - so an operator learns immediately that a payload is malformed instead of finding out days later from an approver. Approving the request replays this exact payload through that same goat-creation kernel. Idempotent via the Idempotency-Key header: an exact replay returns the original approval_request_id with idempotent_replay=true and raises no second request; a same-key/different-payload replay is rejected with 409.
+         * Record a birth and create every child workflow immediately.
+         * @description Atomically creates one canonical child per litter member and one PENDING, litter-grain count approval. Every child gets a deterministic CBE-/CPT- provisional identifier and emits goat.created immediately so its Birth workflow opens without waiting for the web queue. Children remain excluded from herd counts until a ceo_internal approves the accompanying request. The payload is fully validated against the identity kernel at submit time. Exact Idempotency-Key replay returns the same approval and children; a same-key/different-payload replay is rejected with 409.
          */
         post: operations["recordAppCountsBirthEvent"];
         delete?: never;
@@ -1771,7 +1771,7 @@ export interface paths {
         };
         /**
          * List birth/death follow-up workflow cards for one module and business date.
-         * @description The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is one workflow instance opened when a birth or death APPLIED (goat.created with origin_type=birth opens the kid track plus the shared mother track; goat.exited with exit_reason=died opens the death evidence trail). The card fields (actions_done, actions_total, next_action, awaiting_verification) are write-maintained on every action write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death) and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry the requested day's bucket counts over the same key set the page reads, so page size never changes the chips. Gated on CountsWrite - the operator who records the birth/death runs the follow-up work.
+         * @description The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is one workflow instance opened when a birth applies or a death report is staged (goat.created with origin_type=birth opens the kid track plus the shared mother track; counts.death.reported opens the death evidence trail while the goat remains alive). The card fields (actions_done, actions_total, next_action, awaiting_verification) are write-maintained on every action write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death) and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry the requested day's bucket counts over the same key set the page reads, so page size never changes the chips. overdue_dates contains at most the five most recent PREVIOUS business dates with an open card whose next action is already overdue; it powers the bounded mobile attention popup without fetching historical card pages. Gated on CountsWrite - the operator who records the birth/death runs the follow-up work.
          */
         get: operations["listAppWorkflows"];
         put?: never;
@@ -1790,8 +1790,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get one workflow's card header, context facts, and full action list.
-         * @description The per-goat detail behind a card: the card header, backend-owned context facts (event moment, park/shed, mother link), and every action row (at most 13 - the birth kid track's 8 main steps plus the 5-session colostrum strip; colostrum sessions do not count toward actions_total). An approval action reads blocked=true while the videos it signs off are not both in. Tenant-scoped; gated on CountsWrite.
+         * Get one workflow's card header, context facts, and operator action list.
+         * @description The per-goat detail behind a card: the card header, backend-owned context facts (event moment, park/shed, mother link), and every operator action row (at most 18 - the birth kid track's 8 main steps plus up to 10 birth-time-derived colostrum sessions). Every visible operator row, including scheduled colostrum, counts toward actions_total; internal approval/verification rows are omitted. Only the first incomplete action in each section is enabled; later siblings read blocked=true. Tenant-scoped; gated on CountsWrite.
          */
         get: operations["getAppWorkflow"];
         put?: never;
@@ -1812,8 +1812,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answer a question / question_select workflow action.
-         * @description Records the operator's answer to a question ("Is the kid clean?") or question_select ("Take Weight of Kid" band) action and completes it. A question_select answer must be one of the action's declared options. Idempotent via the Idempotency-Key header: first call applies; an exact replay returns the original result with no side effects; a same-key/ different-payload replay is rejected with 409; a NEW key against an already-completed action is rejected with 409 action_already_completed. The card counters are maintained in the same transaction. Gated on CountsWrite.
+         * Answer a workflow question, including numeric kilograms or a configured selection.
+         * @description Records the operator's answer to a question ("Is the kid clean?") or question_select ("Take Weight of Kid" band) action and completes it. A question_select answer must be one of the action's declared options. A requires_video question must carry one server-minted proof_ref from /app/proofs/*; a proofless answer is rejected 422 proof_required. Idempotent via the Idempotency-Key header: first call applies; an exact replay returns the original result with no side effects; a same-key/ different-payload replay is rejected with 409; a NEW key against an already-completed action is rejected with 409 action_already_completed. A later sibling submitted before its predecessor completes is rejected with 409 action_out_of_sequence. The card counters are maintained in the same transaction. Gated on CountsWrite.
          */
         post: operations["answerAppWorkflowAction"];
         delete?: never;
@@ -1833,7 +1833,7 @@ export interface paths {
         put?: never;
         /**
          * Complete an action-type workflow step (optionally with a video proof).
-         * @description Marks an action-type step done ("Iodine dipping of umbilical cord", a colostrum session, a death evidence video). A requires_video action without proof_ref is rejected 422 proof_required - the proof is a server-minted proof id from /app/proofs/*, never bytes. Completing the SECOND death video flips the park-head sign-off to in_review and enqueues ONE death_evidence verification item carrying BOTH videos (idempotency key counts-death-evidence:<workflow_id>); the sign-off then completes only on the verifier's approve verdict, and a rework verdict resets both videos for a re-shoot. Approval actions are never operator-completable. Idempotent via the Idempotency-Key header exactly like answer. Gated on CountsWrite.
+         * @description Marks an action-type step done ("Iodine dipping of umbilical cord", a colostrum session, a death evidence video). A requires_video action without proof_ref is rejected 422 proof_required - the proof is a server-minted proof id from /app/proofs/*, never bytes. Initial death videos remain staged until the existing admin-web approval accepts the death; that approval applies the lifecycle/count change and releases ONE death_evidence item carrying BOTH videos. The hidden internal review completes only on the verifier's approve verdict; a rework verdict resets both operator videos for sequential re-shoot, and the completed re-shoot pair returns directly to Verify without a second admin approval. Internal approval actions are never operator-completable. A later sibling submitted before its predecessor completes is rejected with 409 action_out_of_sequence. Idempotent via the Idempotency-Key header exactly like answer. Gated on CountsWrite.
          */
         post: operations["completeAppWorkflowAction"];
         delete?: never;
@@ -1933,7 +1933,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a pending lifecycle request.
-         * @description Applies the request. For a BIRTH this creates the kid (and generates its vaccination obligations); for a DEATH it exits the animal through the guarded critical-death path (and cancels its open obligations). Those two are unchanged: for them, the approval IS the record of the fact. A SHIFTING IS DIFFERENT (maintainer decision, 2026-07-19). Approving a shifting AUTHORIZES it and MOVES NOTHING - the animals stay in the source shed and the herd register keeps reading it, because approval is a manager's permission slip, not evidence that anybody walked the animals anywhere. The relocation happens later, when an operator confirms the movement physically happened via POST /app/counts/shifting-events/{shifting_event_id}/complete. ATOMIC: the effect and the status flip commit in ONE transaction, so a request can never be readable as 'approved' while its effect failed to save, and never applied while the request still reads 'pending'. AUTHORITY IS PER TYPE, checked against the stored request: a park_head may approve a shifting but NOT a birth or a death, and receives 403 if they address one. Requires the Idempotency-Key header. A second approve of an already-approved request applies nothing and returns the original decision with idempotent_replay=true; approving a request that was already rejected is a 409.
+         * @description Applies the request. For a BIRTH this changes every already-created child in the litter from count-pending to count-approved; it never creates a goat. For a DEATH it exits the animal through the guarded critical-death path and cancels its open obligations. A SHIFTING IS DIFFERENT (maintainer decision, 2026-07-19). Approving a shifting AUTHORIZES it and MOVES NOTHING - the animals stay in the source shed and the herd register keeps reading it, because approval is a manager's permission slip, not evidence that anybody walked the animals anywhere. The relocation happens later, when an operator confirms the movement physically happened via POST /app/counts/shifting-events/{shifting_event_id}/complete. ATOMIC: the effect and the status flip commit in ONE transaction, so a request can never be readable as 'approved' while its effect failed to save, and never applied while the request still reads 'pending'. AUTHORITY IS PER TYPE, checked against the stored request: a park_head may approve a shifting but NOT a birth or a death, and receives 403 if they address one. Requires the Idempotency-Key header. A second approve of an already-approved request applies nothing and returns the original decision with idempotent_replay=true; approving a request that was already rejected is a 409.
          */
         post: operations["approveAppCountsApproval"];
         delete?: never;
@@ -5286,6 +5286,10 @@ export interface components {
         };
         VerificationMediaItem: {
             proof_id: string;
+            /** @description Backend-authored task title displayed as the header for this evidence item. */
+            label?: string;
+            /** @description Backend-rendered operator response recorded for this task, omitted for action-only tasks. */
+            answer?: string;
             /** Format: uri */
             download_url: string;
             mime_type?: string;
@@ -5499,13 +5503,20 @@ export interface components {
         WorkflowListResponse: {
             items: components["schemas"]["WorkflowCard"][];
             chips: components["schemas"]["WorkflowChips"];
+            overdue_dates: components["schemas"]["WorkflowOverdueDate"][];
             next_cursor: string | null;
+        };
+        /** @description One previous Asia/Kolkata business date containing actionable overdue workflow cards. */
+        WorkflowOverdueDate: {
+            /** Format: date */
+            date: string;
+            workflow_count: number;
         };
         WorkflowFact: {
             label: string;
             value: string;
         };
-        /** @description One step of a workflow (template-instantiated; only status/answer/proof mutate). */
+        /** @description One operator step of a workflow (template-instantiated; only status/answer/proof mutate). */
         WorkflowActionRow: {
             /** Format: uuid */
             action_id: string;
@@ -5518,14 +5529,19 @@ export interface components {
             title: string;
             detail: string;
             requires_video: boolean;
-            /** @description question_select bands; absent for other action types. */
+            /** @description Configured question_select options; absent for free-value questions. */
             options?: string[];
             /** Format: date-time */
             due_at: string | null;
             /** @enum {string} */
             status: "pending" | "in_review" | "completed" | "rework" | "canceled";
-            /** @description True for an approval step whose prerequisite videos are not both in yet. */
+            /** @description True when the operator cannot start this action yet. */
             blocked: boolean;
+            /**
+             * @description Backend-owned reason; absent when blocked is false.
+             * @enum {string}
+             */
+            blocked_reason?: "previous_action" | "not_yet_due" | "signoff";
             answer_value: string | null;
             proof_ref: string | null;
             completed_by_label: string;
@@ -5540,6 +5556,8 @@ export interface components {
         };
         AnswerWorkflowActionRequest: {
             answer_value: string;
+            /** @description Server-minted proof id from /app/proofs/*; MANDATORY when the question requires_video. */
+            proof_ref?: string;
         };
         CompleteWorkflowActionRequest: {
             /** @description Server-minted proof id from /app/proofs/*; MANDATORY for requires_video actions. */
@@ -5559,7 +5577,7 @@ export interface components {
             completed_at: string | null;
             idempotent_replay: boolean;
         };
-        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. Identity: at most ONE primary identity may be supplied - a permanent animal_identifier_1 (the RFID) OR a temporary_identifier (a provisional tag). Providing both is rejected. When NEITHER is supplied, the server auto-generates a provisional temporary tag ("K-" + 6 random digits) and stores it on the request, so the app never scans an RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
+        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. For this birth route the server ignores child identifiers from the app and generates one provisional identifier per child from the canonical park code (`CBE-` or `CPT-`) plus five deterministic digits. One request fans out according to litter_size, so Twins creates two distinct canonical goats and Triplets creates three. The app never scans a child RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
         RecordBirthEventRequest: {
             /** @description The permanent RFID. Provide this OR temporary_identifier, never both. */
             animal_identifier_1?: string | null;
@@ -5578,7 +5596,7 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
-            breed?: string;
+            breed: string;
             /** @enum {string} */
             sex: "female" | "male";
             /**
@@ -5599,8 +5617,13 @@ export interface components {
             management_stage?: string;
             health_status?: string;
             weight_kg?: number;
-            /** @description Identifier of the dam, when recorded at birth. */
-            dam_id?: string;
+            /** @description Required mother RFID. The server resolves it tenant-safely to a canonical female goat before queueing approval, replaces this queued value with that goat UUID, and stores only the canonical mother_goat_id in goat_births. */
+            dam_id: string;
+            /**
+             * @description Number born in this delivery. This one request immediately creates that many distinct canonical children; the same mother and litter size are stored on every sibling row.
+             * @enum {integer}
+             */
+            litter_size: 1 | 2 | 3;
             sire_or_lot?: string;
             photo_url?: string;
             source_record_id?: string;
@@ -5676,7 +5699,7 @@ export interface components {
          * @enum {string}
          */
         CountsGenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
-        /** @description The result of RAISING a lifecycle request. It deliberately contains no goat: birth and death are pending until approved, so at this point no animal has been created or exited. */
+        /** @description The result of raising a lifecycle approval. Birth creates its canonical children immediately and returns them here; its pending approval controls only herd-count eligibility. Death still applies the exit only after approval and therefore returns no children. */
         CountsApprovalSubmitResponse: {
             /** Format: uuid */
             approval_request_id: string;
@@ -5688,6 +5711,15 @@ export interface components {
             raised_at: string;
             /** @description True when this result was returned from a previous identical request rather than a new write. */
             idempotent_replay: boolean;
+            /** @description Canonical children created by this birth submission; absent for death. */
+            children?: components["schemas"]["CountsBirthChildResult"][];
+        };
+        CountsBirthChildResult: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description Provisional CBE-/CPT- identifier retired when permanent RFID is promoted. */
+            temporary_identifier: string;
+            child_ordinal: number;
         };
         /** @description One row of the approver's queue - who raised what, and when. */
         CountsApprovalListItem: {
@@ -9136,7 +9168,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Birth request raised (or replayed). Accepted, not applied - no animal exists yet. */
+            /** @description Birth recorded (or replayed): canonical children exist and their count approval is pending. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9347,6 +9379,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -33,7 +33,7 @@ import java.io.File
 @Composable
 fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
     val context = LocalContext.current
-    var recorderPrompt by remember { mutableStateOf<ProofCapturePrompt?>(null) }
+    var recorderRequest by remember { mutableStateOf<RecorderRequest?>(null) }
     val resultChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
     // Carry only the raw picked Uri back on the main thread; the (potentially large) copy into
     // app-private storage runs off-main inside the suspend `pick` delegate below, so importing a
@@ -45,8 +45,8 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
 
     DisposableEffect(source) {
         val bindToken = source.bind(
-            launch = { prompt ->
-                recorderPrompt = prompt
+            launch = { prompt, taskTitle ->
+                recorderRequest = RecorderRequest(prompt, taskTitle)
                 resultChannel.receive()
             },
             pick = {
@@ -61,7 +61,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
         onDispose { source.unbind(bindToken) }
     }
 
-    recorderPrompt?.let { prompt ->
+    recorderRequest?.let { request ->
         // This must be a real modal window. Rendering the recorder as a sibling before the
         // Scan/Submit screen puts the live preview *behind* that screen in Compose draw order:
         // the camera runs, but the operator still sees (and can touch) the RFID UI. A full-screen
@@ -77,10 +77,11 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
             ),
         ) {
             InAppVideoRecorderOverlay(
-                prompt = prompt,
+                prompt = request.prompt,
+                taskTitle = request.taskTitle,
                 onResult = { result ->
-                    if (recorderPrompt != null) {
-                        recorderPrompt = null
+                    if (recorderRequest != null) {
+                        recorderRequest = null
                         resultChannel.trySend(result)
                     }
                 },
@@ -88,6 +89,11 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
         }
     }
 }
+
+private data class RecorderRequest(
+    val prompt: ProofCapturePrompt,
+    val taskTitle: String?,
+)
 
 private fun copyPickedVideoToPrivateCache(
     context: android.content.Context,

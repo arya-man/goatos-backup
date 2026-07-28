@@ -58,6 +58,17 @@ type DeathEvidenceReview struct {
 	Round      int
 }
 
+type BirthEvidenceReview struct {
+	WorkflowID  string
+	SubjectRole string
+	OperatorID  string
+	ParkID      string
+	ShedID      string
+	EventDate   string
+	ProofRefs   []string
+	Round       int
+}
+
 // Repository is the tasks module's storage port. All reads/writes are tenant-scoped; action writes
 // maintain the workflow_instances card fields in the same transaction (compute-on-write).
 type Repository interface {
@@ -83,13 +94,16 @@ type Repository interface {
 	AnswerAction(ctx context.Context, cmd domain.AnswerActionCommand) (domain.ActionWriteResult, error)
 	CompleteAction(ctx context.Context, cmd domain.CompleteActionCommand) (domain.ActionWriteResult, error)
 
-	// CompleteTagActionForGoat completes a pending tag_the_kid step on the goat's open birth_kid
-	// workflow (goat.identifier.added consumer). No-op when there is no such open step.
+	// CompleteTagActionForGoat records the permanent-RFID prerequisite without completing the
+	// mandatory tagging-video task. No-op when there is no such open step.
 	CompleteTagActionForGoat(ctx context.Context, tenantID, goatID string, completedAt time.Time) error
 
 	// DeathEvidenceForVerification loads an admin-approved death evidence pair by subject goat.
 	// Returns domain.ErrNotFound when no in-review death workflow exists.
 	DeathEvidenceForVerification(ctx context.Context, tenantID, goatID string) (DeathEvidenceReview, error)
+	// BirthWorkflowEvidenceForVerification opens one review gate for exactly one completed mother
+	// or child workflow. Sibling workflows never participate in its readiness or verdict.
+	BirthWorkflowEvidenceForVerification(ctx context.Context, tenantID, workflowID string) (BirthEvidenceReview, error)
 
 	// CancelDeathWorkflowForGoat closes the staged workflow after an admin rejects the death.
 	// Idempotent and a no-op when no workflow exists.
@@ -102,4 +116,6 @@ type Repository interface {
 	// BounceDeathVideosForRework resets both video actions to 'rework' and the sign-off to pending
 	// after a verifier rejects the evidence. Idempotent.
 	BounceDeathVideosForRework(ctx context.Context, cmd DeathVerdictCommand) error
+	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
+	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
 }

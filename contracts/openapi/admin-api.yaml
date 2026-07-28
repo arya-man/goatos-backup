@@ -5095,8 +5095,15 @@ components:
           type: number
           minimum: 0
         dam_id:
+          description: >-
+            For birth-origin creates, the required mother RFID or already-resolved canonical mother
+            goat UUID. The server persists only the canonical mother goat relationship.
           type: string
           maxLength: 120
+        litter_size:
+          description: Required for birth-origin creates; rejected for other origin types.
+          type: integer
+          enum: [1, 2, 3]
         sire_or_lot:
           type: string
           maxLength: 120

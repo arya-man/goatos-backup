@@ -358,6 +358,7 @@ interface SyncRepository {
         workflowId: String,
         actionId: String,
         answerValue: String,
+        proofOutboxItemId: String? = null,
     ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
 
     /**
@@ -925,6 +926,7 @@ class DefaultSyncRepository(
         workflowId: String,
         actionId: String,
         answerValue: String,
+        proofOutboxItemId: String?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.WORKFLOW_ACTION_ANSWER,
         groupKey = groupKey,
@@ -934,6 +936,7 @@ class DefaultSyncRepository(
                 workflowId = workflowId,
                 actionId = actionId,
                 answerValue = answerValue,
+                proofOutboxItemId = proofOutboxItemId,
             ),
         ),
     )

@@ -95,6 +95,11 @@ class BirthDeathViewModelValidationTest {
         savedStateHandle,
     )
 
+    private fun completeRequiredBirthMetadata(vm: BirthDeathViewModel) {
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
+    }
+
     // --- Birth: placement is chosen and required ---------------------------------------------
 
     @Test
@@ -104,6 +109,7 @@ class BirthDeathViewModelValidationTest {
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
 
         assertFalse(
             "Placement is required — submit stays disabled with no park/shed chosen",
@@ -124,6 +130,7 @@ class BirthDeathViewModelValidationTest {
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -143,12 +150,13 @@ class BirthDeathViewModelValidationTest {
         val vm = newViewModel()
         advanceUntilIdle()
 
-        // Only the primary identifier is required; the second RFID is optional and left blank here.
+        // Only one CHILD identifier is required; mother RFID and breed are mandatory metadata.
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
-        assertTrue("One identifier + dob + placement is enough to submit", vm.state.value.canSubmit)
+        assertTrue("Child identifier + mother + breed + dob + placement submit", vm.state.value.canSubmit)
 
         vm.onEvent(BirthDeathEvent.Submit)
         advanceUntilIdle()
@@ -172,6 +180,7 @@ class BirthDeathViewModelValidationTest {
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "RFID-B"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
         assertTrue("Two distinct RFIDs + dob + placement submits", vm.state.value.canSubmit)
@@ -192,6 +201,7 @@ class BirthDeathViewModelValidationTest {
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
         assertTrue("Valid before the duplicate second RFID", vm.state.value.canSubmit)
@@ -215,6 +225,7 @@ class BirthDeathViewModelValidationTest {
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, BIRTH_ID_KIND_TEMPORARY))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "TMP-77"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -243,6 +254,7 @@ class BirthDeathViewModelValidationTest {
             vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
             vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
             vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
             vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
             vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -287,6 +299,7 @@ class BirthDeathViewModelValidationTest {
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        completeRequiredBirthMetadata(vm)
         // A dob after today's auto entry date must fail closed — the backend rule dob <= entry_date
         // reduces to dob <= today once entry date is auto-stamped.
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2999-01-01"))
@@ -456,6 +469,7 @@ class BirthDeathViewModelValidationTest {
         advanceUntilIdle()
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-07-01"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -479,6 +493,7 @@ class BirthDeathViewModelValidationTest {
         const val GOAT_ID = "44444444-4444-4444-4444-444444444444"
         const val ANIMAL_ROW_VERSION = 7
         const val BREED_KEY = "beetal"
+        const val MOTHER_RFID = "982000000000001"
     }
 }
 

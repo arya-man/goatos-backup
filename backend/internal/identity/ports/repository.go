@@ -307,6 +307,10 @@ type ValidateAdminGoatCreateCommand struct {
 	ShedID               *string
 	ShedCode             *string
 	ManagementStage      *string
+	// BirthDamRef is the operator-scanned mother RFID at submit time, or the already-resolved
+	// canonical mother UUID when a pending approval is applied.
+	BirthDamRef *string
+	Species     string
 }
 
 type AdminGoatCreateValidation struct {
@@ -314,6 +318,7 @@ type AdminGoatCreateValidation struct {
 	FarmID           *string
 	ParkID           string
 	ShedID           string
+	DamGoatID        *string
 	Conflicts        []domain.FieldError
 	Warnings         []domain.Warning
 }
@@ -341,7 +346,17 @@ type CreateAdminGoatCommand struct {
 	ManagementStage      *string
 	HealthStatus         *string
 	WeightKg             *float64
-	DamID                *string
+	// DamID is canonical after ValidateAdminGoatCreate; it is never a copied RFID in a persisted
+	// birth relationship or emitted goat.created payload.
+	DamID      *string
+	LitterSize *int
+	// BirthEventID and BirthChildOrdinal are supplied by the Counts birth-litter submit path.
+	// Every sibling shares BirthEventID and gets a stable 1-based ordinal. BirthCountStatus is
+	// pending until the separate web approval activates the children in herd-count projections.
+	// Direct admin birth creates leave these blank and are treated as a one-child approved event.
+	BirthEventID      string
+	BirthChildOrdinal int
+	BirthCountStatus  string
 	// TimeOfBirth is the optional HH:MM (24h, IST) birth time stored as goats.time_of_birth and
 	// carried on the goat.created payload for the birth workflow opener.
 	TimeOfBirth    *string

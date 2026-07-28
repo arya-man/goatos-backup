@@ -84,9 +84,10 @@ type workflowCardDTO struct {
 }
 
 type workflowListResponse struct {
-	Items      []workflowCardDTO    `json:"items"`
-	Chips      domain.WorkflowChips `json:"chips"`
-	NextCursor *string              `json:"next_cursor"`
+	Items        []workflowCardDTO            `json:"items"`
+	Chips        domain.WorkflowChips         `json:"chips"`
+	OverdueDates []domain.WorkflowOverdueDate `json:"overdue_dates"`
+	NextCursor   *string                      `json:"next_cursor"`
 }
 
 type workflowActionDTO struct {
@@ -102,6 +103,7 @@ type workflowActionDTO struct {
 	DueAt              *time.Time `json:"due_at"`
 	Status             string     `json:"status"`
 	Blocked            bool       `json:"blocked"`
+	BlockedReason      string     `json:"blocked_reason,omitempty"`
 	AnswerValue        *string    `json:"answer_value"`
 	ProofRef           *string    `json:"proof_ref"`
 	CompletedByLabel   string     `json:"completed_by_label"`
@@ -194,10 +196,15 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	for _, card := range page.Items {
 		items = append(items, cardDTO(card))
 	}
+	overdueDates := page.OverdueDates
+	if overdueDates == nil {
+		overdueDates = make([]domain.WorkflowOverdueDate, 0)
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowListResponse{
-		Items:      items,
-		Chips:      page.Chips,
-		NextCursor: page.NextCursor,
+		Items:        items,
+		Chips:        page.Chips,
+		OverdueDates: overdueDates,
+		NextCursor:   page.NextCursor,
 	})
 }
 
@@ -219,11 +226,12 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actions := make([]workflowActionDTO, 0, len(detail.Actions))
+	now := time.Now().UTC()
 	for _, a := range detail.Actions {
 		if a.ActionType == domain.ActionTypeApproval {
 			continue
 		}
-		actions = append(actions, actionDTO(a, detail.Actions))
+		actions = append(actions, actionDTO(a, detail.Actions, now))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
 		workflowCardDTO: cardDTO(detail.Card),
@@ -234,9 +242,10 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 type answerActionRequest struct {
 	AnswerValue string `json:"answer_value"`
+	ProofRef    string `json:"proof_ref,omitempty"`
 }
 
-// AnswerAction answers a question / question_select step (Idempotency-Key mandatory).
+// AnswerAction answers a question / question_select step, including numeric kg (Idempotency-Key mandatory).
 func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 	tenantID, workflowID, actionID, clientKey, ok := h.writePreamble(w, r)
 	if !ok {
@@ -261,6 +270,7 @@ func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 		WorkflowID:         workflowID,
 		ActionID:           actionID,
 		AnswerValue:        req.AnswerValue,
+		ProofRef:           req.ProofRef,
 		AnsweredBy:         httpmiddleware.ActorIDFromContext(r.Context()),
 		IdempotencyKey:     "tasks-workflow-answer:" + clientKey,
 		RequestFingerprint: stableHash("tasks-workflow-answer", canonical),
@@ -354,7 +364,7 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 	}
 }
 
-func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction) workflowActionDTO {
+func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time) workflowActionDTO {
 	verificationStatus := ""
 	switch a.Status {
 	case domain.ActionStatusInReview:
@@ -365,6 +375,15 @@ func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction) workfl
 		if a.ActionType == domain.ActionTypeApproval {
 			verificationStatus = "approved"
 		}
+	}
+	blockedReason := ""
+	switch {
+	case domain.ActionTimeBlocked(a, now):
+		blockedReason = "not_yet_due"
+	case domain.OperatorActionBlocked(a, siblings):
+		blockedReason = "previous_action"
+	case domain.SignoffBlocked(a, siblings):
+		blockedReason = "signoff"
 	}
 	return workflowActionDTO{
 		ActionID:           a.ActionID,
@@ -378,7 +397,8 @@ func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction) workfl
 		Options:            a.Options,
 		DueAt:              a.DueAt,
 		Status:             a.Status,
-		Blocked:            domain.OperatorActionBlocked(a, siblings) || domain.SignoffBlocked(a, siblings),
+		Blocked:            blockedReason != "",
+		BlockedReason:      blockedReason,
 		AnswerValue:        a.AnswerValue,
 		ProofRef:           a.ProofRef,
 		CompletedByLabel:   "", // operator display resolution is a follow-up; the id is not UI copy
@@ -475,6 +495,9 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, domain.ErrProofRequired):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
 			"a video proof (proof_ref) is required to complete this action", err)
+	case errors.Is(err, domain.ErrPermanentIdentifierRequired):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "permanent_identifier_required",
+			"scan or enter the permanent RFID before recording the Tag the kid video", err)
 	case errors.Is(err, domain.ErrIdempotencyConflict):
 		h.writeError(w, r, http.StatusConflict, "idempotency_conflict",
 			"Idempotency-Key was reused with a different payload", err)
@@ -487,6 +510,9 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, domain.ErrActionOutOfSequence):
 		h.writeError(w, r, http.StatusConflict, "action_out_of_sequence",
 			"complete the previous action before starting this one", err)
+	case errors.Is(err, domain.ErrActionNotYetDue):
+		h.writeError(w, r, http.StatusConflict, "action_not_yet_due",
+			"this action unlocks 50 minutes after the first ORS round was recorded", err)
 	case errors.Is(err, domain.ErrActionNotAnswerable):
 		h.writeError(w, r, http.StatusBadRequest, "action_not_answerable",
 			"this action is not a question; use the complete endpoint", err)

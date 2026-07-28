@@ -466,6 +466,21 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.WeightKg != nil && *normalized.WeightKg < 0 {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "weight_kg", Code: "invalid", Message: "weight_kg must be non-negative"})
 	}
+	if normalized.OriginType == "birth" {
+		if normalized.Breed == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "breed", Code: "required", Message: "breed is required for a birth"})
+		}
+		if normalized.DamID == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "dam_id", Code: "required", Message: "mother RFID is required for a birth"})
+		}
+		if normalized.LitterSize == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "required", Message: "litter_size is required for a birth"})
+		} else if *normalized.LitterSize < 1 || *normalized.LitterSize > 3 {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "invalid", Message: "litter_size must be 1, 2, or 3"})
+		}
+	} else if normalized.LitterSize != nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "invalid", Message: "litter_size is only valid for birth-origin goats"})
+	}
 	// time_of_birth is optional HH:MM (24h, IST wall clock). Present-but-invalid is rejected, never
 	// silently dropped or defaulted (validate-or-reject rule).
 	if normalized.TimeOfBirth != nil {
@@ -507,6 +522,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		HealthStatus:         normalized.HealthStatus,
 		WeightKg:             normalized.WeightKg,
 		DamID:                normalized.DamID,
+		LitterSize:           normalized.LitterSize,
 		TimeOfBirth:          normalized.TimeOfBirth,
 		SireOrLot:            normalized.SireOrLot,
 		PhotoURL:             normalized.PhotoURL,
@@ -532,6 +548,8 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 		ShedID:               normalized.ShedID,
 		ShedCode:             normalized.ShedCode,
 		ManagementStage:      normalized.ManagementStage,
+		BirthDamRef:          birthDamRef(normalized),
+		Species:              normalized.Species,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -543,7 +561,17 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 	cmd.FarmID = validation.FarmID
 	cmd.ParkID = validation.ParkID
 	cmd.ShedID = validation.ShedID
+	if normalized.OriginType == "birth" {
+		cmd.DamID = validation.DamGoatID
+	}
 	return nil, validation.Warnings, nil
+}
+
+func birthDamRef(request *domain.AdminGoatCreateRequest) *string {
+	if request.OriginType != "birth" {
+		return nil
+	}
+	return request.DamID
 }
 
 func decodeCreateAdminGoat(raw []byte) (*domain.AdminGoatCreateRequest, error) {

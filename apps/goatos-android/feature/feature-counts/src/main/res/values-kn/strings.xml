@@ -96,6 +96,7 @@
     <string name="counts_id_kind_permanent">ಶಾಶ್ವತ RFID</string>
     <string name="counts_id_kind_temporary">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
     <string name="counts_field_breed">ತಳಿ</string>
+    <string name="counts_field_breed_required">ತಳಿ *</string>
     <string name="counts_field_dob">ಜನ್ಮ ದಿನಾಂಕ (YYYY-MM-DD)</string>
     <string name="counts_field_entry_date">ನಮೂದು ದಿನಾಂಕ (YYYY-MM-DD)</string>
     <string name="counts_field_park">ಪಾರ್ಕ್</string>
@@ -104,6 +105,12 @@
     <string name="counts_field_shed">ಶೆಡ್</string>
     <string name="counts_field_dam">ತಾಯಿ</string>
     <string name="counts_field_dam_optional">ತಾಯಿ (ಐಚ್ಛಿಕ)</string>
+    <string name="counts_field_mother_rfid">ತಾಯಿಯ RFID</string>
+    <string name="counts_mother_rfid_hint">ತಾಯಿಯ ಶಾಶ್ವತ RFID ಅನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.</string>
+    <string name="counts_field_litter_size">ಎಷ್ಟು ಮರಿಗಳು ಹುಟ್ಟಿವೆ? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">ಅವಳಿ</string>
+    <string name="counts_litter_triplets">ತ್ರಿವಳಿ</string>
     <string name="counts_field_sex">ಲಿಂಗ</string>
     <string name="counts_field_status">ಸ್ಥಿತಿ</string>
     <string name="counts_field_goat">ಮೇಕೆ</string>
@@ -161,8 +168,13 @@
     <string name="counts_workflow_group_in_review">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
     <string name="counts_workflow_group_completed">ಪೂರ್ಣಗೊಂಡಿದೆ</string>
     <string name="counts_workflow_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="counts_birth_pending_header">ಅನುಮೋದನೆ ಬಾಕಿ ಇದೆ</string>
     <string name="counts_workflow_chip_all">ಎಲ್ಲಾ</string>
     <string name="counts_workflow_chip_overdue">ತಡವಾಗಿದೆ</string>
+    <string name="counts_workflow_previous_overdue_open">ಹಿಂದಿನ ದಿನಗಳ ಬಾಕಿ ಕೆಲಸವನ್ನು ತೋರಿಸಿ</string>
+    <string name="counts_workflow_previous_overdue_title">ಹಿಂದಿನ ದಿನಗಳಿಂದ ಬಾಕಿ</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d ಬಾಕಿ ಕೆಲಸಗಳು</string>
+    <string name="counts_workflow_previous_overdue_empty">ಹಿಂದಿನ ದಿನಗಳ ಯಾವುದೇ ಬಾಕಿ ಕೆಲಸ ಇಲ್ಲ.</string>
     <string name="counts_workflow_chip_due">ಬಾಕಿ</string>
     <string name="counts_workflow_chip_completed">ಪೂರ್ಣ</string>
     <string name="counts_workflow_chip_awaiting_video">ವೀಡಿಯೊ ಬಾಕಿ</string>
@@ -190,8 +202,10 @@
     <string name="counts_field_time_of_birth">ಜನನ ಸಮಯ (HH:MM)</string>
     <string name="counts_add_birth_dob_hint">ಜನನ ದಿನಾಂಕ — ಇಂದು. ಜನನಗಳನ್ನು ಆದಂತೆ ದಾಖಲಿಸಲಾಗುತ್ತದೆ.</string>
     <string name="counts_add_birth_time_hint">ಈಗಿನ ಸಮಯ ತುಂಬಲಾಗಿದೆ — ಬದಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
-    <string name="counts_add_birth_workflow_note">ಸಲ್ಲಿಸಿದ ಮೇಲೆ ಅನುಮೋದನೆಯ ನಂತರ ಮರಿ ಸೃಷ್ಟಿಯಾಗಿ ಅದರ ಜನನ ಫಾಲೋ-ಅಪ್ ಕ್ರಮಗಳು ತೆರೆಯುತ್ತವೆ — ತಾಯಿಗೆ Mother ಟ್ರ್ಯಾಕ್, ನವಜಾತಕ್ಕೆ Kid ಟ್ರ್ಯಾಕ್.</string>
+    <string name="counts_add_birth_workflow_note">ಸಲ್ಲಿಸಿದ ತಕ್ಷಣ ಪ್ರತಿಯೊಂದು ಮರಿಯೂ ತನ್ನದೇ ಜನನ ಕಾರ್ಯಗಳೊಂದಿಗೆ ಸೃಷ್ಟಿಯಾಗುತ್ತದೆ. ವೆಬ್ ಅನುಮೋದನೆ ಮರಿಗಳನ್ನು ಹಿಂಡಿನ ಎಣಿಕೆಗೆ ಮಾತ್ರ ಸೇರಿಸುತ್ತದೆ.</string>
     <string name="counts_add_death_subtitle">ಸತ್ತ ಪ್ರಾಣಿಯನ್ನು ಹುಡುಕಿ</string>
     <string name="counts_workflow_recorded">ರೆಕಾರ್ಡ್ ಮಾಡಲಾಗಿದೆ</string>
     <string name="counts_workflow_rerecord_video">ವೀಡಿಯೊವನ್ನು ಮರು-ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="counts_workflow_weight_kg">ತೂಕ (ಕೆಜಿ)</string>
+    <string name="counts_workflow_weight_continue">ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮುಂದುವರಿಯಿರಿ</string>
 </resources>

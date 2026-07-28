@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SelectableDates
@@ -34,6 +36,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -76,6 +80,14 @@ enum class WorkflowModuleUi { BIRTH, DEATH }
 /** One filter chip: backend bucket [key], display [label], backend-computed [count]. */
 @Immutable
 data class WorkflowChipUi(val key: String, val label: String, val count: Int)
+
+/** One previous business date with at least one actionable overdue workflow card. */
+@Immutable
+data class WorkflowOverdueDateUi(
+    val dateIso: String,
+    val dateLabel: String,
+    val workflowCount: Int,
+)
 
 /** Client-side presentation grouping of a card, derived from its own backend fields. */
 enum class WorkflowCardBucket { OVERDUE, DUE, IN_REVIEW, COMPLETED }
@@ -113,12 +125,15 @@ data class WorkflowListUiState(
     val dateLabel: String = "",
     val isToday: Boolean = true,
     val chips: List<WorkflowChipUi> = emptyList(),
+    val overdueDates: List<WorkflowOverdueDateUi> = emptyList(),
     val selectedFilter: String = "all",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
+    /** Transient acknowledgement returned by the add-birth child destination. */
+    val submissionNotice: String? = null,
 )
 
 sealed interface WorkflowListEvent {
@@ -128,6 +143,7 @@ sealed interface WorkflowListEvent {
     data object NextDay : WorkflowListEvent
     data object Today : WorkflowListEvent
     data class SelectDate(val dateIso: String) : WorkflowListEvent
+    data class OpenOverdueDate(val dateIso: String) : WorkflowListEvent
     data class OpenCard(val workflowId: String) : WorkflowListEvent
 
     /** ＋ — straight to the add form (maintainer decision: no chooser sheet). */
@@ -157,6 +173,7 @@ fun WorkflowListScreen(
             subtitle = state.subtitle.ifBlank { null },
             onBack = { onEvent(WorkflowListEvent.Back) },
             actions = {
+                WorkflowOverdueAlert(state.overdueDates, onEvent)
                 SyncIconButton(
                     isSyncing = state.isRefreshing,
                     onSync = { onEvent(WorkflowListEvent.Refresh) },
@@ -189,6 +206,12 @@ fun WorkflowListScreen(
             isOffline = state.isOffline,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
+        state.submissionNotice?.let { notice ->
+            CountsResultBanner(
+                result = CountsWriteResultUi(CountsWriteStatus.QUEUED, notice),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         WorkflowDateBar(state, accent, onEvent)
         if (!state.isToday) {
             Row(
@@ -235,6 +258,96 @@ fun WorkflowListScreen(
                     }
                     WorkflowCardRow(card, isDeath) { onEvent(WorkflowListEvent.OpenCard(card.workflowId)) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkflowOverdueAlert(
+    dates: List<WorkflowOverdueDateUi>,
+    onEvent: (WorkflowListEvent) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(5_000)
+            expanded = false
+        }
+    }
+    Box {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MeshaColors.WarnX)
+                .clickable { expanded = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Bell,
+                contentDescription = stringResource(R.string.counts_workflow_previous_overdue_open),
+                tint = MeshaColors.Warn,
+                modifier = Modifier.size(21.dp),
+            )
+            if (dates.isNotEmpty()) {
+                Text(
+                    text = dates.sumOf { it.workflowCount }.coerceAtMost(99).toString(),
+                    color = MeshaColors.OnBrand,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.W800,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 3.dp, end = 3.dp)
+                        .clip(CircleShape)
+                        .background(MeshaColors.Danger)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Text(
+                text = stringResource(R.string.counts_workflow_previous_overdue_title),
+                color = MeshaColors.Ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W800,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (dates.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.counts_workflow_previous_overdue_empty),
+                    color = MeshaColors.Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
+            dates.forEach { item ->
+                DropdownMenuItem(
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(item.dateLabel, color = MeshaColors.Ink, fontWeight = FontWeight.W700)
+                            Text(
+                                text = stringResource(
+                                    R.string.counts_workflow_previous_overdue_count,
+                                    item.workflowCount,
+                                ),
+                                color = MeshaColors.Warn,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onEvent(WorkflowListEvent.OpenOverdueDate(item.dateIso))
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = MeshaIcons.Calendar,
+                            contentDescription = null,
+                            tint = MeshaColors.Warn,
+                        )
+                    },
+                )
             }
         }
     }
@@ -412,6 +525,11 @@ private fun WorkflowGroupHeader(bucket: WorkflowCardBucket, isDeath: Boolean) {
         WorkflowCardBucket.IN_REVIEW -> stringResource(R.string.counts_workflow_group_in_review) to MeshaColors.Muted
         WorkflowCardBucket.COMPLETED -> stringResource(R.string.counts_workflow_group_completed) to MeshaColors.Ok
     }
+    WorkflowSectionHeader(label, color)
+}
+
+@Composable
+private fun WorkflowSectionHeader(label: String, color: Color) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

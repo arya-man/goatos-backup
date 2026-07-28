@@ -71,10 +71,18 @@ data class WorkflowChipsDto(
     @SerialName("awaiting_video") val awaitingVideo: Int = 0,
 )
 
+/** One previous business date that still has at least one actionable overdue workflow card. */
+@Serializable
+data class WorkflowOverdueDateDto(
+    @SerialName("date") val date: String = "",
+    @SerialName("workflow_count") val workflowCount: Int = 0,
+)
+
 @Serializable
 data class WorkflowListResponseDto(
     @SerialName("items") val items: List<WorkflowCardDto> = emptyList(),
     @SerialName("chips") val chips: WorkflowChipsDto = WorkflowChipsDto(),
+    @SerialName("overdue_dates") val overdueDates: List<WorkflowOverdueDateDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
@@ -105,6 +113,7 @@ data class WorkflowActionDto(
     @SerialName("due_at") val dueAt: String? = null,
     @SerialName("status") val status: String = "",
     @SerialName("blocked") val blocked: Boolean = false,
+    @SerialName("blocked_reason") val blockedReason: String = "",
     @SerialName("answer_value") val answerValue: String? = null,
     @SerialName("proof_ref") val proofRef: String? = null,
     @SerialName("completed_by_label") val completedByLabel: String? = null,
@@ -112,7 +121,7 @@ data class WorkflowActionDto(
     @SerialName("verification_status") val verificationStatus: String? = null,
 )
 
-/** The drill-in detail: the card, its facts grid, and the bounded operator action list (≤13 rows). */
+/** The drill-in detail: the card, its facts grid, and the bounded operator action list (≤18 rows). */
 @Serializable
 data class WorkflowDetailResponseDto(
     @SerialName("workflow_id") val workflowId: String = "",
@@ -136,6 +145,7 @@ data class WorkflowDetailResponseDto(
 @Serializable
 data class WorkflowActionAnswerRequestDto(
     @SerialName("answer_value") val answerValue: String,
+    @SerialName("proof_ref") val proofRef: String? = null,
 )
 
 /** Body of `POST …/actions/{action_id}/complete`. [proofRef] is REQUIRED when the action

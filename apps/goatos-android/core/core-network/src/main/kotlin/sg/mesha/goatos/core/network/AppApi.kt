@@ -24,7 +24,7 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
-import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
@@ -699,22 +699,19 @@ interface AppApi {
         request: CountsShiftingEventRequestDto,
     ): CountsShiftingEventResponseDto
 
-    /** POST /app/counts/birth-events — records a birth as goat creation with `origin_type`
-     *  pinned to `birth` server-side. The `goat.created` event it emits still auto-generates the
-     *  kid's vaccination obligations. Idempotent on [idempotencyKey] like every other write. */
+    /** POST /app/counts/birth-events — creates every child and its birth work immediately. The
+     *  accompanying web approval controls only whether those children join herd counts. */
     suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
-    /** POST /app/counts/death-events — records a death through identity's guardrailed
-     *  critical-death exit. The `lifecycle_status="dead"` + `exit_reason="died"` pairing is
-     *  enforced server-side; the emitted `goat.exited` event auto-cancels the animal's open
-     *  obligations. Idempotent on [idempotencyKey]. */
+    /** POST /app/counts/death-events — raises a pending death approval request. The animal exits
+     *  only when the request is approved. */
     suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
     /**
      * GET /goats/search — scope-filtered animal lookup. Backs the shifting screen's animal
@@ -742,8 +739,8 @@ interface AppApi {
         cursor: String? = null,
     ): CountsApprovalListResponseDto
 
-    /** POST /app/counts/approvals/{request_id}/approve — applies the request (creates the kid,
-     *  exits the animal, or authorizes the movement AND relocates its animals), atomically with
+    /** POST /app/counts/approvals/{request_id}/approve — applies the request (activates birth
+     *  count eligibility, exits the animal, or authorizes movement), atomically with
      *  the status flip. Drained through the offline outbox with a stable [idempotencyKey] so a
      *  server-committed-but-client-unrecorded retry returns the original decision instead of
      *  applying the effect twice. */
@@ -778,7 +775,7 @@ interface AppApi {
     ): WorkflowListResponseDto
 
     /** GET /app/workflows/{workflow_id} — one workflow's card header, context facts, and full
-     *  bounded action list (≤13 rows). */
+     *  bounded action list (≤18 rows). */
     suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto
 
     /**
@@ -1192,12 +1189,24 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+    ): CountsApprovalSubmitResponseDto = CountsApprovalSubmitResponseDto(
+        approvalRequestId = "fake-birth-approval-$idempotencyKey",
+        requestType = "birth",
+        status = "pending",
+        raisedAt = "2026-07-28T00:00:00Z",
+        idempotentReplay = false,
+    )
 
     override suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+    ): CountsApprovalSubmitResponseDto = CountsApprovalSubmitResponseDto(
+        approvalRequestId = "fake-death-approval-$idempotencyKey",
+        requestType = "death",
+        status = "pending",
+        raisedAt = "2026-07-28T00:00:00Z",
+        idempotentReplay = false,
+    )
 
     override suspend fun searchGoats(
         q: String?,

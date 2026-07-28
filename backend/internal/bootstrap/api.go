@@ -459,7 +459,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// standalone bounded context producers plug into via the type registry. Media is resolved
 	// through the EXISTING proof signed-URL port, never proxied/duplicated.
 	verificationRepo := verificationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	verificationMedia := verificationproofmedia.NewResolver(proofService)
+	verificationMedia := verificationproofmedia.NewResolver(proofService).
+		WithActionPresentationResolver(tasksWorkflowRepo)
 	processIntegrityService.WithMediaResolver(verificationMedia)
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
@@ -529,6 +530,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Module:        tasksdomain.VerificationModuleCounts,
 		Category:      tasksdomain.VerificationCategoryDeathEvidence,
 		ExpectedMedia: []string{"video", "video"},
+		SLAHours:      24,
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      tasksdomain.VerificationVerticalCounts,
+		Module:        tasksdomain.VerificationModuleCounts,
+		Category:      tasksdomain.VerificationCategoryBirthEvidence,
+		ExpectedMedia: []string{"video"},
 		SLAHours:      24,
 	}); err != nil {
 		pool.Close()

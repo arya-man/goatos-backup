@@ -2,12 +2,36 @@ package sg.mesha.goatos.core.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 
 class WorkflowOptimisticSequenceTest {
+    @Test
+    fun `optimistic sequencing preserves backend temporal block`() {
+        val detail = WorkflowDetailResponseDto(
+            actionsDone = 5,
+            actionsTotal = 6,
+            actions = listOf(
+                WorkflowActionDto(
+                    actionId = "ors-2",
+                    actionKey = "ors_water_2",
+                    seq = 6,
+                    actionType = "action",
+                    status = "pending",
+                    blocked = true,
+                    blockedReason = "not_yet_due",
+                ),
+            ),
+        )
+
+        val optimistic = detail.withOptimisticOperatorSequence()
+
+        assertTrue(optimistic.actions.single().blocked)
+    }
+
     @Test
     fun `queued death video counts as done and unlocks post mortem`() {
         val detail = WorkflowDetailResponseDto(
@@ -93,6 +117,48 @@ class WorkflowOptimisticSequenceTest {
         )
 
         assertEquals(0, reconciled.actionsDone)
+    }
+
+    @Test
+    fun `birth optimistic progress includes scheduled colostrum`() {
+        val detail = WorkflowDetailResponseDto(
+            module = "birth",
+            actionsDone = 0,
+            actionsTotal = 3,
+            actions = listOf(
+                WorkflowActionDto(
+                    actionId = "first-colostrum",
+                    actionKey = "first_colostrum",
+                    seq = 1,
+                    section = "main",
+                    actionType = "action",
+                    status = "completed",
+                ),
+                WorkflowActionDto(
+                    actionId = "scheduled-colostrum",
+                    actionKey = "colostrum_day_1_1500",
+                    seq = 2,
+                    section = "colostrum_session",
+                    actionType = "action",
+                    status = "in_review",
+                ),
+                WorkflowActionDto(
+                    actionId = "tag",
+                    actionKey = "tag_the_kid",
+                    seq = 3,
+                    section = "main",
+                    actionType = "action",
+                    status = "pending",
+                ),
+            ),
+        )
+
+        val optimistic = detail.withOptimisticOperatorSequence()
+        val card = WorkflowCardDto().withOptimisticOperatorProgress(optimistic, nowMs = 0)
+
+        assertEquals(2, optimistic.actionsDone)
+        assertEquals(2, card.actionsDone)
+        assertEquals(3, card.actionsTotal)
     }
 
     private fun deathDetail(firstStatus: String, secondBlocked: Boolean) =

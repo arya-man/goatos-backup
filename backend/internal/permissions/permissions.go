@@ -84,11 +84,10 @@ const (
 	// CountsApproveLifecycle gates approving/rejecting a BIRTH or DEATH request
 	// (/app/counts/approvals/{id}/{approve,reject} for those two types).
 	//
-	// Per the maintainer decision (2026-07-19), birth and death are pending until approved: the
-	// submission writes no goats row and emits no goat.created/goat.exited, so approving one is
-	// the act that creates a kid (and generates its vaccination obligations) or exits an animal
-	// (and cancels its open obligations). That is a herd-composition decision, so it sits with the
-	// CEO/internal tier, not with the ground roles that capture the event.
+	// Birth submission creates canonical children immediately but keeps them outside herd counts;
+	// birth approval admits the whole litter to those counts. Death submission leaves the goat alive,
+	// and death approval exits it and cancels open obligations. Those herd-composition decisions sit
+	// with the CEO/internal tier, not with the ground roles that capture the event.
 	//
 	// Deliberately NOT granted to RoleParkHead: a park head runs a park, and the whole point of
 	// splitting this from CountsApproveShifting is that the person who authorizes a movement is

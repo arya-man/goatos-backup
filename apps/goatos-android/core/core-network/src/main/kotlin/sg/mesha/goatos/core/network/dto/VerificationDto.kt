@@ -34,6 +34,8 @@ data class VerificationSourceRef(
 @Serializable
 data class VerificationMediaItem(
     @SerialName("proof_id") val proofId: String = "",
+    @SerialName("label") val label: String? = null,
+    @SerialName("answer") val answer: String? = null,
     @SerialName("download_url") val downloadUrl: String = "",
     @SerialName("mime_type") val mimeType: String? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,

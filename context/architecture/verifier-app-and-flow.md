@@ -38,12 +38,18 @@ own execution — the anti-fraud/quality gate.
 ## Verifier APP scope (mobile, standalone)
 A verifier who opens the app sees **only** video verification — nothing else:
 - **A queue of pending media to verify**, separated into module tabs. Birth and
-  Death have distinct tabs: Death reads category `death_evidence`; Birth reserves
-  category `birth_evidence` but remains empty until its producer flow is approved.
+  Death have distinct tabs: Death reads category `death_evidence`; Birth reads
+  category `birth_evidence`. Each mother or child enters Birth verification as
+  soon as every task in that subject's workflow is complete with video. One item
+  at `workflow_id` grain carries only that mother or child's ordered proof bundle;
+  siblings never block or share the verdict.
   Other tabs cover vaccine, shifting, packing, and feed-direction evidence. The
   verifier is assigned one or more categories.
-- Per item: **play the video(s)** (+ its context: shed/park/operator/timestamp from
-  the capture metadata) → **Approve** or **Reject + mandatory reason**.
+- Per item: **play the video(s)**. Every task proof renders its backend-authored
+  workflow task title immediately above the matching video. Question/value tasks
+  also render the recorded operator answer; action-only tasks omit the answer.
+  Android never derives either value from category or list position. Context includes shed/park/operator/
+  timestamp from the capture metadata → **Approve** or **Reject + mandatory reason**.
 - **No capture, no ops, no roster, no config** — the standalone Verifier section
   only. Tabs render backend-owned category queues; an empty tab does not fabricate
   verification work.
@@ -51,7 +57,8 @@ A verifier who opens the app sees **only** video verification — nothing else:
 
 ## Backend (generic — see verification-module-design.md)
 - Producers (vaccination, diagnosis, death, feed, …) emit `verification_item`
-  (module-agnostic) with `{vertical, module, category, media[], status, verdict}`.
+  (module-agnostic) with `{vertical, module, category, media[], status, verdict}`;
+  resolved task media includes `media[].label` from canonical task/action truth.
 - Verifier action: `POST /verification/items/{id}/verdict {approved|rejected, reason}`
   gated by the new **`verification.review`** permission (the Verifier role). Reject
   requires a reason.

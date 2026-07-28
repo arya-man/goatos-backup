@@ -57,6 +57,28 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 	return err
 }
 
+func (e *DeathEvidenceEnqueuer) EnqueueBirthEvidenceVerification(ctx context.Context, in tasksapp.BirthVerificationEnqueueRequest) error {
+	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
+		TenantID:     in.TenantID,
+		Vertical:     tasksdomain.VerificationVerticalCounts,
+		Module:       tasksdomain.VerificationModuleCounts,
+		Category:     tasksdomain.VerificationCategoryBirthEvidence,
+		SubjectLabel: ptrIfSet(in.SubjectLabel),
+		Source: verificationdomain.SourceRef{
+			Module:  tasksdomain.VerificationModuleCounts,
+			RefType: tasksdomain.VerificationRefTypeBirthSignoff,
+			RefID:   in.WorkflowID,
+		},
+		MediaRefs:      in.ProofRefs,
+		OperatorID:     ptrIfSet(in.OperatorID),
+		ShedID:         ptrIfSet(in.ShedID),
+		ParkID:         ptrIfSet(in.ParkID),
+		CapturedAt:     in.CapturedAt,
+		IdempotencyKey: in.IdempotencyKey,
+	})
+	return err
+}
+
 func ptrIfSet(s string) *string {
 	if s == "" {
 		return nil

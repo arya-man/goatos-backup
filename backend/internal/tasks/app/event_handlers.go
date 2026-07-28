@@ -88,8 +88,8 @@ type goatCreatedPayload struct {
 }
 
 // GoatCreatedWorkflowHandler opens the birth follow-up workflows (kid track + shared mother track)
-// when a birth-origin goat is created — i.e. when a birth request is APPROVED, per the locked
-// apply-at-approval rule: the work list shows cards only once the event applied.
+// when a birth-origin goat is created during birth submission. Count approval happens later and
+// does not participate in workflow creation.
 type GoatCreatedWorkflowHandler struct {
 	svc *Service
 }
@@ -179,14 +179,14 @@ func (h *GoatExitedWorkflowHandler) HandleEvent(ctx context.Context, e eventbus.
 // identifierAddedPayload is the subset of the identity goat.identifier.added payload this consumer
 // reads (emitted by the promote path alongside goat.identifier.retired for the temp).
 type identifierAddedPayload struct {
-	GoatID         string `json:"goat_id"`
-	IdentifierType string `json:"identifier_type"`
-	Action         string `json:"action"`
+	GoatID          string `json:"goat_id"`
+	IdentifierType  string `json:"identifier_type"`
+	IdentifierValue string `json:"identifier_value"`
+	Action          string `json:"action"`
 }
 
-// IdentifierAddedWorkflowHandler completes the "Tag the kid" step when a PERMANENT
-// animal_identifier_1 is attached — the promote flow stays the single writer of identifier truth;
-// the client never chains this.
+// IdentifierAddedWorkflowHandler records the permanent-RFID prerequisite on "Tag the kid". It
+// deliberately does not complete the step; the operator's mandatory tagging video does that.
 type IdentifierAddedWorkflowHandler struct {
 	svc *Service
 }
@@ -250,6 +250,54 @@ type deathVerdictPayload struct {
 type DeathVerificationHandler struct {
 	svc *Service
 	now func() time.Time
+}
+
+type BirthVerificationHandler struct {
+	svc *Service
+	now func() time.Time
+}
+
+func NewBirthVerificationHandler(svc *Service, now func() time.Time) *BirthVerificationHandler {
+	if now == nil {
+		now = time.Now
+	}
+	return &BirthVerificationHandler{svc: svc, now: now}
+}
+
+func (h *BirthVerificationHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventVerificationVerdictApproved, h)
+	bus.Subscribe(EventVerificationVerdictRework, h)
+}
+
+func (h *BirthVerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	if e.Type != EventVerificationVerdictApproved && e.Type != EventVerificationVerdictRework {
+		return nil
+	}
+	var p deathVerdictPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+	}
+	if p.Source.Module != domain.VerificationModuleCounts || p.Source.RefType != domain.VerificationRefTypeBirthSignoff {
+		return nil
+	}
+	workflowID := strings.TrimSpace(p.Source.RefID)
+	if workflowID == "" || strings.TrimSpace(e.TenantID) == "" {
+		return nil
+	}
+	verdictAt := e.OccurredAt
+	if verdictAt.IsZero() {
+		verdictAt = h.now().UTC()
+	}
+	cmd := ports.DeathVerdictCommand{
+		TenantID: e.TenantID, WorkflowID: workflowID, VerifiedBy: strings.TrimSpace(p.VerifiedBy),
+		Reason: strings.TrimSpace(p.Reason), VerdictAt: verdictAt,
+	}
+	if e.Type == EventVerificationVerdictApproved {
+		return h.svc.ApplyBirthSignoffApproved(ctx, cmd)
+	}
+	return h.svc.BounceBirthVideoForRework(ctx, cmd)
 }
 
 func NewDeathVerificationHandler(svc *Service, now func() time.Time) *DeathVerificationHandler {

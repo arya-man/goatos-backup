@@ -36,7 +36,7 @@ func identifierAlreadyOwnedValidation(ports.ValidateAdminGoatCreateCommand) (por
 }
 
 const reproUpdateCSV = "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Reproductive status\n" +
-	"A1-EXIST-001,A2-EXIST-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,pregnant\n"
+	"A1-EXIST-001,A2-EXIST-001,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15,pregnant\n"
 
 func commitRawFromPreview(t *testing.T, preview *domain.AdminGoatBulkResponse) []byte {
 	t.Helper()

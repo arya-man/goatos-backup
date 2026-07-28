@@ -31,12 +31,11 @@ import (
 // These three endpoints let a FIELD OPERATOR record the three count-moving events from the phone: a
 // shifting (movement) event, a birth, and a death.
 //
-// MAINTAINER DECISION (2026-07-19) -- these routes RECORD, they no longer APPLY. An operator
-// reports what happened; an approver decides it. Concretely:
+// These routes record operator facts and apply the workflow-specific gate. Concretely:
 //
-//   - birth: creates a PENDING request only. No goats row, no goat.created, and therefore NO
-//     vaccination obligations for the kid until a ceo_internal approves it. Returns 202 with an
-//     approval_request_id and no goat_id, because no animal exists yet.
+//   - birth: immediately creates one canonical child per litter member plus one count-only PENDING
+//     approval. Each goat.created event opens that child's Birth work; approval only admits the
+//     litter to herd counts.
 //   - death: creates a PENDING request only. The animal stays alive and its open obligations stay
 //     open until a ceo_internal approves it. The dead+died guardrail is enforced HERE at submit so
 //     a bad pairing is rejected on the phone, and again at approval.
@@ -44,9 +43,8 @@ import (
 //     authorization_state='pending'; the new part is the linked approval request that puts it in a
 //     park_head's queue. Approving it MOVES THE ANIMALS named in goat_ids.
 //
-// The payload is validated at SUBMIT time through the owning module's Prepare* seam (which has no
-// side effects) so an operator gets an immediate, specific error instead of a rejection days later
-// from an approver. What is deferred is the APPLY, not the validation.
+// The payload is validated at SUBMIT time through the owning module's Prepare* seam so an operator
+// gets an immediate, specific error instead of a rejection days later from an approver.
 //
 // Every route requires a client Idempotency-Key and honours the repo's mandatory idempotency
 // contract: first call performs the write, an exact replay returns the original result with no new
@@ -114,19 +112,19 @@ type ShiftingEventRecorder interface {
 	DeriveShiftingSource(ctx context.Context, tenantID string, goatIDs []string) (parkID *string, shedID *string, err error)
 }
 
-// NOTE: there is deliberately NO direct goat-writing dependency on this handler any more.
+// NOTE: the handler prepares each birth child through identity validation, but the approval service
+// owns the single transaction that persists the litter and its count-only approval request.
 //
-// It previously held a GoatLifecycleWriter and applied births/deaths inline. Per the maintainer
-// decision (2026-07-19) those events are pending until approved, so the ability to apply one from a
-// submit route was REMOVED rather than merely left unused -- an unused apply seam is a bypass
-// waiting to be re-wired. The only path that creates or exits an animal is now the approval
-// decision, which goes through identity's guarded commands inside the approval transaction.
+// Death remains unapplied until approval; births create canonical goats at submission and approval
+// only flips the litter's herd-count eligibility. Both mutations still use identity's guarded
+// commands rather than a handler-owned direct write seam.
 
 // GoatLifecycleValidator validates a birth/death payload WITHOUT applying it, so an operator learns
 // at submit time that a dob is malformed or that a death is not a valid dead+died pairing.
 // *identityapp.Service satisfies it.
 type GoatLifecycleValidator interface {
 	PrepareCreateAdminGoat(ctx context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error)
+	BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error)
 	PrepareCriticalDeathExit(ctx context.Context, in identityapp.ExitGoatInput) (identityports.ExitGoatCommand, error)
 	// PromoteTemporaryIdentifier assigns a permanent RFID to a temporary-tagged goat, atomically
 	// retiring the temp. Applied directly (not an approval): it is the operator's retag action, like
@@ -279,15 +277,15 @@ type appShiftingEventResponse struct {
 	IdempotentReplay  bool   `json:"idempotent_replay"`
 }
 
-// appApprovalSubmitResponse is what the birth and death routes return now that they RECORD a
-// pending request instead of applying it. There is deliberately no goat_id in it: no animal has
-// been created or exited yet.
+// appApprovalSubmitResponse is shared by birth/death. Birth fills Children with the canonical
+// goats created at submit; death leaves it empty because its exit still applies on approval.
 type appApprovalSubmitResponse struct {
-	ApprovalRequestID string    `json:"approval_request_id"`
-	RequestType       string    `json:"request_type"`
-	Status            string    `json:"status"`
-	RaisedAt          time.Time `json:"raised_at"`
-	IdempotentReplay  bool      `json:"idempotent_replay"`
+	ApprovalRequestID string                    `json:"approval_request_id"`
+	RequestType       string                    `json:"request_type"`
+	Status            string                    `json:"status"`
+	RaisedAt          time.Time                 `json:"raised_at"`
+	IdempotentReplay  bool                      `json:"idempotent_replay"`
+	Children          []domain.BirthChildResult `json:"children,omitempty"`
 }
 
 var (
@@ -688,64 +686,107 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// AUTO PROVISIONAL ID (maintainer decision 2026-07-27, docs/decisions/birth-death-workflows.md):
-	// the operator does NOT scan an RFID at birth. When the app supplies NEITHER animal_identifier_1
-	// NOR temporary_identifier, the server derives a provisional temporary tag ("K-" + 6 digits, from
-	// the client idempotency key) and injects it into the body BEFORE prepare, so the stored approval
-	// payload is fully explicit and approval replays it verbatim. The derivation must stay
-	// key-deterministic — see deriveProvisionalTemporaryTag. The kid lives under this tag until "Tag
-	// the kid" promotes it to the permanent RFID. Explicitly supplied identifiers keep today's
-	// behavior (admin path unchanged).
-	autoProvisional := !jsonFieldPresent(fields, "animal_identifier_1") && !jsonFieldPresent(fields, "temporary_identifier")
-
-	// Validate NOW, apply NEVER (here). PrepareCreateAdminGoat runs the identical decode,
-	// normalization, dob<=entry_date rule, identifier-uniqueness check and location resolution that
-	// creating the goat would run, so a malformed submission is rejected on the operator's phone
-	// immediately -- but it has NO side effects, and the command it returns is discarded. The kid
-	// is created, and its vaccination obligations generated, only when the request is approved.
-	//
-	// With an auto-generated provisional tag, the identifier-uniqueness check doubles as the
-	// generation's collision probe: a "already belongs to animal" rejection regenerates the tag and
-	// retries (bounded), instead of surfacing a conflict the operator never caused.
-	var forwarded []byte
-	const maxProvisionalAttempts = 5
-	for attempt := 0; ; attempt++ {
-		if autoProvisional {
-			raw, err := json.Marshal(deriveProvisionalTemporaryTag(clientKey, attempt))
-			if err != nil {
-				h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
-				return
-			}
-			fields["temporary_identifier"] = json.RawMessage(raw)
-		}
-		forwarded, err = json.Marshal(fields)
-		if err != nil {
-			h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
-			return
-		}
-		_, prepErr := h.validator.PrepareCreateAdminGoat(r.Context(), identityapp.CreateAdminGoatInput{
-			TenantID:       tenantID,
-			ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
-			IdempotencyKey: clientKey,
-			TraceID:        appTraceID(r),
-			RawBody:        forwarded,
-		})
-		if prepErr == nil {
-			break
-		}
-		if autoProvisional && attempt < maxProvisionalAttempts-1 && isIdentifierOwnedError(prepErr) {
-			continue
-		}
-		h.writeAppError(w, r, prepErr)
+	var litterSize int
+	if raw, present := fields["litter_size"]; !present || json.Unmarshal(raw, &litterSize) != nil || litterSize < 1 || litterSize > 3 {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_litter_size", "litter_size must be 1, 2, or 3", nil)
+		return
+	}
+	if litterSize > 1 && (jsonFieldPresent(fields, "animal_identifier_1") || jsonFieldPresent(fields, "temporary_identifier")) {
+		h.writeError(w, r, http.StatusBadRequest, "identifier_not_allowed_for_litter",
+			"twins and triplets receive one server-generated provisional identifier per child", nil)
+		return
+	}
+	var parkID string
+	if raw, present := fields["park_id"]; !present || json.Unmarshal(raw, &parkID) != nil || strings.TrimSpace(parkID) == "" {
+		h.writeError(w, r, http.StatusBadRequest, "missing_park_id", "park_id is required", nil)
+		return
+	}
+	prefix, err := h.validator.BirthProvisionalPrefix(r.Context(), tenantID, parkID)
+	if err != nil {
+		h.writeAppError(w, r, err)
 		return
 	}
 
+	// One submission fans out to one independently identified canonical goat per child. Every
+	// command is fully identity-validated before the Counts repository commits the litter and its
+	// count-approval row atomically. The per-child key and derived tag are stable across offline
+	// retries; collision salts are bounded and deterministic.
+	commands := make([]identityports.CreateAdminGoatCommand, 0, litterSize)
+	childDescriptors := make([]map[string]any, 0, litterSize)
+	usedTags := make(map[string]struct{}, litterSize)
+	canonicalFields := cloneJSONFields(fields)
+	delete(canonicalFields, "animal_identifier_1")
+	delete(canonicalFields, "animal_identifier_2")
+	delete(canonicalFields, "temporary_identifier")
+	const maxProvisionalAttempts = 10
+	for childOrdinal := 1; childOrdinal <= litterSize; childOrdinal++ {
+		var prepared identityports.CreateAdminGoatCommand
+		var temporaryIdentifier string
+		for attempt := 0; attempt < maxProvisionalAttempts; attempt++ {
+			temporaryIdentifier = deriveProvisionalTemporaryTag(prefix, clientKey, childOrdinal, attempt)
+			if _, duplicate := usedTags[temporaryIdentifier]; duplicate {
+				continue
+			}
+			childFields := cloneJSONFields(canonicalFields)
+			rawTag, marshalErr := json.Marshal(temporaryIdentifier)
+			if marshalErr != nil {
+				h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", marshalErr)
+				return
+			}
+			childFields["temporary_identifier"] = rawTag
+			forwarded, marshalErr := json.Marshal(childFields)
+			if marshalErr != nil {
+				h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", marshalErr)
+				return
+			}
+			prepared, err = h.validator.PrepareCreateAdminGoat(r.Context(), identityapp.CreateAdminGoatInput{
+				TenantID: tenantID, ActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+				IdempotencyKey: fmt.Sprintf("%s:child:%d", clientKey, childOrdinal),
+				TraceID:        appTraceID(r), RawBody: forwarded,
+			})
+			if err == nil {
+				break
+			}
+			if !isIdentifierOwnedError(err) {
+				h.writeAppError(w, r, err)
+				return
+			}
+		}
+		if err != nil {
+			h.writeAppError(w, r, err)
+			return
+		}
+		if prepared.DamID == nil {
+			h.writeError(w, r, http.StatusBadRequest, "mother_not_found", "mother RFID must resolve to a canonical female goat", nil)
+			return
+		}
+		usedTags[temporaryIdentifier] = struct{}{}
+		commands = append(commands, prepared)
+		childDescriptors = append(childDescriptors, map[string]any{
+			"child_ordinal": childOrdinal, "temporary_identifier": temporaryIdentifier,
+		})
+		if childOrdinal == 1 {
+			rawDam, _ := json.Marshal(*prepared.DamID)
+			canonicalFields["dam_id"] = rawDam
+		}
+	}
+	childrenRaw, err := json.Marshal(childDescriptors)
+	if err != nil {
+		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+		return
+	}
+	canonicalFields["children"] = childrenRaw
+	forwarded, err := json.Marshal(canonicalFields)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
 	canonical, err := canonicalRequestBytes(tenantID, appBirthEventCommand, appBirthEventRoute, json.RawMessage(forwarded))
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
 	}
-	request, replay, err := h.approvals.SubmitRequest(r.Context(), domain.ApprovalRequestSubmission{
+	result, err := h.approvals.SubmitBirthRequest(r.Context(), domain.ApprovalRequestSubmission{
 		TenantID:           tenantID,
 		RequestType:        domain.ApprovalRequestTypeBirth,
 		Payload:            forwarded,
@@ -753,17 +794,18 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "app-counts-birth:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-birth-request", canonical),
-	})
+	}, commands)
 	if err != nil {
 		h.writeApprovalError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusAccepted, appApprovalSubmitResponse{
-		ApprovalRequestID: request.ApprovalRequestID,
-		RequestType:       request.RequestType,
-		Status:            request.Status,
-		RaisedAt:          request.RaisedAt,
-		IdempotentReplay:  replay,
+		ApprovalRequestID: result.Approval.ApprovalRequestID,
+		RequestType:       result.Approval.RequestType,
+		Status:            result.Approval.Status,
+		RaisedAt:          result.Approval.RaisedAt,
+		IdempotentReplay:  result.Replayed,
+		Children:          result.Children,
 	})
 }
 
@@ -990,8 +1032,7 @@ func jsonFieldPresent(fields map[string]json.RawMessage, key string) bool {
 	return value != nil && strings.TrimSpace(*value) != ""
 }
 
-// deriveProvisionalTemporaryTag mints the "K-" + 6 digit provisional tag for a newborn recorded
-// without any identifier.
+// deriveProvisionalTemporaryTag mints the park-prefixed five-digit provisional tag for one child.
 //
 // The tag is DERIVED FROM THE CLIENT IDEMPOTENCY KEY, never random. It is injected into the request
 // body before that body is marshalled, and the same body feeds the approval request fingerprint —
@@ -1003,10 +1044,18 @@ func jsonFieldPresent(fields map[string]json.RawMessage, key string) bool {
 //
 // attempt salts the derivation so the bounded collision-retry loop walks to a different tag while
 // each attempt stays reproducible on replay.
-func deriveProvisionalTemporaryTag(clientKey string, attempt int) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "goatos-provisional-kid-tag:%s:%d", clientKey, attempt))
-	n := binary.BigEndian.Uint64(sum[:8]) % 1000000
-	return fmt.Sprintf("K-%06d", n)
+func deriveProvisionalTemporaryTag(prefix, clientKey string, childOrdinal, attempt int) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "goatos-provisional-kid-tag:%s:%s:%d:%d", prefix, clientKey, childOrdinal, attempt))
+	n := binary.BigEndian.Uint64(sum[:8]) % 100000
+	return fmt.Sprintf("%s-%05d", strings.ToUpper(strings.TrimSpace(prefix)), n)
+}
+
+func cloneJSONFields(in map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // isIdentifierOwnedError matches identity's identifier-uniqueness rejection

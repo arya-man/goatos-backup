@@ -36,6 +36,7 @@ import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowNextActionDto
+import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
 
 /** One screen-page of workflow cards. The backend caps `GET /app/workflows` at 20 server-side; the
  *  client asks for the same bound so both layers page identically
@@ -83,6 +84,9 @@ interface WorkflowsRepository {
 
     /** The day's chip counts for (module, date) — refreshed by every list page load. */
     fun observeChips(module: String, date: String): Flow<WorkflowChipsDto?>
+
+    /** At most five previous business dates with actionable overdue work, cached Room-first. */
+    fun observeOverdueDates(module: String): Flow<List<WorkflowOverdueDateDto>>
 
     /** The cached drill-in detail. Emits null on a cold cache; [refreshDetail] repopulates. */
     fun observeDetail(workflowId: String): Flow<WorkflowDetailResponseDto?>
@@ -168,6 +172,21 @@ class DefaultWorkflowsRepository(
                     now = clock(),
                     quarantine = { database.workflowChipsCacheDao().delete(it) },
                 ).data
+            }
+            .flowOn(Dispatchers.Default)
+
+    // offline-first-guard:ignore: Room-backed bounded JSON summary (maximum five dates).
+    override fun observeOverdueDates(module: String): Flow<List<WorkflowOverdueDateDto>> =
+        database.workflowChipsCacheDao().observe(overdueDatesKey(module))
+            .map { entity ->
+                readCachedJson<List<WorkflowOverdueDateDto>>(
+                    json = json,
+                    cacheKey = overdueDatesKey(module),
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { database.workflowChipsCacheDao().delete(it) },
+                ).data.orEmpty()
             }
             .flowOn(Dispatchers.Default)
 
@@ -278,8 +297,8 @@ class DefaultWorkflowsRepository(
 
     /**
      * Rewrites the cached detail through [transform], recomputing the done counter over the SAME
-     * grain the backend maintains (main-section operator actions; colostrum sessions and hidden
-     * approvals never count toward `actions_total`). Purely optimistic UI state — the next [refreshDetail] reconciles with the
+     * grain the backend maintains (all visible operator actions, including scheduled colostrum;
+     * hidden approvals never count toward `actions_total`). Purely optimistic UI state — the next [refreshDetail] reconciles with the
      * backend truth. A missing/corrupt cache row is a no-op (the screen refetches anyway).
      */
     private suspend fun mutateCachedDetail(
@@ -361,7 +380,7 @@ internal fun WorkflowCardDto.withOptimisticOperatorProgress(
     nowMs: Long,
 ): WorkflowCardDto {
     val operatorActions = detail.actions
-        .filter { it.section == "main" && it.actionType != "approval" }
+        .filter { it.actionType != "approval" }
         .sortedBy { it.seq }
     fun operatorFinished(status: String): Boolean = status == "completed" || status == "in_review"
     val next = operatorActions.firstOrNull { !operatorFinished(it.status) }
@@ -411,12 +430,13 @@ internal fun WorkflowDetailResponseDto.withOptimisticOperatorSequence(): Workflo
                     previous.seq < action.seq &&
                     !operatorFinished(previous)
             }
-            action.copy(blocked = hasIncompletePredecessor)
+            val backendHardBlock = action.blocked &&
+                action.blockedReason.isNotBlank() &&
+                action.blockedReason != "previous_action"
+            action.copy(blocked = hasIncompletePredecessor || backendHardBlock)
         }
     }
-    val done = sequencedActions.count {
-        it.section == "main" && it.actionType != "approval" && operatorFinished(it)
-    }
+    val done = sequencedActions.count { it.actionType != "approval" && operatorFinished(it) }
     return copy(actions = sequencedActions, actionsDone = done)
 }
 
@@ -452,6 +472,9 @@ private fun scopeKey(module: String, date: String, filter: String): String =
 
 private fun chipsKey(module: String, date: String): String =
     cacheKey("workflow-chips", module, date)
+
+private fun overdueDatesKey(module: String): String =
+    cacheKey("workflow-overdue-dates", module)
 
 /**
  * Fills Room from the backend page-by-page over the endpoint's opaque keyset cursor, and persists
@@ -564,6 +587,13 @@ private class WorkflowRemoteMediator(
                     WorkflowChipsCacheEntity(
                         cacheKey = chipsKey(module, date),
                         dtoJson = json.encodeToString(response.chips),
+                        updatedAt = updatedAt,
+                    ),
+                )
+                database.workflowChipsCacheDao().upsert(
+                    WorkflowChipsCacheEntity(
+                        cacheKey = overdueDatesKey(module),
+                        dtoJson = json.encodeToString(response.overdueDates),
                         updatedAt = updatedAt,
                     ),
                 )

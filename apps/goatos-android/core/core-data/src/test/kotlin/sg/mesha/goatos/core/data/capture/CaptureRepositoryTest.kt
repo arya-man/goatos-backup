@@ -1481,6 +1481,8 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         delegate.deleteWorkflowDeathDraft(workflowId, actionId)
     override suspend fun clearWorkflowDeathDrafts(workflowId: String) =
         delegate.clearWorkflowDeathDrafts(workflowId)
+    override suspend fun markWorkflowDeathDraftsSubmitting(workflowId: String) =
+        delegate.markWorkflowDeathDraftsSubmitting(workflowId)
     override fun observeForTask(taskId: String, limit: Int): Flow<List<ProofCaptureEntity>> =
         delegate.observeForTask(taskId, limit)
     override suspend fun listForTask(taskId: String, limit: Int): List<ProofCaptureEntity> =

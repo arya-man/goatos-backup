@@ -630,7 +630,7 @@ After giving colostrum give 100 ml milk.
 
       <!-- 3 · ADD BIRTH -->
       <div>
-        <div class="col-head"><span class="step">3 · Add</span><p>What ＋ opens — today's form, unchanged.</p></div>
+        <div class="col-head"><span class="step">3 · Add</span><p>What ＋ opens — one child per birth record.</p></div>
         <div class="phone"><div class="screen"><div class="notch"></div>
           <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
           <div class="body" style="padding-bottom:118px">
@@ -640,17 +640,12 @@ After giving colostrum give 100 ml milk.
             </div>
 
             <div class="fcard"><span class="fct">Identity</span>
-              <div class="bigfield"><span class="ph">Scan RFID<span class="req">*</span></span><span class="ic">⌕</span></div>
-              <div class="fhint">Hold the reader to the ear tag.</div>
+              <div class="fhint">The kid gets a provisional tag automatically. Attach its permanent RFID later in “Tag the kid”.</div>
               <div class="lblrow">Species</div>
               <div class="bigseg"><button class="o on">🐐 Goat</button><button class="o">🐑 Sheep</button></div>
               <div class="lblrow">Sex</div>
               <div class="bigseg"><button class="o on">♀ Female</button><button class="o">♂ Male</button></div>
-              <button class="expander" onclick="tog('ab-more')">＋ Add details (second RFID, breed)</button>
-              <div class="hide" id="ab-more">
-                <div class="bigfield"><span class="ph">Second RFID</span><span class="ic">⌕</span></div>
-                <div class="bigfield"><span class="ph">Breed</span><span class="ic">▾</span></div>
-              </div>
+              <div class="bigfield"><span class="ph">Breed<span class="req">*</span></span><span class="ic">▾</span></div>
             </div>
 
             <div class="fcard"><span class="fct">Born</span>
@@ -658,15 +653,15 @@ After giving colostrum give 100 ml milk.
               <div class="fhint">Date of birth — today. Births are recorded as they happen.</div>
               <div class="bigfield"><span class="v">09:41</span><span class="ic">🕑</span></div>
               <div class="fhint">Time of birth — prefilled to now, tap to change.</div>
+              <div class="lblrow">How many were born?<span class="req">*</span></div>
+              <div class="bigseg"><button class="o on">1</button><button class="o">Twins</button><button class="o">Triplets</button></div>
             </div>
 
             <div class="fcard"><span class="fct">Placement</span>
+              <div class="bigfield"><span class="ph">Mother RFID<span class="req">*</span></span><span class="ic">⌕</span></div>
+              <div class="fhint">Scan the mother’s permanent RFID, or type it.</div>
               <div class="bigfield"><span class="ph">Select park</span><span class="ic">▾</span></div>
               <div class="bigfield dis"><span class="ph">Pick park first</span><span class="ic">▾</span></div>
-              <button class="expander" onclick="tog('ab-dam')">＋ Dam (optional)</button>
-              <div class="hide" id="ab-dam">
-                <div class="bigfield"><span class="ph">Dam tag / ID</span></div>
-              </div>
             </div>
 
             <p class="note">On submit the kid is created and its birth SOP actions open — Mother track for the dam, Kid track for the newborn.</p>
@@ -997,14 +992,14 @@ After giving colostrum give 100 ml milk.
     <ul>
       <li><b>Two routes, not one toggle.</b> <code>/counts/birth</code> and <code>/counts/death</code> replace the Birth/Death segmented control on <code>/counts/birth-death</code>. Each gets its own bottom-bar-reachable entry, so an operator recording a death never lands on a birth form first.</li>
       <li><b>The module opens on work, not on a blank form.</b> Today the screen is write-only — you submit and the record vanishes. Now the default view is the outstanding SOP actions per goat, grouped Overdue / Due today / Scheduled.</li>
-      <li><b>＋ in the top right is the only way in to recording.</b> "Add birth" on Birth, "Add death" on Death, opening exactly the form that exists today — every field kept, nothing added or removed.</li>
+      <li><b>＋ in the top right is the only way in to recording.</b> "Add birth" records one child at a time; breed, mother RFID, and litter size are required.</li>
       <li><b>Birth is per-entity, matching the engine.</b> Birth is a multi-entity workflow, so a single delivery produces a Mother card and one card per kid, each with its own action set — the mother's 6 steps and each kid's 8 never get mixed into one checklist.</li>
       <li><b>The birth SOP ends at "Tag the kid".</b> The three <code>TRIGGER_EVENT</code> shifting steps the sheet appends (K0 → Mother, K0 → K1, K1 → K2) are gone. Birth owns birth; a move is a shifting request raised in its own module, which now needs verifier-approved video before it applies.</li>
       <li><b>A date filter on both modules.</b> Prev/next day plus a calendar jump, so a shed head can open yesterday and see what was due and what was completed. Past days are read-only and the list says so.</li>
       <li><b>Status filters include Completed,</b> not just open work — finished actions stay reachable rather than disappearing from the module.</li>
       <li><b>A goat card is scannable in one glance:</b> progress bar, <b>n/total</b> done, the single next action, and how late it is. Overdue is carried by an amber left stripe, so a shed head can triage without reading.</li>
       <li><b>Pagination stays honest.</b> ~20 rows per keyset page with a passive loading footer — no "Load more" button, per the mobile data-fetch rule.</li>
-      <li><b>Add birth is shorter.</b> Temporary tags are gone — every newborn is scanned to a permanent RFID. Entry date is gone too: date of birth is locked to today and shown disabled, with an editable <b>time of birth</b> beside it (the <code>Time of Birth</code> field the legacy delivery form already collects).</li>
+      <li><b>Add birth keeps the relationship permanent.</b> The kid receives a server-generated provisional tag. The operator scans the mother’s RFID, and the backend stores the canonical mother goat ID plus litter size on each separately entered child. Entry date is gone; date of birth is locked to today with an editable <b>time of birth</b>.</li>
       <li><b>Recording a death is unchanged and still irreversible</b> — the exit happens on submit. The two video steps are the evidence trail that follows, plus park-head sign-off once both are in.</li>
     </ul>
   </div>

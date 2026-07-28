@@ -37,7 +37,7 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
-import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
@@ -448,13 +448,13 @@ interface AppApiService {
     suspend fun recordCountsBirthEvent(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
     @POST("app/counts/death-events")
     suspend fun recordCountsDeathEvent(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
     @GET("app/workflows")
     suspend fun listWorkflows(
@@ -906,12 +906,12 @@ class RetrofitAppApi(
     override suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = service.recordCountsBirthEvent(idempotencyKey, request)
+    ): CountsApprovalSubmitResponseDto = service.recordCountsBirthEvent(idempotencyKey, request)
 
     override suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+    ): CountsApprovalSubmitResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
 
     override suspend fun listWorkflows(
         module: String,

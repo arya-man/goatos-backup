@@ -32,6 +32,7 @@
     <string name="verify_detail_operator_label">Operator</string>
     <string name="verify_detail_captured_label">Captured</string>
     <string name="verify_detail_no_media">No video attached to this item</string>
+    <string name="verify_detail_recorded_answer">Answer: %1$s</string>
     <string name="verify_detail_death_video">Death video</string>
     <string name="verify_detail_post_mortem_video">Post-mortem video</string>
     <string name="verify_detail_approve">Approve</string>

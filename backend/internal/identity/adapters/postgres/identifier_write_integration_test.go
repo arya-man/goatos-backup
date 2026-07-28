@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -111,10 +112,32 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		// This reproduces the exact production defect: G-001683/G-001684 were created via the birth
 		// flow with a blank stage and blocked Gandhi 2 / Godel 1 - Part 1 feed packing.
 		seedShedProfile(t, pool, adminCreateShedLocation, "adult")
+		motherCmd := adminGoatCreateCommand(t, "idem-birth-mother-0001", "aid1-birth-mother-0001", "birth-mother-aid2-0001")
+		mother, err := repo.CreateAdminGoat(ctx, motherCmd)
+		if err != nil {
+			t.Fatalf("create canonical mother: %v", err)
+		}
+		motherRFID := motherCmd.Identifiers[0].IdentifierValue
+		validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+			TenantID:    meshaTenant,
+			ParkID:      &motherCmd.ParkID,
+			ShedID:      &motherCmd.ShedID,
+			BirthDamRef: &motherRFID,
+			Species:     "goat",
+		})
+		if err != nil {
+			t.Fatalf("resolve mother RFID: %v", err)
+		}
+		if validation.DamGoatID == nil || *validation.DamGoatID != mother.Goat.GoatID {
+			t.Fatalf("resolved mother=%v, want %s", validation.DamGoatID, mother.Goat.GoatID)
+		}
 
 		cmd := adminGoatCreateCommand(t, "idem-birth-inherit-0001", "aid1-birth-inherit-0001", "birth-inherit-aid2-0001")
 		cmd.OriginType = "birth"
 		cmd.ManagementStage = nil // birth form supplies none
+		cmd.DamID = validation.DamGoatID
+		litterSize := 2
+		cmd.LitterSize = &litterSize
 
 		result, err := repo.CreateAdminGoat(ctx, cmd)
 		if err != nil {
@@ -128,6 +151,29 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if stage != "adult" {
 			t.Fatalf("birth-created goat management_stage = %q, want the shed's configured profile stage %q (a blank/NULL stage blocks feed packing)", stage, "adult")
+		}
+		var storedMother string
+		var storedLitter int
+		if err := pool.QueryRow(ctx, `
+SELECT mother_goat_id::text, litter_size
+FROM goat_births
+WHERE tenant_id = $1::uuid AND child_goat_id = $2::uuid`,
+			meshaTenant, result.Goat.GoatID).Scan(&storedMother, &storedLitter); err != nil {
+			t.Fatalf("read permanent birth relationship: %v", err)
+		}
+		if storedMother != mother.Goat.GoatID || storedLitter != 2 {
+			t.Fatalf("birth row mother=%s litter=%d, want %s/2", storedMother, storedLitter, mother.Goat.GoatID)
+		}
+		var eventMother string
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'dam_id'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`,
+			meshaTenant, result.Goat.GoatID).Scan(&eventMother); err != nil {
+			t.Fatalf("read goat.created mother: %v", err)
+		}
+		if eventMother != mother.Goat.GoatID {
+			t.Fatalf("goat.created dam_id=%s, want canonical mother %s", eventMother, mother.Goat.GoatID)
 		}
 	})
 
@@ -802,6 +848,38 @@ func TestGoatDisplayIDNoTruncatePastMillion(t *testing.T) {
 			t.Fatalf("duplicate display id %q past 1M", id)
 		}
 		seen[id] = true
+	}
+}
+
+// TestGoatDisplayIDGeneratorSkipsImportedCollision reproduces the production birth failure where
+// a source import had inserted explicit G- display IDs ahead of goat_display_id_seq. The next
+// canonical goat insert must skip that occupied value instead of failing goats_display_id_unique.
+func TestGoatDisplayIDGeneratorSkipsImportedCollision(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, _ := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+
+	var last int64
+	if err := pool.QueryRow(ctx, `SELECT last_value FROM goat_display_id_seq`).Scan(&last); err != nil {
+		t.Fatalf("read display-id sequence: %v", err)
+	}
+	occupied := fmt.Sprintf("G-%06d", last+1)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  display_id, tenant_id, lifecycle_status, species, custodian_party_id,
+  current_location_id, park_id, breed, sex
+) VALUES ($1, $2::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $4::uuid, 'Imported Boer', 'female')`,
+		occupied, meshaTenant, meshaParty, cbeLocation); err != nil {
+		t.Fatalf("seed explicit imported display id %s: %v", occupied, err)
+	}
+
+	var generated string
+	if err := pool.QueryRow(ctx, `SELECT next_goat_display_id()`).Scan(&generated); err != nil {
+		t.Fatalf("next_goat_display_id(): %v", err)
+	}
+	if generated == occupied {
+		t.Fatalf("next_goat_display_id() returned occupied imported id %s", generated)
 	}
 }
 

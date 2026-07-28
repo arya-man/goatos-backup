@@ -279,6 +279,8 @@ class VerifyDetailViewModel @Inject constructor(
                     signedUrl = absoluteDownloadUrl(it.downloadUrl),
                     mimeType = it.mimeType ?: "",
                     proofSubject = it.proofId,
+                    taskTitle = it.label?.takeIf(String::isNotBlank),
+                    answer = it.answer?.takeIf(String::isNotBlank),
                 )
             },
             context = buildContext(this),

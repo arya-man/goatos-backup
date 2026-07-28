@@ -249,6 +249,8 @@ data class WorkflowActionAnswerPayload(
     @SerialName("workflow_id") val workflowId: String,
     @SerialName("action_id") val actionId: String,
     @SerialName("answer_value") val answerValue: String,
+    /** Outbox id of the mandatory video upload when the question requires_video. */
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
 )
 
 /**

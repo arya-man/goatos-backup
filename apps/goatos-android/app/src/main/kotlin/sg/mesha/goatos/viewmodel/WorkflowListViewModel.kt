@@ -21,12 +21,14 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
+import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
 import sg.mesha.goatos.feature.counts.WorkflowCardBucket
 import sg.mesha.goatos.feature.counts.WorkflowCardUi
 import sg.mesha.goatos.feature.counts.WorkflowChipUi
 import sg.mesha.goatos.feature.counts.WorkflowListEvent
 import sg.mesha.goatos.feature.counts.WorkflowListUiState
 import sg.mesha.goatos.feature.counts.WorkflowModuleUi
+import sg.mesha.goatos.feature.counts.WorkflowOverdueDateUi
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -71,13 +73,18 @@ abstract class WorkflowListViewModel(
     private val chips: Flow<WorkflowChipsDto?> = _selection
         .flatMapLatest { selection -> repo.observeChips(moduleKey, selection.dateIso) }
 
+    private val overdueDates: Flow<List<WorkflowOverdueDateDto>> = repo.observeOverdueDates(moduleKey)
+
+    private val summaries = combine(chips, overdueDates) { chipCounts, dates -> chipCounts to dates }
+
     val state: StateFlow<WorkflowListUiState> = combine(
         _selection,
-        chips,
+        summaries,
         _isOffline,
         _lastSyncedAt,
         _isRefreshing,
-    ) { selection, chipCounts, isOffline, lastSyncedAt, isRefreshing ->
+    ) { selection, summary, isOffline, lastSyncedAt, isRefreshing ->
+        val (chipCounts, overdueDateRows) = summary
         val today = todayIso()
         WorkflowListUiState(
             module = module,
@@ -86,11 +93,12 @@ abstract class WorkflowListViewModel(
             dateLabel = dateLabel(selection.dateIso, today),
             isToday = selection.dateIso >= today,
             chips = (chipCounts ?: WorkflowChipsDto()).toChipUi(),
+            overdueDates = overdueDateRows.mapNotNull { it.toUi() },
             selectedFilter = selection.filter,
             isRefreshing = isRefreshing,
             lastSyncedAt = lastSyncedAt,
             isOffline = isOffline,
-            emptyMessage = if (isOffline) OFFLINE_EMPTY else EMPTY_MESSAGE,
+            emptyMessage = workflowEmptyMessage(module, isOffline),
             isErrorEmpty = isOffline,
         )
     }.stateIn(
@@ -114,6 +122,7 @@ abstract class WorkflowListViewModel(
             WorkflowListEvent.NextDay -> shiftDay(1)
             WorkflowListEvent.Today -> selectDate(todayIso())
             is WorkflowListEvent.SelectDate -> selectDate(event.dateIso)
+            is WorkflowListEvent.OpenOverdueDate -> openOverdueDate(event.dateIso)
             is WorkflowListEvent.OpenCard -> analytics.track(
                 AnalyticsEvents.WORKFLOW_CARD_OPENED,
                 mapOf(AnalyticsEvents.Params.KIND to moduleKey),
@@ -166,6 +175,12 @@ abstract class WorkflowListViewModel(
         _selection.value = current.copy(dateIso = capped.toString())
     }
 
+    private fun openOverdueDate(dateIso: String) {
+        val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        if (parsed.isAfter(LocalDate.now(IST))) return
+        _selection.value = Selection(dateIso = parsed.toString(), filter = FILTER_OVERDUE)
+    }
+
     // -----------------------------------------------------------------------
     // DTO -> UI mapping (presentation only; every business value is backend-owned)
     // -----------------------------------------------------------------------
@@ -177,6 +192,16 @@ abstract class WorkflowListViewModel(
         WorkflowChipUi(FILTER_COMPLETED, CHIP_COMPLETED, completed),
         WorkflowChipUi(FILTER_AWAITING_VIDEO, CHIP_AWAITING_VIDEO, awaitingVideo),
     )
+
+    private fun WorkflowOverdueDateDto.toUi(): WorkflowOverdueDateUi? {
+        val parsed = runCatching { LocalDate.parse(date) }.getOrNull() ?: return null
+        if (workflowCount < 1) return null
+        return WorkflowOverdueDateUi(
+            dateIso = parsed.toString(),
+            dateLabel = parsed.format(OVERDUE_DATE_FORMAT),
+            workflowCount = workflowCount,
+        )
+    }
 
     private fun WorkflowCardDto.toCardUi(): WorkflowCardUi {
         val operatorSubmitted = isOperatorSubmitted()
@@ -197,7 +222,11 @@ abstract class WorkflowListViewModel(
         val next = nextAction
         return WorkflowCardUi(
             workflowId = workflowId,
-            displayId = subject.displayId.ifBlank { subject.tag },
+            displayId = if (templateKey == TEMPLATE_BIRTH_MOTHER) {
+                subject.tag.ifBlank { subject.displayId }
+            } else {
+                subject.displayId.ifBlank { subject.tag }
+            },
             roleLabel = subject.roleLabel,
             metaLine = meta,
             actionsDone = actionsDone,
@@ -252,9 +281,11 @@ abstract class WorkflowListViewModel(
         val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
         val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+        val OVERDUE_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
 
         const val MODULE_BIRTH = "birth"
         const val MODULE_DEATH = "death"
+        const val TEMPLATE_BIRTH_MOTHER = "birth_mother"
         const val STATE_COMPLETED = "completed"
         const val FILTER_ALL = "all"
         const val FILTER_OVERDUE = "overdue"
@@ -280,8 +311,6 @@ abstract class WorkflowListViewModel(
         const val LATE_MINUTES = "m late"
         const val TODAY_PREFIX = "Today · "
 
-        const val EMPTY_MESSAGE = "Nothing to follow up for this day."
-        const val OFFLINE_EMPTY = "Couldn't load the work list. It will appear once you're back online."
     }
 }
 
@@ -318,3 +347,9 @@ class DeathWorkflowListViewModel @Inject constructor(
     analytics: AnalyticsPort,
     crashReporter: CrashReporter,
 ) : WorkflowListViewModel(WorkflowModuleUi.DEATH, repo, analytics, crashReporter)
+
+internal fun workflowEmptyMessage(module: WorkflowModuleUi, isOffline: Boolean): String = when {
+    isOffline -> "Couldn't load the work list. It will appear once you're back online."
+    module == WorkflowModuleUi.BIRTH -> "No birth follow-up work for this day."
+    else -> "Nothing to follow up for this day."
+}

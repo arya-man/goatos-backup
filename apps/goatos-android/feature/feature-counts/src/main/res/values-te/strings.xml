@@ -96,6 +96,7 @@
     <string name="counts_id_kind_permanent">శాశ్వత RFID</string>
     <string name="counts_id_kind_temporary">తాత్కాలిక ట్యాగ్</string>
     <string name="counts_field_breed">జాతి</string>
+    <string name="counts_field_breed_required">జాతి *</string>
     <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_entry_date">నమోదు తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_park">పార్క్</string>
@@ -104,6 +105,12 @@
     <string name="counts_field_shed">షెడ్</string>
     <string name="counts_field_dam">తల్లి</string>
     <string name="counts_field_dam_optional">తల్లి (ఐచ్ఛికం)</string>
+    <string name="counts_field_mother_rfid">తల్లి RFID</string>
+    <string name="counts_mother_rfid_hint">తల్లి శాశ్వత RFIDని స్కాన్ చేయండి లేదా టైప్ చేయండి.</string>
+    <string name="counts_field_litter_size">ఎన్ని పిల్లలు పుట్టాయి? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">కవలలు</string>
+    <string name="counts_litter_triplets">ముగ్గురు పిల్లలు</string>
     <string name="counts_field_sex">లింగం</string>
     <string name="counts_field_status">స్థితి</string>
     <string name="counts_field_goat">మేక</string>
@@ -161,8 +168,13 @@
     <string name="counts_workflow_group_in_review">సమీక్షలో</string>
     <string name="counts_workflow_group_completed">పూర్తయింది</string>
     <string name="counts_workflow_submitted">సమర్పించబడింది</string>
+    <string name="counts_birth_pending_header">ఆమోదం పెండింగ్‌లో ఉంది</string>
     <string name="counts_workflow_chip_all">అన్నీ</string>
     <string name="counts_workflow_chip_overdue">ఆలస్యం</string>
+    <string name="counts_workflow_previous_overdue_open">గత రోజుల ఆలస్యమైన పనిని చూపండి</string>
+    <string name="counts_workflow_previous_overdue_title">గత రోజుల నుంచి ఆలస్యమైనవి</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d పెండింగ్ పనులు</string>
+    <string name="counts_workflow_previous_overdue_empty">గత రోజుల నుంచి ఆలస్యమైన పని లేదు.</string>
     <string name="counts_workflow_chip_due">బాకీ</string>
     <string name="counts_workflow_chip_completed">పూర్తి</string>
     <string name="counts_workflow_chip_awaiting_video">వీడియో పెండింగ్</string>
@@ -190,8 +202,10 @@
     <string name="counts_field_time_of_birth">జనన సమయం (HH:MM)</string>
     <string name="counts_add_birth_dob_hint">జనన తేదీ — ఈరోజు. జననాలు జరిగినప్పుడే నమోదు చేస్తారు.</string>
     <string name="counts_add_birth_time_hint">ఇప్పటి సమయంతో నింపబడింది — మార్చడానికి ట్యాప్ చేయండి.</string>
-    <string name="counts_add_birth_workflow_note">సమర్పించాక ఆమోదం తర్వాత పిల్ల సృష్టించబడి దాని జనన ఫాలో-అప్ చర్యలు తెరుచుకుంటాయి — తల్లికి Mother ట్రాక్, నవజాతకు Kid ట్రాక్.</string>
+    <string name="counts_add_birth_workflow_note">సమర్పించిన వెంటనే ప్రతి పిల్ల తన జనన పనులతో సృష్టించబడుతుంది. వెబ్ ఆమోదం పిల్లలను మంద లెక్కల్లో మాత్రమే చేరుస్తుంది.</string>
     <string name="counts_add_death_subtitle">చనిపోయిన జంతువును కనుగొనండి</string>
     <string name="counts_workflow_recorded">రికార్డ్ అయింది</string>
     <string name="counts_workflow_rerecord_video">వీడియోను మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="counts_workflow_weight_kg">బరువు (కిలోలు)</string>
+    <string name="counts_workflow_weight_continue">వీడియో రికార్డ్ చేయడానికి కొనసాగండి</string>
 </resources>

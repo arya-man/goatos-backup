@@ -124,6 +124,7 @@
     <string name="counts_id_kind_permanent">Permanent RFID</string>
     <string name="counts_id_kind_temporary">Temporary tag</string>
     <string name="counts_field_breed">Breed</string>
+    <string name="counts_field_breed_required">Breed *</string>
     <string name="counts_field_dob">Date of birth (YYYY-MM-DD)</string>
     <string name="counts_field_entry_date">Entry date (YYYY-MM-DD)</string>
     <string name="counts_field_park">Park</string>
@@ -132,6 +133,12 @@
     <string name="counts_field_shed">Shed</string>
     <string name="counts_field_dam">Dam</string>
     <string name="counts_field_dam_optional">Dam (optional)</string>
+    <string name="counts_field_mother_rfid">Mother RFID</string>
+    <string name="counts_mother_rfid_hint">Scan the mother’s permanent RFID, or type it.</string>
+    <string name="counts_field_litter_size">How many were born? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">Twins</string>
+    <string name="counts_litter_triplets">Triplets</string>
     <string name="counts_field_sex">Sex</string>
     <string name="counts_field_status">Status</string>
     <string name="counts_field_goat">Goat</string>
@@ -177,8 +184,13 @@
     <string name="counts_workflow_group_in_review">In review</string>
     <string name="counts_workflow_group_completed">Completed</string>
     <string name="counts_workflow_submitted">Submitted</string>
+    <string name="counts_birth_pending_header">Pending approval</string>
     <string name="counts_workflow_chip_all">All</string>
     <string name="counts_workflow_chip_overdue">Overdue</string>
+    <string name="counts_workflow_previous_overdue_open">Show previous dates with overdue work</string>
+    <string name="counts_workflow_previous_overdue_title">Overdue from previous days</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d pending work items</string>
+    <string name="counts_workflow_previous_overdue_empty">No overdue work from previous days.</string>
     <string name="counts_workflow_chip_due">Due</string>
     <string name="counts_workflow_chip_completed">Completed</string>
     <string name="counts_workflow_chip_awaiting_video">Awaiting video</string>
@@ -210,10 +222,12 @@
     <string name="counts_field_time_of_birth">Time of birth (HH:MM)</string>
     <string name="counts_add_birth_dob_hint">Date of birth — today. Births are recorded as they happen.</string>
     <string name="counts_add_birth_time_hint">Prefilled to now — tap to change.</string>
-    <string name="counts_add_birth_workflow_note">On submit the kid is created after approval and its birth follow-up actions open — a Mother track for the dam and a Kid track for the newborn.</string>
+    <string name="counts_add_birth_workflow_note">On submit every kid is created immediately with its own birth actions. Web approval only adds the kids to herd counts.</string>
 
     <!-- Add-death form -->
     <string name="counts_add_death_subtitle">Find the animal that died</string>
     <string name="counts_workflow_recorded">Recorded</string>
     <string name="counts_workflow_rerecord_video">Re-record video</string>
+    <string name="counts_workflow_weight_kg">Weight (kg)</string>
+    <string name="counts_workflow_weight_continue">Continue to record video</string>
 </resources>

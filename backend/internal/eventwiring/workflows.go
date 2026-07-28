@@ -14,7 +14,7 @@ import (
 )
 
 // NewWorkflowConsumerService builds the durable-bus tasks service with a real verification
-// enqueue seam. The bridge hardcodes the registered death_evidence contract, so the trusted
+// enqueue seam. The bridge hardcodes the registered birth/death evidence contracts, so the trusted
 // internal producer can call the verification repository directly; queue reads still use the
 // verification app service/category registry in the API process.
 func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *slog.Logger) *tasksapp.Service {
@@ -33,11 +33,11 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //	counts.death.rejected                 -> cancel staged work; goat remains alive
 //	goat.created (origin_type=birth)      -> open birth_kid (+ shared birth_mother) workflows
 //	goat.exited (exit_reason=died)        -> release approved death evidence to Verify
-//	goat.identifier.added (permanent RFID) -> complete the "Tag the kid" step
-//	verification.verdict.approved/.rework  -> apply the park head's death_evidence verdict
+//	RFID promotion stays identity-owned; Tag the kid completes only with its task video
+//	verification.verdict.approved/.rework  -> apply birth/death evidence verdicts
 //
-// The verdict handler filters strictly on source.module=counts + ref_type=workflow_death_signoff,
-// so it can never cross-fire with the shifting applier that shares module=counts.
+// The verdict handlers filter strictly on source.module=counts and distinct birth/death ref types,
+// so they cannot cross-fire with the shifting applier that also uses module=counts.
 func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slog.Logger) {
 	_ = log
 	tasksapp.NewCountsDeathReportedHandler(svc).Register(bus)
@@ -46,4 +46,5 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	tasksapp.NewGoatExitedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewIdentifierAddedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewDeathVerificationHandler(svc, nil).Register(bus)
+	tasksapp.NewBirthVerificationHandler(svc, nil).Register(bus)
 }

@@ -25,9 +25,9 @@ import (
 // a permission slip is not evidence -- but a shed move is now proved by a video an independent
 // verifier signs off on, exactly like a vaccination proof. Between operator completion and verifier
 // approval the animals are physically in the destination shed while the census still reads the
-// source shed; that lag is accepted deliberately in exchange for verified movement. Birth and death
-// are UNCHANGED: those approvals still apply immediately, because for them the approval IS the record
-// of the fact. See docs/decisions/shifting-verification.md.
+// source shed; that lag is accepted deliberately in exchange for verified movement. Birth approval
+// only activates already-created children in herd counts; death approval still applies the exit.
+// See docs/decisions/shifting-verification.md.
 
 const (
 	// ShiftingEventStatusPending is a raised, not-yet-decided movement.
