@@ -739,15 +739,19 @@ obligation_drive_membership AS (
       AND due_at >= $2::timestamptz - interval '45 days'
       AND due_at < $3::timestamptz
     UNION
-    -- Operator-planned vaccination drives. The assignment table is the source of truth for the
-    -- execution day after operator-cap planning or admin date moves; do not let stale batch
-    -- planned_date hide a valid drive day.
+    -- Operator-planned vaccination drives. Exact assignment membership is the source of truth for
+    -- the execution day after operator-cap planning or admin date moves; do not join every
+    -- obligation in a split batch to every assignment date for the same vaccine rule.
     SELECT oi2.*, (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS membership_at_override
     FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
+    JOIN vaccination_drive_assignment_members vdam
+      ON vdam.tenant_id = oi2.tenant_id
+     AND vdam.obligation_id = oi2.obligation_id
     JOIN vaccination_drive_assignments vda
-      ON vda.tenant_id = oi2.tenant_id
+      ON vda.tenant_id = vdam.tenant_id
+     AND vda.assignment_id = vdam.assignment_id
      AND vda.batch_id = oi2.batch_id
      AND (
        cardinality(vda.vaccine_rule_ids) = 0
@@ -758,6 +762,32 @@ obligation_drive_membership AS (
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+    UNION
+    -- Assignment-era compatibility for completed or otherwise still-unbound batch obligations. Some
+    -- historical split batches have assignment rows for the day-level cards but no member rows for
+    -- already-completed animals. Keep those rows on their own obligation business day instead of
+    -- fanning them out across every assignment date in the batch.
+    SELECT oi2.*, oi2.due_at AS membership_at_override
+    FROM obligation_instances oi2
+    JOIN obligation_batches ob2
+      ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+      AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
+      AND ob2.status NOT IN ('superseded', 'canceled')
+      AND oi2.due_at >= $2::timestamptz
+      AND oi2.due_at < $3::timestamptz
+      AND EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignments vda
+        WHERE vda.tenant_id = oi2.tenant_id
+          AND vda.batch_id = oi2.batch_id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignment_members vdam
+        WHERE vdam.tenant_id = oi2.tenant_id
+          AND vdam.obligation_id = oi2.obligation_id
+      )
     UNION
     -- Batched drives in-window (obligation_batches window joined to obligation_instances via
     -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
@@ -796,7 +826,14 @@ obligation_drive_membership AS (
     loc.park_code,
     loc.shed_id,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
-    CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id,
+    EXISTS (
+      SELECT 1
+      FROM vaccination_completions vc
+      WHERE vc.tenant_id = oi.tenant_id
+        AND vc.obligation_id = oi.obligation_id
+        AND vc.status = 'recorded'
+    ) AS submitted_for_verification
     -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
     -- product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
   FROM obligation_membership_rows oi
@@ -893,10 +930,12 @@ obligation_drive_shed_complete AS (
 obligation_drive_animal_coverage AS (
   SELECT park_id, due_date,
          count(*)::int AS total_animals,
-         count(*) FILTER (WHERE fully_completed)::int AS completed_animals
+         count(*) FILTER (WHERE fully_completed)::int AS completed_animals,
+         count(*) FILTER (WHERE submitted_for_verification)::int AS submitted_animals
   FROM (
     SELECT park_id, due_date, animal_id,
-           bool_and(status = 'completed') AS fully_completed
+           bool_and(status = 'completed') AS fully_completed,
+           bool_or(submitted_for_verification) AS submitted_for_verification
     FROM obligation_drive_membership
     WHERE animal_id IS NOT NULL
     GROUP BY park_id, due_date, animal_id
@@ -956,6 +995,7 @@ obligation_drive_summary AS (
     g.due_date,
     g.total_count,
     g.completed_count,
+    g.submitted_count,
     g.due_count,
     g.overdue_count,
     g.deferred_count,
@@ -963,6 +1003,7 @@ obligation_drive_summary AS (
     COALESCE(sc.sheds_completed, 0)::int AS sheds_completed,
     COALESCE(ac.total_animals, 0)::int AS total_animals,
     COALESCE(ac.completed_animals, 0)::int AS completed_animals,
+    COALESCE(ac.submitted_animals, 0)::int AS submitted_animals,
     COALESCE(vl.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
     COALESCE(sa.sheds, '[]'::jsonb) AS sheds,
     g.park_code
@@ -977,6 +1018,11 @@ obligation_drive_summary AS (
       count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
+          AND m.submitted_for_verification
+      )::int AS submitted_count,
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.status <> 'completed'
+          AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
           AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
       )::int AS due_count,
@@ -1039,7 +1085,7 @@ park_drive_events AS (
       CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
       WHEN grouped.has_missed THEN 'missed'
-      WHEN grouped.has_review THEN 'verification_pending'
+      WHEN grouped.has_review OR COALESCE(obl_summary.submitted_count, 0) > 0 THEN 'verification_pending'
       WHEN grouped.has_overdue THEN 'overdue'
       WHEN grouped.has_in_progress THEN 'in_progress'
       WHEN grouped.all_completed THEN 'completed'
@@ -1142,12 +1188,14 @@ park_drive_events AS (
         'vaccine_labels', to_jsonb(obl_summary.vaccine_labels),
         'total_count', obl_summary.total_count,
         'completed_count', obl_summary.completed_count,
+        'submitted_count', obl_summary.submitted_count,
         'remaining_count', obl_summary.total_count - obl_summary.completed_count,
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
         'total_animals', obl_summary.total_animals,
         'completed_animals', obl_summary.completed_animals,
+        'submitted_animals', obl_summary.submitted_animals,
         'owner_label', COALESCE(NULLIF(grouped.operator_names, ''), 'PC')
       ) ELSE NULL END
     ) AS detail

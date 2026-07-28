@@ -4337,6 +4337,110 @@ INSERT INTO vaccination_drive_assignments (
 	}
 }
 
+func TestCalendarDriveSummarySplitAssignmentDatesOneToManyPaginationScheduledDateParkScopeStatusBucketsDoNotRepeatBatchTotals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID = "86000000-0000-4000-8000-00000000dc01"
+		versionID  = "86000000-0000-4000-8000-00000000dc02"
+		ruleID     = "86000000-0000-4000-8000-00000000dc03"
+		batchID    = "86000000-0000-4000-8000-00000000dc04"
+		day1Assign = "86000000-0000-4000-8000-00000000dc91"
+		day2Assign = "86000000-0000-4000-8000-00000000dc92"
+	)
+	loc := biztime.DefaultLocation()
+	day1 := stableSameLocalDayDueAt(time.Now().In(loc))
+	day2 := day1.Add(24 * time.Hour)
+	day1Key := day1.In(loc).Format("2006-01-02")
+	day2Key := day2.In(loc).Format("2006-01-02")
+
+	obligations := []string{
+		"86000000-0000-4000-8000-00000000dc11",
+		"86000000-0000-4000-8000-00000000dc12",
+		"86000000-0000-4000-8000-00000000dc13",
+		"86000000-0000-4000-8000-00000000dc14",
+	}
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligations[0], day1)
+	for _, id := range obligations[1:2] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day1)
+	}
+	for _, id := range obligations[2:] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day2)
+	}
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "ET+TT")
+	for _, id := range obligations[:2] {
+		attachObligationToGoatScope(t, ctx, pool, id, id, "shed", testShedA)
+		setDriveObligationStatus(t, ctx, pool, id, "completed")
+	}
+	for _, id := range obligations[2:] {
+		attachObligationToGoatScope(t, ctx, pool, id, id, "shed", testShedB)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedB, day2, obligations...)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  assignment_id, tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, partition_label,
+  animal_count, total_doses, vaccine_rule_ids
+) VALUES
+  ($1::uuid, $2::uuid, $3::uuid, ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+   $5::uuid, $6::uuid, 'Gandhi', 'Part 1', 2, 2, ARRAY[$7::uuid]),
+  ($8::uuid, $2::uuid, $3::uuid, ($9::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+   $5::uuid, $10::uuid, 'Godel', 'Part 1', 2, 2, ARRAY[$7::uuid])`,
+		day1Assign, testTenantID, batchID, day1, testParkA, testShedA, ruleID,
+		day2Assign, day2, testShedB); err != nil {
+		t.Fatalf("seed split drive assignments: %v", err)
+	}
+	for _, id := range obligations[2:] {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $3::uuid)`,
+			testTenantID, day2Assign, id); err != nil {
+			t.Fatalf("seed day two assignment member %s: %v", id, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key, batch_id
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text || ':recorded', $4::uuid)`,
+			testTenantID, id, day2, batchID); err != nil {
+			t.Fatalf("seed day two recorded completion %s: %v", id, err)
+		}
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: day1.Add(-24 * time.Hour), DateTo: day2.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents split assignment window: %v", err)
+	}
+	summaries := map[string]*domain.DriveSummary{}
+	for i := range resp.Items {
+		item := resp.Items[i]
+		if item.EventType == domain.EventVaccinationDrive && item.DriveSummary != nil {
+			summaries[item.DueAt.In(loc).Format("2006-01-02")] = item.DriveSummary
+		}
+	}
+	day1Summary := summaries[day1Key]
+	if day1Summary == nil {
+		t.Fatalf("missing day one drive_summary for %s; items=%#v", day1Key, resp.Items)
+	}
+	if day1Summary.TotalCount != 2 || day1Summary.CompletedCount != 2 || day1Summary.DueCount != 0 {
+		t.Fatalf("day one summary=%#v, want total=2 completed=2 due=0 (not whole batch repeated)", day1Summary)
+	}
+	day2Summary := summaries[day2Key]
+	if day2Summary == nil {
+		t.Fatalf("missing day two drive_summary for %s; items=%#v", day2Key, resp.Items)
+	}
+	if day2Summary.TotalCount != 2 || day2Summary.CompletedCount != 0 || day2Summary.SubmittedCount != 2 || day2Summary.DueCount != 0 {
+		t.Fatalf("day two summary=%#v, want total=2 completed=0 submitted=2 due=0 (submitted mobile scans pending verification, not day one completions repeated)", day2Summary)
+	}
+}
+
 // LIFE-005: park-drive summary_primary copy must come from the scheduled status bucket, never from
 // the total roster target_count. Completed-only, completed+deferred, and canceled+deferred drives
 // must not claim their whole roster as "scheduled doses".

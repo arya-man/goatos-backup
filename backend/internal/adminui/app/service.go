@@ -981,11 +981,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.summary_pending": "Drive progress detail not available yet.",
 			// DRV-007: option-A completion-ring drive card copy — subtitle vaccine count, ring
 			// caption text, and the footer CTA (calendar-drive-card.tsx).
-			"calendar.drive.vaccines_suffix":   "vaccines",
-			"calendar.drive.of":                "of",
-			"calendar.drive.sheds_done_suffix": "sheds done",
-			"calendar.drive.owner":             "Owner",
-			"calendar.drive.open":              "Open drive",
+			"calendar.drive.vaccines_suffix":      "vaccines",
+			"calendar.drive.of":                   "of",
+			"calendar.drive.sheds_done_suffix":    "sheds done",
+			"calendar.drive.verification_pending": "Verification pending",
+			"calendar.drive.owner":                "Owner",
+			"calendar.drive.open":                 "Open drive",
 			// DRV-008: full-screen drive detail roster labels and breadcrumbs (calendar-drive-detail.tsx).
 			"calendar.drive.animal_roster":       "Animal roster",
 			"calendar.drive.display_id_header":   "Display ID",
