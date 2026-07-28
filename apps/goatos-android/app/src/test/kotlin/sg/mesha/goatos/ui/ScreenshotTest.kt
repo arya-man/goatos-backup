@@ -50,6 +50,7 @@ import sg.mesha.goatos.feature.counts.ShiftingActionsScreen
 import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingStatusUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingUiState
+import sg.mesha.goatos.feature.counts.ShiftingPreviousDateUi
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingScreen
@@ -426,6 +427,10 @@ class ScreenshotTest {
                     ShiftingPendingStatusUi("authorized", "Approved", false),
                     ShiftingPendingStatusUi("rework", "Rework", false),
                     ShiftingPendingStatusUi("completed", "Completed", false),
+                ),
+                previousDates = listOf(
+                    ShiftingPreviousDateUi("2026-07-21", "21 Jul", 3),
+                    ShiftingPreviousDateUi("2026-07-20", "20 Jul", 1),
                 ),
                 lastSyncedAt = 0L,
             ),

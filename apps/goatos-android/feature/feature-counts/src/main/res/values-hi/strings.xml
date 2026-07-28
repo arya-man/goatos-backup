@@ -42,6 +42,10 @@
     <!-- Shifting screen -->
     <string name="counts_shifting_actions_title">स्थानांतरण</string>
     <string name="counts_shifting_actions_subtitle">कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_open">पिछली तारीखों की स्थानांतरण कार्रवाइयाँ दिखाएँ</string>
+    <string name="counts_shifting_previous_actions_title">पिछले दिनों की स्थानांतरण कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_count">%1$d स्थानांतरण कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_empty">पिछले दिनों की कोई स्थानांतरण कार्रवाई नहीं है।</string>
     <string name="counts_shifting_raise">स्थानांतरण दर्ज करें</string>
     <string name="counts_shifting_title">स्थानांतरण दर्ज करें</string>
     <string name="counts_shifting_subtitle">एक पशु को दूसरे शेड में ले जाएँ</string>

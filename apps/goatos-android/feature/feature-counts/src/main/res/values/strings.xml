@@ -69,6 +69,10 @@
     <string name="counts_shifting_actions_title">Shifting</string>
     <string name="counts_shifting_actions_subtitle">Actions</string>
     <string name="counts_shifting_raise">Raise shifting</string>
+    <string name="counts_shifting_previous_actions_open">Show previous dates with shifting actions</string>
+    <string name="counts_shifting_previous_actions_title">Shifting actions from previous days</string>
+    <string name="counts_shifting_previous_actions_count">%1$d shifting actions</string>
+    <string name="counts_shifting_previous_actions_empty">No shifting actions from previous days.</string>
     <string name="counts_shifting_title">Record shifting</string>
     <string name="counts_shifting_subtitle">Move one animal to another shed</string>
     <string name="counts_submit_shifting">Create Shifting</string>
