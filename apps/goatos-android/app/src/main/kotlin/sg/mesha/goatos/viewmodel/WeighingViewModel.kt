@@ -630,8 +630,12 @@ class WeighingViewModel @Inject constructor(
                     actualLocationLabel = row.actualLocationLabel,
                     status = row.status.readableWeighingStatus(),
                     availabilityStatus = row.availabilityStatus?.readableWeighingStatus(),
-                    wrongShed = !row.actualLocationId.isNullOrBlank() &&
-                        row.actualLocationId != row.expectedLocationId,
+                    wrongShed = row.availabilityStatus.equals("moved_other_shed", ignoreCase = true) ||
+                        (
+                            row.availabilityStatus.isNullOrBlank() &&
+                                !row.actualLocationId.isNullOrBlank() &&
+                                row.actualLocationId != row.expectedLocationId
+                            ),
                 )
             },
             individualDrafts = scope.individualDrafts.map { draft ->
