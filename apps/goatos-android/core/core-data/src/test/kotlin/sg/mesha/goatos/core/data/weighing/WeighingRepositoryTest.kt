@@ -406,6 +406,40 @@ class WeighingRepositoryTest {
     }
 
     @Test
+    fun `synced proof after screen exit still enqueues shed partition observation`() = runTest {
+        val store = FakeOutboxStore()
+        val concrete = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository = concrete
+        val draft = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 180.5, "unit": "kg"}""",
+            ),
+        ) as AppResult.Ok
+        repository.attachShedPartitionProof(scopeKey, proofCaptureId = "shed-proof-local", serverProofId = null)
+        db.proofCaptureDao().insert(syncedProof("shed-proof-local", subjectId = "shed-1", serverProofId = "shed-proof-server"))
+
+        concrete.reconcileReadyProofsOnce()
+
+        val queued = store.findByIdempotencyKey(draft.value.idempotencyKey)
+        assertEquals(draft.value.idempotencyKey, queued?.idempotencyKey)
+        assertTrue(queued?.payloadJson.orEmpty().contains("shed-proof-server"))
+        assertTrue(queued?.payloadJson.orEmpty().contains("180.5"))
+    }
+
+    @Test
     fun `successful weighing animal outbox dispatch marks local row accepted`() = runTest {
         val store = FakeOutboxStore()
         repository = DefaultWeighingRepository(
