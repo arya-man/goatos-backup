@@ -78,6 +78,7 @@ regardless of which layer changed.
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
 | Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
 | `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
+| Calendar, Control Tower, Action Center, Protocol Adherence, Workflows, admin/mobile execution/proof screens, or new vertical/module onboarding | `docs/architecture/operational-read-model-contract.md` **+** `references/aggregates-and-projections.md` **+ consumer lenses** |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
 | **Every review, before flagging anything** | `references/review-lens-ledger.md` (always) — closed decisions + banned patterns; do NOT re-flag a CLOSED/LOCKED item or propose a BANNED one |
@@ -180,19 +181,27 @@ clean the rest is:
    group key, join cardinality, hierarchy mapping, and page-independent totals using
    `references/aggregates-and-projections.md`. See
    `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
-3. **Security / privacy / tenant isolation** — every scoped query filters
+3. **Operational read-model contract** — shared command surfaces and
+   mobile/admin/reporting reads must follow
+   `docs/architecture/operational-read-model-contract.md`: grain-explicit
+   counts, declared disjoint/overlapping buckets, page-independent summaries,
+   stable selected scope identity, backend/OpenAPI/TS/Kotlin contract sync, and
+   cross-surface golden fixtures for new verticals. A screen-local fix that
+   merely hides mismatched Calendar/Control Tower/Protocol Adherence/mobile
+   numbers is a finding.
+4. **Security / privacy / tenant isolation** — every scoped query filters
    `tenant_id`; no secrets/tokens/service-account JSON in logs; input validated
    at boundaries. (Goat identifiers are livestock data, NOT PII — log them.)
-4. **Architecture boundaries** — domain/app/ports/adapters layering; no
+5. **Architecture boundaries** — domain/app/ports/adapters layering; no
    cross-module table writes; vendor SDKs confined to adapters. (`references/backend.md`)
-5. **Business-rule fidelity** — vaccination schedule/gaps, obligation state
+6. **Business-rule fidelity** — vaccination schedule/gaps, obligation state
    machine, defer/re-scope, org/species model. Wrong medical rules are worse than
    wrong code. (`references/business-rules.md`)
-6. **Observability & resilience** — kernel-boundary logging via `platform/observability`,
+7. **Observability & resilience** — kernel-boundary logging via `platform/observability`,
    metrics on new APIs/workers, DLQ + retry bounds, durable notifications.
-7. **UI contract & mock fidelity** — admin-web renders backend-owned contracts;
+8. **UI contract & mock fidelity** — admin-web renders backend-owned contracts;
    ports the mock; passes `check:mock-fidelity`. (`references/frontend.md`)
-8. **Maintainability** — small focused files, explicit errors, tests.
+9. **Maintainability** — small focused files, explicit errors, tests.
 
 ## Consolidated-ledger closure gate
 

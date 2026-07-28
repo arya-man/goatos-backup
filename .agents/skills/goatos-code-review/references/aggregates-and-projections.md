@@ -4,11 +4,24 @@ Load this reference for any read model, projection, dashboard/card summary,
 calendar grouping, reminder rail, or SQL/Go query that combines `JOIN` with
 `COUNT`, `SUM`, `GROUP BY`, JSON aggregation, or pagination.
 
+Also load `docs/architecture/operational-read-model-contract.md` whenever the
+aggregate feeds Calendar, Control Tower, Action Center, Protocol Adherence,
+Workflows, admin-web detail pages, Android execution/proof screens, reporting,
+or a new vertical/module. Aggregates are not approved until their grain and
+surface contract are explicit.
+
 These changes are not approved because the arithmetic invariant holds or the
 query compiles. The reviewer must prove the population, identity, cardinality,
 and page boundary independently.
 
 ## Required proof before approval
+
+0. **Operational read contract** — name the canonical write owner, row grain,
+   summary grain, scope identity, time grain, status bucket semantics, and every
+   consuming surface. Backend structs, OpenAPI, generated TS, Android DTOs,
+   admin-web, and Android must move together. Summary totals are whole-result
+   aggregates unless named `page_*`. See
+   `docs/architecture/operational-read-model-contract.md`.
 
 1. **Canonical membership** — name the source that decides which facts belong
    to the displayed group. Build both the event/card and its summary from that
