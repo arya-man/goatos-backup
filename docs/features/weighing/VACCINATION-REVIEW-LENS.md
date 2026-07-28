@@ -22,6 +22,21 @@ fixture obligations.
 
 ## Operational Invariants
 
+- Vaccination is the regression baseline, not an implementation target to
+  mutate. A Weighing PR must not change Vaccination operator day-strip
+  rollover, shed cards, scan feed/list/bottom sheets, proof submit flow,
+  scan-attempt audit semantics, or vaccination calendar/process-integrity
+  read-model behavior unless the PR explicitly names that Vaccination bug, adds
+  Vaccination-focused tests, and verifies against the latest `origin/main` /
+  staging Firebase behavior.
+- Conflict resolution rule: when rebasing Weighing over `main`, take `main` for
+  Vaccination, calendar, process-integrity, SOP bridge, and shared mobile scan
+  behavior by default. Reuse only neutral proof/outbox/RFID utilities whose
+  existing Vaccination tests still pass unchanged.
+- User-facing UI copy must never expose internal ids, route names, outbox keys,
+  backend enum literals, stack traces, localhost/technical connection details,
+  or debug-only state labels. CEO/director/operator surfaces must use product
+  language; technical evidence belongs in logs/tests/docs only.
 - Projection grain: individual-animal progress ranges over expected animal rows;
   per-shed/partition progress ranges over selected `campaign_shed_id` scopes.
 - Proof grain: individual category requires animal-scoped video proof;

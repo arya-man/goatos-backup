@@ -506,7 +506,12 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel(stringResource(DesignSystemR.string.nav_modules))
-                modules.forEach { module ->
+                val visibleModules = if (profile?.role.equals("operator", ignoreCase = true)) {
+                    modules.filter { it.status == NavModuleStatus.AVAILABLE }
+                } else {
+                    modules
+                }
+                visibleModules.forEach { module ->
                     if (module.status == NavModuleStatus.AVAILABLE) {
                         val active = module.key == selectedModuleKey
                         DrawerRow(

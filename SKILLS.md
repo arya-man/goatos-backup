@@ -135,6 +135,14 @@ two RFID tags, multiple vaccines, proof missing/uploading/failed/synced, and
 role-specific navigation. Production mobile copy must never leak internal terms
 such as Room, outbox, idempotency, API, local, localhost, debug, or fixture.
 
+When adding a new vertical that reuses Vaccination patterns, treat the latest
+`origin/main` / staging Firebase Vaccination app as the regression baseline.
+Do not change Vaccination day-strip rollover, shed cards, scan feed/list/bottom
+sheets, proof capture/submit behavior, or backend read-model semantics as a
+side effect of the new vertical. If a shared utility must change, prove
+Vaccination parity with focused tests and screenshots before touching the new
+vertical UI.
+
 ## STG Deploy Routing
 
 When the user says "deploy STG", "push to STG", "promote STG", "ship to

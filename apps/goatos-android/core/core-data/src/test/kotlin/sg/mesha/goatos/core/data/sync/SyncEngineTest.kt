@@ -485,6 +485,90 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `offline SCAN_ATTEMPT stays queued then syncs unchanged when online`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "scan-attempt:task-1:unknown-419"
+        store.insert(
+            OutboxEntity(
+                id = "row-attempt-offline",
+                opType = OutboxOpType.SCAN_ATTEMPT.name,
+                groupKey = "task-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    ScanAttemptPayload(
+                        taskId = "task-1",
+                        request = ScanAttemptRequestDto(
+                            fieldKey = "__scan_roster__",
+                            tag = "901007000504419",
+                            normalizedTag = "901007000504419",
+                            goatId = null,
+                            obligationId = null,
+                            outcome = "unknown",
+                            tagRole = "unknown",
+                            reason = "unknown_tag",
+                            capturedAtMs = 9_001L,
+                        ),
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var online = false
+        var scanAttemptCalls = 0
+        var seenKey: String? = null
+        var seenRequest: ScanAttemptRequestDto? = null
+        val api = ScriptedAppApi().apply {
+            recordScanAttemptFn = { taskId, key, request ->
+                assertEquals("task-1", taskId)
+                scanAttemptCalls++
+                seenKey = key
+                seenRequest = request
+                ScanAttemptResponseDto(
+                    attempt = ScanAttemptDto(
+                        attemptId = "attempt-offline",
+                        taskId = taskId,
+                        fieldKey = request.fieldKey,
+                        tag = request.tag,
+                        goatId = request.goatId,
+                        obligationId = request.obligationId,
+                        outcome = request.outcome,
+                        tagRole = request.tagRole,
+                        reason = request.reason,
+                    ),
+                )
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { online }, clock = { 0L })
+
+        val offlineResult = engine.drainOnce()
+
+        assertEquals(false, offlineResult)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("row-attempt-offline")!!.status)
+        assertEquals(0, store.findById("row-attempt-offline")!!.attemptCount)
+        assertEquals(0, scanAttemptCalls)
+
+        online = true
+        engine.drainOnce()
+
+        val row = store.findById("row-attempt-offline")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(1, scanAttemptCalls)
+        assertEquals(idempotencyKey, seenKey)
+        assertEquals("901007000504419", seenRequest!!.tag)
+        assertEquals("unknown", seenRequest!!.outcome)
+        assertEquals("unknown_tag", seenRequest!!.reason)
+        assertEquals(9_001L, seenRequest!!.capturedAtMs)
+    }
+
+    @Test
     fun `dispatches a VERIFICATION_VERDICT item via the submitVerificationVerdict endpoint with its idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         val idempotencyKey = "item-1-verdict-1"

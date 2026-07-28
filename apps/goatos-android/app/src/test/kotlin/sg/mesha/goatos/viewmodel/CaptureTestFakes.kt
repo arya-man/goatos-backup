@@ -87,6 +87,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         val outcome: RfidScanAttemptOutcome,
         val tagRole: RfidScanTagRole,
         val reason: String?,
+        val capturedAtMs: Long?,
     )
 
     val calls = mutableListOf<AttemptCall>()
@@ -105,8 +106,9 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long?,
     ) {
-        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason)
+        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason, capturedAtMs)
         rows += RfidScanAttemptRow(
             id = "attempt-${rows.size}",
             taskId = taskId,
@@ -118,7 +120,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
             outcome = outcome,
             tagRole = tagRole,
             reason = reason,
-            capturedAtMs = rows.size.toLong(),
+            capturedAtMs = capturedAtMs ?: rows.size.toLong(),
         )
         flow.value = rows.toList()
     }

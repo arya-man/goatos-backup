@@ -716,8 +716,20 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         category = category,
         status = status.readableWeighingStatus(),
         expectedCount = expectedCount,
-        periodLabel = periodLabel,
+        periodLabel = periodLabel.readableWeighingPeriodLabel(),
     )
+
+private fun String.readableWeighingPeriodLabel(): String {
+    val parts = split(" - ")
+    if (parts.size != 2) return this
+    return runCatching {
+        val start = LocalDate.parse(parts[0], DateTimeFormatter.ISO_LOCAL_DATE)
+        val end = LocalDate.parse(parts[1], DateTimeFormatter.ISO_LOCAL_DATE)
+        val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
+        val shortFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+        "Week $week - ${start.format(shortFormatter)}-${end.format(shortFormatter)}"
+    }.getOrDefault(this)
+}
 
 private fun String.readableWeighingStatus(): String = when (trim().lowercase()) {
     "draft" -> "Draft"
@@ -741,8 +753,11 @@ private fun String.toWeighingReadMessage(): String {
     return when {
         normalized.contains("failed to connect") ||
             normalized.contains("unable to resolve host") ||
-            normalized.contains("timeout") ||
-            normalized.contains("timed out") ||
+        normalized.contains("timeout") ||
+        normalized.contains("timed out") ||
+            normalized.contains("unexpected end of stream") ||
+            normalized.contains("unexpected eof") ||
+            normalized.contains("connection reset") ||
             normalized.contains("connection refused") ->
             "Couldn't load weighing. Check the laptop backend or network, then refresh."
         isBlank() -> "Couldn't load weighing. Pull to refresh or try again."

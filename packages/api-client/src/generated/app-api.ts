@@ -93,6 +93,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit an existing weekly kids Weighing campaign without creating a duplicate park/week task. */
+        put: operations["updateWeighingCampaign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/weighing/campaigns/{campaign_id}/publish": {
         parameters: {
             query?: never;
@@ -119,6 +136,23 @@ export interface paths {
         };
         /** List operator-visible Weighing campaigns. */
         get: operations["appListWeighingCampaigns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/planner/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards. */
+        get: operations["appWeighingPlannerCatalog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5347,6 +5381,45 @@ export interface components {
             campaign: components["schemas"]["WeighingCampaign"];
             trace_id?: string;
         };
+        WeighingPlannerCampaignSummary: {
+            /** Format: uuid */
+            campaign_id: string;
+            status: components["schemas"]["WeighingCampaignStatus"];
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            /** Format: uuid */
+            operator_user_id: string;
+            shed_count: number;
+        };
+        WeighingPlannerShed: {
+            /** Format: uuid */
+            location_id: string;
+            name: string;
+            kid_count: number;
+        };
+        WeighingPlannerPark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+            kid_count: number;
+            sheds: components["schemas"]["WeighingPlannerShed"][];
+            existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
+        };
+        WeighingPlannerOperator: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            display_code: string;
+        };
+        WeighingPlannerCatalogResponse: {
+            parks: components["schemas"]["WeighingPlannerPark"][];
+            operators: components["schemas"]["WeighingPlannerOperator"][];
+            trace_id?: string;
+        };
         WeighingRosterRow: {
             /** Format: uuid */
             campaign_id: string;
@@ -6732,6 +6805,40 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    updateWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWeighingCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Weighing campaign updated or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     publishWeighingCampaign: {
         parameters: {
             query?: never;
@@ -6780,6 +6887,32 @@ export interface operations {
                     "application/json": components["schemas"]["WeighingCampaignListResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appWeighingPlannerCatalog: {
+        parameters: {
+            query: {
+                period_start_date: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded Weighing planner catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingPlannerCatalogResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

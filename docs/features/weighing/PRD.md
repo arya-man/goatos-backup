@@ -174,6 +174,42 @@ measurement scope. The app must label it separately from individual animal
 weighing so reports never pretend each RFID animal got a fresh individual
 weight.
 
+### 4.2 Weighing V1 execution simplification
+
+Weighing V1 is allowed to run without a pre-populated animal roster for the
+selected shed/partition. This is a Weighing-only simplification and must not be
+copied back into Vaccination.
+
+For `individual_animal` weighing in V1:
+
+- The operator can start the shed/partition work even if Goat OS does not know
+  the complete expected animal list for that shed.
+- The scan screen is a free-scan work session: each valid RFID/animal identifier
+  scan creates a weighing entry with that identifier, the entered weight, and
+  mandatory animal-level proof video.
+- The app should not block execution because an animal is outside a preloaded
+  visible page or because the shed has no complete roster snapshot.
+- Duplicate RFID scans in the same weighing work session must be visible and
+  handled idempotently; corrections/re-records must not create silent duplicate
+  accepted weights.
+- Operator can end/close the individual weighing session after at least one
+  proof-backed weighing entry if field work is done for now. The closure records
+  what was actually scanned/weighed; it must not pretend unknown/unscanned
+  animals were completed.
+
+For `per_shed_partition` / lumpsum weighing in V1:
+
+- One shed/partition-level proof video is enough to close the selected scope;
+  additional videos may be allowed by proof policy but are not required.
+- The operator must enter the shed/partition weighing value and proof before
+  closing that selected scope.
+
+All Weighing V1 entries still use the mobile Room/outbox/proof pipeline. Free
+scan means "do not require a preloaded roster before accepting a weighing
+entry"; it does not mean network-only writes, no proof, no idempotency, or no
+verification. Weight values and proof are subject to the normal verification
+flow before leadership treats them as trusted.
+
 ## 5. Grouping rules
 
 Weighing uses vaccination-style **shed/partition work grouping**, but not

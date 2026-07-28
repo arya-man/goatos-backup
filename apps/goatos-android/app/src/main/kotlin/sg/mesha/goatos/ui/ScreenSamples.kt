@@ -336,7 +336,6 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
     rows = listOf(
         SettingRow(SettingKind.LANGUAGE, "Language", value = "English"),
         SettingRow(SettingKind.RFID, "RFID reader", subtitle = "Chainway R3", value = "Paired", valueEmphasis = true),
-        SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     ),
 )

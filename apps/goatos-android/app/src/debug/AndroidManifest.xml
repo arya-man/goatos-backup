@@ -8,6 +8,17 @@
             android:exported="true"
             android:theme="@style/Theme.GoatOs" />
 
+        <activity
+            android:name=".ShowkaseLauncherActivity"
+            android:exported="true"
+            android:label="Mesha UI Gallery"
+            android:theme="@style/Theme.GoatOs">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Debug-only deterministic BT-HID/RFID E2E seam. Physical-device tests broadcast a
              tag while the real scan route is active; the receiver feeds the SAME singleton
              RfidReaderPort/key-event buffer as a hardware keyboard wedge. Release variants do

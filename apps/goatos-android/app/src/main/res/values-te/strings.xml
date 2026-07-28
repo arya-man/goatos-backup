@@ -20,6 +20,12 @@
     <string name="proof_camera_feed_packing_instruction">మేత ప్యాకింగ్ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_transport_title">మేత రవాణా వీడియో</string>
     <string name="proof_camera_feed_transport_instruction">ఈ షెడ్‌కు మేతను తరలించడాన్ని ప్రత్యక్షంగా రికార్డ్ చేయండి</string>
+    <string name="proof_camera_recording_title">రుజువు వీడియో రికార్డ్ చేయండి</string>
+    <string name="proof_camera_auto_opened">లైవ్ రుజువు కోసం కెమెరా ఆటోగా తెరుచుకుంది</string>
+    <string name="proof_camera_live_proof">లైవ్ రుజువు</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">రికార్డింగ్ ఆపండి</string>
+    <string name="proof_camera_start_label">రికార్డింగ్ ప్రారంభించండి</string>
     <string name="proof_camera_recording_time">రికార్డింగ్ · %1$d సెకన్లు</string>
     <string name="proof_camera_unavailable">కెమెరా అందుబాటులో లేదు. రద్దు చేసి మళ్లీ ప్రయత్నించండి.</string>
     <string name="proof_camera_cancel">రుజువు రికార్డింగ్‌ను రద్దు చేయండి</string>
