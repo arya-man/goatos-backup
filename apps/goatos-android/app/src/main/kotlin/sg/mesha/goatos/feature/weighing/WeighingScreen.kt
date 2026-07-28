@@ -20,14 +20,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,8 +172,17 @@ fun WeighingScreen(
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    var rosterSheetOpen by remember { mutableStateOf(false) }
     if (!state.hasScope) {
         RefreshOnResume(onRefresh = onRefresh)
+    }
+    if (rosterSheetOpen) {
+        WeighingRosterSheet(
+            title = state.title.ifBlank { "Weighing rows" },
+            rows = state.visibleRows,
+            totalExpected = state.totalExpected,
+            onDismiss = { rosterSheetOpen = false },
+        )
     }
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -252,6 +268,7 @@ fun WeighingScreen(
                             onWeightChange = onWeightChange,
                             onRecordIndividual = onRecordIndividual,
                             onRecordShedPartition = onRecordShedPartition,
+                            onOpenRoster = { rosterSheetOpen = true },
                         )
                     } else {
                         if (state.loading) {
@@ -296,9 +313,9 @@ fun WeighingScreen(
                 }
             }
 
-            if (state.visibleRows.isNotEmpty()) {
-                item { SectionTitle("Roster window") }
-                items(state.visibleRows, key = { it.id }) { row ->
+            if (state.hasScope && !state.isShedPartition && state.visibleRows.isNotEmpty()) {
+                item { SectionTitle("Recent row updates") }
+                items(state.visibleRows.take(3), key = { it.id }) { row ->
                     RosterRow(row)
                 }
             }
@@ -918,6 +935,7 @@ private fun WeighingCapturePanel(
     onWeightChange: (String) -> Unit,
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
+    onOpenRoster: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         CaptureProgressTiles(state)
@@ -961,6 +979,164 @@ private fun WeighingCapturePanel(
             actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
             onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
         )
+        if (!state.isShedPartition) {
+            RosterPeekCard(
+                total = state.totalExpected,
+                visible = state.visibleRows.size,
+                wrongShed = state.visibleRows.count { it.wrongShed },
+                onOpenRoster = onOpenRoster,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RosterPeekCard(
+    total: Int,
+    visible: Int,
+    wrongShed: Int,
+    onOpenRoster: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .clickable(onClick = onOpenRoster)
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MeshaColors.BrandTint),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Module,
+                contentDescription = null,
+                tint = MeshaColors.BrandD,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("View rows", color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+            Text(
+                text = rosterPeekSummary(total = total, visible = visible, wrongShed = wrongShed),
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        Text(
+            text = "Open",
+            color = MeshaColors.BrandD,
+            style = MeshaType.cta,
+        )
+    }
+}
+
+private fun rosterPeekSummary(total: Int, visible: Int, wrongShed: Int): String {
+    val base = if (total > 0) "$visible visible of $total kids" else "$visible visible rows"
+    return if (wrongShed > 0) "$base - $wrongShed wrong shed" else base
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeighingRosterSheet(
+    title: String,
+    rows: List<WeighingRosterUiRow>,
+    totalExpected: Int,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MeshaColors.Surf,
+        contentColor = MeshaColors.Ink,
+        dragHandle = null,
+    ) {
+        WeighingRosterSheetContent(
+            title = title,
+            rows = rows,
+            totalExpected = totalExpected,
+        )
+    }
+}
+
+@Composable
+private fun WeighingRosterSheetContent(
+    title: String,
+    rows: List<WeighingRosterUiRow>,
+    totalExpected: Int,
+) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(query, rows) {
+        if (query.isBlank()) {
+            rows
+        } else {
+            rows.filter { row ->
+                row.displayAnimalId.contains(query, ignoreCase = true) ||
+                    row.expectedLocationLabel.contains(query, ignoreCase = true) ||
+                    row.actualLocationLabel.orEmpty().contains(query, ignoreCase = true)
+            }
+        }
+    }
+    Surface(color = MeshaColors.Surf, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(MeshaColors.Surf3),
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            ) {
+                Text(title, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+                Spacer(Modifier.width(6.dp))
+                Text("· ${filtered.size}", color = MeshaColors.Muted, style = MeshaType.bodyStrong)
+                if (totalExpected > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("/ $totalExpected", color = MeshaColors.Faint, style = MeshaType.caption)
+                }
+            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                placeholder = {
+                    Text("Search tag or shed", color = MeshaColors.Faint, style = MeshaType.cardSubtitle)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            )
+            Spacer(Modifier.height(6.dp))
+            if (filtered.isEmpty()) {
+                EmptyWorkCard(
+                    title = "No matching rows",
+                    body = "Try another tag or shed name.",
+                )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(filtered, key = { it.id }, contentType = { "weighing_roster_row" }) { row ->
+                        RosterRow(row)
+                    }
+                }
+            }
+        }
     }
 }
 
