@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,6 +44,9 @@ class ShiftingExecuteOutboxWriteTest {
         val completeKeys = mutableListOf<String>()
         val completeIds = mutableListOf<String>()
         val completeProofRefs = mutableListOf<String>()
+        val completePackingProofRefs = mutableListOf<String?>()
+        val completeFeedingProofRefs = mutableListOf<String?>()
+        val completeFeedFingerprints = mutableListOf<String?>()
         val cancelKeys = mutableListOf<String>()
         var failuresRemaining = 0
 
@@ -50,15 +55,21 @@ class ShiftingExecuteOutboxWriteTest {
             idempotencyKey: String,
             destinationTag: String?,
             proofRef: String,
+            feedPackingProofRef: String?,
+            feedGivenProofRef: String?,
+            feedConfigFingerprint: String?,
         ): CountsShiftingExecutionResponseDto {
             completeKeys += idempotencyKey
             completeIds += shiftingEventId
             completeProofRefs += proofRef
+            completePackingProofRefs += feedPackingProofRef
+            completeFeedingProofRefs += feedGivenProofRef
+            completeFeedFingerprints += feedConfigFingerprint
             if (failuresRemaining > 0) {
                 failuresRemaining--
                 throw IOException("network down")
             }
-            // The move now waits on a verifier; the backend returns pending_verification, not applied.
+            // This fake omits Park Head approval, so completion remains pending that independent gate.
             return CountsShiftingExecutionResponseDto(shiftingEventId = shiftingEventId, eventStatus = "pending_verification")
         }
 
@@ -105,7 +116,7 @@ class ShiftingExecuteOutboxWriteTest {
      * proof_id from it (maintainer decision, 2026-07-26). Same group => the proof drains before the
      * completion.
      */
-    private suspend fun DefaultSyncRepository.enqueueSyncedProof(group: String): String {
+    private suspend fun DefaultSyncRepository.enqueueSyncedProof(group: String, step: String = "move"): String {
         val request = ProofUploadRequestDto(
             proofType = "video",
             mimeType = "video/mp4",
@@ -116,12 +127,27 @@ class ShiftingExecuteOutboxWriteTest {
         )
         val result = enqueueProofUpload(
             groupKey = group,
-            idempotencyKey = "counts-shifting-proof:$group",
+            idempotencyKey = "counts-shifting-proof:$group:$step",
             request = request,
             localFilePath = "/tmp/$group.mp4",
             durationMs = 1000,
         )
         return (result as AppResult.Ok).value
+    }
+
+    @Test
+    fun `high priority completion payload preserves all three proof links and feed fingerprint`() {
+        val payload = ShiftingCompletePayload(
+            shiftingEventId = "move-high",
+            proofOutboxItemId = "proof-shifting",
+            feedPackingProofOutboxItemId = "proof-packing",
+            feedGivenProofOutboxItemId = "proof-feeding",
+            feedConfigFingerprint = "feed-fingerprint-1",
+        )
+
+        val decoded = syncJson.decodeFromString<ShiftingCompletePayload>(syncJson.encodeToString(payload))
+
+        assertEquals(payload, decoded)
     }
 
     @Test
@@ -148,7 +174,7 @@ class ShiftingExecuteOutboxWriteTest {
         assertEquals(api.completeKeys[0], api.completeKeys[1])
         assertEquals(listOf("move-1", "move-1"), api.completeIds)
         // Every attempt carries the resolved video proof_id from the coupled upload.
-        assertEquals(listOf("fake-proof-counts-shifting-proof:move-1", "fake-proof-counts-shifting-proof:move-1"), api.completeProofRefs)
+        assertEquals(listOf("fake-proof-counts-shifting-proof:move-1:move", "fake-proof-counts-shifting-proof:move-1:move"), api.completeProofRefs)
     }
 
     @Test

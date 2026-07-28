@@ -183,6 +183,20 @@ census truth. Canonical source: `docs/decisions/shifting-verification.md`; forwa
 migrations `000049_shifting_approval_completion_gate.sql` and
 `000050_shifting_actions_index.sql`.
 
+Confirmed high-priority shifting feed-evidence rule (maintainer decision 2026-07-29): low-priority
+shifting remains the existing one-live-camera-video flow. High-priority shifting embeds feed packing
+and feeding inside Shifting, resolves exact feed type/quantity from active destination Feed Config
+matched to the raise-time target management stage and moved animals' ration groups, and requires
+THREE live-camera videos: shifting, feed packing, and configured feed being given to the animal(s).
+All three proofs are reviewed together in ONE `shifting_move` verification item. Embedded packing
+proof is shifting-scoped only and never creates or completes the separate Feed Packing/Feed
+Distribution workflows. Park Head approval + operator completion still apply location/stage/counts
+on the second gate; verification remains post-task review and rejection creates operator rework
+without rollback. Missing config blocks, and a semantic fingerprint shown to the phone is
+revalidated under the shifting row lock so changed config returns `feed_config_changed` rather than
+guessing. Canonical source: `docs/decisions/shifting-verification.md`; migration
+`000053_high_priority_shifting_feed_evidence.sql`.
+
 Confirmed feed-distribution verification gate (maintainer decision 2026-07-26,
 SUPERSEDING the "operator marks a shed-session fed (optional video), completed at
 submit" contract FOR the feed-DIRECTION operator flow ONLY): a feed-direction

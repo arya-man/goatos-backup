@@ -253,6 +253,9 @@ interface SyncRepository {
         idempotencyKey: String,
         destinationTag: String? = null,
         proofOutboxItemId: String,
+        feedPackingProofOutboxItemId: String? = null,
+        feedGivenProofOutboxItemId: String? = null,
+        feedConfigFingerprint: String? = null,
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
@@ -276,7 +279,7 @@ interface SyncRepository {
      * BOTH proofs are MANDATORY and passed by REFERENCE to their PROOF_UPLOAD outbox rows
      * ([distributionProofOutboxItemId] = feed-distribution video, [waterProofOutboxItemId] = water
      * photo/video): the dispatcher resolves each uploaded proof_id and sends the pair, exactly like
-     * [enqueueShiftingComplete] resolves its single mandatory video. All three writes MUST share the
+     * [enqueueShiftingComplete] resolves its mandatory evidence set. All three writes MUST share the
      * same [groupKey] (the shed-session) so the two proofs drain strictly before this completion.
      * [idempotencyKey] must be a STABLE caller-persisted key so a resend re-enqueues the SAME
      * verification item instead of completing twice. This is SEPARATE from
@@ -710,6 +713,9 @@ class DefaultSyncRepository(
         idempotencyKey: String,
         destinationTag: String?,
         proofOutboxItemId: String,
+        feedPackingProofOutboxItemId: String?,
+        feedGivenProofOutboxItemId: String?,
+        feedConfigFingerprint: String?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SHIFTING_COMPLETE,
         groupKey = groupKey,
@@ -719,6 +725,9 @@ class DefaultSyncRepository(
                 shiftingEventId = groupKey,
                 destinationTag = destinationTag?.trim()?.ifBlank { null },
                 proofOutboxItemId = proofOutboxItemId,
+                feedPackingProofOutboxItemId = feedPackingProofOutboxItemId,
+                feedGivenProofOutboxItemId = feedGivenProofOutboxItemId,
+                feedConfigFingerprint = feedConfigFingerprint,
             ),
         ),
     )

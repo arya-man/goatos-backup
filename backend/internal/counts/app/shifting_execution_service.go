@@ -67,7 +67,7 @@ type ShiftingVerificationEnqueueRequest struct {
 	OperatorID      string
 	ParkID          string
 	ShedID          string
-	ProofRef        string
+	MediaRefs       []string
 	SubjectLabel    string
 	CapturedAt      time.Time
 	IdempotencyKey  string
@@ -96,7 +96,10 @@ type CompleteShiftingInput struct {
 	// ProofRef is the MANDATORY video the operator records to prove the move (maintainer decision,
 	// 2026-07-26). A blank value is rejected with ports.ErrShiftingProofRequired; verification reviews
 	// the video independently of the approval + completion apply gate.
-	ProofRef string
+	ProofRef              string
+	FeedPackingProofRef   string
+	FeedGivenProofRef     string
+	FeedConfigFingerprint string
 
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
 	// animals adopt. Required only when the destination shed is empty; derived server-side otherwise.
@@ -126,40 +129,48 @@ func (s *ShiftingExecutionService) Complete(
 		return domain.ShiftingExecutionResult{}, false, ErrVerificationEnqueuerNotWired
 	}
 	result, replay, err := s.repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
-		TenantID:           in.TenantID,
-		ShiftingEventID:    in.ShiftingEventID,
-		CompletedByUserID:  in.CompletedByUserID,
-		CompletedAt:        s.now().UTC(),
-		TraceID:            in.TraceID,
-		ProofRef:           strings.TrimSpace(in.ProofRef),
-		DestinationTag:     strings.TrimSpace(in.DestinationTag),
-		IdempotencyKey:     in.IdempotencyKey,
-		RequestFingerprint: in.RequestFingerprint,
+		TenantID:              in.TenantID,
+		ShiftingEventID:       in.ShiftingEventID,
+		CompletedByUserID:     in.CompletedByUserID,
+		CompletedAt:           s.now().UTC(),
+		TraceID:               in.TraceID,
+		ProofRef:              strings.TrimSpace(in.ProofRef),
+		FeedPackingProofRef:   strings.TrimSpace(in.FeedPackingProofRef),
+		FeedGivenProofRef:     strings.TrimSpace(in.FeedGivenProofRef),
+		FeedConfigFingerprint: strings.TrimSpace(in.FeedConfigFingerprint),
+		DestinationTag:        strings.TrimSpace(in.DestinationTag),
+		IdempotencyKey:        in.IdempotencyKey,
+		RequestFingerprint:    in.RequestFingerprint,
 	})
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
 	}
 
-	// Enqueue the mandatory-video verification item. Only for a movement that is actually awaiting
-	// verification (an already-applied replay has been verified and moved -- re-enqueuing would queue
-	// a decided move). The enqueue is idempotent on the shifting event id, so a retry after a prior
-	// enqueue failure heals rather than duplicates: the completion is not "done" for the operator
-	// until the item is queued.
+	// Enqueue one evidence-review item even when approval + completion already applied the move.
+	// The enqueue key includes the complete proof set, so transport retries heal idempotently while a
+	// verifier-requested rework with newly recorded proof creates the replacement review item.
 	if result.EventStatus == domain.ShiftingEventStatusPending ||
 		result.EventStatus == domain.ShiftingEventStatusPendingVerification ||
 		result.EventStatus == domain.ShiftingEventStatusApplied {
 		subject := "Shed move · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		mediaRefs := []string{strings.TrimSpace(in.ProofRef)}
+		if ref := strings.TrimSpace(in.FeedPackingProofRef); ref != "" {
+			mediaRefs = append(mediaRefs, ref)
+		}
+		if ref := strings.TrimSpace(in.FeedGivenProofRef); ref != "" {
+			mediaRefs = append(mediaRefs, ref)
+		}
 		if enqErr := s.enqueuer.EnqueueShiftingMoveVerification(ctx, ShiftingVerificationEnqueueRequest{
 			TenantID:        in.TenantID,
 			ShiftingEventID: in.ShiftingEventID,
 			OperatorID:      in.CompletedByUserID,
 			ParkID:          result.DestinationParkID,
 			ShedID:          result.DestinationShedID,
-			ProofRef:        strings.TrimSpace(in.ProofRef),
+			MediaRefs:       mediaRefs,
 			SubjectLabel:    subject,
 			CapturedAt:      s.now().UTC(),
-			// Keyed to the EVENT + its video so a retry collapses onto one queue item.
-			IdempotencyKey: "counts-shifting-verification:" + in.ShiftingEventID + ":" + strings.TrimSpace(in.ProofRef),
+			// Keyed to the EVENT + complete proof set so a retry collapses onto one queue item.
+			IdempotencyKey: "counts-shifting-verification:" + in.ShiftingEventID + ":" + strings.Join(mediaRefs, ":"),
 		}); enqErr != nil {
 			return domain.ShiftingExecutionResult{}, false, enqErr
 		}

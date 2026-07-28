@@ -44,7 +44,7 @@ func (e *ShiftingVerificationEnqueuer) EnqueueShiftingMoveVerification(ctx conte
 			RefType: countsdomain.VerificationRefTypeShifting,
 			RefID:   in.ShiftingEventID,
 		},
-		MediaRefs:      []string{in.ProofRef},
+		MediaRefs:      in.MediaRefs,
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		ParkID:         ptrIfSet(in.ParkID),

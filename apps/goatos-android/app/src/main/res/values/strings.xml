@@ -10,6 +10,8 @@
     <string name="proof_camera_post_mortem_instruction">Keep the animal and post-mortem work clearly visible</string>
     <string name="proof_camera_shifting_title">Record shifting video</string>
     <string name="proof_camera_shifting_instruction">Keep the animals and destination shed clearly visible</string>
+    <string name="proof_camera_shifting_feed_given_title">Record feed being given</string>
+    <string name="proof_camera_shifting_feed_given_instruction">Keep the configured feed and the moved animals clearly visible while feeding</string>
     <string name="proof_camera_feed_distribution_title">Record feed distribution</string>
     <string name="proof_camera_feed_distribution_instruction">Keep the feed distribution work clearly visible</string>
     <string name="proof_camera_water_distribution_title">Record water distribution</string>

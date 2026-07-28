@@ -118,21 +118,30 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 	// cohort and a supplied value must agree with it. A completion with no video is rejected: the
 	// video is reviewed independently after the approval + completion business gate.
 	var (
-		destinationTag string
-		proofRef       string
+		destinationTag        string
+		proofRef              string
+		feedPackingProofRef   string
+		feedGivenProofRef     string
+		feedConfigFingerprint string
 	)
 	if raw, bodyOK := h.readBody(w, r); !bodyOK {
 		return
 	} else if len(strings.TrimSpace(string(raw))) > 0 {
 		var body struct {
-			ProofRef       string `json:"proof_ref"`
-			DestinationTag string `json:"destination_tag"`
+			ProofRef              string `json:"proof_ref"`
+			FeedPackingProofRef   string `json:"feed_packing_proof_ref"`
+			FeedGivenProofRef     string `json:"feed_given_proof_ref"`
+			FeedConfigFingerprint string `json:"feed_config_fingerprint"`
+			DestinationTag        string `json:"destination_tag"`
 		}
 		if err := decodeStrictJSON(raw, &body, "ShiftingCompleteRequest"); err != nil {
 			h.writeAppError(w, r, err)
 			return
 		}
 		proofRef = strings.TrimSpace(body.ProofRef)
+		feedPackingProofRef = strings.TrimSpace(body.FeedPackingProofRef)
+		feedGivenProofRef = strings.TrimSpace(body.FeedGivenProofRef)
+		feedConfigFingerprint = strings.TrimSpace(body.FeedConfigFingerprint)
 		destinationTag = strings.TrimSpace(body.DestinationTag)
 	}
 	if proofRef == "" {
@@ -145,24 +154,32 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 	// destination cohort tag, so a same-key replay carrying a different video/tag is a conflict rather
 	// than a silent override.
 	canonical, err := canonicalRequestBytes(tenantID, appShiftingCompleteCommand, appShiftingCompleteRoute, struct {
-		ShiftingEventID string `json:"shifting_event_id"`
-		ProofRef        string `json:"proof_ref"`
-		DestinationTag  string `json:"destination_tag,omitempty"`
-	}{ShiftingEventID: eventID, ProofRef: proofRef, DestinationTag: destinationTag})
+		ShiftingEventID       string `json:"shifting_event_id"`
+		ProofRef              string `json:"proof_ref"`
+		FeedPackingProofRef   string `json:"feed_packing_proof_ref,omitempty"`
+		FeedGivenProofRef     string `json:"feed_given_proof_ref,omitempty"`
+		FeedConfigFingerprint string `json:"feed_config_fingerprint,omitempty"`
+		DestinationTag        string `json:"destination_tag,omitempty"`
+	}{ShiftingEventID: eventID, ProofRef: proofRef, FeedPackingProofRef: feedPackingProofRef,
+		FeedGivenProofRef: feedGivenProofRef, FeedConfigFingerprint: feedConfigFingerprint,
+		DestinationTag: destinationTag})
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
 	}
 
 	result, replay, err := h.execution.Complete(r.Context(), countsapp.CompleteShiftingInput{
-		TenantID:           tenantID,
-		ShiftingEventID:    eventID,
-		CompletedByUserID:  actorID,
-		TraceID:            appTraceID(r),
-		ProofRef:           proofRef,
-		DestinationTag:     destinationTag,
-		IdempotencyKey:     "counts-shifting-completion:" + clientKey,
-		RequestFingerprint: stableHash("counts-app-shifting-completion", canonical),
+		TenantID:              tenantID,
+		ShiftingEventID:       eventID,
+		CompletedByUserID:     actorID,
+		TraceID:               appTraceID(r),
+		ProofRef:              proofRef,
+		FeedPackingProofRef:   feedPackingProofRef,
+		FeedGivenProofRef:     feedGivenProofRef,
+		FeedConfigFingerprint: feedConfigFingerprint,
+		DestinationTag:        destinationTag,
+		IdempotencyKey:        "counts-shifting-completion:" + clientKey,
+		RequestFingerprint:    stableHash("counts-app-shifting-completion", canonical),
 	})
 	if err != nil {
 		h.writeShiftingExecutionError(w, r, err)
@@ -305,9 +322,10 @@ type appShiftingPendingExecutionResponse struct {
 }
 
 type appShiftingPendingExecutionItem struct {
-	ShiftingEventID  string `json:"shifting_event_id"`
-	EventStatus      string `json:"event_status"`
-	PrimaryActionKey string `json:"primary_action_key"`
+	ShiftingEventID   string `json:"shifting_event_id"`
+	EventStatus       string `json:"event_status"`
+	VerificationState string `json:"verification_state"`
+	PrimaryActionKey  string `json:"primary_action_key"`
 
 	Priority string `json:"priority"`
 	Category string `json:"category"`
@@ -338,6 +356,7 @@ type appShiftingPendingExecutionItem struct {
 	AnimalCount      int                                 `json:"animal_count"`
 	AnimalsTruncated bool                                `json:"animals_truncated"`
 	Animals          []appShiftingPendingExecutionAnimal `json:"animals"`
+	FeedRequirement  *domain.ShiftingFeedRequirement     `json:"feed_requirement,omitempty"`
 }
 
 type appShiftingPendingExecutionAnimal struct {
@@ -394,6 +413,7 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 		items = append(items, appShiftingPendingExecutionItem{
 			ShiftingEventID:     row.ShiftingEventID,
 			EventStatus:         row.EventStatus,
+			VerificationState:   row.VerificationState,
 			PrimaryActionKey:    row.PrimaryActionKey,
 			Priority:            row.Priority,
 			Category:            row.Category,
@@ -415,6 +435,7 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 			AnimalCount:         row.AnimalCount,
 			AnimalsTruncated:    row.AnimalCount > len(animals),
 			Animals:             animals,
+			FeedRequirement:     row.FeedRequirement,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK,
@@ -441,6 +462,15 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		// (maintainer decision, 2026-07-26). Actionable input error.
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
 			"a video proof (proof_ref) is required to complete a shifting movement", err)
+	case errors.Is(err, ports.ErrShiftingFeedProofsRequired):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_proofs_required",
+			"high-priority shifting requires live feed-packing and feeding videos", err)
+	case errors.Is(err, ports.ErrShiftingFeedConfigBlocked):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_config_blocked",
+			"destination feed configuration cannot resolve the required ration", err)
+	case errors.Is(err, ports.ErrShiftingFeedConfigChanged):
+		h.writeError(w, r, http.StatusConflict, "feed_config_changed",
+			"destination feed configuration changed; refresh the task before submitting", err)
 	case errors.Is(err, identityports.ErrDestinationTagRequired):
 		// 422: the movement is executable, but completing it into an EMPTY destination shed needs the
 		// operator to name the cohort the animals join. Actionable input error, not a server fault.

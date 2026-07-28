@@ -292,7 +292,7 @@
     },
     {
       "eventType": "verification.item.pending",
-      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, and death_evidence \u2014 initial death evidence is released by the approved goat.exited consumer; only a post-verifier-rejection re-shoot enqueues from the second upload completion)",
+      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, and death_evidence; shifting_move carries one video for low priority or all three shifting/feed-packing/feed-given videos together for high priority; embedded packing proof remains shifting-scoped and emits no feed completion event)",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -305,7 +305,8 @@
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/adapters/postgres/repository_integration_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/countsbridge/shifting_verification_enqueue_test.go"
       ],
       "surfaces": [
         "backend",

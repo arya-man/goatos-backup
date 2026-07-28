@@ -443,9 +443,12 @@ class SyncEngine(
             payload.shiftingEventId,
             item.idempotencyKey,
             payload.destinationTag,
-            // The MANDATORY video's proof_id (maintainer decision, 2026-07-26): resolved from the
-            // PROOF_UPLOAD item enqueued on the same group, which drains first.
+            // The mandatory shifting video's proof_id; high-priority completions also resolve the
+            // two embedded feed videos below before sending one atomic completion command.
             resolveShiftingProofRef(payload),
+            resolveOptionalShiftingProofRef(payload.feedPackingProofOutboxItemId, "feed-packing"),
+            resolveOptionalShiftingProofRef(payload.feedGivenProofOutboxItemId, "feeding"),
+            payload.feedConfigFingerprint,
         )
         return syncJson.encodeToString(response)
     }
@@ -473,6 +476,20 @@ class SyncEngine(
             throw NonRetryableSyncException("The shifting video upload did not return a proof id.")
         }
         return proofId
+    }
+
+    private suspend fun resolveOptionalShiftingProofRef(proofItemId: String?, label: String): String? {
+        if (proofItemId.isNullOrBlank()) return null
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("The shifting $label video upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for the shifting $label video to finish uploading before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("The shifting $label video upload result is not yet available.")
+        return syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+            .takeIf { it.isNotBlank() }
+            ?: throw NonRetryableSyncException("The shifting $label video upload did not return a proof id.")
     }
 
     private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {
