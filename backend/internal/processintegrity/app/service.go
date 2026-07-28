@@ -22,6 +22,8 @@ type Service struct {
 	media verificationports.MediaResolver
 }
 
+const maxProtocolAdherencePages = 100
+
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
 }
@@ -76,15 +78,38 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	if q.Limit < 500 {
 		q.Limit = 500
 	}
-	result, err := s.repo.ListRows(ctx, q)
-	if err != nil {
-		return domain.ProtocolAdherenceResponse{}, err
+	allRows := []domain.Row{}
+	var projection domain.ProjectionMetadata
+	exhausted := false
+	for page := 0; page < maxProtocolAdherencePages; page++ {
+		// scale-guard:ignore: bounded keyset pagination over the canonical 500-row pages; Protocol Adherence must aggregate the selected drive's full filtered set instead of a UI page.
+		result, err := s.repo.ListRows(ctx, q)
+		if err != nil {
+			return domain.ProtocolAdherenceResponse{}, err
+		}
+		projection = result.Projection
+		allRows = append(allRows, result.Rows...)
+		if result.NextCursor == nil {
+			exhausted = true
+			break
+		}
+		cursor, err := domain.DecodeCursor(*result.NextCursor)
+		if err != nil {
+			return domain.ProtocolAdherenceResponse{}, err
+		}
+		if q.Cursor != nil && cursor == *q.Cursor {
+			return domain.ProtocolAdherenceResponse{}, fmt.Errorf("processintegrity: protocol adherence cursor did not advance")
+		}
+		q.Cursor = &cursor
 	}
-	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
-	result.Rows = driveScopedAdherenceRows(result.Rows, q.AsOf)
-	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
-	summary := adherenceSummaryForRows(result.Rows)
-	for _, row := range result.Rows {
+	if !exhausted {
+		return domain.ProtocolAdherenceResponse{}, fmt.Errorf("processintegrity: protocol adherence exceeded %d pages", maxProtocolAdherencePages)
+	}
+	allRows = s.withEvidenceMedia(ctx, q.TenantID, allRows)
+	allRows = driveScopedAdherenceRows(allRows, q.AsOf)
+	rows := make([]domain.AdherenceRow, 0, len(allRows))
+	summary := adherenceSummaryForRows(allRows)
+	for _, row := range allRows {
 		rows = append(rows, domain.AdherenceRow{
 			RowID:                   row.RowID,
 			ShedName:                row.ShedName,
@@ -115,7 +140,7 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 		Rows:       rows,
 		TotalCount: int64(len(rows)),
 		NextCursor: nil,
-		Projection: result.Projection,
+		Projection: projection,
 	}, nil
 }
 
@@ -153,7 +178,7 @@ func driveScopedAdherenceRows(rows []domain.Row, asOf time.Time) []domain.Row {
 	}
 	scoped := make([]domain.Row, 0, len(rows))
 	for _, row := range rows {
-		if row.RuleID == selectedRule {
+		if row.Category == domain.CategoryVaccination && row.RuleID != "" && row.DueAt.Equal(selectedDue) {
 			scoped = append(scoped, row)
 		}
 	}

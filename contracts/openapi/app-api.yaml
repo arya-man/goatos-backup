@@ -7070,6 +7070,8 @@ components:
           format: uuid
         shed_name:
           type: string
+        partition_label:
+          type: string
         drive_name:
           type: string
         expected_count:
@@ -10520,6 +10522,8 @@ components:
           type: string
           format: uuid
         shed_name:
+          type: string
+        partition_label:
           type: string
         drive_name:
           type: string
