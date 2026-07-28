@@ -27,6 +27,13 @@ function alertId(record: ControlTowerDrawerRecord): string {
   return record.alert.row_id;
 }
 
+function evidenceSummary(alert: ControlTowerAlert, pageContract: AdminUiPageContract): string {
+  const state = optionLabel(pageContract, "work_state_filter_chips", alert.work_state);
+  const detail = alert.detail.trim();
+  if (detail) return `${state} proof - ${detail}`;
+  return state || copy(pageContract, "label.not_ready");
+}
+
 export function ControlTowerLocalDrawer({
   records,
   pageContract,
@@ -110,7 +117,7 @@ function ControlTowerAlertDrawer({
           <div><div className="k">{copy(pageContract, "label.detail")}</div><div className="v">{alert.detail}</div></div>
           <div><div className="k">{copy(pageContract, "label.owner")}</div><div className="v">{owner}</div></div>
           <div><div className="k">{copy(pageContract, "label.next_action")}</div><div className="v">{alert.next_action}</div></div>
-          <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v">{alert.evidence_link || copy(pageContract, "label.not_ready")}</div></div>
+          <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v">{evidenceSummary(alert, pageContract)}</div></div>
         </div>
         <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.alert.guidance")}</div>
       </div>

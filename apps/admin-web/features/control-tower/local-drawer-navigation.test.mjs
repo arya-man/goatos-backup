@@ -14,3 +14,9 @@ test("control-tower record drawers open locally without a route/RSC navigation",
   assert.match(drawerSource, /className=\{`scrim\$\{drawerOpen \? " on" : ""\}`\}/);
   assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
 });
+
+test("control-tower drawer keeps workflow IDs out of the evidence cell", () => {
+  assert.match(drawerSource, /function evidenceSummary/);
+  assert.match(drawerSource, /\{evidenceSummary\(alert, pageContract\)\}/);
+  assert.doesNotMatch(drawerSource, /\{alert\.evidence_link \|\| copy\(pageContract, "label\.not_ready"\)\}/);
+});
