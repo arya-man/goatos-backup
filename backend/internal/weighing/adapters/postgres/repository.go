@@ -596,6 +596,12 @@ SET status='weighed',
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.AnimalID, nullUUID(obs.ActualLocationID), obs.ActualLocationLabel); err != nil {
 			return domain.Observation{}, err
 		}
+		if err := r.completeIndividualScopeIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID, obs.CampaignShedID); err != nil {
+			return domain.Observation{}, err
+		}
+	}
+	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
+		return domain.Observation{}, err
 	}
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
 		return domain.Observation{}, err
@@ -660,10 +666,62 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	if _, err := tx.Exec(ctx, `UPDATE weighing_campaign_sheds SET status='completed', completed_at=now(), updated_at=now() WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.CampaignShedID); err != nil {
 		return domain.Observation{}, err
 	}
+	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
+		return domain.Observation{}, err
+	}
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, tx.Commit(ctx)
+}
+
+func (r *Repository) completeIndividualScopeIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID, campaignShedID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds cs
+SET status='completed',
+  completed_at=COALESCE(cs.completed_at, now()),
+  updated_at=now()
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.campaign_shed_id=$3::uuid
+  AND cs.weighing_category='individual_animal'
+  AND cs.status <> 'completed'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM weighing_expected_animals ea
+    WHERE ea.tenant_id=cs.tenant_id
+      AND ea.campaign_id=cs.campaign_id
+      AND ea.campaign_shed_id=cs.campaign_shed_id
+      AND ea.status NOT IN ('weighed', 'unavailable', 'canceled', 'closed_by_override')
+  )`, tenantID, campaignID, campaignShedID)
+	return err
+}
+
+func (r *Repository) completeCampaignIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE weighing_campaigns wc
+SET status='completed',
+  completed_at=COALESCE(wc.completed_at, now()),
+  updated_at=now(),
+  row_version=row_version+1
+WHERE wc.tenant_id=$1::uuid
+  AND wc.campaign_id=$2::uuid
+  AND wc.status IN ('published', 'in_progress')
+  AND EXISTS (
+    SELECT 1
+    FROM weighing_campaign_sheds cs
+    WHERE cs.tenant_id=wc.tenant_id
+      AND cs.campaign_id=wc.campaign_id
+      AND cs.status <> 'canceled'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM weighing_campaign_sheds cs
+    WHERE cs.tenant_id=wc.tenant_id
+      AND cs.campaign_id=wc.campaign_id
+      AND cs.status NOT IN ('completed', 'canceled')
+  )`, tenantID, campaignID)
+	return err
 }
 
 func (r *Repository) RefreshAvailability(ctx context.Context, tenantID, campaignID string) error {
