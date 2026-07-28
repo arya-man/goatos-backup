@@ -564,13 +564,8 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	   AND proof.proof_type='video'
 	   AND proof.subject_type='goat'
 	   AND proof.subject_id=$3::uuid
-	   AND (
-	     (proof.scope_type='goat' AND proof.scope_id=$3::uuid)
-	     OR (
-	       proof.scope_type='shed'
-	       AND proof.scope_id IN (ea.expected_location_id, COALESCE(NULLIF($8, '')::uuid, g.current_location_id))
-	     )
-	   )
+	   AND proof.scope_type='goat'
+	   AND proof.scope_id=$3::uuid
 	), inserted AS (
 	  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
 	  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
@@ -1005,13 +1000,8 @@ func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx 
 	   AND proof.proof_type='video'
 	   AND proof.subject_type='goat'
 	   AND proof.subject_id=g.goat_id
-	   AND (
-	     (proof.scope_type='goat' AND proof.scope_id=g.goat_id)
-	     OR (
-	       proof.scope_type='shed'
-	       AND proof.scope_id IN (ea.expected_location_id, COALESCE(NULLIF($4, '')::uuid, g.current_location_id))
-	     )
-	   )
+	   AND proof.scope_type='goat'
+	   AND proof.scope_id=g.goat_id
 	  WHERE g.tenant_id=$1::uuid AND g.goat_id=$5::uuid
 	)`, cmd.TenantID, cmd.CampaignID, cmd.ProofArtifactID, cmd.ActualLocationID, cmd.AnimalID).Scan(&proofOK)
 	if err != nil {

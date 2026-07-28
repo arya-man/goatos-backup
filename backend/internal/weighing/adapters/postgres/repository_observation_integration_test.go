@@ -14,22 +14,23 @@ import (
 )
 
 const (
-	repoTenant       = "00000000-0000-4000-8000-000000000001"
-	repoParty        = "00000000-0000-4000-8000-000000001001"
-	repoPark         = "00000000-0000-4000-8000-000000003001"
-	repoOperator     = "00000000-0000-4000-8000-000000000301"
-	repoOtherOp      = "00000000-0000-4000-8000-000000000302"
-	repoCampaign     = "00000000-0000-4000-8000-000000009001"
-	repoAnimalScope  = "00000000-0000-4000-8000-000000009101"
-	repoShedScope    = "00000000-0000-4000-8000-000000009102"
-	repoAnimal       = "00000000-0000-4000-8000-000000009201"
-	repoAnimalProof  = "00000000-0000-4000-8000-000000009301"
-	repoPendingProof = "00000000-0000-4000-8000-000000009302"
-	repoShedProof    = "00000000-0000-4000-8000-000000009303"
-	repoPhotoProof   = "00000000-0000-4000-8000-000000009304"
-	repoExpectedShed = "f1b1bad0-47ab-4248-95dc-8fa1472d4fec"
-	repoActualShed   = "654260da-956e-4015-bc95-edf3421cae3c"
-	repoPerShed      = "86e47f9c-fd1d-461d-9b9a-45d3be9bf12d"
+	repoTenant          = "00000000-0000-4000-8000-000000000001"
+	repoParty           = "00000000-0000-4000-8000-000000001001"
+	repoPark            = "00000000-0000-4000-8000-000000003001"
+	repoOperator        = "00000000-0000-4000-8000-000000000301"
+	repoOtherOp         = "00000000-0000-4000-8000-000000000302"
+	repoCampaign        = "00000000-0000-4000-8000-000000009001"
+	repoAnimalScope     = "00000000-0000-4000-8000-000000009101"
+	repoShedScope       = "00000000-0000-4000-8000-000000009102"
+	repoAnimal          = "00000000-0000-4000-8000-000000009201"
+	repoAnimalProof     = "00000000-0000-4000-8000-000000009301"
+	repoPendingProof    = "00000000-0000-4000-8000-000000009302"
+	repoShedProof       = "00000000-0000-4000-8000-000000009303"
+	repoPhotoProof      = "00000000-0000-4000-8000-000000009304"
+	repoAnimalShedProof = "00000000-0000-4000-8000-000000009305"
+	repoExpectedShed    = "f1b1bad0-47ab-4248-95dc-8fa1472d4fec"
+	repoActualShed      = "654260da-956e-4015-bc95-edf3421cae3c"
+	repoPerShed         = "86e47f9c-fd1d-461d-9b9a-45d3be9bf12d"
 )
 
 func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocation(t *testing.T) {
@@ -77,6 +78,13 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	})
 	if !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("pending proof err=%v, want invalid argument", err)
+	}
+	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.65,
+		ProofArtifactID: repoAnimalShedProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:shed-scoped-proof", RecordedBy: repoOperator,
+	})
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("shed-scoped animal proof err=%v, want invalid argument", err)
 	}
 
 	setCampaignStatus(t, ctx, pool, domain.StatusDraft)
@@ -177,8 +185,9 @@ INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expect
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid)
 ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availability_status='expected_shed', current_location_id=NULL, current_location_label=NULL`,
 		repoCampaign, repoTenant, repoAnimal, repoExpectedShed, repoAnimalScope)
-	insertProof(t, ctx, pool, repoAnimalProof, "video", "completed", "shed", repoActualShed, "goat", repoAnimal)
-	insertProof(t, ctx, pool, repoPendingProof, "video", "pending", "shed", repoActualShed, "goat", repoAnimal)
+	insertProof(t, ctx, pool, repoAnimalProof, "video", "completed", "goat", repoAnimal, "goat", repoAnimal)
+	insertProof(t, ctx, pool, repoPendingProof, "video", "pending", "goat", repoAnimal, "goat", repoAnimal)
+	insertProof(t, ctx, pool, repoAnimalShedProof, "video", "completed", "shed", repoActualShed, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoShedProof, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
 	insertProof(t, ctx, pool, repoPhotoProof, "photo", "completed", "shed", repoPerShed, "shed", repoPerShed)
 }
