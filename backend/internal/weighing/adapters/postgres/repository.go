@@ -763,13 +763,15 @@ LIMIT $5`, tenantID, campaignID, nullableTime(lastCreated), nullableString(lastA
 		}
 		rows.Close()
 		if len(animalIDs) == 0 {
-			return nil
+			return r.completeResolvedIndividualScopes(ctx, tenantID, campaignID)
 		}
 		if _, err := r.pool.Exec(ctx, `
 UPDATE weighing_expected_animals ea
 SET availability_status = CASE
     WHEN g.lifecycle_status IN ('dead') THEN 'dead'
     WHEN g.lifecycle_status IN ('sold','transferred') THEN 'sold_transferred'
+    WHEN g.health_status = 'icu' THEN 'icu'
+    WHEN g.health_status = 'quarantine' THEN 'quarantine'
     WHEN g.current_location_id IS DISTINCT FROM ea.expected_location_id THEN 'moved_other_shed'
     ELSE 'expected_shed'
   END,
@@ -777,7 +779,12 @@ SET availability_status = CASE
   current_location_label=l.name,
   current_lifecycle_status=g.lifecycle_status,
   availability_checked_at=now(),
-  status=CASE WHEN g.lifecycle_status IN ('dead','sold','transferred') THEN 'unavailable' ELSE ea.status END,
+  status=CASE
+    WHEN g.lifecycle_status IN ('dead','sold','transferred')
+      OR g.health_status IN ('icu','quarantine')
+    THEN 'unavailable'
+    ELSE ea.status
+  END,
   updated_at=now()
 FROM goats g
 LEFT JOIN locations l ON l.tenant_id=g.tenant_id AND l.location_id=g.current_location_id
@@ -789,9 +796,50 @@ WHERE ea.tenant_id=$1::uuid
 			return err
 		}
 		if len(animalIDs) < chunkLimit {
-			return nil
+			return r.completeResolvedIndividualScopes(ctx, tenantID, campaignID)
 		}
 	}
+}
+
+func (r *Repository) completeResolvedIndividualScopes(ctx context.Context, tenantID, campaignID string) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `
+SELECT campaign_shed_id::text
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND weighing_category='individual_animal'
+  AND status <> 'completed'`, tenantID, campaignID)
+	if err != nil {
+		return err
+	}
+	scopeIDs := []string{}
+	for rows.Next() {
+		var scopeID string
+		if err := rows.Scan(&scopeID); err != nil {
+			rows.Close()
+			return err
+		}
+		scopeIDs = append(scopeIDs, scopeID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, scopeID := range scopeIDs {
+		if err := r.completeIndividualScopeIfDone(ctx, tx, tenantID, campaignID, scopeID); err != nil {
+			return err
+		}
+	}
+	if err := r.completeCampaignIfDone(ctx, tx, tenantID, campaignID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) timeout(ctx context.Context) (context.Context, context.CancelFunc) {
