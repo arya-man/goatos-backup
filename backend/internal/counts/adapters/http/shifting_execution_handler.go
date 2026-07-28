@@ -418,6 +418,8 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrShiftingDestinationSnapshotMissing):
+		h.writeError(w, r, http.StatusConflict, "shifting_destination_snapshot_missing", err.Error(), err)
 	case errors.Is(err, identityports.ErrDestinationTagRequired):
 		// 422: the movement is executable, but completing it into an EMPTY destination shed needs the
 		// operator to name the cohort the animals join. Actionable input error, not a server fault.

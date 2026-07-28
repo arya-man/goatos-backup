@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -138,6 +139,9 @@ func (r *Repository) CompleteShiftingEvent(
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
 			"%w: shifting event %s names no animals to move",
 			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
+	}
+	if err := current.requireDestinationProfileSnapshot(in.ShiftingEventID); err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
 	}
 
 	// THE RELOCATION. This is the only place in the shifting flow that writes an animal's canonical
@@ -424,6 +428,16 @@ func intPtrValue(v *int) int {
 		return 0
 	}
 	return *v
+}
+
+func (e lockedShiftingEvent) requireDestinationProfileSnapshot(shiftingEventID string) error {
+	if e.DestinationProfileID == nil || strings.TrimSpace(*e.DestinationProfileID) == "" ||
+		e.DestinationProfileRowVersion == nil || *e.DestinationProfileRowVersion <= 0 ||
+		e.DestinationStage == nil || strings.TrimSpace(*e.DestinationStage) == "" {
+		return fmt.Errorf("%w: shifting event %s was authorized without destination profile snapshot",
+			ports.ErrShiftingDestinationSnapshotMissing, shiftingEventID)
+	}
+	return nil
 }
 
 // readShiftingEventSourceLocation reads the expected source park and shed for a shifting event.

@@ -719,6 +719,46 @@ func TestCompleteShiftingFailsClosedWhenDestinationProfileDriftsAfterAuthorizati
 	}
 }
 
+func TestCompleteShiftingFailsClosedWhenAuthorizedEventLacksDestinationSnapshot(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c104"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+	seedShedProfile(t, ctx, pool, countsShedB, "K2")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "missing-snapshot-1", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "missing-snapshot-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	// Simulate an already-authorized row from before the destination profile snapshot columns shipped.
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events
+SET destination_profile_id = NULL,
+    destination_profile_row_version = NULL,
+    destination_stage = NULL
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, shiftingEventID); err != nil {
+		t.Fatalf("clear destination snapshot: %v", err)
+	}
+
+	seedShedProfile(t, ctx, pool, countsShedB, "K3")
+	_, _, err := completeShifting(repo, ctx, "missing-snapshot-1", shiftingEventID)
+	if !errors.Is(err, ports.ErrShiftingDestinationSnapshotMissing) {
+		t.Fatalf("complete err=%v, want ErrShiftingDestinationSnapshotMissing for migrated authorized row", err)
+	}
+	if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+		t.Fatalf("mover shed=%s after rejected completion, want source shed %s", got, countsShedA)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "K1" {
+		t.Fatalf("mover management_stage=%q after rejected completion, want unchanged K1", got)
+	}
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after rejected completion, want authorized for re-approval/review", got)
+	}
+}
+
 // TestCompleteShiftingIntoConfiguredEmptyShedAdoptsProfileCohort proves the empty-destination path:
 // with no existing animals to observe, the cohort comes from the shed's CONFIGURED profile. A shed
 // configured as Pregnant, with no resident, adopts Pregnant onto the mover — the profile is the
