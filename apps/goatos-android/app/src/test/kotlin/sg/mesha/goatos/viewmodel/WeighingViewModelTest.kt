@@ -236,6 +236,34 @@ class WeighingViewModelTest {
         assertFalse(vm.state.value.visibleRows.any { it.weightUpdating })
     }
 
+    @Test
+    fun `free flow scanned animals stay newest first after merging restored drafts`() = runTest(dispatcher) {
+        val olderDraftTag = "901007000504406"
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(
+                    rosterRow(),
+                    rosterRow(animalId = SECOND_TAG, rowId = "row-2"),
+                    rosterRow(animalId = olderDraftTag, rowId = "row-older"),
+                ),
+                listOf(acceptedDraft(animalId = olderDraftTag, weightKg = 11.0, capturedAtMs = 500)),
+                emptyList(),
+                0,
+            ),
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG, capturedAtMs = 1_000)
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, SECOND_TAG, capturedAtMs = 2_000)
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(SECOND_TAG, TEST_TAG, olderDraftTag),
+            vm.state.value.visibleRows.map { it.animalId },
+        )
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
@@ -296,12 +324,13 @@ class WeighingViewModelTest {
     private fun acceptedDraft(
         animalId: String = TEST_TAG,
         weightKg: Double,
+        capturedAtMs: Long = 1_000,
     ) = IndividualWeighingDraft(
         observationId = "observation-$animalId",
         animalId = animalId,
         scannedIdentifier = animalId,
         weightKg = weightKg,
-        capturedAtMs = 1_000,
+        capturedAtMs = capturedAtMs,
         proofCaptureId = "proof-$animalId",
         proofReady = true,
         readyToSubmit = true,

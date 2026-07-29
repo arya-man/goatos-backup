@@ -981,7 +981,12 @@ class WeighingViewModel @Inject constructor(
                     capturedAtMs = draft.capturedAtMs,
                 )
             }
-        ).distinctBy { it.animalId }
+        )
+            .distinctBy { it.animalId }
+            .sortedWith(
+                compareByDescending<WeighingRosterRowEntity> { it.updatedAt }
+                    .thenByDescending { it.animalId },
+            )
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
             scopeLabel = expectedLocationLabel
