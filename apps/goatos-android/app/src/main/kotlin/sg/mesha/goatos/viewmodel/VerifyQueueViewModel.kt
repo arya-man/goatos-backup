@@ -390,22 +390,9 @@ class VerifyQueueViewModel @Inject constructor(
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val WEIGHING_CATEGORY = "weighing_proof"
-private const val BIRTH_CATEGORY = "birth_evidence"
-private const val DEATH_CATEGORY = "death_evidence"
-private const val SHIFTING_CATEGORY = "shifting_move"
-private const val PACKING_CATEGORY = "feed_packing"
-private const val FEED_DISTRIBUTION_CATEGORY = "feed_distribution"
-private const val FEED_TRANSPORT_CATEGORY = "feed_transport"
-
 private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
-    VerifyModuleTab.BIRTH -> BIRTH_CATEGORY
-    VerifyModuleTab.DEATH -> DEATH_CATEGORY
     VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
     VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
-    VerifyModuleTab.SHIFTING -> SHIFTING_CATEGORY
-    VerifyModuleTab.PACKING -> PACKING_CATEGORY
-    VerifyModuleTab.FEED_DIRECTION -> FEED_DISTRIBUTION_CATEGORY
-    VerifyModuleTab.TRANSPORT -> FEED_TRANSPORT_CATEGORY
 }
 
 private fun locationOptions(
