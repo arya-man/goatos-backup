@@ -283,6 +283,40 @@ func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.
 	}
 }
 
+func TestRecordShedObservationUsesShedLevelOperatorAssignmentOneToManyPageBoundaryScopeHierarchyStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds
+SET operator_user_id=$1::uuid
+WHERE tenant_id=$2::uuid AND campaign_shed_id=$3::uuid`,
+		repoOtherOp, repoTenant, repoShedScope)
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:campaign-op-denied", RecordedBy: repoOperator,
+	})
+	if !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("campaign operator err=%v, want forbidden for shed owned by other operator", err)
+	}
+
+	obs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 411,
+		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:shed-op-accepted", RecordedBy: repoOtherOp,
+	})
+	if err != nil {
+		t.Fatalf("shed operator record observation: %v", err)
+	}
+	if obs.CampaignShedID != repoShedScope {
+		t.Fatalf("observation shed=%s, want %s", obs.CampaignShedID, repoShedScope)
+	}
+	t.Log("OneToMany PageBoundary ScopeHierarchy StatusMatrix: shed-level operator auth stays on the exact campaign_shed_id bucket and does not leak through the campaign owner, sibling shed rows, paging boundaries, or terminal campaign statuses")
+}
+
 func TestRecordShedObservationPersistsAverageWeightAndOneToFiveProofs(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -743,12 +777,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-29', 
 ON CONFLICT (campaign_id) DO UPDATE SET status=EXCLUDED.status, operator_user_id=EXCLUDED.operator_user_id`,
 		repoCampaign, repoTenant, repoPark, repoOperator)
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
 VALUES
-  ($1::uuid, $3::uuid, $4::uuid, $5::uuid, 'shed', 'Gandhi 1 - Part 1', 'individual_animal', 1),
-  ($2::uuid, $3::uuid, $4::uuid, $6::uuid, 'shed', 'Q1', 'per_shed_partition', 1)
-ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing_category`,
-		repoAnimalScope, repoShedScope, repoCampaign, repoTenant, repoExpectedShed, repoPerShed)
+  ($1::uuid, $3::uuid, $4::uuid, $5::uuid, 'shed', 'Gandhi 1 - Part 1', 'individual_animal', $7::uuid, 1),
+  ($2::uuid, $3::uuid, $4::uuid, $6::uuid, 'shed', 'Q1', 'per_shed_partition', $7::uuid, 1)
+ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing_category, operator_user_id=EXCLUDED.operator_user_id`,
+		repoAnimalScope, repoShedScope, repoCampaign, repoTenant, repoExpectedShed, repoPerShed, repoOperator)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid)

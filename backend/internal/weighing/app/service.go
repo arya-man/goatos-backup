@@ -74,7 +74,14 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor 
 	if limit > 100 {
 		limit = 100
 	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
+	page, err := s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	if canExecute && !canMonitor {
+		page.Items = filterCampaignsForShedOperator(page.Items, actor.UserID)
+	}
+	return page, nil
 }
 
 func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error) {
@@ -219,6 +226,9 @@ func validateCreate(cmd domain.CreateCampaign) error {
 		if !uuidutil.IsUUIDString(shed.LocationID) || strings.TrimSpace(shed.DisplayName) == "" {
 			return ports.ErrInvalidArgument
 		}
+		if strings.TrimSpace(shed.OperatorUserID) != "" && !uuidutil.IsUUIDString(shed.OperatorUserID) {
+			return ports.ErrInvalidArgument
+		}
 		switch shed.WeighingCategory {
 		case domain.CategoryIndividualAnimal, domain.CategoryPerShedPartition:
 		default:
@@ -226,4 +236,26 @@ func validateCreate(cmd domain.CreateCampaign) error {
 		}
 	}
 	return nil
+}
+
+func filterCampaignsForShedOperator(campaigns []domain.Campaign, operatorID string) []domain.Campaign {
+	operatorID = strings.TrimSpace(operatorID)
+	if operatorID == "" {
+		return nil
+	}
+	filtered := make([]domain.Campaign, 0, len(campaigns))
+	for _, campaign := range campaigns {
+		sheds := campaign.Sheds[:0]
+		for _, shed := range campaign.Sheds {
+			if shed.OperatorUserID == operatorID {
+				sheds = append(sheds, shed)
+			}
+		}
+		if len(sheds) == 0 {
+			continue
+		}
+		campaign.Sheds = append([]domain.CampaignShed(nil), sheds...)
+		filtered = append(filtered, campaign)
+	}
+	return filtered
 }

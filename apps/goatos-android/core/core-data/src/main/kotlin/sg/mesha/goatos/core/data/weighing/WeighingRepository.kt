@@ -75,6 +75,7 @@ data class WeighingAssignment(
     val expectedLocationLabel: String,
     val label: String,
     val category: String,
+    val operatorUserId: String,
     val status: String,
     val expectedCount: Int,
     val periodLabel: String,
@@ -124,6 +125,7 @@ data class WeighingPlannerShed(
     val name: String,
     val kidCount: Int,
     val category: String = "per_shed_partition",
+    val operatorUserId: String = "",
 )
 
 data class WeighingCampaignSummary(
@@ -829,6 +831,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
                 locationType = "shed",
                 displayName = it.name,
                 weighingCategory = it.category,
+                operatorUserId = it.operatorUserId.ifBlank { operatorUserId },
             )
         },
     )
@@ -849,6 +852,7 @@ private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
                 expectedLocationLabel = shed.displayName,
                 label = shed.displayName,
                 category = shed.weighingCategory,
+                operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
                 status = shed.status,
                 expectedCount = shed.expectedAnimalCount,
                 periodLabel = listOf(periodStartDate, periodEndDate)

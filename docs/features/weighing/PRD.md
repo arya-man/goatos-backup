@@ -296,7 +296,7 @@ Rules:
 - Preserve shed/partition atomicity. Do not split a shed or partition just to
   perfectly hit the daily cap.
 - Club smaller sheds/partitions together when the combined count fits reasonably
-  under the daily cap.
+  under the daily cap and the same operator owns those shed buckets.
 - If one shed/partition itself exceeds the daily cap, keep it as one work group
   and allow the group to span multiple days.
 - If the operator finishes less than the suggested cap, roll the remaining
@@ -304,8 +304,21 @@ Rules:
 - If the task extends one or two days beyond the selected week, keep it open and
   visibly delayed instead of blocking execution.
 - Planning estimates are not submit requirements. Operator execution records the
-  bucket evidence actually captured; missing Herd Register animals are not
-  treated as operator misses in V1.
+  rows actually captured in the selected shed bucket.
+- A single campaign can have multiple operators only by assigning different
+  shed/partition buckets to different operators. Do not assign two operators to
+  the same individual shed bucket in v1.
+
+Mock split:
+
+| Campaign | Shed bucket | Operator | Result |
+|---|---|---|---|
+| CBE / week of 2026-07-27 | Yashoda 1 | Kumar Sharath | Kumar sees and submits only Yashoda 1. |
+| CBE / week of 2026-07-27 | Yashoda 2 | Pramod | Pramod sees and submits only Yashoda 2. |
+| CBE / week of 2026-07-27 | Yashoda 3 | Dinakar | Dinakar sees and submits only Yashoda 3 if explicitly assigned. |
+
+CEO/CXO and director monitor views see the whole campaign. Operators see only
+their assigned shed buckets.
 
 Example:
 
@@ -555,7 +568,7 @@ acceptance includes these visible outcomes:
 - Automatic weight-anomaly clinical diagnosis.
 - Feed-ration recalculation from weighing results.
 - Auto movement/shifting based on weight.
-- Multiple operator capacity splitting beyond the current Amit-only execution.
+- Two operators jointly owning the exact same individual shed bucket.
 - Live weighing-machine Bluetooth integration.
 - Bulk historical Weights DB import, except as source evidence for data model
   alignment.
@@ -576,8 +589,9 @@ acceptance includes these visible outcomes:
   the weekly lane and cannot be added as manual exceptions.
 - Leadership can mark each selected kid shed/partition as individual animal
   weighing or per-shed/partition weighing.
-- Amit receives the operator execution work; Dinakar does not receive operator
-  capacity.
+- Assigned shed operators receive their own execution work; reviewer/director
+  users do not receive operator capacity unless explicitly assigned to a shed
+  bucket.
 - Suggested work groups preserve shed/partition atomicity and use the daily cap
   only as planning guidance.
 - Unfinished groups roll forward until complete, including beyond the calendar

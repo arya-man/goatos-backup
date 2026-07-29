@@ -93,6 +93,7 @@ type CampaignShed struct {
 	DisplayName         string `json:"display_name"`
 	ExpectedAnimalCount int    `json:"expected_animal_count"`
 	WeighingCategory    string `json:"weighing_category"`
+	OperatorUserID      string `json:"operator_user_id"`
 	Status              string `json:"status"`
 }
 
@@ -184,6 +185,7 @@ type CreateCampaignShed struct {
 	LocationType     string `json:"location_type"`
 	DisplayName      string `json:"display_name"`
 	WeighingCategory string `json:"weighing_category"`
+	OperatorUserID   string `json:"operator_user_id,omitempty"`
 }
 
 type RecordAnimalObservation struct {

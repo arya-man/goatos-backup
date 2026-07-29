@@ -5378,6 +5378,8 @@ export interface components {
             display_name: string;
             expected_animal_count: number;
             weighing_category: components["schemas"]["WeighingCategory"];
+            /** Format: uuid */
+            operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
         };
         WeighingCampaign: {
@@ -5491,6 +5493,8 @@ export interface components {
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
             weighing_category: components["schemas"]["WeighingCategory"];
+            /** Format: uuid */
+            operator_user_id?: string;
         };
         CreateWeighingCampaignRequest: {
             /** Format: uuid */

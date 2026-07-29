@@ -58,16 +58,17 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 	}
 	for _, shed := range cmd.Sheds {
 		var cs domain.CampaignShed
+		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
 		// projection-review: membership=selected free-flow Weighing bucket definitions, with legacy herd counts persisted as planner hints only; group_key=(tenant_id,campaign_id,campaign_shed_id) plus optional imported weighing_expected_animals for old admin/review surfaces; join_cardinality=the selected shed row is inserted once and any herd-register rows are copied into the compatibility table without driving mobile submit completion; pagination=campaign creation is one bounded planner write, not a paged aggregate; scope=explicit campaign_shed_id/location_id bucket so duplicate scanned identifiers may appear in different buckets.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
 			`
 WITH inserted AS (
-  INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
-  SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+  INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+  SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid,
     CASE WHEN $6 = 'individual_animal' THEN (
       SELECT count(*)::int FROM goats g WHERE g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
     ) ELSE 1 END
-  RETURNING campaign_shed_id, expected_animal_count
+  RETURNING campaign_shed_id, operator_user_id, expected_animal_count
 )
 INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
 SELECT $1::uuid, $2::uuid, g.goat_id, $3::uuid, $5, inserted.campaign_shed_id
@@ -75,11 +76,11 @@ FROM inserted
 JOIN goats g ON g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
 WHERE $6 = 'individual_animal'
 ON CONFLICT DO NOTHING
-RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4, $5, (SELECT expected_animal_count FROM inserted), $6, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
-			Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.Status)
+RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4, $5, (SELECT expected_animal_count FROM inserted), $6, (SELECT operator_user_id::text FROM inserted), 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID).
+			Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.OperatorUserID, &cs.Status)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
-				Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.Status)
+			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
+				Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.OperatorUserID, &cs.Status)
 		}
 		if err != nil {
 			return domain.Campaign{}, err
@@ -166,11 +167,13 @@ WHERE tenant_id=$1::uuid
 	}
 	for _, shed := range cmd.Sheds {
 		var campaignShedID string
+		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
+		// projection-review: membership=selected free-flow Weighing bucket definitions, with legacy herd counts persisted as planner hints only; group_key=(tenant_id,campaign_id,campaign_shed_id) plus optional imported weighing_expected_animals for old admin/review surfaces; join_cardinality=the selected shed row is upserted once and any herd-register rows are copied into the compatibility table without driving mobile submit completion; pagination=campaign edit is one bounded planner write, not a paged aggregate; scope=explicit campaign_shed_id/location_id bucket so duplicate scanned identifiers may appear in different buckets.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
 WITH upserted AS (
-  INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
-  SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+  INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+  SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid,
     CASE WHEN $6 = 'individual_animal' THEN (
       SELECT count(*)::int FROM goats g WHERE g.tenant_id = $2::uuid AND g.current_location_id = $3::uuid AND g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)
     ) ELSE 1 END
@@ -179,6 +182,7 @@ WITH upserted AS (
     location_type=EXCLUDED.location_type,
     display_name=EXCLUDED.display_name,
     weighing_category=EXCLUDED.weighing_category,
+    operator_user_id=EXCLUDED.operator_user_id,
     expected_animal_count=EXCLUDED.expected_animal_count,
     status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
     updated_at=now()
@@ -198,7 +202,7 @@ DO UPDATE SET
   status=CASE WHEN weighing_expected_animals.status='weighed' THEN weighing_expected_animals.status ELSE 'pending' END,
   availability_status=CASE WHEN weighing_expected_animals.status='weighed' THEN weighing_expected_animals.availability_status ELSE 'expected_shed' END,
   updated_at=now()
-RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
+RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent upsert race */, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
@@ -729,12 +733,17 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	var obs domain.Observation
 	err = tx.QueryRow(ctx, `
 	WITH campaign AS (
-	  SELECT campaign_id
-	  FROM weighing_campaigns
-	  WHERE tenant_id=$1::uuid
-	    AND campaign_id=$2::uuid
-	    AND status IN ('published','in_progress','delayed')
-	    AND operator_user_id=$7::uuid
+	  SELECT campaign.campaign_id
+	  FROM weighing_campaigns campaign
+	  JOIN weighing_campaign_sheds scope
+	    ON scope.tenant_id=campaign.tenant_id
+	   AND scope.campaign_id=campaign.campaign_id
+	   AND scope.campaign_shed_id=$9::uuid
+	   AND scope.operator_user_id=$7::uuid
+	   AND scope.status <> 'canceled'
+	  WHERE campaign.tenant_id=$1::uuid
+	    AND campaign.campaign_id=$2::uuid
+	    AND campaign.status IN ('published','in_progress','delayed')
 	), expected AS (
 	  SELECT
 	    ea.campaign_shed_id,
@@ -826,13 +835,13 @@ WITH campaign AS (
   WHERE tenant_id=$1::uuid
     AND campaign_id=$2::uuid
     AND status IN ('published','in_progress','delayed')
-    AND operator_user_id=$7::uuid
 ), assigned_shed AS (
   SELECT campaign_shed_id, location_id, display_name
   FROM weighing_campaign_sheds
   WHERE tenant_id=$1::uuid
     AND campaign_id=$2::uuid
     AND campaign_shed_id=$8::uuid
+    AND operator_user_id=$7::uuid
     AND status <> 'canceled'
   ORDER BY created_at, campaign_shed_id
   LIMIT 1
@@ -938,7 +947,6 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	  WHERE tenant_id=$1::uuid
 	    AND campaign_id=$2::uuid
 	    AND status IN ('published','in_progress','delayed')
-	  AND operator_user_id=$7::uuid
 	), scope AS (
 	  SELECT cs.campaign_shed_id, cs.location_id
 	  FROM campaign c
@@ -947,6 +955,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	   AND cs.campaign_id=c.campaign_id
 	   AND cs.campaign_shed_id=$3::uuid
 	   AND cs.weighing_category='per_shed_partition'
+	   AND cs.operator_user_id=$7::uuid
 	), proof_bundle AS (
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
@@ -1077,7 +1086,7 @@ WHERE cs.tenant_id=$1::uuid
   AND cs.weighing_category='individual_animal'
   AND campaign.tenant_id=cs.tenant_id
   AND campaign.campaign_id=cs.campaign_id
-  AND campaign.operator_user_id=$4::uuid
+  AND cs.operator_user_id=$4::uuid
   AND cardinality($5::text[]) > 0
   AND NOT EXISTS (
     SELECT 1
@@ -1283,6 +1292,14 @@ func (r *Repository) timeout(ctx context.Context) (context.Context, context.Canc
 	return context.WithTimeout(ctx, r.queryTimeout)
 }
 
+func weighingShedOperatorID(defaultOperatorID string, shed domain.CreateCampaignShed) string {
+	operatorID := strings.TrimSpace(shed.OperatorUserID)
+	if operatorID != "" {
+		return operatorID
+	}
+	return strings.TrimSpace(defaultOperatorID)
+}
+
 func (r *Repository) getCampaign(ctx context.Context, tenantID, campaignID string) (domain.Campaign, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -1302,14 +1319,15 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	rows, err := tx.Query(ctx, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid ORDER BY display_name`, tenantID, campaignID)
+	// projection-review: membership=campaign shed buckets for one weighing campaign; group_key=(tenant_id,campaign_id,campaign_shed_id); join_cardinality=each campaign_shed row is hydrated once and observation rollups stay keyed by campaign_shed_id; pagination=single campaign detail read without page slicing; scope=exact campaign_id and tenant_id detail scope.
+	rows, err := tx.Query(ctx, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid ORDER BY display_name`, tenantID, campaignID)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var shed domain.CampaignShed
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.Status); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status); err != nil {
 			return domain.Campaign{}, err
 		}
 		c.Sheds = append(c.Sheds, shed)
@@ -1331,7 +1349,7 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 		byID[campaigns[i].CampaignID] = i
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status
+SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status
 FROM weighing_campaign_sheds
 WHERE tenant_id=$1::uuid AND campaign_id = ANY($2::uuid[])
 ORDER BY campaign_id, display_name`, tenantID, ids)
@@ -1340,7 +1358,7 @@ ORDER BY campaign_id, display_name`, tenantID, ids)
 	}
 	for rows.Next() {
 		var shed domain.CampaignShed
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.Status); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1609,7 +1627,15 @@ func previousProof(before *domain.Observation) any {
 
 func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
 	var status, operatorID string
-	err := tx.QueryRow(ctx, `SELECT status, operator_user_id::text FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID).
+	err := tx.QueryRow(ctx, `
+SELECT campaign.status, cs.operator_user_id::text
+FROM weighing_campaigns campaign
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=campaign.tenant_id
+ AND cs.campaign_id=campaign.campaign_id
+ AND cs.campaign_shed_id=$3::uuid
+WHERE campaign.tenant_id=$1::uuid
+  AND campaign.campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).
 		Scan(&status, &operatorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
@@ -1661,7 +1687,15 @@ func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx 
 
 func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordShedObservation) error {
 	var status, operatorID string
-	err := tx.QueryRow(ctx, `SELECT status, operator_user_id::text FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID).
+	err := tx.QueryRow(ctx, `
+SELECT campaign.status, cs.operator_user_id::text
+FROM weighing_campaigns campaign
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=campaign.tenant_id
+ AND cs.campaign_id=campaign.campaign_id
+ AND cs.campaign_shed_id=$3::uuid
+WHERE campaign.tenant_id=$1::uuid
+  AND campaign.campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).
 		Scan(&status, &operatorID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound

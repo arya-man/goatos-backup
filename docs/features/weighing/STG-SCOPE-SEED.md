@@ -20,16 +20,17 @@ must be added before its weighing scopes.
 | Park | Weighing mode | Scope range | Expanded count |
 | --- | --- | --- | ---: |
 | CBE | Lump-sum | Castro 1 through Castro 3 | 3 |
+| CBE | Lump-sum | Yashoda 1 through Yashoda 10 | 10 |
 | CPT | Lump-sum | Castro 1 through Castro 2 | 2 |
 | CPT | Lump-sum | Godel 2 Part 1 through Godel 2 Part 2 | 2 |
 | CPT | Individual | Mandela 1 Part 1 through Mandela 1 Part 10 | 10 |
 | CPT | Individual | Mandela 2 Part 1 through Mandela 2 Part 10 | 10 |
 
-Expected total: **27 active weighing scopes**: 3 in CBE and 24 in CPT.
+Expected total: **37 active weighing scopes**: 13 in CBE and 24 in CPT.
 
 This is the corrected WhatsApp scope for the 2026-07-29 STG trial. Older
-expanded lists that included Godel 1, full Godel 2, and Yashoda ranges are not
-part of the active STG weighing picker for this trial.
+expanded lists that included CBE Godel 1, full CBE Godel 2, or broader CPT
+ranges are not part of the active STG weighing picker for this trial.
 
 ## Isolation contract
 
@@ -57,6 +58,34 @@ These records are selectable weighing scopes, not the canonical herd roster.
 Lump-sum weighing uses the same park/scope seed but stores a shed observation:
 animal count, total weight, derived average weight, and one to five completed
 videos. It does not create individual animal observations.
+
+## Assignment examples
+
+One weighing campaign is the park/week shell. Each selected shed row is the
+operator-owned bucket. Do not create two active campaigns for the same
+park/week just to split operators.
+
+Example CBE campaign for 2026-07-29:
+
+| Shed bucket | Mode | Assigned operator | What the operator sees |
+| --- | --- | --- | --- |
+| Yashoda 1 | Individual | Kumar Sharath | Only Yashoda 1 under the CBE task |
+| Yashoda 2 | Individual | Pramod | Only Yashoda 2 under the same CBE task |
+| Yashoda 3 | Lump-sum | Dinakar | Only Yashoda 3 under the same CBE task |
+
+Director/CEO users can see the full campaign and all shed buckets. Operators
+see only the shed buckets assigned to their Firebase user id.
+
+Do not assign the same individual shed bucket to two operators in v1. If Yashoda
+1 needs help, keep Kumar as the owner and let helpers physically assist him; the
+app writes the bucket under Kumar. If a second operator needs app ownership,
+assign a different shed bucket such as Yashoda 2.
+
+The `planned_cap_per_day` default is 100 animals per operator per business day.
+It is planning guidance, not a hard submit limit. A shed remains atomic: if
+Yashoda 1 has 130 animals, do not split Yashoda 1 into two app buckets. The
+unfinished rows remain open and roll forward until the shed bucket is submitted
+or leadership cancels/closes it.
 
 ## Staging people and access
 
@@ -100,8 +129,8 @@ the Goat OS staging database.
 
 After seeding, verify:
 
-1. CBE has 3 active weighing scopes and CPT has 24.
-2. All 27 scopes appear in the weighing planner.
+1. CBE has 13 active weighing scopes and CPT has 24.
+2. All 37 scopes appear in the weighing planner.
 3. None appear because of vaccination or expected-animal roster membership.
 4. Capturing an unknown RFID succeeds without a `goats` or
    `goat_identifiers` row.
