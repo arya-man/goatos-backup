@@ -64,6 +64,7 @@ data class WeighingScopeState(
     val individualDrafts: List<IndividualWeighingDraft>,
     val shedDrafts: List<ShedWeighingDraft>,
     val totalExpected: Int,
+    val expectedAnimalIds: List<String> = emptyList(),
 )
 
 data class WeighingAssignment(
@@ -215,12 +216,14 @@ class DefaultWeighingRepository(
         combine(
             rosterDao.observeWindow(scopeKey, windowSize.coerceIn(1, 250)),
             rosterDao.observeScopeTotal(scopeKey),
+            rosterDao.observeExpectedAnimalIds(scopeKey),
             observationDao.observeForScope(scopeKey),
             shedObservationDao.observeForScope(scopeKey),
-        ) { roster, total, observations, shedObservations ->
+        ) { roster, total, expectedAnimalIds, observations, shedObservations ->
             WeighingScopeState(
                 rosterWindow = roster,
                 totalExpected = total,
+                expectedAnimalIds = expectedAnimalIds,
                 individualDrafts = observations.map { it.toDraft() },
                 shedDrafts = shedObservations.map { it.toDraft() },
             )
