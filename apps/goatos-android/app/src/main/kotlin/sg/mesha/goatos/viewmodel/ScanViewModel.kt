@@ -861,23 +861,36 @@ class ScanViewModel @Inject constructor(
             )
         }
         val id = shedId ?: return base
+        val currentRosterGoatIds = base.roster
+            .mapNotNull { it.goatId.takeIf(String::isNotBlank) }
+            .toSet()
         val scannedAtByGoatId = persistedScans
             .mapNotNull { scan ->
                 val goatId = scan.goatId?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                if (currentRosterGoatIds.isNotEmpty() && goatId !in currentRosterGoatIds) return@mapNotNull null
                 goatId to scan.capturedAtMs
             }
             .toMap()
         val requiredGoatIds = (persistedDoneGoats.toSet() + localDoneGoats + scannedAtByGoatId.keys)
             .filter { it.isNotBlank() }
+            .filter { currentRosterGoatIds.isEmpty() || it in currentRosterGoatIds }
             .toSet()
         if (proofs == null && !shedSummary.allHandledProofsReady()) {
             return base.copy(canSubmit = false, proofActionNeeded = emptyList())
         }
         val proofRows = proofs.orEmpty()
+        val rosterSyncedGoatIds = base.roster
+            .filter { row ->
+                row.status == ScanStatus.DONE &&
+                    row.goatId.isNotBlank() &&
+                    (row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0)
+            }
+            .map { it.goatId }
+            .toSet()
         val syncedGoatIds = proofRows
             .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .mapNotNull { it.subjectId }
-            .toSet()
+            .toSet() + rosterSyncedGoatIds
         if (shedSummary.allHandledProofsReady()) {
             return base.copy(canSubmit = base.ringTotal > 0 && base.pendingCount == 0, proofActionNeeded = emptyList())
         }

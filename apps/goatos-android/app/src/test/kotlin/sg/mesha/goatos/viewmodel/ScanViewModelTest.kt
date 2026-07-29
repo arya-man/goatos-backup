@@ -718,6 +718,64 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `task-wide persisted scans do not block current shed finalize`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        (1..3).forEach {
+            scanCaptures.recordScan(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-$it",
+                goatId = "goat-$it",
+                obligationId = "obl-$it",
+                capturedAtMs = it.toLong(),
+            )
+        }
+        val proofRepo = FakeProofCaptureRepository()
+        seedSyncedProof(proofRepo, "goat-4")
+        seedSyncedProof(proofRepo, "goat-5")
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-2", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 5,
+                handledCount = 3,
+                proofReadyCount = 2,
+                proofMode = "per_goat_video",
+                submitEnabled = false,
+                blockingReason = "2 of 5 animals are not yet scanned.",
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-4", "TAG-4", "obl-4").copy(status = "done"),
+                    scanRow("goat-5", "TAG-5", "obl-5").copy(status = "done"),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-2", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.pendingCount)
+        assertEquals(listOf("goat-4", "goat-5"), vm.state.value.roster.map { it.goatId })
+        assertTrue("Shed 2 finalize must ignore task-wide Shed 1 scans", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
     fun `shed-level proof policy does not show per-animal camera proof actions`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val vm = proofGateVm(
