@@ -8,14 +8,10 @@ import org.junit.Test
 class MainActivityInputDispatchTest {
 
     @Test
-    fun `focused Compose numeric field receives hardware digit when soft keyboard is hidden`() {
+    fun `focused vaccination search still lets RFID read consume hardware digit`() {
         val order = mutableListOf<String>()
 
         val consumed = dispatchRfidFirst(
-            textInputActive = isTextInputActive(
-                focusedViewIsTextEditor = true,
-                inputMethodAcceptingText = false,
-            ),
             rfidConsumes = {
                 order += "rfid"
                 true
@@ -27,17 +23,26 @@ class MainActivityInputDispatchTest {
         )
 
         assertTrue(consumed)
-        assertEquals(listOf("compose"), order)
+        assertEquals(listOf("rfid"), order)
     }
 
     @Test
-    fun `input method signal also protects text input during focus handoff`() {
-        assertTrue(
-            isTextInputActive(
-                focusedViewIsTextEditor = false,
-                inputMethodAcceptingText = true,
-            ),
+    fun `weighing text entry receives key when RFID capture is disabled`() {
+        val order = mutableListOf<String>()
+
+        val consumed = dispatchRfidFirst(
+            rfidConsumes = {
+                order += "rfid"
+                false
+            },
+            dispatchNormally = {
+                order += "compose"
+                true
+            },
         )
+
+        assertTrue(consumed)
+        assertEquals(listOf("rfid", "compose"), order)
     }
 
     @Test
@@ -45,7 +50,6 @@ class MainActivityInputDispatchTest {
         val order = mutableListOf<String>()
 
         val consumed = dispatchRfidFirst(
-            textInputActive = false,
             rfidConsumes = {
                 order += "rfid"
                 true
@@ -65,7 +69,6 @@ class MainActivityInputDispatchTest {
         val order = mutableListOf<String>()
 
         val consumed = dispatchRfidFirst(
-            textInputActive = false,
             rfidConsumes = {
                 order += "rfid"
                 false
