@@ -1097,6 +1097,21 @@ Do:
   marker and add a test asserting the surfaces resolve to the same source/grain.
   Full rule + the 200-vs-400 incident:
   `docs/decisions/scale-anti-patterns.md` -> "Cross-surface count parity".
+- Mobile Vaccination Overview current-drive count lock (maintainer decision
+  2026-07-29): the mobile Vaccination Overview top summary is NOT a CEO
+  adherence KPI, NOT an obligation-history rollup, NOT a shift/carry-forward
+  number, and NOT a dose-administration count. It must answer only: for the
+  current visible vaccination drive, how many distinct animals are in the drive,
+  how many have been vaccinated/submitted, and how many are left. The denominator
+  must be the real current drive animal membership
+  (`count(DISTINCT target_id)` over the drive assignment/membership grain; for
+  the current STG ET+TT example this is 324 animals, never 1296). Do not join
+  protocol dimensions/rule rows/dose rows in a way that fans out animals. Do not
+  include completed history from older drive dates unless those animals are part
+  of the current visible drive membership. Any mobile change touching this card
+  must include a regression test for a multi-dimension ET+TT rule where the
+  display remains 324 total animals and shows vaccinated vs left from the same
+  drive grain.
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The

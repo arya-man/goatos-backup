@@ -755,16 +755,18 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	}
 }
 
-func TestListVaccinationExecutionUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
+func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
 
-	execProjectionSQL(t, ctx, pool, "ettt dimension for execution override",
+	execProjectionSQL(t, ctx, pool, "ettt dimensions for execution override",
 		`INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
-		 VALUES ($1, $2, $3, 'vaccination', 'ET_TT', 'D1', 'ET_TT')`,
+		 VALUES
+		   ($1, $2, $3, 'vaccination', 'ET_TT', 'D1', 'ET_TT'),
+		   ($1, $2, $3, 'vaccination', 'ET_TT_duplicate_selector', 'D1', 'ET_TT')`,
 		testTenant, testVersion, testRule)
 	execProjectionSQL(t, ctx, pool, "execution assignment raw date",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
@@ -795,6 +797,9 @@ func TestListVaccinationExecutionUsesActiveVaccineDateOverrideForAssignmentDate(
 		}
 		if rows[0].OperatorName == nil || *rows[0].OperatorName != "Operator A" {
 			t.Fatalf("%s: operator = %v, want Operator A", label, rows[0].OperatorName)
+		}
+		if rows[0].ObligationCount != 1 || rows[0].ScheduledCount != 1 {
+			t.Fatalf("%s: counts obligation/scheduled = %d/%d, want 1/1; protocol dimensions must not fan out mobile execution counts", label, rows[0].ObligationCount, rows[0].ScheduledCount)
 		}
 	}
 

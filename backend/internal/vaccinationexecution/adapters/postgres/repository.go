@@ -467,9 +467,12 @@ WITH assignment_vaccines AS (
   LEFT JOIN protocol_rules pr
     ON pr.tenant_id = vda.tenant_id
    AND pr.rule_id = assigned_rule.rule_id
-  LEFT JOIN protocol_rule_dimensions prd
-    ON prd.tenant_id = pr.tenant_id
-   AND prd.rule_id = pr.rule_id
+  LEFT JOIN LATERAL (
+    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
+    FROM protocol_rule_dimensions dim
+    WHERE dim.tenant_id = pr.tenant_id
+      AND dim.rule_id = pr.rule_id
+  ) prd ON true
   LEFT JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
    AND pv.protocol_version_id = pr.protocol_version_id
@@ -1154,9 +1157,12 @@ raw AS (
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id
    AND pr.rule_id = oi.rule_id
-  LEFT JOIN protocol_rule_dimensions prd
-    ON prd.tenant_id = pr.tenant_id
-   AND prd.rule_id = pr.rule_id
+  LEFT JOIN LATERAL (
+    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
+    FROM protocol_rule_dimensions dim
+    WHERE dim.tenant_id = pr.tenant_id
+      AND dim.rule_id = pr.rule_id
+  ) prd ON true
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
