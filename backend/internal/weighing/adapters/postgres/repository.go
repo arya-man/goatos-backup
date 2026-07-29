@@ -568,7 +568,7 @@ ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShe
 	observations := make([]domain.Observation, 0)
 	observationRows, err := r.pool.Query(ctx, `
 SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
-       COALESCE(NULLIF(scanned_identifier, ''), animal_id::text),
+       COALESCE(animal_id::text, NULLIF(scanned_identifier, '')),
        weight_kg::float8, proof_artifact_id::text,
        COALESCE(expected_location_id::text, ''), accepted_at
 FROM weighing_observations
@@ -834,12 +834,15 @@ WITH campaign AS (
   ORDER BY created_at, campaign_shed_id
   LIMIT 1
 ), proof_ok AS (
-  SELECT proof_id
-  FROM proof_artifacts proof
+  SELECT proof.proof_id
+  FROM assigned_shed s
+  JOIN proof_artifacts proof ON true
   WHERE proof.tenant_id=$1::uuid
     AND proof.proof_id=$5::uuid
     AND proof.upload_state='completed'
     AND proof.proof_type='video'
+    AND proof.scope_type='shed'
+    AND proof.scope_id=s.location_id
 	), updated AS (
 	  UPDATE weighing_observations observation
 	  SET weight_kg=$4,
@@ -1089,41 +1092,12 @@ WHERE cs.tenant_id=$1::uuid
       AND observation.scanned_identifier=captured.scanned_identifier
       AND observation.weight_kg > 0
     )
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM weighing_expected_animals expected
-    WHERE expected.tenant_id=cs.tenant_id
-      AND expected.campaign_id=cs.campaign_id
-      AND expected.campaign_shed_id=cs.campaign_shed_id
-      AND expected.status NOT IN ('weighed', 'unavailable', 'canceled')
-      AND NOT EXISTS (
-        SELECT 1
-        FROM weighing_observations observation
-        JOIN proof_artifacts proof
-          ON proof.tenant_id=observation.tenant_id
-         AND proof.proof_id=observation.proof_artifact_id
-         AND proof.upload_state='completed'
-         AND proof.proof_type='video'
-        WHERE observation.tenant_id=expected.tenant_id
-          AND observation.campaign_id=expected.campaign_id
-          AND observation.campaign_shed_id=expected.campaign_shed_id
-          AND observation.animal_id=expected.animal_id
-          AND observation.weight_kg > 0
-      )
   )`, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return ports.ErrNotFound
-	}
-	if _, err := tx.Exec(ctx, `
-UPDATE weighing_expected_animals
-SET status='closed_by_override', updated_at=now()
-WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
-  AND status NOT IN ('weighed', 'unavailable', 'canceled')`, tenantID, campaignID, campaignShedID); err != nil {
-		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
 		return err

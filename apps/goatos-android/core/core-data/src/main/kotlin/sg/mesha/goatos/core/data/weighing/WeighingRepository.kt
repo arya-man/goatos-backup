@@ -351,8 +351,9 @@ class DefaultWeighingRepository(
             } while (cursor != null && rows.size < safetyLimit)
             rosterDao.replaceScope(key, rows)
             accepted.values.forEach { observation ->
-                val tag = observation.scannedIdentifier.trim()
-                if (tag.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
+                val animalId = observation.animalId.trim()
+                val scannedIdentifier = observation.scannedIdentifier.trim().ifBlank { animalId }
+                if (animalId.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
                     observationDao.restoreAccepted(
                         WeighingObservationEntity(
                             observationId = observation.observationId,
@@ -365,8 +366,8 @@ class DefaultWeighingRepository(
                             expectedLocationLabel = "",
                             actualLocationId = null,
                             actualLocationLabel = null,
-                            animalId = tag,
-                            scannedIdentifier = tag,
+                            animalId = animalId,
+                            scannedIdentifier = scannedIdentifier,
                             weightKg = observation.weightKg,
                             proofCaptureId = observation.proofArtifactId,
                             serverProofId = observation.proofArtifactId,
@@ -505,10 +506,12 @@ class DefaultWeighingRepository(
         ) {
             return@withContext
         }
-        val revisionIdempotencyKey = serverProofId
-            ?.takeIf { it.isNotBlank() }
-            ?.let { "${row.idempotencyKey.substringBefore(":proof:")}:proof:$it" }
-            ?: row.idempotencyKey
+        val isProofRevision = !row.serverProofId.isNullOrBlank()
+        val revisionIdempotencyKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
+            "${row.idempotencyKey.substringBefore(":proof:")}:proof:$serverProofId"
+        } else {
+            row.idempotencyKey
+        }
         observationDao.attachProof(
             observationId = row.observationId,
             proofCaptureId = proofCaptureId,
@@ -900,7 +903,7 @@ private fun weighingShedResultValues(resultJson: String): WeighingShedResultValu
     runCatching {
         val result = Json.parseToJsonElement(resultJson).jsonObject
         val total = (result["total_weight_kg"] ?: result["weight"])?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
-        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: return@runCatching null
+        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
         if (total <= 0 || count <= 0) return@runCatching null
         WeighingShedResultValues(total, count, total / count)
     }.getOrNull()

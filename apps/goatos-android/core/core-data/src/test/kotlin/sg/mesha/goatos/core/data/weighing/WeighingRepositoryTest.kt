@@ -506,7 +506,7 @@ class WeighingRepositoryTest {
         val first = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
         repository.attachIndividualProof(scopeKey, "animal-1", "proof-local-1", "proof-server-1")
         db.weighingObservationDao().markAcceptedByIdempotencyKey(
-            "${first.value.idempotencyKey}:proof:proof-server-1",
+            first.value.idempotencyKey,
         )
 
         val corrected = repository.recordIndividual(

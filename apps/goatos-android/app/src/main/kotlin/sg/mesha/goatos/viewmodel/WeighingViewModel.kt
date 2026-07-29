@@ -479,34 +479,36 @@ class WeighingViewModel @Inject constructor(
     fun submitIndividualScope(onSubmitted: () -> Unit) {
         if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         val drafts = scopeState.value?.individualDrafts.orEmpty()
-        val expectedAnimalIds = scopeState.value?.expectedAnimalIds.orEmpty()
-        val syncedDrafts = drafts
-            .filter { it.syncedToBackend }
-        val everyCaptureComplete = expectedAnimalIds.isNotEmpty() &&
-            expectedAnimalIds.all { expectedAnimalId ->
-                val draft = syncedDrafts.firstOrNull { it.animalId == expectedAnimalId }
-                draft != null &&
-                    (
-                        proofForAnimal(draft.animalId)?.let {
-                        it.syncStatus == CaptureSyncStatus.SYNCED &&
-                            !it.serverProofId.isNullOrBlank()
-                        } == true ||
-                            !draft.serverProofId.isNullOrBlank()
-                    )
+        val scannedIdentifiers = scannedRows.value
+            .map { it.animalId }
+            .distinct()
+        val completedDrafts = drafts
+            .filter { draft ->
+                draft.syncedToBackend &&
+                    scannedIdentifiers.contains(draft.scannedIdentifier.ifBlank { draft.animalId })
             }
-        if (!everyCaptureComplete) {
-            message.value = "Wait for every weight and video to sync before submitting."
+        val submittedIdentifiers = completedDrafts.mapNotNull { draft ->
+            val proofReady = proofForAnimal(draft.animalId)?.let {
+                it.syncStatus == CaptureSyncStatus.SYNCED &&
+                    !it.serverProofId.isNullOrBlank()
+            } == true || !draft.serverProofId.isNullOrBlank()
+            if (proofReady) {
+                draft.scannedIdentifier.ifBlank { draft.animalId }.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        }.distinct()
+        if (
+            scannedIdentifiers.isEmpty() ||
+            submittedIdentifiers.size != scannedIdentifiers.size ||
+            submittedIdentifiers.size != completedDrafts.size
+        ) {
+            message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
             return
         }
         actionInFlight.value = true
         viewModelScope.launch {
             try {
-                val submittedIdentifiers = expectedAnimalIds.map { expectedAnimalId ->
-                    syncedDrafts
-                        .first { it.animalId == expectedAnimalId }
-                        .scannedIdentifier
-                        .ifBlank { expectedAnimalId }
-                }
                 when (
                     repository.submitIndividualScope(
                         campaignId,

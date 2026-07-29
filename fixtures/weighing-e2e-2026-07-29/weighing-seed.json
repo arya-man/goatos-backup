@@ -77,7 +77,7 @@
       "campaign_shed_id": "44444444-0001-4444-8444-444444444441",
       "location_id": "55555555-0001-4555-8555-555555555551",
       "display_name": "Kid Shed A / Part 1",
-      "location_type": "partition",
+      "location_type": "shed",
       "weighing_category": "individual_animal",
       "expected_animal_count": 4
     },
@@ -85,7 +85,7 @@
       "campaign_shed_id": "44444444-0002-4444-8444-444444444442",
       "location_id": "55555555-0002-4555-8555-555555555552",
       "display_name": "Kid Shed B / Part 2",
-      "location_type": "partition",
+      "location_type": "shed",
       "weighing_category": "individual_animal",
       "expected_animal_count": 2
     },
