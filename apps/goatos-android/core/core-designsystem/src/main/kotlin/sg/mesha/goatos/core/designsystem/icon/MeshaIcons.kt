@@ -106,6 +106,8 @@ object MeshaIcons {
         "M4 7.5h9a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-9a1.5 1.5 0 0 1 -1.5 -1.5v-6a1.5 1.5 0 0 1 1.5 -1.5z",
         "M14.5 11 20.5 8v8l-6 -3",
     )
+    val Play: ImageVector = strokeIcon("play", "M8 5.5v13l10-6.5z")
+    val Pause: ImageVector = strokeIcon("pause", "M8.5 5.5v13M15.5 5.5v13")
     val Vaccine: ImageVector = strokeIcon(
         "vial",
         "M9 3.5h6M10 3.5v6.5l-3 8a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2 -2.5l-3 -8V3.5M8 13.5h8",
@@ -202,7 +204,7 @@ object MeshaIcons {
         "alerts", "notifications" -> Bell
         "you", "profile", "settings" -> User
         // Counts vertical and its field-event destinations.
-        "counts" -> BarChart
+        "counts", "weighing" -> BarChart
         "birth_death" -> ArrowUpDown
         "birth" -> Birth
         "death" -> Death

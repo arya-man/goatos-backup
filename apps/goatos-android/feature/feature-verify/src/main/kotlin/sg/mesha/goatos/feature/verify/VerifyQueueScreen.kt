@@ -180,12 +180,6 @@ fun VerifyQueueScreen(
             .background(MeshaColors.PageBg),
     ) {
         QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        if (!state.isActionQueue) {
-            ModuleTabs(
-                selected = state.selectedModule,
-                onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
-            )
-        }
         if (state.selectedModule == VerifyModuleTab.WEIGHING) {
             WeighingScopeTabs(
                 rows = state.rows,
@@ -193,7 +187,7 @@ fun VerifyQueueScreen(
                 onSelect = { selectedWeighingScope = it },
             )
         }
-        if (state.categoryOptions.size > 1) {
+        if (state.selectedModule == VerifyModuleTab.VACCINATION && state.categoryOptions.size > 1) {
             CategoryFilterRow(
                 options = state.categoryOptions,
                 selected = state.selectedCategory,
@@ -459,7 +453,13 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
 
 @Composable
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
+    val eyebrow = when {
+        state.isActionQueue -> null
+        state.selectedModule == VerifyModuleTab.WEIGHING -> R.string.verify_module_weighing
+        else -> R.string.verify_module_vaccination
+    }
     MeshaScreenHeader(
+        eyebrow = eyebrow?.let { stringResource(it).uppercase() },
         title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
         below = {
             SyncStatusIndicator(

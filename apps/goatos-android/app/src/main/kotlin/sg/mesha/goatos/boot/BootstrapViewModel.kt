@@ -1,5 +1,6 @@
 package sg.mesha.goatos.boot
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +44,9 @@ class BootstrapViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val pushTokenSync: PushTokenSync,
 ) : ViewModel() {
+    private companion object {
+        const val TAG = "GoatOSBootstrap"
+    }
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
     val state: StateFlow<BootstrapUiState> = _state.asStateFlow()
@@ -75,6 +79,7 @@ class BootstrapViewModel @Inject constructor(
                     applyAnalyticsIdentity()
                 }
                 .onFailure {
+                    Log.e(TAG, "Bootstrap failed", it)
                     _state.value = BootstrapUiState.Error(
                         "Couldn't load your workspace. Check your connection and try again.",
                     )
