@@ -165,11 +165,11 @@ func isPositiveFinite(value float64) bool {
 	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
-func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, scannedIdentifiers []string) error {
+func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return ports.ErrForbidden
 	}
-	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || len(scannedIdentifiers) == 0 {
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || len(scannedIdentifiers) == 0 {
 		return ports.ErrInvalidArgument
 	}
 	normalized := make([]string, 0, len(scannedIdentifiers))
@@ -184,13 +184,7 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 			normalized = append(normalized, identifier)
 		}
 	}
-	submitter, ok := s.repo.(interface {
-		SubmitIndividualScope(context.Context, string, string, string, string, []string) error
-	})
-	if !ok {
-		return ports.ErrInvalidArgument
-	}
-	return submitter.SubmitIndividualScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, normalized)
+	return s.repo.SubmitIndividualScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), normalized)
 }
 
 func normalizeProofArtifactIDs(primary string, ids []string) []string {

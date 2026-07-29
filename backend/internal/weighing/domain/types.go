@@ -9,10 +9,16 @@ const (
 	StatusDelayed    = "delayed"
 	StatusCompleted  = "completed"
 
-	CategoryIndividualAnimal   = "individual_animal"
-	CategoryPerShedPartition   = "per_shed_partition"
-	AvailabilityExpectedShed   = "expected_shed"
-	AvailabilityMovedOtherShed = "moved_other_shed"
+	CategoryIndividualAnimal    = "individual_animal"
+	CategoryPerShedPartition    = "per_shed_partition"
+	AvailabilityExpectedShed    = "expected_shed"
+	AvailabilityMovedOtherShed  = "moved_other_shed"
+	AvailabilityICU             = "icu"
+	AvailabilityQuarantine      = "quarantine"
+	AvailabilityDead            = "dead"
+	AvailabilityCulled          = "culled"
+	AvailabilitySoldTransferred = "sold_transferred"
+	AvailabilityExited          = "exited"
 )
 
 type Actor struct {

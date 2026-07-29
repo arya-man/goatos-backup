@@ -212,6 +212,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get leadership-visible proof videos for one Weighing scope. */
+        get: operations["appGetWeighingShedVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently close one individual-animal Weighing scope after proof-backed capture. */
+        post: operations["submitWeighingIndividualScope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/devices/register": {
         parameters: {
             query?: never;
@@ -5446,6 +5480,8 @@ export interface components {
         };
         WeighingRosterResponse: {
             items: components["schemas"]["WeighingRosterRow"][];
+            observations?: components["schemas"]["WeighingObservation"][];
+            next_cursor?: string;
             trace_id?: string;
         };
         CreateWeighingCampaignShed: {
@@ -5502,8 +5538,12 @@ export interface components {
             /** Format: uuid */
             animal_id?: string;
             weight_kg: number;
+            average_weight_kg?: number;
+            animal_count?: number;
             /** Format: uuid */
             proof_artifact_id: string;
+            proof_artifact_ids?: string[];
+            media?: components["schemas"]["WeighingProofMedia"][];
             /** Format: uuid */
             expected_location_id?: string;
             /** Format: uuid */
@@ -5511,6 +5551,36 @@ export interface components {
             actual_location_label?: string;
             /** Format: date-time */
             accepted_at: string;
+        };
+        WeighingProofMedia: {
+            /** Format: uuid */
+            proof_id: string;
+            /** Format: uri */
+            download_url: string;
+            mime_type?: string;
+        };
+        WeighingShedVideos: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            shed_name: string;
+            weighing_category: components["schemas"]["WeighingCategory"];
+            status: string;
+            individual: components["schemas"]["WeighingObservation"][];
+            lump_sum?: components["schemas"]["WeighingObservation"];
+        };
+        WeighingShedVideosResponse: {
+            shed: components["schemas"]["WeighingShedVideos"];
+            trace_id?: string;
+        };
+        SubmitWeighingIndividualScopeRequest: {
+            scanned_identifiers: string[];
+        };
+        WeighingSubmitResponse: {
+            /** @enum {string} */
+            status: "completed";
+            trace_id?: string;
         };
         WeighingObservationResponse: {
             observation: components["schemas"]["WeighingObservation"];
@@ -6935,6 +7005,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                /** @description Opaque roster cursor returned as next_cursor by the previous page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -7019,6 +7091,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingObservationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingShedVideos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shed proof media and observations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingShedVideosResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitWeighingIndividualScope: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitWeighingIndividualScopeRequest"];
+            };
+        };
+        responses: {
+            /** @description Scope completed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingSubmitResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
