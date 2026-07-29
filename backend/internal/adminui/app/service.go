@@ -1191,6 +1191,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.cohort_matrix.column.animals":       "Animals",
 			"command_board.cohort_matrix.column.vaccine":       "Vaccine",
 			"command_board.cohort_matrix.column.pending":       "Pending",
+			"command_board.filter.vaccine":                     "Vaccine",
+			"command_board.filter.all_vaccines":                "All vaccines",
 			"command_board.shed_matrix.title":                  "Vaccine × Shed Status",
 			"command_board.shed_matrix.meta":                   "Count of animals · per dose",
 			"command_board.shed_matrix.column.shed":            "Shed",
