@@ -139,6 +139,32 @@ object MeshaIcons {
         "feed",
         "M3.5 11h17a8.5 8.5 0 0 1 -17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5",
     )
+    val Package: ImageVector = strokeIcon(
+        "package",
+        "M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z",
+        "M4 7.5 12 12l8-4.5M12 12v9M8 5.25l8 4.5",
+    )
+    val Truck: ImageVector = strokeIcon(
+        "truck",
+        "M3.5 6h11v10h-11z",
+        "M14.5 9h3.5l2.5 3v4h-6z",
+        "M7.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+        "M17.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    )
+    /** Milk preparation: a lidded milk can with a mixing spoon. */
+    val MilkPreparation: ImageVector = strokeIcon(
+        "milkpreparation",
+        "M8 6h8l1.5 3v9a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2V9z",
+        "M9 3.5h6V6H9zM6.5 10h11",
+        "M19.5 4.5 13 15M18.5 3.5l2 2",
+    )
+    /** Milk feeding: a measured feeding bottle with a nipple. */
+    val MilkFeeding: ImageVector = strokeIcon(
+        "milkfeeding",
+        "M9 7h6l1.5 3v8a2 2 0 0 1 -2 2h-5a2 2 0 0 1 -2 -2v-8z",
+        "M9 7V5h6v2M10 5l1-2h2l1 2",
+        "M11 11h3M11 14h3M11 17h3",
+    )
     val Goat: ImageVector = strokeIcon(
         "goat",
         "M5 8c-1-3 1-4 2-2M19 8c1-3-1-4-2-2M7 6c0 6 2 9 5 9s5-3 5-9M9 15v3M15 15v3M10 11h.01M14 11h.01",
@@ -211,8 +237,11 @@ object MeshaIcons {
         "approval", "approvals" -> CheckCircle
         "videos" -> Video
         "close" -> Video
-        // Declared-but-unbuilt modules the backend advertises as "soon".
         "feed_direction" -> Feed
+        "feed_packing" -> Package
+        "feed_transport" -> Truck
+        "milk_preparation" -> MilkPreparation
+        "milk_feeding" -> MilkFeeding
         "breeding" -> Goat
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md) — its
         // one job is a video-verification queue, so the Video glyph is its nav icon.

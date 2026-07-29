@@ -292,7 +292,7 @@
     },
     {
       "eventType": "verification.item.pending",
-      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, feed_transport, and death_evidence; feed_transport is one immutable attempt with one live-camera video)",
+      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, feed_transport, milk_preparation, milk_feeding, and death_evidence; milk_feeding is one immutable farm-session attempt carrying questions and two live-camera videos)",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -333,7 +333,12 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
-          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the park-day preparation; the operator's two/five-video submit never completes it."
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_feeding_verification_handler.go",
+          "notes": "Filters source.module=milk_feeding + ref_type=milk_feeding_completion. APPROVE completes exactly one farm x feeding_date x session task and applies that accepted session's watchlist answers; two consecutive accepted Yes answers graduate a kid, while No resets the streak."
         },
         {
           "module": "feeddirection",
@@ -362,6 +367,7 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/domain/milk_feeding_test.go",
         "backend/internal/countsbridge/shifting_verification_enqueue_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
@@ -399,7 +405,12 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
-          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. REWORK returns the park-day completion to rework; the next submission creates a fresh immutable complete proof attempt while rejected evidence stays in history."
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. REWORK returns the farm-day completion to rework; the next submission creates a fresh immutable complete proof attempt while rejected evidence stays in history."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_feeding_verification_handler.go",
+          "notes": "Filters source.module=milk_feeding + ref_type=milk_feeding_completion. REWORK preserves the rejected question/proof attempt and returns the same farm-session task to the assigned operator for fresh answers and two fresh videos; rejected answers do not change the watchlist."
         },
         {
           "module": "feeddirection",
@@ -423,6 +434,7 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/domain/milk_feeding_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"

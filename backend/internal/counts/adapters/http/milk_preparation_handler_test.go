@@ -10,14 +10,16 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
 type milkPreparationHandlerService struct {
-	query        domain.MilkPreparationQuery
-	page         domain.MilkPreparationPage
-	submission   domain.MilkPreparationSubmission
-	submitResult domain.MilkPreparationSubmissionResult
+	query            domain.MilkPreparationQuery
+	page             domain.MilkPreparationPage
+	submission       domain.MilkPreparationSubmission
+	submitResult     domain.MilkPreparationSubmissionResult
+	feedingSubmitErr error
 }
 
 func (f *milkPreparationHandlerService) GetSummary(context.Context, domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error) {
@@ -38,12 +40,39 @@ func (f *milkPreparationHandlerService) SubmitMilkPreparation(_ context.Context,
 	return f.submitResult, nil
 }
 
+func (f *milkPreparationHandlerService) ListMilkFeedingTasks(context.Context, domain.MilkFeedingQuery) (domain.MilkFeedingPage, error) {
+	return domain.MilkFeedingPage{}, nil
+}
+
+func (f *milkPreparationHandlerService) SubmitMilkFeeding(context.Context, domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error) {
+	return domain.MilkFeedingSubmissionResult{}, f.feedingSubmitErr
+}
+
+func TestSubmitMilkFeedingRejectsBeforeSessionUnlock(t *testing.T) {
+	service := &milkPreparationHandlerService{feedingSubmitErr: ports.ErrMilkFeedingNotYetAvailable}
+	handler := NewHandler(service, slog.Default())
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","feeding_date":"2026-07-30","session_no":4,"answers":{},"proofs":{}}`
+	req := httptest.NewRequest(http.MethodPost, "/app/counts/milk-feeding/tasks/task-1/submit", strings.NewReader(body))
+	req.SetPathValue("task_id", "task-1")
+	ctx := httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001")
+	ctx = httpmiddleware.WithActorID(ctx, "40000000-0000-4000-8000-000000000001")
+	req = req.WithContext(ctx)
+	req.Header.Set("Idempotency-Key", "feeding-early-1")
+	recorder := httptest.NewRecorder()
+
+	handler.SubmitMilkFeeding(recorder, req)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "task_not_yet_available") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestSubmitMilkPreparationCarriesFiveIndependentStepProofs(t *testing.T) {
 	service := &milkPreparationHandlerService{submitResult: domain.MilkPreparationSubmissionResult{
 		CompletionID: "30000000-0000-4000-8000-000000000001", Status: domain.MilkPreparationVerificationPending, AttemptNo: 1, RowVersion: 1,
 	}}
 	handler := NewHandler(service, slog.Default())
-	body := `{"park_id":"20000000-0000-4000-8000-000000000001","preparation_date":"2026-07-29","goat_milk_used":true,"proofs":{"goat_milk_quantity_proof_ref":"p1","boiling_temperature_proof_ref":"p2","cooled_temperature_proof_ref":"p3","uht_milk_quantity_proof_ref":"p4","citric_acid_mixing_proof_ref":"p5"}}`
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","preparation_date":"2026-07-29","goat_milk_used":true,"answers":{"morning_milk_collected_litres":4,"evening_milk_collected_litres":3,"goat_milk_quantity_litres":2,"boiling_temperature_c":100,"cooled_temperature_c":38,"uht_milk_quantity_litres":8,"citric_acid_grams":44},"proofs":{"goat_milk_quantity_proof_ref":"p1","boiling_temperature_proof_ref":"p2","cooled_temperature_proof_ref":"p3","uht_milk_quantity_proof_ref":"p4","citric_acid_mixing_proof_ref":"p5"}}`
 	req := httptest.NewRequest(http.MethodPost, "/app/counts/milk-preparation/submit", strings.NewReader(body))
 	ctx := httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001")
 	ctx = httpmiddleware.WithActorID(ctx, "40000000-0000-4000-8000-000000000001")
@@ -56,6 +85,9 @@ func TestSubmitMilkPreparationCarriesFiveIndependentStepProofs(t *testing.T) {
 	}
 	if refs := service.submission.Proofs.OrderedRefs(true); len(refs) != 5 || refs[0] != "p1" || refs[4] != "p5" {
 		t.Fatalf("proof refs=%v", refs)
+	}
+	if service.submission.ParkID != "20000000-0000-4000-8000-000000000001" {
+		t.Fatalf("farm=%q", service.submission.ParkID)
 	}
 }
 

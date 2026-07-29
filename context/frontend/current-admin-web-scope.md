@@ -363,9 +363,9 @@ UX. Exact backend filters may live in URL params and active chips for entity
 history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
-import-review, or old Operations. The Counts sidebar shows exactly two leaves in
-this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
-(`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
+import-review, or old Operations. The Counts sidebar shows exactly three leaves in
+this slice — `Herd Register` (`/counts/herd`), `Counts Breakdown`
+(`/counts/breakdown`), and `Milk Preparation` (`/counts/milk-preparation`). Do not show disabled `Tagging & identity`, `Weights &
 ADG`, or `Count reconciliation` leaves for mock fidelity.
 
 `Counts Breakdown` was reopened by explicit maintainer decision (2026-07-18),
@@ -379,6 +379,15 @@ the 5k-50k envelope — not a projection table. Its stage dimension is raw
 quality stays visible. The allowlist that enforces this lives in
 `apps/admin-web/scripts/check-ia-guard.mjs` (`SUPPORTED_COUNTS_HREFS`); widening
 it again is a scope decision that must be recorded here first.
+
+`Milk Preparation` was reopened by explicit maintainer decision (2026-07-29). It reuses the
+Feed Packing worklist anatomy and remains a Counts-owned current-day planning read: canonical live
+K1/K2/K3 head counts at physical park x shed x cohort grain multiplied by the approved session
+volume matrix. Its whole-scope milk and citric-acid totals never come from the visible page. It does
+not fabricate K0 colostrum or ICU/clinical quantities, does not reconstruct historical herd state,
+and does not move operator capture into admin-web. The page also renders backend-owned park-day
+verification state (`not_submitted`, `pending_verification`, `completed`, `rework`); completed means
+one verifier approved the full applicable two/five-video step package.
 
 It does not approve unrelated Counts modules, old Operations, global Goat
 Passport search, all-domain Calendar, Insights, HR, generic Parks, generic
@@ -442,6 +451,8 @@ These are the only current implemented admin-web product routes:
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd               Herd Register for vaccination trigger closure
+/counts/breakdown          Counts Breakdown census
+/counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
 /config
 /sops

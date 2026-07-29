@@ -302,7 +302,24 @@ data class FeedTransportTaskDto(
     @SerialName("scheduled_at") val scheduledAt: String,
 )
 
-@Serializable data class FeedTransportTaskPageDto(@SerialName("items") val items: List<FeedTransportTaskDto> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
+@Serializable
+data class FeedTransportFilterOptionDto(
+    @SerialName("id") val id: String,
+    @SerialName("label") val label: String,
+)
+
+@Serializable
+data class FeedTransportFilterOptionsDto(
+    @SerialName("parks") val parks: List<FeedTransportFilterOptionDto> = emptyList(),
+    @SerialName("sheds") val sheds: List<FeedTransportFilterOptionDto> = emptyList(),
+)
+
+@Serializable
+data class FeedTransportTaskPageDto(
+    @SerialName("items") val items: List<FeedTransportTaskDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("filters") val filters: FeedTransportFilterOptionsDto = FeedTransportFilterOptionsDto(),
+)
 @Serializable data class FeedTransportSubmitRequestDto(@SerialName("proof_ref") val proofRef: String)
 @Serializable data class FeedTransportSubmitResponseDto(@SerialName("attempt_id") val attemptId: String, @SerialName("status") val status: String, @SerialName("attempt_no") val attemptNo: Int, @SerialName("newly_pending") val newlyPending: Boolean)
 

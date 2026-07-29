@@ -9,6 +9,7 @@
     <string name="feed_filters_title">ఫిల్టర్‌లు</string>
     <string name="feed_filters_clear">క్లియర్</string>
     <string name="feed_filter_farm">ఫారం</string>
+    <string name="feed_filter_all_farms">అన్ని ఫారాలు</string>
     <string name="feed_filter_shed">షెడ్</string>
     <string name="feed_filter_all_sheds">అన్ని షెడ్‌లు</string>
     <string name="feed_filter_session">సెషన్</string>
@@ -20,6 +21,7 @@
     <string name="feed_workflow_experiment">ప్రయోగం</string>
     <string name="feed_filter_status">స్థితి</string>
     <string name="feed_filter_all_statuses">అన్ని స్థితులు</string>
+    <string name="feed_status_rework">మళ్లీ చేయాలి</string>
     <string name="feed_status_pending">పెండింగ్</string>
     <string name="feed_status_awaiting">ధృవీకరణ పెండింగ్</string>
     <string name="feed_status_awaiting_chip">సమీక్షలో</string>
@@ -67,6 +69,18 @@
     <string name="feed_dist_water_captured">నీటి రుజువు రికార్డ్ చేయబడింది</string>
     <string name="feed_dist_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
     <string name="feed_dist_need_both">సమర్పించడానికి రెండు రుజువులను రికార్డ్ చేయండి.</string>
+    <string name="feed_transport_title">దాణా రవాణా</string>
+    <string name="feed_transport_today">ఈరోజు · %1$s · 15:30కి ప్రారంభం</string>
+    <string name="feed_transport_date">%1$s · 15:30కి ప్రారంభం</string>
+    <string name="feed_transport_empty">ఈరోజు దాణా రవాణా పనులు లేవు</string>
+    <string name="feed_transport_rework">మళ్లీ చేయండి: %1$s</string>
+    <string name="feed_transport_caption">ఈ షెడ్‌కు దాణా రవాణా కోసం ఒక కొత్త ఇన్-యాప్ కెమెరా వీడియోను రికార్డ్ చేయండి. రవాణా పూర్తయినట్లు పరిగణించే ముందు వెరిఫయర్ దానిని పరిశీలిస్తారు.</string>
+    <string name="feed_transport_video_title">దాణా రవాణా వీడియో (అవసరం)</string>
+    <string name="feed_transport_record_video">రవాణా వీడియోను రికార్డ్ చేయండి</string>
+    <string name="feed_transport_video_uploading">అప్‌లోడ్ అవుతోంది…</string>
+    <string name="feed_transport_video_recorded">రవాణా వీడియో రికార్డ్ అయింది</string>
+    <string name="feed_transport_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
+    <string name="feed_transport_need_video">సమర్పించడానికి రవాణా వీడియోను రికార్డ్ చేయండి.</string>
     <string name="feed_pack_complete_caption">ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి. ఈ ప్యాకింగ్ పూర్తయినట్లు లెక్కించే ముందు వెరిఫయర్ దానిని సమీక్షిస్తారు.</string>
     <string name="feed_pack_complete_video_title">ప్యాకింగ్ వీడియో (అవసరం)</string>
     <string name="feed_pack_complete_record_video">ప్యాకింగ్ వీడియో రికార్డ్ చేయండి</string>

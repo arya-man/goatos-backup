@@ -40,15 +40,14 @@ architecture intent.
 
 1. Birth capture requires exactly one initial identity mode: a permanent
    `animal_identifier_1` or a provisional `temporary_tag`.
-2. Temporary-tagged animals appear in the Counts **Awaiting RFID** work list.
-   The API is keyset-paged and capped at approximately 20 rows per page.
-3. Operators may filter that work list by park and shed. Filtering is performed
-   by the backend query and swaps the bounded Room/Paging cache on mobile.
-4. Promotion is an idempotent offline-outbox command. In one database
+2. The former standalone Counts **Awaiting RFID** work list was retired on
+   2026-07-29. The final **Tag the kid** action in each child's Birth workflow
+   opens the same promotion command directly.
+3. Promotion is an idempotent offline-outbox command. In one database
    transaction it retires the active temporary tag, attaches the required
    permanent RFID, optionally attaches a distinct second RFID, and emits the
    identifier-retired/identifier-added domain events.
-5. A replay returns the existing promotion result; a goat without an active
+4. A replay returns the existing promotion result; a goat without an active
    temporary tag is rejected. There is no intermediate state with no active
    identity or two active primary identifiers.
 

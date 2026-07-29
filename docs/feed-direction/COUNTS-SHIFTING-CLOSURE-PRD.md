@@ -59,12 +59,12 @@ contract:
   completion emits `goat.location.changed` and, where applicable,
   `goat.stage_changed`, followed by Vaccination rescope and eligibility
   re-evaluation.
-- Birth capture can currently create a newborn with either a permanent RFID or
-  a provisional `temporary_tag`. Temporary-tagged animals appear in a
-  keyset-paged, park/shed-filterable **Awaiting RFID** queue. Promotion
+- Birth submission creates every newborn with a provisional `temporary_tag`.
+  There is no standalone **Awaiting RFID** queue: the final **Tag the kid** action
+  in that child's Birth workflow opens the promotion form directly. Promotion
   atomically retires the temporary tag and attaches one required plus one
   optional distinct permanent RFID, with identifier domain events and
-  idempotent replay.
+  idempotent replay; the workflow still requires its separate tagging video.
 
 The temporary-tag workflow conflicts with the current canonical statement in
 `context/product/glossary.md` that every accepted/canonical animal already has

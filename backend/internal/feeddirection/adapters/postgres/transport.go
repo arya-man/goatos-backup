@@ -43,11 +43,11 @@ ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.For
 	return ports.MaterializeTransportResult{BusinessDate: day.Format("2006-01-02"), Inserted: tag.RowsAffected()}, nil
 }
 
-func (r *Repository) ListTransportTasks(ctx context.Context, tenantID string, day time.Time, actorID string, limit int, cursor string) ([]ports.FeedTransportTask, string, error) {
+func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTransportTasksParams) (ports.FeedTransportTaskPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	if limit < 1 || limit > 100 {
-		limit = 20
+	if q.Limit < 1 || q.Limit > 100 {
+		q.Limit = 20
 	}
 	// projection-review: producer unique=(tenant_id,business_date,shed_id); consumer match/group uses
 	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
@@ -61,29 +61,78 @@ JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
-  AND ($4::text='' OR t.task_id > $4::uuid)
-ORDER BY t.task_id LIMIT $5`, tenantID, day.Format("2006-01-02"), strings.TrimSpace(actorID), strings.TrimSpace(cursor), limit+1)
+	AND ($4::text='' OR t.park_id=$4::uuid)
+	AND ($5::text='' OR t.shed_id=$5::uuid)
+	AND ($6::text='' OR t.status=$6)
+	AND ($7::text='' OR t.task_id > $7::uuid)
+ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.Status, q.Cursor, q.Limit+1)
 	if err != nil {
-		return nil, "", fmt.Errorf("feeddirection: list transport tasks: %w", err)
+		return ports.FeedTransportTaskPage{}, fmt.Errorf("feeddirection: list transport tasks: %w", err)
 	}
 	defer rows.Close()
-	out := make([]ports.FeedTransportTask, 0, limit+1)
+	out := make([]ports.FeedTransportTask, 0, q.Limit+1)
 	for rows.Next() {
 		var x ports.FeedTransportTask
 		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt); err != nil {
-			return nil, "", err
+			return ports.FeedTransportTaskPage{}, err
 		}
 		out = append(out, x)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", err
+		return ports.FeedTransportTaskPage{}, err
 	}
 	next := ""
-	if len(out) > limit {
-		next = out[limit-1].TaskID
-		out = out[:limit]
+	if len(out) > q.Limit {
+		next = out[q.Limit-1].TaskID
+		out = out[:q.Limit]
 	}
-	return out, next, nil
+	filters, err := r.listTransportFilterOptions(ctx, q)
+	if err != nil {
+		return ports.FeedTransportTaskPage{}, err
+	}
+	return ports.FeedTransportTaskPage{Items: out, NextCursor: next, Filters: filters}, nil
+}
+
+func (r *Repository) listTransportFilterOptions(ctx context.Context, q ports.ListTransportTasksParams) (ports.FeedTransportFilterOptions, error) {
+	// Filter vocabulary is whole-date and actor scoped, not derived from the current 20-row page.
+	// The selected park narrows only the shed vocabulary; status/shed filters never hide choices.
+	rows, err := r.pool.Query(ctx, `
+SELECT 'park', t.park_id::text, p.name
+FROM feed_transport_tasks t
+JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
+WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
+  AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
+GROUP BY t.park_id, p.name
+UNION ALL
+SELECT 'shed', t.shed_id::text, s.name
+FROM feed_transport_tasks t
+JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
+WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
+  AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
+  AND ($4::text='' OR t.park_id=$4::uuid)
+GROUP BY t.shed_id, s.name
+ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
+	if err != nil {
+		return ports.FeedTransportFilterOptions{}, fmt.Errorf("feeddirection: list transport filter options: %w", err)
+	}
+	defer rows.Close()
+	var options ports.FeedTransportFilterOptions
+	for rows.Next() {
+		var kind string
+		var option ports.FeedTransportFilterOption
+		if err := rows.Scan(&kind, &option.ID, &option.Label); err != nil {
+			return ports.FeedTransportFilterOptions{}, err
+		}
+		if kind == "park" {
+			options.Parks = append(options.Parks, option)
+		} else {
+			options.Sheds = append(options.Sheds, option)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return ports.FeedTransportFilterOptions{}, err
+	}
+	return options, nil
 }
 
 func (r *Repository) GetTransportTask(ctx context.Context, tenantID, taskID string) (ports.FeedTransportTask, error) {

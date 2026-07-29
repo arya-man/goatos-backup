@@ -28,6 +28,10 @@ import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -456,8 +460,28 @@ interface AppApiService {
         @Body request: MilkPreparationSubmissionRequestDto,
     ): MilkPreparationSubmissionResponseDto
 
+    @GET("app/counts/milk-preparation")
+    suspend fun getMilkPreparation(
+        @Query("park_id") parkId: String?,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
+    ): MilkPreparationPageDto
+
+    @GET("app/counts/milk-feeding/tasks")
+    suspend fun getMilkFeedingTasks(@Query("feeding_date") feedingDate: String, @Query("park_id") parkId: String?, @Query("session_no") sessionNo: Int?, @Query("limit") limit: Int, @Query("offset") offset: Int): MilkFeedingPageDto
+
+    @POST("app/counts/milk-feeding/tasks/{task_id}/submit")
+    suspend fun submitMilkFeedingTask(@Path("task_id") taskId: String, @Header("Idempotency-Key") idempotencyKey: String, @Body request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
+
     @GET("feed-transport/tasks")
-    suspend fun getFeedTransportTasks(@Query("business_date") businessDate: String, @Query("cursor") cursor: String?, @Query("limit") limit: Int?): FeedTransportTaskPageDto
+    suspend fun getFeedTransportTasks(
+        @Query("business_date") businessDate: String,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("status") status: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): FeedTransportTaskPageDto
 
     @POST("feed-transport/tasks/{task_id}/submit")
     suspend fun submitFeedTransport(@Path("task_id") taskId: String, @Header("Idempotency-Key") idempotencyKey: String, @Body request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
@@ -932,7 +956,20 @@ class RetrofitAppApi(
         request: MilkPreparationSubmissionRequestDto,
     ): MilkPreparationSubmissionResponseDto = service.submitMilkPreparation(idempotencyKey, request)
 
-    override suspend fun getFeedTransportTasks(businessDate: String, cursor: String?, limit: Int?): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, cursor, limit)
+    override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = service.getMilkFeedingTasks(feedingDate, parkId, sessionNo, limit, offset)
+    override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = service.submitMilkFeedingTask(taskId, idempotencyKey, request)
+
+    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        service.getMilkPreparation(parkId, limit, offset)
+
+    override suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String?,
+        shedId: String?,
+        status: String?,
+        cursor: String?,
+        limit: Int?,
+    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, status, cursor, limit)
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = service.submitFeedTransport(taskId, idempotencyKey, request)
 
     override suspend fun recordCountsShiftingEvent(

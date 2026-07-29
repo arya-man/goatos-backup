@@ -14,6 +14,28 @@ data class FeedTransportItemEntity(@PrimaryKey val taskId:String,val businessDat
 @Entity(tableName="feed_transport_remote_keys")
 data class FeedTransportRemoteKeyEntity(@PrimaryKey val businessDate:String,val nextCursor:String?,val endReached:Boolean,val updatedAt:Long)
 
+@Entity(
+    tableName = "feed_transport_scoped_items",
+    primaryKeys = ["scopeKey", "taskId"],
+    indices = [Index(value = ["scopeKey", "sortIndex"])],
+)
+data class FeedTransportScopedItemEntity(
+    val scopeKey: String,
+    val taskId: String,
+    val sortIndex: Int,
+    val dtoJson: String,
+    val updatedAt: Long,
+)
+
+@Entity(tableName = "feed_transport_scoped_remote_keys")
+data class FeedTransportScopedRemoteKeyEntity(
+    @PrimaryKey val scopeKey: String,
+    val nextCursor: String?,
+    val endReached: Boolean,
+    val filtersJson: String,
+    val updatedAt: Long,
+)
+
 @Dao interface FeedTransportItemDao{
     @Query("SELECT * FROM feed_transport_items WHERE businessDate=:date ORDER BY sortIndex,taskId LIMIT :limit") fun observe(date:String,limit:Int):Flow<List<FeedTransportItemEntity>>
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun upsertAll(items:List<FeedTransportItemEntity>)
@@ -24,4 +46,31 @@ data class FeedTransportRemoteKeyEntity(@PrimaryKey val businessDate:String,val 
     @Query("SELECT * FROM feed_transport_remote_keys WHERE businessDate=:date") fun observe(date:String):Flow<FeedTransportRemoteKeyEntity?>
     @Query("SELECT * FROM feed_transport_remote_keys WHERE businessDate=:date") suspend fun get(date:String):FeedTransportRemoteKeyEntity?
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun upsert(key:FeedTransportRemoteKeyEntity)
+}
+
+@Dao
+interface FeedTransportScopedItemDao {
+    @Query("SELECT * FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey ORDER BY sortIndex,taskId LIMIT :limit")
+    fun observe(scopeKey: String, limit: Int): Flow<List<FeedTransportScopedItemEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<FeedTransportScopedItemEntity>)
+
+    @Query("DELETE FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey")
+    suspend fun deleteScope(scopeKey: String)
+
+    @Query("SELECT COUNT(*) FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey")
+    suspend fun count(scopeKey: String): Int
+}
+
+@Dao
+interface FeedTransportScopedRemoteKeyDao {
+    @Query("SELECT * FROM feed_transport_scoped_remote_keys WHERE scopeKey=:scopeKey")
+    fun observe(scopeKey: String): Flow<FeedTransportScopedRemoteKeyEntity?>
+
+    @Query("SELECT * FROM feed_transport_scoped_remote_keys WHERE scopeKey=:scopeKey")
+    suspend fun get(scopeKey: String): FeedTransportScopedRemoteKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(key: FeedTransportScopedRemoteKeyEntity)
 }

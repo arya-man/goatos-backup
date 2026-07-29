@@ -9,7 +9,7 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
-// MilkPreparationVerificationEnqueuer maps one park-day preparation attempt to one verifier item.
+// MilkPreparationVerificationEnqueuer maps one farm-day preparation attempt to one verifier item.
 // All applicable videos stay together and retain the domain's fixed step order.
 type MilkPreparationVerificationEnqueuer struct {
 	verification verificationCreator

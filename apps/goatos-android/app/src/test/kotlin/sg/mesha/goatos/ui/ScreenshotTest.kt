@@ -40,6 +40,14 @@ import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
+import sg.mesha.goatos.feature.counts.MilkPreparationCardUi
+import sg.mesha.goatos.feature.counts.MilkPreparationChipUi
+import sg.mesha.goatos.feature.counts.MilkPreparationListScreen
+import sg.mesha.goatos.feature.counts.MilkPreparationListUiState
+import sg.mesha.goatos.feature.counts.MilkPreparationScreen
+import sg.mesha.goatos.feature.counts.MilkPreparationStepUi
+import sg.mesha.goatos.feature.counts.MilkPreparationUiState
 import sg.mesha.goatos.feature.counts.RfidPromoteField
 import sg.mesha.goatos.feature.counts.RfidPromoteScreen
 import sg.mesha.goatos.feature.counts.RfidPromoteUiState
@@ -56,6 +64,15 @@ import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedDistributionUiState
+import sg.mesha.goatos.feature.feed.FeedDropdownOption
+import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
+import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
+import sg.mesha.goatos.feature.feed.FeedTransportFilterUi
+import sg.mesha.goatos.feature.feed.FeedTransportRowUi
+import sg.mesha.goatos.feature.feed.FeedTransportScreen
+import sg.mesha.goatos.feature.feed.FeedTransportUiState
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -228,6 +245,80 @@ class ScreenshotTest {
     fun calendar_coverage_banner() = shot("calendar_coverage_banner") {
         CalendarScreen(state = sampleCalendarWithCoverageState())
     }
+
+    @Test
+    fun feed_distribution_capture_reference() = shot("feed_distribution_capture_reference") {
+        FeedDistributionCompleteScreen(
+            state = FeedDistributionUiState(
+                shedLabel = "Gandhi 1",
+                sessionLabel = "Morning session",
+                workflowLabel = "Normal",
+            ),
+        )
+    }
+
+    @Test
+    fun feed_transport_capture_matches_distribution_anatomy() =
+        shot("feed_transport_capture_matches_distribution_anatomy") {
+            FeedTransportCaptureScreen(
+                state = FeedTransportCaptureUiState(shedLabel = "Gandhi 1"),
+                onEvent = {},
+            )
+        }
+
+    @Test
+    fun feed_transport_task_list_matches_distribution_anatomy() =
+        shot("feed_transport_task_list_matches_distribution_anatomy") {
+            FeedTransportScreen(
+                state = FeedTransportUiState(
+                    date = "2026-07-29",
+                    today = "2026-07-29",
+                    filters = FeedTransportFilterUi(
+                        parks = listOf(
+                            FeedDropdownOption("park-1", "Channapatna"),
+                            FeedDropdownOption("park-2", "Coimbatore"),
+                        ),
+                        selectedParkId = "park-1",
+                        selectedParkLabel = "Channapatna",
+                        sheds = listOf(
+                            FeedDropdownOption("shed-1", "Gandhi 1"),
+                            FeedDropdownOption("shed-2", "Gandhi 2"),
+                            FeedDropdownOption("shed-3", "Godel 1"),
+                        ),
+                    ),
+                    rows = listOf(
+                        FeedTransportRowUi(
+                            taskId = "task-1",
+                            parkId = "park-1",
+                            shedId = "shed-1",
+                            shedLabel = "Gandhi 1",
+                            parkLabel = "Channapatna",
+                            status = "due",
+                            reworkReason = null,
+                        ),
+                        FeedTransportRowUi(
+                            taskId = "task-2",
+                            parkId = "park-1",
+                            shedId = "shed-2",
+                            shedLabel = "Gandhi 2",
+                            parkLabel = "Channapatna",
+                            status = "verification_due",
+                            reworkReason = null,
+                        ),
+                        FeedTransportRowUi(
+                            taskId = "task-3",
+                            parkId = "park-1",
+                            shedId = "shed-3",
+                            shedLabel = "Godel 1",
+                            parkLabel = "Channapatna",
+                            status = "rework",
+                            reworkReason = "Transport path is not visible",
+                        ),
+                    ),
+                ),
+                onEvent = {},
+            )
+        }
 
     @Test
     fun offline_banner() = shot("offline_banner") { OfflineBanner(visible = true, onOpenDetails = {}) }
@@ -449,6 +540,53 @@ class ScreenshotTest {
                 dob = "2026-07-20",
                 canSubmit = true,
             ),
+        )
+    }
+
+    @Test
+    fun milk_preparation_worklist() = shot("milk_preparation_worklist") {
+        MilkPreparationListScreen(
+            state = MilkPreparationListUiState(
+                subtitle = "2 farms · 2 need action",
+                dateLabel = "Today · 29 Jul",
+                feedingDateLabel = "Tomorrow · 30 Jul",
+                chips = listOf(
+                    MilkPreparationChipUi("all", "All", 2),
+                    MilkPreparationChipUi("to_prepare", "To prepare", 2),
+                    MilkPreparationChipUi("in_review", "In review", 0),
+                    MilkPreparationChipUi("completed", "Completed", 0),
+                    MilkPreparationChipUi("rework", "Rework", 0),
+                ),
+                cards = listOf(
+                    MilkPreparationCardUi("park-cbe", "CBE", "park-cbe", "", 4, 32, "38 L", "209 g", "To prepare", "Prepare", "", MilkPreparationCardBucket.TO_PREPARE),
+                    MilkPreparationCardUi("park-cpt", "CPT", "park-cpt", "", 2, 52, "41.6 L", "228.8 g", "To prepare", "Prepare", "", MilkPreparationCardBucket.TO_PREPARE),
+                ),
+            ),
+            onEvent = {},
+        )
+    }
+
+    @Test
+    fun milk_preparation_farm_execution() = shot("milk_preparation_farm_execution") {
+        MilkPreparationScreen(
+            state = MilkPreparationUiState(
+                preparationDate = "Today · 29 Jul",
+                feedingDate = "Tomorrow · 30 Jul",
+                selectedParkId = "park-1",
+                parkLabel = "Channapatna",
+                cohortCount = 1,
+                headCount = 28,
+                totalMilkLabel = "22.4 L",
+                citricAcidLabel = "123.2 g",
+                steps = listOf(
+                    MilkPreparationStepUi("goat_milk_quantity", "Measure goat milk", captured = true),
+                    MilkPreparationStepUi("boiling_temperature", "Record boiling temperature"),
+                    MilkPreparationStepUi("cooled_temperature", "Record cooled temperature"),
+                    MilkPreparationStepUi("uht_milk_quantity", "Measure UHT milk"),
+                    MilkPreparationStepUi("citric_acid_mixing", "Mix citric acid"),
+                ),
+            ),
+            onEvent = {},
         )
     }
 

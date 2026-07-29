@@ -44,6 +44,13 @@ import sg.mesha.goatos.feature.counts.AddDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.counts.MilkPreparationScreen
+import sg.mesha.goatos.feature.counts.MilkPreparationListEvent
+import sg.mesha.goatos.feature.counts.MilkPreparationListScreen
+import sg.mesha.goatos.feature.counts.MilkPreparationEvent
+import sg.mesha.goatos.feature.counts.MilkFeedingEvent
+import sg.mesha.goatos.feature.counts.MilkFeedingScreen
+import sg.mesha.goatos.feature.counts.MilkFeedingListScreen
+import sg.mesha.goatos.feature.counts.MilkFeedingListEvent
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteScreen
@@ -60,6 +67,7 @@ import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
 import sg.mesha.goatos.feature.feed.FeedTransportScreen
+import sg.mesha.goatos.feature.feed.FeedTransportSubmitStatus
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
@@ -106,6 +114,9 @@ import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.MilkPreparationViewModel
+import sg.mesha.goatos.viewmodel.MilkPreparationListViewModel
+import sg.mesha.goatos.viewmodel.MilkFeedingViewModel
+import sg.mesha.goatos.viewmodel.MilkFeedingListViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
@@ -176,6 +187,13 @@ object Routes {
     const val COUNTS_DEATH = "/counts/death"
     const val COUNTS_SHIFTING = "/counts/shifting"
     const val COUNTS_MILK_PREPARATION = "/counts/milk-preparation"
+    const val MILK_PREPARATION_PARK_ID_ARG = "park_id"
+    const val COUNTS_MILK_PREPARATION_DETAIL = "/counts/milk-preparation/farms/{$MILK_PREPARATION_PARK_ID_ARG}"
+    fun milkPreparationDetailRoute(parkId: String): String = "/counts/milk-preparation/farms/$parkId"
+    const val COUNTS_MILK_FEEDING = "/counts/milk-feeding"
+    const val MILK_FEEDING_TASK_ID_ARG = "task_id"
+    const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}"
+    fun milkFeedingDetailRoute(taskId: String): String = "/counts/milk-feeding/tasks/$taskId"
 
     // L1 drill-ins for one workflow card (distinct hosted destinations with Up/Back and no root
     // chrome — never a prefix reuse of the L0 roots above). Each module keeps its own drill route
@@ -929,11 +947,61 @@ fun AppNavHost(
         }
 
         composable(Routes.COUNTS_MILK_PREPARATION) {
+            val vm: MilkPreparationListViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            MilkPreparationListScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is MilkPreparationListEvent.OpenFarm -> navController.navigate(
+                            Routes.milkPreparationDetailRoute(event.parkId),
+                        ) { launchSingleTop = true }
+                        MilkPreparationListEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.COUNTS_MILK_PREPARATION_DETAIL,
+            arguments = listOf(navArgument(Routes.MILK_PREPARATION_PARK_ID_ARG) { type = NavType.StringType }),
+        ) {
             val vm: MilkPreparationViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
-                MilkPreparationScreen(state = state, onEvent = vm::onEvent)
+                MilkPreparationScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            MilkPreparationEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
+        composable(Routes.COUNTS_MILK_FEEDING) {
+            val vm: MilkFeedingListViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            MilkFeedingListScreen(state, onEvent = { event -> when (event) {
+                is MilkFeedingListEvent.OpenTask -> navController.navigate(Routes.milkFeedingDetailRoute(event.taskId)) { launchSingleTop = true }
+                MilkFeedingListEvent.Back -> navController.popBackStack()
+                else -> vm.onEvent(event)
+            } })
+        }
+
+        composable(
+            route = Routes.COUNTS_MILK_FEEDING_DETAIL,
+            arguments = listOf(navArgument(Routes.MILK_FEEDING_TASK_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: MilkFeedingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                MilkFeedingScreen(state, onEvent = { event -> if (event == MilkFeedingEvent.Back) navController.popBackStack() else vm.onEvent(event) })
             }
         }
 
@@ -1241,7 +1309,38 @@ fun AppNavHost(
 
         composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open)navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel))else vm.onEvent(event)}}
 
-        composable(route=Routes.FEED_TRANSPORT_CAPTURE,arguments=listOf(navArgument(FeedTransportCaptureViewModel.ARG_TASK_ID){type=NavType.StringType},navArgument(FeedTransportCaptureViewModel.ARG_SHED_ID){type=NavType.StringType},navArgument(FeedTransportCaptureViewModel.ARG_SHED_LABEL){type=NavType.StringType;defaultValue=""})){val vm:FeedTransportCaptureViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();CaptureAccessGate{BindVideoCaptureSource(rememberDelegatingProofCaptureSource());FeedTransportCaptureScreen(state){e->if(e==FeedTransportCaptureEvent.Back)navController.popBackStack() else vm.onEvent(e)}}}
+        composable(
+            route = Routes.FEED_TRANSPORT_CAPTURE,
+            arguments = listOf(
+                navArgument(FeedTransportCaptureViewModel.ARG_TASK_ID) { type = NavType.StringType },
+                navArgument(FeedTransportCaptureViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedTransportCaptureViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: FeedTransportCaptureViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val submitted = state.result?.status == FeedTransportSubmitStatus.SYNCED ||
+                state.result?.status == FeedTransportSubmitStatus.QUEUED
+            LaunchedEffect(submitted) {
+                if (submitted) {
+                    delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
+                    navController.popBackStack(Routes.FEED_TRANSPORT_CAPTURE, inclusive = true)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                FeedTransportCaptureScreen(state) { event ->
+                    if (event == FeedTransportCaptureEvent.Back) {
+                        navController.popBackStack()
+                    } else {
+                        vm.onEvent(event)
+                    }
+                }
+            }
+        }
 
         // L2 feed-direction completion detail: optional video + Mark done. Camera bound only while
         // composed (operator capture role gated), releasing on leave.
@@ -1593,6 +1692,7 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
     Routes.COUNTS_MILK_PREPARATION,
+    Routes.COUNTS_MILK_FEEDING,
 )
 
 private fun executionRoutePattern(base: String): String =

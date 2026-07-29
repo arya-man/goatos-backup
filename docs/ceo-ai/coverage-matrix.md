@@ -555,3 +555,13 @@ choice. These are operator-entry and per-animal detail facts, not an official
 leadership KPI or aggregate read surface. Leadership birth/mortality answers
 remain on the existing governed Counts aggregates; no `ceo_ai.*` view, Cube
 metric, or Toolbox row-level tool is warranted.
+
+**EXCLUDED — `GET /counts/milk-preparation` current preparation instruction (2026-07-29).**
+
+This endpoint and `/counts/milk-preparation` admin-web page are a current-day operator preparation
+direction at physical shed x K1/K2/K3 cohort grain. Park-day preparation and immutable step-video
+attempts are now durable, but remain operational evidence rather than an approved leadership KPI,
+cost, trend, adherence metric, or feeding outcome. Leadership sees the aggregate verifier backlog
+through existing `verification_queue_status`; raw `milk_preparation_completions` and
+`milk_preparation_proof_attempts` are excluded. Leadership animal counts remain on existing
+Counts/Cube coverage until a separately approved prepared/fed/refusal KPI contract exists.
