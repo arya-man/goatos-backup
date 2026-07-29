@@ -650,6 +650,22 @@ class WeighingViewModel @Inject constructor(
 
     fun captureShedVideo() = captureShedVideo(replacingProofId = null)
 
+    fun retryShedVideo(proofId: String) {
+        val key = scopeKey ?: return
+        if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val retried = proofCaptureRepository.retryUpload(key, proofId)) {
+                    is AppResult.Ok -> message.value = "Group video retry queued."
+                    is AppResult.Err -> message.value = retried.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
     fun removeShedVideo(proofId: String) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return

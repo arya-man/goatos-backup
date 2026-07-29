@@ -237,6 +237,7 @@ fun WeighingScreen(
     onSubmitIndividualScope: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onCaptureShedVideo: () -> Unit = {},
+    onRetryShedVideo: (String) -> Unit = {},
     onReplaceShedVideo: (String) -> Unit = {},
     onRemoveShedVideo: (String) -> Unit = {},
     onReconnectReader: () -> Unit = {},
@@ -277,6 +278,7 @@ fun WeighingScreen(
             onSubmitIndividualScope = onSubmitIndividualScope,
             onRecordShedPartition = onRecordShedPartition,
             onCaptureShedVideo = onCaptureShedVideo,
+            onRetryShedVideo = onRetryShedVideo,
             onReplaceShedVideo = onReplaceShedVideo,
             onRemoveShedVideo = onRemoveShedVideo,
             onReconnectReader = onReconnectReader,
@@ -1205,6 +1207,7 @@ private fun WeighingExecutionScanScreen(
     onSubmitIndividualScope: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
     onReconnectReader: () -> Unit,
@@ -1312,6 +1315,7 @@ private fun WeighingExecutionScanScreen(
                         onAnimalCountChange = onAnimalCountChange,
                         onWeightEntryActive = onWeightEntryActive,
                         onCaptureShedVideo = onCaptureShedVideo,
+                        onRetryShedVideo = onRetryShedVideo,
                         onReplaceShedVideo = onReplaceShedVideo,
                         onRemoveShedVideo = onRemoveShedVideo,
                     )
@@ -1580,6 +1584,7 @@ private fun WeighingLumpSumCapture(
     onAnimalCountChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
 ) {
@@ -1665,25 +1670,37 @@ private fun WeighingLumpSumCapture(
                     style = MeshaType.caption,
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ShedVideoAction(
-                    text = "Replace",
+            when (proof.status) {
+                ProofUploadStatus.SYNCED -> Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    ShedVideoAction(
+                        text = "Replace",
+                        icon = MeshaIcons.Refresh,
+                        enabled = !state.actionInFlight,
+                        onClick = { onReplaceShedVideo(proof.id) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShedVideoAction(
+                        text = "Remove",
+                        icon = MeshaIcons.Close,
+                        enabled = !state.actionInFlight,
+                        onClick = { onRemoveShedVideo(proof.id) },
+                        modifier = Modifier.weight(1f),
+                        danger = true,
+                    )
+                }
+                ProofUploadStatus.FAILED -> ShedVideoAction(
+                    text = "Retry",
                     icon = MeshaIcons.Refresh,
                     enabled = !state.actionInFlight,
-                    onClick = { onReplaceShedVideo(proof.id) },
-                    modifier = Modifier.weight(1f),
-                )
-                ShedVideoAction(
-                    text = "Remove",
-                    icon = MeshaIcons.Close,
-                    enabled = !state.actionInFlight,
-                    onClick = { onRemoveShedVideo(proof.id) },
-                    modifier = Modifier.weight(1f),
+                    onClick = { onRetryShedVideo(proof.id) },
+                    modifier = Modifier.fillMaxWidth(),
                     danger = true,
                 )
+                ProofUploadStatus.MISSING,
+                ProofUploadStatus.UPLOADING -> Unit
             }
         }
         ActionButton(
