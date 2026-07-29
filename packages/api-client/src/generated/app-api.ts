@@ -7339,6 +7339,8 @@ export interface operations {
             query?: {
                 /** @description Optional: narrow KPIs to this drive batch. When absent, KPIs aggregate all-history. */
                 drive_batch_id?: string;
+                /** @description Optional: narrow every board section to sheds under this park. When absent, all parks in scope. */
+                park_id?: string;
                 /** @description Scope instant (defaults to now in business timezone). Past values are supported for historical closure review; future values clamp to now. */
                 as_of?: string;
             };
