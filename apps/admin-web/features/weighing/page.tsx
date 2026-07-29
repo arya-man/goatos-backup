@@ -16,19 +16,29 @@ async function createWeighingCampaignAction(formData: FormData) {
     revalidatePath("/weighing");
     redirect("/weighing?notice=duplicate-blocked");
   }
+  const selectedParkId = String(formData.get("park_id") || "");
   const selectedShedIds = formData.getAll("shed_id").map(String);
   const labelByShed = new Map(formData.getAll("shed_label").map((value) => {
     const [id, label] = String(value).split(":", 2);
     return [id, label];
   }));
-  const sheds = selectedShedIds.map((id) => ({
+  const parkByShed = new Map(formData.getAll("shed_park_id").map((value) => {
+    const [id, parkId] = String(value).split(":", 2);
+    return [id, parkId];
+  }));
+  const validSelectedShedIds = selectedShedIds.filter((id) => parkByShed.get(id) === selectedParkId);
+  if (validSelectedShedIds.length !== selectedShedIds.length) {
+    revalidatePath("/weighing");
+    redirect("/weighing?notice=create-failed");
+  }
+  const sheds = validSelectedShedIds.map((id) => ({
     location_id: id,
     location_type: "shed" as const,
     display_name: labelByShed.get(id) || "Selected shed",
     weighing_category: (String(formData.get(`shed_category_${id}`) || "individual_animal") as WeighingCategory),
   }));
   const body = {
-    park_id: String(formData.get("park_id") || ""),
+    park_id: selectedParkId,
     period_start_date: String(formData.get("period_start_date") || ""),
     period_end_date: String(formData.get("period_end_date") || ""),
     start_business_date: String(formData.get("start_business_date") || ""),
@@ -430,6 +440,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
           {planner.sheds.map((shed) => (
             <span key={shed.id}>
               <input type="hidden" name="shed_label" value={`${shed.id}:${shed.label}`} />
+              <input type="hidden" name="shed_park_id" value={`${shed.id}:${shed.parkId}`} />
             </span>
           ))}
           <div className="weighing-wizard-head">

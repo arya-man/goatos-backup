@@ -107,6 +107,7 @@ export type WeighingPlannerPark = {
 
 export type WeighingPlannerShed = {
   id: string;
+  parkId: string;
   locationType: "shed" | "cohort" | "pen";
   label: string;
   subtitle: string;
@@ -261,6 +262,7 @@ function plannerFromCatalog(
     const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
     return {
       id: shed.location_id,
+      parkId: selectedPark?.park_id ?? "",
       locationType: campaignShed?.location_type ?? "shed",
       label: shed.name,
       subtitle: "kid shed",
