@@ -27,6 +27,10 @@ import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingUiState
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipShedUi
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideoUi
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosUiState
 
 @ShowkaseRoot
 class GoatOsShowkaseRoot : ShowkaseRootModule
@@ -239,6 +243,40 @@ internal fun ShowkaseWeighingIndividualExecution() = CatalogFrame {
 @Composable
 internal fun ShowkaseWeighingLumpsumExecution() = CatalogFrame {
     WeighingScreen(state = sampleWeighingLumpsumState())
+}
+
+@ShowkaseComposable(
+    name = "Lump-sum five videos",
+    group = "Weighing / Leadership videos",
+    widthDp = 393,
+    heightDp = 852,
+)
+@Composable
+internal fun ShowkaseWeighingLeadershipLumpSumFiveVideos() = CatalogFrame {
+    WeighingLeadershipVideosScreen(
+        state = WeighingLeadershipVideosUiState(
+            loading = false,
+            sheds = listOf(
+                WeighingLeadershipShedUi(
+                    id = "kid-shed-c",
+                    name = "Kid Shed C",
+                    status = "completed",
+                    periodLabel = "26 Jul - 1 Aug",
+                    category = "per_shed_partition",
+                    animalCount = "10",
+                    totalWeight = "100 kg",
+                    averageWeight = "10 kg",
+                    videos = (1..5).map { index ->
+                        WeighingLeadershipVideoUi(
+                            id = "proof-$index",
+                            label = "Video $index",
+                            url = "https://example.invalid/weighing-proof-$index.mp4",
+                        )
+                    },
+                ),
+            ),
+        ),
+    )
 }
 
 @Composable
