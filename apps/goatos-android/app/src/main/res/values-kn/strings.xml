@@ -26,7 +26,7 @@
     <string name="proof_camera_rec">REC</string>
     <string name="proof_camera_stop_label">ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲಿಸಿ</string>
     <string name="proof_camera_start_label">ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಿ</string>
-    <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$d ಸೆಕೆಂಡು</string>
+    <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$s</string>
     <string name="proof_camera_unavailable">ಕ್ಯಾಮೆರಾ ಲಭ್ಯವಿಲ್ಲ. ರದ್ದುಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="proof_camera_cancel">ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ರದ್ದುಮಾಡಿ</string>
     <string name="proof_camera_start_recording">ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಿ</string>

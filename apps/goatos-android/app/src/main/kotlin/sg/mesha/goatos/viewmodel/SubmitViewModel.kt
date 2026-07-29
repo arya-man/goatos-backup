@@ -551,7 +551,7 @@ class SubmitViewModel @Inject constructor(
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
             val proofReadiness = currentShedProofReadiness()
-            val formBlock = buildFormRunnerState(currentForm, current)?.blockedReason
+            val formBlock = if (currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(currentForm, current)?.blockedReason
             val ready = if (currentProofPolicy.isShedLevelVideo) {
                 currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
                     proofReadiness.blockingReason == null &&
@@ -1345,10 +1345,14 @@ class SubmitViewModel @Inject constructor(
             }
         }.toMap()
 
-        /** Every completed backend proof (across every `video_proof` field) as the wire proof-ref
-         *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
-         *  as a proof ref, because the backend review path requires completed server proof rows. */
-        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
+        /** Completed backend proof refs for submit. Goat-level replacement keeps old proof rows for
+         *  audit, but only the latest completed proof per goat is the active proof sent to backend. */
+        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs
+            .filter { row ->
+                row.syncStatus == CaptureSyncStatus.SYNCED && !row.serverProofId.isNullOrBlank()
+            }
+            .latestActiveProofs()
+            .mapNotNull { row ->
             val serverProofId = row.serverProofId
                 ?.takeIf { row.syncStatus == CaptureSyncStatus.SYNCED && it.isNotBlank() }
                 ?: return@mapNotNull null
@@ -1363,6 +1367,15 @@ class SubmitViewModel @Inject constructor(
                     row.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
                 },
             )
+        }
+
+        private fun List<ProofCaptureRow>.latestActiveProofs(): List<ProofCaptureRow> {
+            val goatProofs = filter { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+                .groupBy { "${it.fieldKey}:${it.subjectId}" }
+                .values
+                .mapNotNull { rows -> rows.maxByOrNull { it.capturedAtMs } }
+            val nonGoatProofs = filterNot { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+            return nonGoatProofs + goatProofs
         }
     }
 }

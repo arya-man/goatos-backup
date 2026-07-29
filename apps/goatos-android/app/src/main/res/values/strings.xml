@@ -24,7 +24,7 @@
     <string name="proof_camera_rec">REC</string>
     <string name="proof_camera_stop_label">Stop recording</string>
     <string name="proof_camera_start_label">Start recording</string>
-    <string name="proof_camera_recording_time">Recording · %1$d s</string>
+    <string name="proof_camera_recording_time">Recording · %1$s</string>
     <string name="proof_camera_upload_background">Proof uploads in background</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>

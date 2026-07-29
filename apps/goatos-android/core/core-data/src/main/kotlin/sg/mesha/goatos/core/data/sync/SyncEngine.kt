@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
@@ -79,6 +81,7 @@ class SyncEngine(
     private val backoff: BackoffPolicy = BackoffPolicy.Default,
     private val maxConcurrentGroups: Int = 3,
     private val retryScheduler: SyncRetryScheduler = SyncRetryScheduler.Noop,
+    private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
 ) {
@@ -250,6 +253,15 @@ class SyncEngine(
 
     private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
         when (OutboxOpType.valueOf(item.opType)) {
+            OutboxOpType.SCAN_CAPTURE -> {
+                val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
+                scannedGoatDao?.markFieldTagStatus(
+                    taskId = payload.taskId,
+                    fieldKey = payload.request.fieldKey,
+                    tag = payload.request.tag,
+                    status = CaptureSyncStatus.SYNCED.name,
+                )
+            }
             OutboxOpType.WEIGHING_ANIMAL_OBSERVATION ->
                 weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
             OutboxOpType.WEIGHING_SHED_OBSERVATION ->

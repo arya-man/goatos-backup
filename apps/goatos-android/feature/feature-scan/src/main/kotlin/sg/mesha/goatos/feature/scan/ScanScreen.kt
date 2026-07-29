@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -115,6 +116,7 @@ data class RosterRow(
     val status: ScanStatus,
     val unsynced: Boolean = false, // local, not-yet-synced draft scan overlay
     val scannedAtLabel: String? = null,
+    val proofStatusLabel: String? = null,
     val scanSyncFailed: Boolean = false,
     val goatId: String = "",
     val obligationId: String = "",
@@ -136,6 +138,13 @@ data class ScanFeedEntry(
     val vaccineLabel: String,      // "FMD · 1st" or "skip · <reason>"
     val status: ScanStatus,        // DONE or SKIPPED
     val scannedAtLabel: String? = null,
+    val proofStatusLabel: String? = null,
+    val goatId: String = "",
+    val proofRequired: Boolean = false,
+    val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
+    val evidenceSyncedCount: Int = 0,
+    val evidenceUploading: Boolean = false,
+    val evidenceFailed: Boolean = false,
     val tone: ScanFeedTone = when (status) {
         ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
         else -> ScanFeedTone.ACCEPTED
@@ -239,6 +248,7 @@ data class ScanUiState(
     val shedSwitcherOpen: Boolean = false,
     val shedSwitcherRefreshing: Boolean = false,
     val shedSwitcherOffline: Boolean = false,
+    val proofReplacementGoatId: String? = null,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -255,6 +265,7 @@ sealed interface ScanEvent {
     data class CaptureVideo(val goatId: String) : ScanEvent
     data class CaptureProof(val goatId: String) : ScanEvent
     data class RetryProof(val goatId: String) : ScanEvent
+    data class ArmProofReplacement(val goatId: String) : ScanEvent
     data class SelectGroup(val groupId: String) : ScanEvent
     data class OpenTile(val status: ScanStatus) : ScanEvent
 }
@@ -392,9 +403,14 @@ fun ScanScreen(
                         key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" },
                         contentType = { "proof_needed_row" },
                     ) { row ->
-                        ProofNeededFeedRow(row) {
+                        ProofNeededFeedRow(
+                            row = row,
+                            armedForReplacement = state.proofReplacementGoatId == row.goatId,
+                        ) {
                             if (row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed) {
                                 onEvent(ScanEvent.RetryProof(row.goatId))
+                            } else if (row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0) {
+                                onEvent(ScanEvent.ArmProofReplacement(row.goatId))
                             }
                         }
                     }
@@ -416,7 +432,13 @@ fun ScanScreen(
                         visibleFeed,
                         key = { index, entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}|${entry.tone}|$index" },
                         contentType = { _, _ -> "feed_row" },
-                    ) { _, entry -> FeedRow(entry) }
+                    ) { _, entry ->
+                        FeedRow(
+                            entry = entry,
+                            armedForReplacement = state.proofReplacementGoatId == entry.goatId,
+                            onReplace = { onEvent(ScanEvent.ArmProofReplacement(entry.goatId)) },
+                        )
+                    }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
@@ -1023,14 +1045,36 @@ private fun CountTile(
 
 // --------------------------------------------------------------------------- feed
 @Composable
-private fun FeedRow(entry: ScanFeedEntry) {
+private fun FeedRow(
+    entry: ScanFeedEntry,
+    armedForReplacement: Boolean = false,
+    onReplace: () -> Unit = {},
+) {
     val toneColor = when (entry.tone) {
         ScanFeedTone.ACCEPTED -> ScanTokens.brandD
         ScanFeedTone.DUPLICATE -> ScanTokens.warning
         ScanFeedTone.REJECTED -> ScanTokens.danger
     }
     val tagColor = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.ink else toneColor
-    val secondary = entry.scannedAtLabel
+    val secondary = when {
+        armedForReplacement -> stringResource(R.string.scan_proof_replace_armed)
+        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED ->
+            entry.proofStatusLabel ?: "Upload failed · auto retrying"
+        entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING ->
+            entry.proofStatusLabel ?: "Uploading proof…"
+        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
+            entry.proofStatusLabel ?: entry.scannedAtLabel
+        else -> entry.scannedAtLabel
+    }
+    val secondaryColor = when {
+        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
+        entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.warning
+        entry.tone == ScanFeedTone.ACCEPTED -> ScanTokens.brandD
+        else -> toneColor
+    }
+    val replaceable = entry.status == ScanStatus.DONE &&
+        entry.proofRequired &&
+        (entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1044,7 +1088,7 @@ private fun FeedRow(entry: ScanFeedEntry) {
             if (!secondary.isNullOrBlank()) {
                 Text(
                     secondary,
-                    color = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.brandD else toneColor,
+                    color = secondaryColor,
                     fontSize = 10.sp,
                     lineHeight = 13.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -1062,6 +1106,14 @@ private fun FeedRow(entry: ScanFeedEntry) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        if (replaceable) {
+            Spacer(Modifier.width(10.dp))
+            ProofRowActionPill(
+                label = stringResource(R.string.scan_proof_replace_action),
+                toneColor = toneColor,
+                onClick = onReplace,
             )
         }
     }
@@ -1089,19 +1141,28 @@ private fun ProofGate(rows: List<RosterRow>) {
 }
 
 @Composable
-private fun ProofNeededFeedRow(row: RosterRow, onRetry: () -> Unit = {}) {
+private fun ProofNeededFeedRow(
+    row: RosterRow,
+    armedForReplacement: Boolean = false,
+    onAction: () -> Unit = {},
+) {
     val (line, tone) = proofLineAndTone(row)
     val retryable = row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed
+    val replaceable = row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0
     ScanRosterFlatRow(
         primaryTag = row.primaryTag,
         secondaryTag = row.secondaryTag,
         vaccineLabel = row.vaccineLabel,
         status = ScanStatus.DONE,
         tone = tone,
-        secondaryLine = line,
-        actionLabel = if (retryable) stringResource(R.string.scan_proof_retry_action) else null,
-        onAction = onRetry,
-        modifier = if (retryable) Modifier.clickable { onRetry() } else Modifier,
+        secondaryLine = if (armedForReplacement) stringResource(R.string.scan_proof_replace_armed) else line,
+        actionLabel = when {
+            retryable -> stringResource(R.string.scan_proof_retry_action)
+            replaceable -> stringResource(R.string.scan_proof_replace_action)
+            else -> null
+        },
+        onAction = onAction,
+        modifier = if (retryable || replaceable) Modifier.clickable { onAction() } else Modifier,
     )
 }
 
@@ -1167,20 +1228,42 @@ private fun ScanRosterFlatRow(
         }
         if (!actionLabel.isNullOrBlank()) {
             Spacer(Modifier.width(10.dp))
-            Text(
-                actionLabel,
-                color = ScanTokens.ink,
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(toneColor.copy(alpha = 0.22f))
-                    .border(1.dp, toneColor.copy(alpha = 0.48f), RoundedCornerShape(999.dp))
-                    .clickable { onAction() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ProofRowActionPill(
+                label = actionLabel,
+                toneColor = toneColor,
+                onClick = onAction,
             )
         }
+    }
+}
+
+@Composable
+private fun ProofRowActionPill(
+    label: String,
+    toneColor: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .widthIn(min = 76.dp)
+            .height(36.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(toneColor.copy(alpha = 0.22f))
+            .border(1.dp, toneColor.copy(alpha = 0.48f), RoundedCornerShape(999.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = ScanTokens.ink,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1229,9 +1312,11 @@ private fun TagLine(primaryTag: String, secondaryTag: String?, color: Color) {
 
 private fun proofLineAndTone(row: RosterRow): Pair<String, ScanFeedTone> = when {
     row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
-        "Uploading proof · retrying if needed" to ScanFeedTone.DUPLICATE
+        (row.proofStatusLabel ?: "Uploading proof · retrying if needed") to ScanFeedTone.DUPLICATE
     row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
-        "Upload failed · scan again to replace" to ScanFeedTone.REJECTED
+        (row.proofStatusLabel ?: "Upload failed · scan again to replace") to ScanFeedTone.REJECTED
+    row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
+        (row.proofStatusLabel ?: "Proof synced") to ScanFeedTone.ACCEPTED
     else ->
         "Scan again to record proof" to ScanFeedTone.DUPLICATE
 }
@@ -1355,6 +1440,7 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
         ScanListSheet(
             title = title,
             rows = rows,
+            proofReplacementGoatId = state.proofReplacementGoatId,
             hasMore = state.hasMore,
             isLoadingMore = state.isLoadingMore,
             onEvent = onEvent,
@@ -1372,6 +1458,7 @@ fun ScanListSheet(
     title: String,
     rows: List<RosterRow>,
     captureEnabled: Boolean = true,
+    proofReplacementGoatId: String? = null,
     hasMore: Boolean = false,
     isLoadingMore: Boolean = false,
     onEvent: (ScanEvent) -> Unit = {},
@@ -1454,9 +1541,7 @@ fun ScanListSheet(
                                 ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
                         },
                         contentType = { "scan_row" },
-                    ) { row ->
-                        ScanListRow(row = row, onEvent = onEvent)
-                    }
+                    ) { row -> ScanListRow(row = row) }
                     if (isLoadingMore && query.isBlank()) {
                         item {
                             Box(
@@ -1550,9 +1635,7 @@ private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) 
 }
 
 @Composable
-private fun ScanListRow(row: RosterRow, onEvent: (ScanEvent) -> Unit) {
-    @Suppress("UNUSED_PARAMETER")
-    val ignored = onEvent
+private fun ScanListRow(row: RosterRow) {
     val tone = when {
         row.status == ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed -> ScanFeedTone.REJECTED
@@ -1563,9 +1646,13 @@ private fun ScanListRow(row: RosterRow, onEvent: (ScanEvent) -> Unit) {
     }
     val secondaryLine = when {
         row.status == ScanStatus.PENDING -> null
+        row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
+            row.proofStatusLabel ?: "Uploading proof · retrying if needed"
+        row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
+            row.proofStatusLabel ?: "Upload failed · retry or scan again"
+        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
+            row.proofStatusLabel ?: row.scannedAtLabel
         row.scannedAtLabel != null -> row.scannedAtLabel
-        row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading -> "Uploading proof · retrying if needed"
-        row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed -> "Upload failed · retry or scan again"
         row.status == ScanStatus.DONE && tone == ScanFeedTone.DUPLICATE -> "Scan again to record proof"
         else -> null
     }

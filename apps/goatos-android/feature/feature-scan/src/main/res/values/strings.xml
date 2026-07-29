@@ -16,6 +16,8 @@
     <string name="scan_one_animal_needs_proof">1 animal needs proof. Scan it again to record video before submit.</string>
     <string name="scan_many_animals_need_proof">%1$d animals need proof. Scan them again to record video before submit.</string>
     <string name="scan_proof_retry_action">Retry</string>
+    <string name="scan_proof_replace_action">Replace</string>
+    <string name="scan_proof_replace_armed">Scan this same tag to replace proof</string>
     <string name="scan_switch_shed">Switch shed</string>
     <string name="scan_switch_shed_title">Switch shed</string>
     <string name="scan_switch_shed_subtitle">You can return to any shed without losing synced progress.</string>

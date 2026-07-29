@@ -1,9 +1,14 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -356,7 +361,20 @@ class SyncEngineTest {
     @Test
     fun `dispatches a SCAN_CAPTURE item via the scan-captures endpoint with its idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
+        val scannedGoatDao = FakeScannedGoatDao()
         val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
+        scannedGoatDao.insert(
+            ScannedGoatEntity(
+                id = "scan-row-1",
+                taskId = "task-1",
+                fieldKey = "__scan_roster__",
+                tag = "901007000504392",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                capturedAtMs = 123L,
+                syncStatus = CaptureSyncStatus.PENDING.name,
+            ),
+        )
         store.insert(
             OutboxEntity(
                 id = "row-scan-1",
@@ -405,7 +423,13 @@ class SyncEngineTest {
                 )
             }
         }
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { 0L },
+            scannedGoatDao = scannedGoatDao,
+        )
 
         engine.drainOnce()
 
@@ -413,6 +437,10 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals("901007000504392", seenTag)
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(
+            CaptureSyncStatus.SYNCED.name,
+            scannedGoatDao.listForField("task-1", "__scan_roster__").single().syncStatus,
+        )
     }
 
     @Test
@@ -1029,6 +1057,55 @@ class SyncEngineTest {
 
         assertTrue(engine.drainOnce())
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-1")!!.status)
+    }
+}
+
+private class FakeScannedGoatDao : ScannedGoatDao {
+    private val rows = mutableListOf<ScannedGoatEntity>()
+
+    override suspend fun insert(entity: ScannedGoatEntity): Long {
+        if (rows.any { it.taskId == entity.taskId && it.fieldKey == entity.fieldKey && it.tag == entity.tag }) {
+            return -1L
+        }
+        rows += entity
+        return 1L
+    }
+
+    override fun observeForField(taskId: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit))
+
+    override suspend fun listForField(taskId: String, fieldKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit)
+
+    override fun observeCountForField(taskId: String, fieldKey: String): Flow<Int> =
+        flowOf(rows.count { it.taskId == taskId && it.fieldKey == fieldKey })
+
+    override suspend fun listForTask(taskId: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId }.take(limit)
+
+    override fun observeForTask(taskId: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId }.take(limit))
+
+    override suspend fun markTaskStatus(taskId: String, status: String) {
+        rows.replaceAll { row -> if (row.taskId == taskId) row.copy(syncStatus = status) else row }
+    }
+
+    override suspend fun markFieldTagStatus(taskId: String, fieldKey: String, tag: String, status: String) {
+        rows.replaceAll { row ->
+            if (row.taskId == taskId && row.fieldKey == fieldKey && row.tag == tag) {
+                row.copy(syncStatus = status)
+            } else {
+                row
+            }
+        }
+    }
+
+    override suspend fun clearForTask(taskId: String) {
+        rows.removeAll { it.taskId == taskId }
+    }
+
+    override suspend fun clearAll() {
+        rows.clear()
     }
 }
 

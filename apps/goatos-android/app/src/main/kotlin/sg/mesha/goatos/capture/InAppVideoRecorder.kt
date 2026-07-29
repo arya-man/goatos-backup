@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Row
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -88,6 +89,7 @@ fun InAppVideoRecorderOverlay(
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var startedAtMs by remember { mutableStateOf(0L) }
+    var elapsedRecordingSeconds by remember { mutableStateOf(0L) }
     var cancelled by remember { mutableStateOf(false) }
     var resultDelivered by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
@@ -158,6 +160,14 @@ fun InAppVideoRecorderOverlay(
         }
     }
 
+    LaunchedEffect(isRecording, startedAtMs) {
+        elapsedRecordingSeconds = 0L
+        while (isRecording && startedAtMs > 0L) {
+            elapsedRecordingSeconds = ((System.currentTimeMillis() - startedAtMs) / 1000L).coerceAtLeast(0L)
+            delay(250L)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             // Release the recorder + unbind the camera the instant this leaves composition —
@@ -211,7 +221,7 @@ fun InAppVideoRecorderOverlay(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.62f), Color.Transparent),
+                        listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent),
                     ),
                 ),
         )
@@ -222,7 +232,7 @@ fun InAppVideoRecorderOverlay(
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)),
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.46f)),
                     ),
                 ),
         )
@@ -239,7 +249,10 @@ fun InAppVideoRecorderOverlay(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
-            RecordingPills(isRecording = isRecording)
+            RecordingPills(
+                isRecording = isRecording,
+                elapsedSeconds = elapsedRecordingSeconds,
+            )
         }
         Column(
             modifier = Modifier
@@ -276,7 +289,7 @@ private fun ProofCardHeader(cameraError: String?, modifier: Modifier = Modifier)
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf.copy(alpha = 0.88f))
+            .background(MeshaColors.Surf.copy(alpha = 0.62f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -321,8 +334,8 @@ private fun CaptureSubjectPanel(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MeshaColors.Surf.copy(alpha = 0.92f))
-            .border(1.dp, MeshaColors.Brand.copy(alpha = 0.8f), RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf.copy(alpha = 0.58f))
+            .border(1.dp, MeshaColors.Brand.copy(alpha = 0.68f), RoundedCornerShape(18.dp))
             .padding(horizontal = 18.dp, vertical = 16.dp),
     ) {
         Text(
@@ -363,6 +376,7 @@ private fun CaptureSubjectPanel(
 @Composable
 private fun RecordingPills(
     isRecording: Boolean,
+    elapsedSeconds: Long,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -370,9 +384,22 @@ private fun RecordingPills(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InfoChip(text = stringResource(R.string.proof_camera_live_proof), tone = ChipTone.Work)
+        InfoChip(
+            text = if (isRecording) {
+                stringResource(R.string.proof_camera_recording_time, elapsedSeconds.asRecordingDuration())
+            } else {
+                stringResource(R.string.proof_camera_live_proof)
+            },
+            tone = ChipTone.Work,
+        )
         if (isRecording) InfoChip(text = stringResource(R.string.proof_camera_rec), tone = ChipTone.Danger)
     }
+}
+
+private fun Long.asRecordingDuration(): String {
+    val minutes = this / 60L
+    val seconds = this % 60L
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 @Composable
