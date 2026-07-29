@@ -745,6 +745,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
     oi.rule_id,
     oi.due_at,
     oi.window_start,
@@ -1317,33 +1318,34 @@ located AS (
   ) shed_proof ON raw.sop_task_id IS NOT NULL AND raw.shed_uuid IS NOT NULL
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id) so mobile PA/shed cards count distinct drive animals, not protocol obligations/doses; join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at animal grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 -- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 grouped AS (
   SELECT
     located.park_uuid,
     located.shed_uuid,
     located.batch_id,
-    located.rule_id,
-    located.protocol_name,
-    located.dose_code,
+    (ARRAY_AGG(located.rule_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.rule_id DESC))[1] AS rule_id,
+    (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
+    (ARRAY_AGG(located.dose_code ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.dose_code ASC))[1] AS dose_code,
     MIN(located.execution_due_at) AS due_at,
-    COUNT(*)::bigint AS obligation_count,
-    -- Bucket counts use the as_of-effective status; completion counts use the pre-aggregated,
-    -- as-of-bounded completion projection above.
-    COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'due')::bigint AS due_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'in_progress')::bigint AS in_progress_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'completed')::bigint AS completed_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'missed')::bigint AS missed_count,
-    COUNT(*) FILTER (WHERE located.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
+    COUNT(DISTINCT located.animal_id)::bigint AS obligation_count,
+    -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
+    -- as_of-effective status at distinct-animal grain; completion counts use the
+    -- pre-aggregated, as-of-bounded completion projection above.
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status = 'due')::bigint AS due_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status = 'in_progress')::bigint AS in_progress_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status = 'completed')::bigint AS completed_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status = 'missed')::bigint AS missed_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
     0::bigint AS canceled_count,
-    COUNT(*) FILTER (WHERE located.completion_status = 'recorded')::bigint AS completion_recorded,
-    COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
-    COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::bigint AS completion_rejected,
-    COUNT(*) FILTER (WHERE located.completion_status = 'reversed')::bigint AS completion_reversed,
-    COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count,
-    COUNT(*) FILTER (WHERE located.shed_proof_submitted)::bigint AS proof_submitted_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.completion_status = 'recorded')::bigint AS completion_recorded,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.completion_status = 'rejected')::bigint AS completion_rejected,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.completion_status = 'reversed')::bigint AS completion_reversed,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.scanned)::bigint AS scanned_count,
+    COUNT(DISTINCT located.animal_id) FILTER (WHERE located.shed_proof_submitted)::bigint AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -1397,7 +1399,7 @@ grouped AS (
       MAX(NULLIF(regexp_replace(initcap(replace(located.goat_stage, '_', ' ')), '\s+', ' ', 'g'), '')),
       'Unknown'
     ) AS animal_stage,
-    COUNT(*) FILTER (
+    COUNT(DISTINCT located.animal_id) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count,
@@ -1442,7 +1444,7 @@ grouped AS (
       $15::text = ''
       OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
     )
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_name, located.dose_code
+  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id
 ),
 enriched AS (
   SELECT
@@ -1527,7 +1529,7 @@ classified AS (
       END,
       9223372036854775807::bigint
     ) AS sort_due_micros,
-    stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' || stateful.rule_id::text || '|' ||
+    stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' ||
       COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') || '|' ||
       stateful.obligation_id::text AS sort_row_key,
     CASE
