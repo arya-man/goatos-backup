@@ -62,6 +62,7 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	if obs.ActualLocationID != repoActualShed || obs.ActualLocationLabel != "Godel 1 - Part 3" {
 		t.Fatalf("actual location = (%s, %s), want supplied shed label", obs.ActualLocationID, obs.ActualLocationLabel)
 	}
+	assertWeighingAuditAction(t, ctx, pool, obs.ObservationID, "weighing.observation_accepted")
 	var availability string
 	if err := pool.QueryRow(ctx, `SELECT availability_status FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, repoTenant, repoCampaign, repoAnimal).Scan(&availability); err != nil {
 		t.Fatalf("read availability: %v", err)
@@ -100,6 +101,52 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("draft campaign err=%v, want immutable", err)
 	}
+}
+
+func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	const scannedTag = "901007000504332"
+
+	first, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          scannedTag,
+		ScannedIdentifier: scannedTag,
+		WeightKg:          11.0,
+		ProofArtifactID:   repoShedProofTwo,
+		IdempotencyKey:    "animal:free-flow-first",
+		RecordedBy:        repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record free-flow observation: %v", err)
+	}
+	assertWeighingAuditAction(t, ctx, pool, first.ObservationID, "weighing.observation_accepted")
+
+	updated, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          scannedTag,
+		ScannedIdentifier: scannedTag,
+		WeightKg:          12.0,
+		ProofArtifactID:   repoShedProofThree,
+		IdempotencyKey:    "animal:free-flow-replace-proof",
+		RecordedBy:        repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("replace free-flow proof: %v", err)
+	}
+	if updated.ObservationID != first.ObservationID {
+		t.Fatalf("updated observation id=%s, want same row %s", updated.ObservationID, first.ObservationID)
+	}
+	assertWeighingAuditAction(t, ctx, pool, updated.ObservationID, "weighing.observation_updated")
+	assertWeighingAuditChange(t, ctx, pool, updated.ObservationID, repoShedProofTwo, repoShedProofThree, 11.0, 12.0)
 }
 
 func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.T) {
@@ -383,6 +430,8 @@ ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availabilit
 	insertProof(t, ctx, pool, repoPendingProof, "video", "pending", "goat", repoAnimal, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoAnimalShedProof, "video", "completed", "shed", repoActualShed, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoShedProof, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	insertProof(t, ctx, pool, repoShedProofTwo, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	insertProof(t, ctx, pool, repoShedProofThree, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
 	insertProof(t, ctx, pool, repoPhotoProof, "photo", "completed", "shed", repoPerShed, "shed", repoPerShed)
 }
 
@@ -419,6 +468,56 @@ func assertScopeStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ca
 	}
 	if got != want {
 		t.Fatalf("scope %s status=%s, want %s", campaignShedID, got, want)
+	}
+}
+
+func assertWeighingAuditAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool, observationID, action string) {
+	t.Helper()
+	var got int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)::int
+FROM audit_log
+WHERE tenant_id=$1::uuid
+  AND resource_type='weighing_observation'
+  AND resource_id=$2::uuid
+  AND action=$3`, repoTenant, observationID, action).Scan(&got); err != nil {
+		t.Fatalf("read weighing audit action: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("audit rows for observation=%s action=%s = %d, want 1", observationID, action, got)
+	}
+}
+
+func assertWeighingAuditChange(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	observationID string,
+	wantPreviousProof string,
+	wantProof string,
+	wantPreviousWeight float64,
+	wantWeight float64,
+) {
+	t.Helper()
+	var previousProof string
+	var proof string
+	var previousWeight float64
+	var weight float64
+	if err := pool.QueryRow(ctx, `
+SELECT metadata->>'previous_proof_id',
+  metadata->>'proof_artifact_id',
+  (metadata->>'previous_weight_kg')::float8,
+  (metadata->>'weight_kg')::float8
+FROM audit_log
+WHERE tenant_id=$1::uuid
+  AND resource_type='weighing_observation'
+  AND resource_id=$2::uuid
+  AND action='weighing.observation_updated'`, repoTenant, observationID).
+		Scan(&previousProof, &proof, &previousWeight, &weight); err != nil {
+		t.Fatalf("read weighing audit change metadata: %v", err)
+	}
+	if previousProof != wantPreviousProof || proof != wantProof || previousWeight != wantPreviousWeight || weight != wantWeight {
+		t.Fatalf("audit change=(%s,%s,%v,%v), want (%s,%s,%v,%v)", previousProof, proof, previousWeight, weight, wantPreviousProof, wantProof, wantPreviousWeight, wantWeight)
 	}
 }
 

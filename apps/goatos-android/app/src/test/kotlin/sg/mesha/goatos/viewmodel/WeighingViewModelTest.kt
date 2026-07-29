@@ -30,7 +30,10 @@ import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -265,6 +268,44 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `replacement video proof appears as latest proof on completed row`() = runTest(dispatcher) {
+        val replacementProof = ProofCaptureRow(
+            id = "proof-replacement",
+            fieldKey = "weighing_individual_video",
+            proofSubject = ProofSubject.GOAT,
+            subjectId = TEST_TAG,
+            localUri = "file://replacement.mp4",
+            mimeType = "video/mp4",
+            caption = TEST_TAG,
+            capturedAtMs = 3_600_000,
+            capturedStartMs = 3_600_000,
+            capturedEndMs = 3_601_000,
+            capturedByPrincipalId = null,
+            syncStatus = CaptureSyncStatus.SYNCED,
+            serverProofId = "server-proof-replacement",
+            lastError = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(acceptedDraft(weightKg = 12.0, capturedAtMs = 1_000)),
+                emptyList(),
+                0,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(replacementProof)
+        }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertEquals("proof-replacement", row.proofCaptureId)
+        assertTrue(row.proofStatusLabel.orEmpty().startsWith("Video synced"))
+    }
+
+    @Test
     fun `shed partition category is normalized before field gates run`() = runTest(dispatcher) {
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(),
@@ -282,6 +323,7 @@ class WeighingViewModelTest {
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
+        proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
         weighingCategory: String = "individual_animal",
     ): WeighingViewModel =
         WeighingViewModel(
@@ -289,7 +331,7 @@ class WeighingViewModelTest {
             bootstrapRepository = LeadershipBootstrapRepository,
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = scanCaptureRepository,
-            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureRepository = proofCaptureRepository,
             proofCaptureSource = FakeProofCaptureSource(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),

@@ -165,6 +165,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
 
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> = flow
 
+    fun seedProofs(vararg proofRows: ProofCaptureRow) {
+        rows += proofRows
+        flow.value = rows.toList()
+    }
+
     override suspend fun capture(
         taskId: String,
         fieldKey: String,
