@@ -73,6 +73,7 @@
     <string name="calendar_drive_open">Open drive</string>
     <!-- Status chips (redesigned card): colored dot + label + count for each nonzero bucket -->
     <string name="calendar_drive_done">%1$d done</string>
+    <string name="calendar_drive_submitted">%1$d submitted</string>
     <string name="calendar_drive_due">%1$d due</string>
     <string name="calendar_drive_overdue">%1$d overdue</string>
     <string name="calendar_drive_deferred">%1$d deferred</string>

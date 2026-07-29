@@ -343,7 +343,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     onEvent: (CalendarEvent) -> Unit,
 ) {
     item {
-        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() }) 82.dp else 68.dp
+        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() || it.bucketCount > 0 }) 82.dp else 68.dp
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -411,9 +411,10 @@ private fun WeekDayCell(
             fontWeight = FontWeight.W800,
             modifier = Modifier.padding(top = 4.dp),
         )
-        if (day.dueCountLabel.isNotEmpty()) {
+        val bucketLabel = localizedWeekBucketLabel(day)
+        if (bucketLabel.isNotEmpty()) {
             Text(
-                text = day.dueCountLabel,
+                text = bucketLabel,
                 color = if (on) MeshaColors.OnBrand else MeshaColors.Muted,
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.W600,
@@ -432,6 +433,17 @@ private fun WeekDayCell(
             )
         }
     }
+}
+
+@Composable
+private fun localizedWeekBucketLabel(day: CalendarWeekDay): String {
+    if (day.bucketCount <= 0) return day.dueCountLabel
+    val label = when (day.bucketKey) {
+        "overdue" -> R.string.calendar_drive_overdue
+        "deferred" -> R.string.calendar_drive_deferred
+        else -> R.string.calendar_drive_due
+    }
+    return stringResource(label, day.bucketCount)
 }
 
 @Composable
@@ -1293,12 +1305,13 @@ private fun InlineLoadingFooter() {
 
 /**
  * Status chip for the redesigned drive card: a colored dot (9×9px, rounded) + label.
- * Color and label are derived from the chip key (completed/due/overdue/deferred).
+ * Color and label are derived from the chip key (completed/submitted/due/overdue/deferred).
  */
 @Composable
 private fun StatusChip(chip: sg.mesha.goatos.feature.calendar.StatusChip) {
     val (dotColor, labelStringRes) = when (chip.key) {
         "completed" -> MeshaColors.Brand to R.string.calendar_drive_done
+        "submitted" -> MeshaColors.Warn to R.string.calendar_drive_submitted
         "due" -> MeshaColors.Warn to R.string.calendar_drive_due
         "overdue" -> MeshaColors.Danger to R.string.calendar_drive_overdue
         "deferred" -> MeshaColors.Purple to R.string.calendar_drive_deferred

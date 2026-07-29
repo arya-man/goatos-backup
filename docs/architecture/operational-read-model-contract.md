@@ -38,6 +38,12 @@ Before adding more verticals, Goat OS needs a strict operational read model
 contract: every surface may render differently, but it must consume the same
 facts, at the same grain, with the same definitions.
 
+Critical animal actions such as quarantine, ICU, death, high-risk movement, and
+clinical schedule defers also load
+`docs/features/critical-animal-action-guardrails.md`; their read models must
+show guardrail-required, expected-return/checkpoint, extension, defer, and reopen
+state without clients inventing it locally.
+
 ## Architecture Verdict
 
 The foundation is good but not yet strong enough to scale safely by adding

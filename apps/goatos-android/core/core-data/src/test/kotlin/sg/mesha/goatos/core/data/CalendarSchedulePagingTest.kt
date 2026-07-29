@@ -44,16 +44,16 @@ class CalendarSchedulePagingTest {
             ) { proxy, method, args ->
                 when (method.name) {
                     "listCalendarVaccinationEvents" -> {
-                        val cursor = args?.get(9) as String?
+                        val cursor = args?.get(10) as String?
                         val page = cursor?.removePrefix("cursor-")?.toIntOrNull() ?: 0
                         val start = page * CALENDAR_SCHEDULE_PAGE_SIZE
                         val items = allRows.drop(start).take(CALENDAR_SCHEDULE_PAGE_SIZE)
                         val next = if (start + items.size < allRows.size) "cursor-${page + 1}" else null
                         requests += Request(
-                            vaccine = args?.get(7) as String?,
-                            includeFilterOptions = args?.get(8) as Boolean,
+                            vaccine = args?.get(8) as String?,
+                            includeFilterOptions = args?.get(9) as Boolean,
                             cursor = cursor,
-                            limit = args.get(10) as Int?,
+                            limit = args.get(11) as Int?,
                         )
                         CalendarEventListResponseDto(
                             items = items,

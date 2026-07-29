@@ -8,6 +8,7 @@ import (
 )
 
 const validBatchRowID = "batch:70000000-0000-4000-8000-000000000008:rule:70000000-0000-4000-8000-000000000007:shed:70000000-0000-4000-8000-000000000002"
+const validScopedBatchRowID = "batch:70000000-0000-4000-8000-000000000008:rule:70000000-0000-4000-8000-000000000007:protocol_version:70000000-0000-4000-8000-000000000006:shed:70000000-0000-4000-8000-000000000002:partition:part-2:date:2026-06-24"
 
 func TestDecodeCursorStrictlyValidatesShape(t *testing.T) {
 	encoded, err := EncodeCursor(Cursor{
@@ -44,6 +45,7 @@ func TestDecodeCursorStrictlyValidatesShape(t *testing.T) {
 func TestValidateRowIDAllowsCurrentWorkflowKeys(t *testing.T) {
 	for _, rowID := range []string{
 		validBatchRowID,
+		validScopedBatchRowID,
 		"obligation:71000000-0000-4000-8000-000000000013",
 		"feed_projection_exception:71000000-0000-4000-8000-000000000021",
 	} {
@@ -58,6 +60,8 @@ func TestValidateRowIDRejectsMalformedOrOversizedKeys(t *testing.T) {
 		"",
 		"batch:missing",
 		"batch:70000000-0000-4000-8000-000000000008:shed:70000000-0000-4000-8000-000000000002",
+		"batch:70000000-0000-4000-8000-000000000008:rule:70000000-0000-4000-8000-000000000007:protocol_version:70000000-0000-4000-8000-000000000006:shed:70000000-0000-4000-8000-000000000002:partition:bad/slash:date:2026-06-24",
+		"batch:70000000-0000-4000-8000-000000000008:rule:70000000-0000-4000-8000-000000000007:protocol_version:70000000-0000-4000-8000-000000000006:shed:70000000-0000-4000-8000-000000000002:partition:part-2:date:not-date",
 		"batch:" + strings.Repeat("a", MaxRowIDLength),
 		"feed:70000000-0000-4000-8000-000000000008",
 	} {

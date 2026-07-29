@@ -11023,25 +11023,6 @@ components:
       properties:
         work_state:
           $ref: "#/components/schemas/WorkState"
-        drive_capacity_state:
-          $ref: "#/components/schemas/DriveCapacityState"
-        drive_animals_required:
-          type: integer
-          minimum: 0
-        drive_animals_assigned:
-          type: integer
-          minimum: 0
-        drive_operator_cap:
-          type: integer
-          minimum: 0
-        drive_available_operators:
-          type: integer
-          minimum: 0
-        drive_latest_safe_date:
-          type: string
-          format: date-time
-        drive_medical_defer_reason:
-          type: string
         count:
           type: integer
           minimum: 0

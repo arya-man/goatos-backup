@@ -495,16 +495,27 @@ internal fun buildWeekDays(
         val date = start.plusDays(offset.toLong())
         val marker = byDate[date.toString()]
         val openCount = marker?.openCount ?: 0
+        val bucket = marker?.calendarMarkerBucket()
         CalendarWeekDay(
             dateKey = date.toString(),
             dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
             dayNumber = date.dayOfMonth.toString(),
-            dueCountLabel = if (openCount > 0) "$openCount due" else "",
+            dueCountLabel = "",
             hasWork = openCount > 0,
             isToday = date == today,
             isSelected = date == selectedDay,
+            bucketKey = bucket?.first.orEmpty(),
+            bucketCount = bucket?.second ?: 0,
         )
     }
+}
+
+private fun CalendarDateMarkerDto.calendarMarkerBucket(): Pair<String, Int>? = when {
+    overdueCount > 0 -> "overdue" to overdueCount
+    dueCount > 0 -> "due" to dueCount
+    deferredCount > 0 -> "deferred" to deferredCount
+    openCount > 0 -> "due" to openCount
+    else -> null
 }
 
 /**
@@ -667,8 +678,10 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
     vaccineLabels = vaccineLabels.mapNotNull(::humanizeVaccineLabel),
     totalCount = totalCount,
     completedCount = completedCount,
+    submittedCount = submittedCount,
     totalAnimals = totalAnimals,
     completedAnimals = completedAnimals,
+    submittedAnimals = submittedAnimals,
     remainingCount = remainingCount,
     dueCount = dueCount,
     overdueCount = overdueCount,
