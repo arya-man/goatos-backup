@@ -54,7 +54,6 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "command_board.cohort_matrix.no_farm": "Farm not set",
     "command_board.cohort_matrix.pending_word": "pending",
     "command_board.cohort_matrix.verified_word": "verified",
-    "command_board.weekly.tooltip_total": "Total doses",
     "command_board.filter.vaccine": "Vaccine",
     "command_board.filter.all_vaccines": "All vaccines",
     "command_board.filter.drive": "Drive",
