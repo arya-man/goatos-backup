@@ -3674,8 +3674,11 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1
 	// (c) doses_verified numerator: bool_or(status='accepted'), denominator: all obligations;
 	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted), denominator: all obligations;
-	//     overdue_not_given numerator: scheduled AND due_at<asOf AND no completions, denominator: all obligations;
-	//     scheduled_ahead numerator: scheduled AND due_at>=asOf, denominator: all obligations
+	//     overdue_not_given numerator: scheduled AND (due_at's IST business date)<(asOf's IST business
+	//     date) AND no completions, denominator: all obligations; scheduled_ahead numerator: scheduled
+	//     AND (due_at's IST business date)>=(asOf's IST business date), denominator: all obligations.
+	//     Vaccination time grain is the IST business DAY, never an instant — a dose due today at
+	//     00:00 IST must never read overdue merely because as_of is later the same day.
 	kpiSQL := `
 WITH comp AS (
   SELECT
@@ -3690,8 +3693,8 @@ SELECT
   COUNT(DISTINCT oi.obligation_id) as targets,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as doses_verified,
   COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.obligation_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND oi.due_at < $2::timestamptz AND comp.obligation_id IS NULL THEN oi.obligation_id END) as overdue_not_given,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND oi.due_at >= $2::timestamptz THEN oi.obligation_id END) as scheduled_ahead
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.obligation_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.obligation_id END) as scheduled_ahead
 FROM obligation_instances oi
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
@@ -3713,7 +3716,9 @@ WHERE oi.tenant_id = $1::uuid
 	// projection-review:
 	// (a) producer: obligation_id, status, due_at, target_id, rule_id, dose_code | consumer: management_stage, sex, dose_code GROUP BY
 	// (b) completions pre-aggregated per obligation (1:1 after CTE), goat lookup 1:1, protocol rule 1:1
-	// (c) pending_count numerator: (scheduled AND due_at<=asOf) OR (has_recorded_unverified), denominator: all obligations per cohort;
+	// (c) pending_count numerator: (scheduled AND (due_at's IST business date)<=(asOf's IST business
+	//     date)) OR (has_recorded_unverified), denominator: all obligations per cohort — due-today
+	//     counts pending (matches CEO pending semantics; IST business-day grain, never an instant);
 	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals
 	cohortSQL := `
 WITH comp AS (
@@ -3729,7 +3734,7 @@ SELECT
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND oi.due_at <= $2::timestamptz) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count
+  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
@@ -3793,7 +3798,10 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 	// (b) join multiplicity: completions pre-aggregated per obligation (comp CTE, 1:1),
 	//     protocol_rules 1:1 on rule_id, locations 1:1 on scope_id; inner CTE has NO GROUP BY
 	//     so due_at/state cannot split cells (landed-review P1 regression:
-	//     TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState)
+	//     TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState). overdue/scheduled state is an
+	//     IST business-DATE comparison ((due_at AT TIME ZONE 'Asia/Kolkata')::date vs
+	//     (asOf AT TIME ZONE 'Asia/Kolkata')::date), never an instant comparison — a dose due today at
+	//     00:00 IST stays 'scheduled' all day, never 'overdue' (TestVaccinationCommandBoardDueTodayDateShiftNotOverdue).
 	// (c) animal_count numerator: COUNT(DISTINCT target_id) over the cell's obligations;
 	//     denominator/key set: same shed x dose x state cell — identical key sets.
 	shedDoseSQL := `
@@ -3818,7 +3826,7 @@ shed_dose_obligations AS (
     CASE
       WHEN comp.has_accepted THEN 'verified'
       WHEN comp.has_recorded_unverified THEN 'awaiting'
-      WHEN oi.status = 'scheduled' AND oi.due_at < $2::timestamptz THEN 'overdue'
+      WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
       WHEN oi.status = 'scheduled' THEN 'scheduled'
       ELSE 'other'
     END as state,
