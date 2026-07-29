@@ -342,7 +342,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 				{Key: "birth", Label: "Birth", Href: "/counts/birth"},
 				{Key: "death", Label: "Death", Href: "/counts/death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
-				{Key: "awaiting_rfid", Label: "Awaiting RFID", Href: "/counts/promote"},
 			},
 		},
 		{
@@ -674,7 +673,8 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // (counts.read / counts.write), never by a per-role nav template.
 //
 // The mobile Counts bar no longer carries an approval tab for anyone: an Operator gets
-// [birth, death, shifting, awaiting_rfid], and Admin/CEO additionally get the census page.
+// [birth, death, shifting], and Admin/CEO additionally get the census page. Permanent RFID
+// assignment is the final action inside each kid's Birth workflow, not a separate Counts page.
 // Birth and Death split into two work-list modules 2026-07-27
 // (docs/decisions/birth-death-workflows.md).
 //
@@ -683,20 +683,20 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // leadership tier, and preventive-care leaders (PC Director, Park Head) do NOT —
 // their drawer is the vaccination home only (maintainer decision 2026-07-24).
 //
-//	role          | census | birth | death | shifting | awaiting_rfid | module in drawer
-//	operator      |   -    |   x   |   x   |    x     |      x        | yes
-//	park_head     |   -    |   -   |   -   |    -     |      -        | NO  (preventive-care leader)
-//	ceo_internal  |   x    |   x   |   x   |    x     |      x        | yes
-//	pc_director   |   -    |   -   |   -   |    -     |      -        | NO  (preventive-care leader)
-//	verifier      |   -    |   -   |   -   |    -     |      -        | NO
+//	role          | census | birth | death | shifting | module in drawer
+//	operator      |   -    |   x   |   x   |    x     | yes
+//	park_head     |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
+//	ceo_internal  |   x    |   x   |   x   |    x     | yes
+//	pc_director   |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
+//	verifier      |   -    |   -   |   -   |    -     | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting", "awaiting_rfid"}},
+		{permissions.RoleOperator, []string{"birth", "death", "shifting"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "awaiting_rfid"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -839,13 +839,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "awaiting_rfid"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting awaiting_rfid]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth death shifting]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "awaiting_rfid"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting awaiting_rfid] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting"}) {
+		t.Fatalf("park_head counts bar=%v want [birth death shifting] (no approval on mobile)", got)
 	}
 
 	// No role gets an "approval" or a "You" tab from Counts on mobile.

@@ -24,6 +24,7 @@ import kotlinx.serialization.Serializable
 data class WorkflowSubjectDto(
     @SerialName("goat_id") val goatId: String = "",
     @SerialName("display_id") val displayId: String = "",
+    @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("tag") val tag: String = "",
     @SerialName("role_label") val roleLabel: String = "",
     @SerialName("sex") val sex: String = "",

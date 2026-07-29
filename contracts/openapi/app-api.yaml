@@ -14710,6 +14710,7 @@ components:
       required:
         - goat_id
         - display_id
+        - row_version
         - tag
         - role_label
         - sex
@@ -14720,6 +14721,10 @@ components:
           format: uuid
         display_id:
           type: string
+        row_version:
+          description: Current goat concurrency token used by the Birth-owned permanent-RFID assignment.
+          type: integer
+          minimum: 1
         tag:
           description: The animal's working identifier (permanent RFID, else temporary tag; may be empty).
           type: string

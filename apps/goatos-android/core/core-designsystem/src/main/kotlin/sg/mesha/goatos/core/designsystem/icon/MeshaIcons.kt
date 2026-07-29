@@ -155,11 +155,25 @@ object MeshaIcons {
         "M8 17.5v-4M13 17.5v-8M18 17.5v-11",
     )
 
-    /** Birth/Death: one lifecycle event up, one down. */
+    /** Legacy combined Birth/Death destination: one lifecycle event up, one down. */
     val ArrowUpDown: ImageVector = strokeIcon(
         "arrowupdown",
         "M7 20.5V4M3.5 7.5 7 4l3.5 3.5",
         "M17 3.5V20M13.5 16.5 17 20l3.5-3.5",
+    )
+
+    /** Birth: an arrival into the herd lifecycle. */
+    val Birth: ImageVector = strokeIcon(
+        "birth",
+        "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
+        "M12 16V8M8.5 11.5 12 8l3.5 3.5",
+    )
+
+    /** Death: an exit from the herd lifecycle. */
+    val Death: ImageVector = strokeIcon(
+        "death",
+        "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
+        "M12 8v8M8.5 12.5 12 16l3.5-3.5",
     )
 
     /** Shifting: an animal moving between sheds/parks. */
@@ -189,8 +203,9 @@ object MeshaIcons {
         "you", "profile", "settings" -> User
         // Counts vertical and its field-event destinations.
         "counts" -> BarChart
-        // The nav destination, plus the two individual request types an approval row carries.
-        "birth_death", "birth", "death" -> ArrowUpDown
+        "birth_death" -> ArrowUpDown
+        "birth" -> Birth
+        "death" -> Death
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
         "approval", "approvals" -> CheckCircle

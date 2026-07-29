@@ -2,8 +2,11 @@ package sg.mesha.goatos.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
@@ -194,6 +197,37 @@ class TopLevelChromeTest {
         assertFalse(isTopLevelRoute("/counts/birth/workflows/wf-1", countsRoots))
         assertFalse(isTopLevelRoute("/counts/shifting/confirm", countsRoots))
         assertFalse(isTopLevelRoute(Routes.CALENDAR_DRIVE, countsRoots))
+    }
+
+    @Test
+    fun `birth tag route carries backend kid context and is never a root`() {
+        val route = Routes.promoteGoatRoute(
+            goatId = "kid/1",
+            displayId = "G-77",
+            temporaryIdentifier = "CPT-00042",
+            locationDisplay = "North Park / Shed A",
+            rowVersion = 7,
+        )
+
+        assertEquals(
+            "/counts/birth/tag/kid%2F1?display_id=G-77" +
+                "&temporary_identifier=CPT-00042" +
+                "&location_display=North%20Park%20%2F%20Shed%20A" +
+                "&row_version=7",
+            route,
+        )
+        assertFalse(isTopLevelRoute(route, rootsFor(twoModules, "counts", Routes.COUNTS_BIRTH)))
+    }
+
+    @Test
+    fun `birth and death nav keys use distinct lifecycle icons`() {
+        val birthIcon = MeshaIcons.forNavKey("birth")
+        val deathIcon = MeshaIcons.forNavKey("death")
+
+        assertSame(MeshaIcons.Birth, birthIcon)
+        assertSame(MeshaIcons.Death, deathIcon)
+        assertNotSame(birthIcon, deathIcon)
+        assertSame(MeshaIcons.ArrowUpDown, MeshaIcons.forNavKey("birth_death"))
     }
 
     @Test

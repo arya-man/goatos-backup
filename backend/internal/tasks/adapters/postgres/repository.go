@@ -310,7 +310,7 @@ const cardSelectColumns = `
   wi.event_at, wi.event_date::text, wi.state,
   wi.actions_total, wi.actions_done,
   wi.next_action_key, wi.next_action_title, wi.next_due_at, wi.awaiting_verification,
-  g.display_id, g.sex, COALESCE(g.breed, ''),
+  g.display_id, g.row_version, g.sex, COALESCE(g.breed, ''),
   COALESCE(tag.identifier_value, ''),
   COALESCE(park.name, ''), COALESCE(shed.name, '')`
 
@@ -499,7 +499,7 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&card.EventAt, &card.EventDate, &card.State,
 		&card.ActionsTotal, &card.ActionsDone,
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
-		&card.Subject.DisplayID, &card.Subject.Sex, &card.Subject.Breed,
+		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel,
 	); err != nil {
@@ -564,7 +564,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&card.EventAt, &card.EventDate, &card.State,
 		&card.ActionsTotal, &card.ActionsDone,
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
-		&card.Subject.DisplayID, &card.Subject.Sex, &card.Subject.Breed,
+		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel,
 		&damDisplay,

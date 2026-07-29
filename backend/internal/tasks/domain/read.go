@@ -84,12 +84,13 @@ type WorkflowListQuery struct {
 
 // WorkflowSubject is the card's animal header (backend-owned display fields).
 type WorkflowSubject struct {
-	GoatID    string `json:"goat_id"`
-	DisplayID string `json:"display_id"`
-	Tag       string `json:"tag"`
-	RoleLabel string `json:"role_label"`
-	Sex       string `json:"sex"`
-	Breed     string `json:"breed"`
+	GoatID     string `json:"goat_id"`
+	DisplayID  string `json:"display_id"`
+	RowVersion int    `json:"row_version"`
+	Tag        string `json:"tag"`
+	RoleLabel  string `json:"role_label"`
+	Sex        string `json:"sex"`
+	Breed      string `json:"breed"`
 }
 
 // WorkflowNextAction is the card's next-step summary.

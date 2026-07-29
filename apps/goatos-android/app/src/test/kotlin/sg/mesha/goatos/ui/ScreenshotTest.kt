@@ -469,7 +469,7 @@ class ScreenshotTest {
         )
     }
 
-    /** Awaiting RFID -> promote: the temp tag is retired by a scanned (or typed) permanent RFID. */
+    /** Birth -> Tag the kid: the temp tag is retired by a scanned (or typed) permanent RFID. */
     @Test
     fun rfid_promote_scanning() = shot("rfid_promote_scanning") {
         RfidPromoteScreen(

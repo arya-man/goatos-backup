@@ -178,7 +178,7 @@ fun GoatOsShell(navState: NavState) {
     // so the two can legitimately disagree: a cached bar that predates a route rename, or a backend
     // newer than the installed APK, both hand us an href this build does not host. Passing that
     // straight to navController.navigate() throws IllegalArgumentException and kills the app — it
-    // shipped twice (/counts/promote, then /counts/birth-death after the birth/death split). An
+    // shipped twice (an old RFID-list route, then /counts/birth-death after the birth/death split). An
     // unknown href is a stale-contract condition to survive, never a crash: skip it and let the next
     // successful bootstrap refresh heal the cache.
     // Returns whether the href was actually hosted, so a caller holding several candidates (the

@@ -994,6 +994,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-transport/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List today's daily shed-grain Feed Transport tasks. */
+        get: operations["listFeedTransportTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-transport/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a fresh live-camera Feed Transport video for verification. */
+        post: operations["submitFeedTransportTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -1872,8 +1906,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Confirm a shifting happened and submit its MANDATORY video for verification.
-         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates. If approval already exists, this request atomically relocates the animals and moves the count; otherwise it keeps event_status='pending' with completion stamps and approval applies the move later. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. proof_ref (a proof_artifact id for the video) is REQUIRED - a completion with no video is refused with 422 proof_required, because there is nothing for a verifier to approve. Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or canceled movements are refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
+         * Confirm a shifting happened and submit its mandatory live-camera evidence.
+         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates. If approval already exists, this request atomically relocates the animals and moves the count; otherwise it keeps event_status='pending' with completion stamps and approval applies the move later. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. Low priority requires proof_ref only. High priority embeds feed packing and feeding inside Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three are reviewed together in one Shifting verification item. The packing proof does not complete the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint returned by the pending-execution read; missing config blocks with 422 and changed config blocks with 409 so the server never guesses feed. Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or canceled movements are refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
          */
         post: operations["completeAppCountsShiftingEvent"];
         delete?: never;
@@ -2552,6 +2586,41 @@ export interface components {
              */
             status: "pending_verification" | "completed";
             /** @description True when this call flipped the session into pending_verification and enqueued a verification item. False on an idempotent replay or an already-pending/already-completed no-op. */
+            newly_pending: boolean;
+        };
+        FeedTransportTask: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** Format: date */
+            business_date: string;
+            /** @enum {string} */
+            status: "due" | "verification_due" | "rework" | "completed";
+            /** Format: uuid */
+            operator_id?: string;
+            rework_reason?: string;
+            /** Format: date-time */
+            scheduled_at: string;
+        };
+        FeedTransportTaskPage: {
+            items: components["schemas"]["FeedTransportTask"][];
+            next_cursor?: string;
+        };
+        FeedTransportSubmitRequest: {
+            /** @description Server-minted proof id for one fresh in-app camera video. */
+            proof_ref: string;
+        };
+        FeedTransportSubmitResponse: {
+            /** Format: uuid */
+            attempt_id: string;
+            /** @enum {string} */
+            status: "verification_due";
+            attempt_no: number;
             newly_pending: boolean;
         };
         FeedPackingWorklistSummary: {
@@ -5474,6 +5543,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
+            /** @description Current goat concurrency token used by the Birth-owned permanent-RFID assignment. */
+            row_version: number;
             /** @description The animal's working identifier (permanent RFID, else temporary tag; may be empty). */
             tag: string;
             /** @description Operator-facing subject role ("Kid", "Mother", "Died"). */
@@ -5901,6 +5972,11 @@ export interface components {
              */
             event_status: "pending" | "authorized" | "applied";
             /**
+             * @description Evidence-review state. Rejected requires fresh evidence and never rolls back an applied move.
+             * @enum {string}
+             */
+            verification_state: "unverified" | "verified" | "rejected";
+            /**
              * @description Backend-owned row action. Completed rows are none and cannot open execution.
              * @enum {string}
              */
@@ -5950,6 +6026,22 @@ export interface components {
             animals_truncated: boolean;
             /** @description A bounded preview of at most 5 animals, for recognition. A movement may name up to 500 animals; embedding all of them in a 20-row page would be a 10,000-row read to draw one phone screen, so the full roster belongs to the drill-down rather than the list row. */
             animals: components["schemas"]["CountsShiftingPendingExecutionAnimal"][];
+            /** @description Backend-owned destination ration for high-priority shifting; absent for low priority. */
+            feed_requirement?: components["schemas"]["CountsShiftingFeedRequirement"];
+        };
+        CountsShiftingFeedRequirement: {
+            /** @enum {string} */
+            status: "ready" | "blocked";
+            blocked_reason?: string;
+            /** @description Present only when ready; completion must echo it to reject stale feed config. */
+            fingerprint?: string;
+            target_management_stage?: string;
+            animal_count: number;
+            items: {
+                feed_item_label: string;
+                /** @description Exact decimal total grams for all animals in this movement. */
+                quantity_grams: string;
+            }[];
         };
         CountsShiftingPendingExecutionAnimal: {
             /** Format: uuid */
@@ -7884,6 +7976,74 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listFeedTransportTasks: {
+        parameters: {
+            query: {
+                business_date: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of daily tasks; grain is tenant + business_date + active shed, never session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedTransportTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    submitFeedTransportTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedTransportSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description A new immutable attempt was submitted and the task is verification_due. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedTransportSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            /** @description Camera video proof is missing */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     listFeedConfigRationRates: {
         parameters: {
             query: {
@@ -9507,6 +9667,12 @@ export interface operations {
                 "application/json": {
                     /** @description MANDATORY. The proof_artifact id of the video the operator recorded to prove the animals physically moved. Verification reviews it independently of movement apply. */
                     proof_ref: string;
+                    /** @description MANDATORY for high priority. Live-camera proof of Shifting's embedded feed-packing step. */
+                    feed_packing_proof_ref?: string;
+                    /** @description MANDATORY for high priority. Live-camera proof of configured feed being given to the moved animals. */
+                    feed_given_proof_ref?: string;
+                    /** @description MANDATORY for high priority. Echo of the ready feed requirement fingerprint. */
+                    feed_config_fingerprint?: string;
                     /** @description OPTIONAL destination management_stage the moved animals adopt. Needed only when the destination shed is empty; for an occupied shed the server derives it and a supplied value must agree with the shed's configured profile. */
                     destination_tag?: string;
                 };

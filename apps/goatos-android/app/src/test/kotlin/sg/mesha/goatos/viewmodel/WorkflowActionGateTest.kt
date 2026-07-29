@@ -107,4 +107,11 @@ class WorkflowActionGateTest {
 
         assertTrue(canRecordWorkflowVideo(action, draftsSubmitting = false, predecessorsReady = true))
     }
+
+    @Test
+    fun `tag action stops reopening RFID assignment after identifier is recorded`() {
+        assertTrue(workflowTagNeedsPermanentIdentifier(answerValue = null))
+        assertTrue(workflowTagNeedsPermanentIdentifier(answerValue = ""))
+        assertFalse(workflowTagNeedsPermanentIdentifier(answerValue = "982000123456789"))
+    }
 }

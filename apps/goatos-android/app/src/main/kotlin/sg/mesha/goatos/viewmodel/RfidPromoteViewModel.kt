@@ -31,14 +31,15 @@ import sg.mesha.goatos.rfid.ScanSource
 import javax.inject.Inject
 
 /**
- * The promote screen (`/counts/promote/{goat_id}`) — an operator assigning a permanent RFID to a
- * temporary-tagged goat.
+ * Birth's final `Tag the kid` RFID screen — an operator assigning a permanent RFID to the
+ * canonical kid created with a provisional identifier at birth.
  *
  * Offline-first write (docs/decisions/android-offline-first.md): **Promote** enqueues the retag to the
  * durable outbox via [SyncRepository.enqueuePromoteIdentifier]. Idempotency is a STABLE
  * `SavedStateHandle`-persisted key keyed to the goat, so a resend after process death collapses onto
- * the original promotion instead of retagging twice. The goat detail is read from the Room-cached
- * awaiting-RFID row (offline-first open): the operator tapped a row already in Room, so no refetch.
+ * the original promotion instead of retagging twice. The Birth workflow passes the same backend-
+ * owned kid identity and goat row version that it rendered; restored legacy routes may fall back to
+ * the old bounded Room cache.
  *
  * The two permanent identifiers can be SCANNED rather than typed: [scanSource] is the same BT-HID
  * keyboard-wedge port (`docs/mobile/rfid-keyboard-reader.md`) the Submit recording form uses, so no
@@ -57,15 +58,27 @@ class RfidPromoteViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val goatId: String = savedStateHandle[ARG_GOAT_ID] ?: ""
+    private val routeDisplayId: String = savedStateHandle[ARG_DISPLAY_ID] ?: ""
+    private val routeTemporaryIdentifier: String = savedStateHandle[ARG_TEMPORARY_IDENTIFIER] ?: ""
+    private val routeLocationDisplay: String = savedStateHandle[ARG_LOCATION_DISPLAY] ?: ""
+    private val routeRowVersion: Int = savedStateHandle[ARG_ROW_VERSION] ?: 0
 
-    // The goat's row_version from the cached awaiting-RFID row, sent back verbatim so a stale in-hand
-    // record is rejected. Resolved on load; held here so submit does not re-read Room.
-    private var rowVersion: Int = 0
+    // The goat's row_version from the Birth workflow, sent back verbatim so a stale in-hand record
+    // is rejected. A restored legacy route may resolve it from Room; submit never accepts it from UI.
+    private var rowVersion: Int = routeRowVersion
 
     private val promoteKey = DraftIdempotencyKey(savedStateHandle, KEY_PROMOTE_IDEMPOTENCY, "counts-promote-identifier")
     private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
 
-    private val _state = MutableStateFlow(RfidPromoteUiState(goatId = goatId))
+    private val _state = MutableStateFlow(
+        RfidPromoteUiState(
+            goatId = goatId,
+            loading = routeContextAvailable().not(),
+            displayId = routeDisplayId,
+            temporaryIdentifier = routeTemporaryIdentifier,
+            locationDisplay = routeLocationDisplay,
+        ),
+    )
     val state: StateFlow<RfidPromoteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
@@ -73,7 +86,7 @@ class RfidPromoteViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
-        loadGoat()
+        if (!routeContextAvailable()) loadGoat()
         outboxItemId.value?.let(::observeOutboxItem)
     }
 
@@ -157,6 +170,9 @@ class RfidPromoteViewModel @Inject constructor(
         }
     }
 
+    private fun routeContextAvailable(): Boolean =
+        goatId.isNotBlank() && routeDisplayId.isNotBlank() && routeTemporaryIdentifier.isNotBlank() && routeRowVersion > 0
+
     private fun onRfidChanged(value: String) {
         _state.update {
             it.copy(
@@ -197,8 +213,8 @@ class RfidPromoteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     outboxItemId.value = result.value
                     observeOutboxItem(result.value)
-                    // Leave the awaiting-RFID list the moment the promote is durable, so the same goat
-                    // cannot be promoted a second time while its first drains.
+                    // Remove any legacy cached row the moment the promote is durable so a restored
+                    // old route cannot promote the same goat while its first write drains.
                     repo.forgetPromoted(goatId)
                     analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_SUBMITTED)
                 }
@@ -236,7 +252,7 @@ class RfidPromoteViewModel @Inject constructor(
                         if (writeResult.isCorrectable) promoteKey.invalidate()
                         // Once the promote is server-confirmed, clear the typed RFID(s) so the page does
                         // not keep showing the entered values after the goat has been retagged. The goat
-                        // is already gone from the awaiting-RFID list, so there is nothing to re-submit.
+                        // Birth will refresh its workflow state, so there is nothing to re-submit.
                         val syncedDone = writeResult.status == CountsWriteStatus.SYNCED
                         it.copy(
                             result = writeResult,
@@ -262,6 +278,10 @@ class RfidPromoteViewModel @Inject constructor(
 
     private companion object {
         const val ARG_GOAT_ID = "goat_id"
+        const val ARG_DISPLAY_ID = "display_id"
+        const val ARG_TEMPORARY_IDENTIFIER = "temporary_identifier"
+        const val ARG_LOCATION_DISPLAY = "location_display"
+        const val ARG_ROW_VERSION = "row_version"
         const val KEY_PROMOTE_IDEMPOTENCY = "rfidPromote.promoteKey"
         const val KEY_OUTBOX_ITEM_ID = "rfidPromote.outboxItemId"
         const val QUEUED_MESSAGE = "Saved on this phone. The permanent RFID will sync automatically."
