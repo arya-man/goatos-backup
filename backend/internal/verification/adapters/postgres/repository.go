@@ -641,6 +641,8 @@ WITH expected AS (
    AND park.location_id = vda.park_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.batch_id IS NOT NULL
+    AND ($8 = '' OR vda.park_id = $8::uuid)
+    AND ($9 = '' OR vda.shed_id = $9::uuid)
   GROUP BY oi.batch_id, ob.protocol_version_id
 ),
 proofs AS (

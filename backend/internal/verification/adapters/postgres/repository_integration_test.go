@@ -294,6 +294,7 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	parkID := "00000000-0000-4000-8000-000000000213"
 	shedID := "00000000-0000-4000-8000-000000000214"
 	otherShedID := "00000000-0000-4000-8000-000000000215"
+	otherParkID := "00000000-0000-4000-8000-000000000216"
 	administeredAt := time.Date(2026, time.July, 25, 5, 30, 0, 0, time.UTC)
 
 	tx, err := pool.Begin(ctx)
@@ -353,6 +354,24 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	}
 	if len(closures) != 1 || closures[0].BatchID != batchID || !closures[0].Ready {
 		t.Fatalf("closures=%+v, want ready batch %s", closures, batchID)
+	}
+	parkClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ParkID: parkID,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures with park filter: %v", err)
+	}
+	if len(parkClosures) != 1 || parkClosures[0].BatchID != batchID {
+		t.Fatalf("park-filtered closures=%+v, want ready batch %s", parkClosures, batchID)
+	}
+	otherParkClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ParkID: otherParkID,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures with other park filter: %v", err)
+	}
+	if len(otherParkClosures) != 0 {
+		t.Fatalf("other-park closures=%+v, want none", otherParkClosures)
 	}
 	shedClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
 		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ShedID: shedID,
