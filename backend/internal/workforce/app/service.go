@@ -371,14 +371,21 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	if deviceID != "" {
 		item, err := s.repo.GetDeviceForActor(ctx, tenantID, actorID, deviceID)
 		if err != nil {
-			return nil, mapRepoErr(err)
+			if errors.Is(err, ports.ErrNotFound) {
+				item = domain.DeviceSummary{DeviceID: deviceID, Status: "not_registered"}
+				device = &item
+				deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
+			} else {
+				return nil, mapRepoErr(err)
+			}
+		} else {
+			if item.Status != "active" {
+				reason := "device is not active"
+				return nil, Forbidden("device_revoked", reason)
+			}
+			device = &item
+			deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 		}
-		if item.Status != "active" {
-			reason := "device is not active"
-			return nil, Forbidden("device_revoked", reason)
-		}
-		device = &item
-		deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 	}
 	now := s.now().UTC()
 	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
