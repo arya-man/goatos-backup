@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -743,13 +744,20 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, cmd.T
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
 		return domain.Observation{}, err
 	}
+	if err := r.auditAnimalObservation(ctx, tx, cmd, nil, obs); err != nil {
+		return domain.Observation{}, err
+	}
 	return obs, tx.Commit(ctx)
 }
 
 func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	tag := strings.TrimSpace(cmd.ScannedIdentifier)
+	before, err := r.unknownAnimalObservationBefore(ctx, tx, cmd, tag)
+	if err != nil {
+		return domain.Observation{}, err
+	}
 	var obs domain.Observation
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 WITH campaign AS (
   SELECT campaign_id
   FROM weighing_campaigns
@@ -825,6 +833,9 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 		return domain.Observation{}, err
 	}
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
+		return domain.Observation{}, err
+	}
+	if err := r.auditAnimalObservation(ctx, tx, cmd, before, obs); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, tx.Commit(ctx)
@@ -1371,7 +1382,7 @@ func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID,
 
 func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, idem string) (domain.Observation, bool, error) {
 	var obs domain.Observation
-	err := tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
+	err := tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), COALESCE(animal_id::text, scanned_identifier), weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if err == nil {
 		return obs, true, nil
@@ -1407,6 +1418,85 @@ WHERE wso.tenant_id=$1::uuid AND wso.idempotency_key=$2`, tenantID, idem).
 		return domain.Observation{}, false, err
 	}
 	return obs, true, nil
+}
+
+func (r *Repository) unknownAnimalObservationBefore(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation, tag string) (*domain.Observation, error) {
+	var before domain.Observation
+	err := tx.QueryRow(ctx, `
+SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), scanned_identifier,
+  weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''),
+  COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at
+FROM weighing_observations
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND campaign_shed_id=$3::uuid
+  AND animal_id IS NULL
+  AND lower(scanned_identifier)=lower($4)
+ORDER BY accepted_at DESC, observation_id
+LIMIT 1`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, tag).
+		Scan(&before.ObservationID, &before.CampaignID, &before.CampaignShedID, &before.AnimalID, &before.WeightKg, &before.ProofArtifactID, &before.ExpectedLocationID, &before.ActualLocationID, &before.ActualLocationLabel, &before.AcceptedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &before, nil
+}
+
+func (r *Repository) auditAnimalObservation(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation, before *domain.Observation, after domain.Observation) error {
+	action := "weighing.observation_accepted"
+	if before != nil {
+		weightChanged := before.WeightKg != after.WeightKg
+		proofChanged := before.ProofArtifactID != after.ProofArtifactID
+		switch {
+		case weightChanged && proofChanged:
+			action = "weighing.observation_updated"
+		case weightChanged:
+			action = "weighing.observation_weight_updated"
+		case proofChanged:
+			action = "weighing.observation_proof_replaced"
+		default:
+			action = "weighing.observation_reaccepted"
+		}
+	}
+	return audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     cmd.TenantID,
+		ActorID:      cmd.RecordedBy,
+		ActorType:    "operator",
+		Action:       action,
+		ResourceType: "weighing_observation",
+		ResourceID:   after.ObservationID,
+		ScopeType:    "weighing.campaign_shed",
+		ScopeID:      after.CampaignShedID,
+		BeforeState:  before,
+		AfterState:   after,
+		Metadata: map[string]any{
+			"campaign_id":            cmd.CampaignID,
+			"campaign_shed_id":       after.CampaignShedID,
+			"animal_id":              cmd.AnimalID,
+			"scanned_identifier":     strings.TrimSpace(cmd.ScannedIdentifier),
+			"weight_kg":              after.WeightKg,
+			"proof_artifact_id":      after.ProofArtifactID,
+			"previous_weight_kg":     previousWeight(before),
+			"previous_proof_id":      previousProof(before),
+			"client_idempotency_key": cmd.IdempotencyKey,
+		},
+	})
+}
+
+func previousWeight(before *domain.Observation) any {
+	if before == nil {
+		return nil
+	}
+	return before.WeightKg
+}
+
+func previousProof(before *domain.Observation) any {
+	if before == nil {
+		return nil
+	}
+	return before.ProofArtifactID
 }
 
 func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {

@@ -140,7 +140,13 @@ class WeighingViewModel @Inject constructor(
                 currentMessage,
                 busy,
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
+        }
+            .let { form ->
+                combine(form, proofReplacementAnimalId) { currentForm, replacementAnimalId ->
+                    currentForm.copy(replacementAnimalId = replacementAnimalId)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
         combine(assignments, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { availableAssignments, loading, isPlanner, catalog, selections ->
@@ -168,6 +174,7 @@ class WeighingViewModel @Inject constructor(
                 selected = form.selected,
                 currentMessage = form.message,
                 busy = form.busy,
+                replacementAnimalId = form.replacementAnimalId,
                 availableAssignments = root.assignments,
                 loading = root.loading,
                 isPlanner = root.plannerMode,
@@ -804,7 +811,7 @@ class WeighingViewModel @Inject constructor(
     fun reuploadVideo(animalId: String) {
         val row = scannedRows.value.firstOrNull { it.animalId == animalId } ?: return
         proofReplacementAnimalId.value = animalId
-        message.value = "Re-upload armed · tap RFID ${row.displayAnimalId} again"
+        message.value = null
     }
 
     private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
@@ -904,6 +911,7 @@ class WeighingViewModel @Inject constructor(
         selected: WeighingRosterRowEntity?,
         currentMessage: String?,
         busy: Boolean,
+        replacementAnimalId: String?,
         availableAssignments: List<WeighingAssignment>,
         loading: Boolean,
         isPlanner: Boolean,
@@ -929,7 +937,10 @@ class WeighingViewModel @Inject constructor(
                 actionInFlight = busy,
                 loading = true,
                 category = category,
-                visibleRows = localScans.toUiRows(proofs = proofs),
+                visibleRows = localScans.toUiRows(
+                    proofs = proofs,
+                    replacementAnimalId = replacementAnimalId,
+                ),
                 shedProofs = proofs.toShedProofUiRows(),
                 readerConnection = readerConnection,
             )
@@ -1012,6 +1023,7 @@ class WeighingViewModel @Inject constructor(
                 busy = busy,
                 drafts = scope.individualDrafts,
                 proofs = proofs,
+                replacementAnimalId = replacementAnimalId,
             ),
             individualDrafts = scope.individualDrafts.map { draft ->
                 val animalLabel = scope.rosterWindow
@@ -1044,6 +1056,7 @@ class WeighingViewModel @Inject constructor(
         busy: Boolean = false,
         drafts: List<sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft> = emptyList(),
         proofs: List<ProofCaptureRow> = emptyList(),
+        replacementAnimalId: String? = null,
     ): List<WeighingRosterUiRow> =
         map { row ->
             val draft = drafts.firstOrNull { it.animalId == row.animalId }
@@ -1086,6 +1099,7 @@ class WeighingViewModel @Inject constructor(
                     ?: if (draft?.syncedToBackend == true) "Video synced ${timeOnlyLabel(draft.capturedAtMs)}" else null,
                 backendSynced = draft?.syncedToBackend == true,
                 weightUpdating = row.animalId in updatingAnimalIds,
+                reuploadRequested = row.animalId == replacementAnimalId,
             )
         }
 
@@ -1250,6 +1264,7 @@ private data class WeighingFormState(
     val selected: WeighingRosterRowEntity? = null,
     val message: String? = null,
     val busy: Boolean = false,
+    val replacementAnimalId: String? = null,
 )
 
 private data class WeighingWeightState(

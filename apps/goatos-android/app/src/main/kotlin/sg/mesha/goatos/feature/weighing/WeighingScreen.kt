@@ -181,6 +181,7 @@ data class WeighingRosterUiRow(
     val proofStatusLabel: String? = null,
     val backendSynced: Boolean = false,
     val weightUpdating: Boolean = false,
+    val reuploadRequested: Boolean = false,
 ) {
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
@@ -1256,7 +1257,7 @@ private fun WeighingExecutionScanScreen(
                         onReconnect = onReconnectReader,
                     )
                 }
-                state.message?.takeIf { it.startsWith("Already scanned") || it.startsWith("Re-upload armed") }?.let { message ->
+                state.message?.takeIf { it.startsWith("Already scanned") }?.let { message ->
                     item { WeighingDuplicateNotice(message) }
                 }
                 item {
@@ -1451,12 +1452,12 @@ private fun WeighingFreeFlowFeedRow(
         )
         Text(
             text = when {
-                complete -> "Weight and video synced"
+                complete -> "Weight saved · ${row.proofStatusLabel ?: "video synced"}"
                 row.proofUploadStatus == ProofUploadStatus.FAILED -> row.proofStatusLabel ?: "Video upload failed"
-                row.proofUploadStatus == ProofUploadStatus.UPLOADING -> "Video syncing"
+                row.proofUploadStatus == ProofUploadStatus.UPLOADING -> row.proofStatusLabel ?: "Video syncing"
                 row.proofUploadStatus == ProofUploadStatus.SYNCED && !row.backendSynced ->
-                    "Video synced · weight waiting to sync"
-                row.proofUploadStatus == ProofUploadStatus.SYNCED -> "Video synced"
+                    "${row.proofStatusLabel ?: "Video synced"} · weight waiting to sync"
+                row.proofUploadStatus == ProofUploadStatus.SYNCED -> row.proofStatusLabel ?: "Video synced"
                 else -> "Video captured"
             },
             color = when {
@@ -1519,6 +1520,31 @@ private fun WeighingFreeFlowFeedRow(
                 )
             }
         }
+        if (row.reuploadRequested) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MeshaColors.InfoX)
+                    .border(1.dp, MeshaColors.Info, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Refresh,
+                    contentDescription = null,
+                    tint = MeshaColors.Info,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Scan this RFID tag again to replace the video.",
+                    color = MeshaColors.Info,
+                    style = MeshaType.caption,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         when (row.proofUploadStatus) {
             ProofUploadStatus.FAILED -> ActionButton(
                 text = "Retry",
@@ -1528,8 +1554,8 @@ private fun WeighingFreeFlowFeedRow(
                 primary = false,
             )
             ProofUploadStatus.SYNCED -> ActionButton(
-                text = "Re-upload",
-                enabled = true,
+                text = if (row.reuploadRequested) "Waiting for RFID scan" else "Re-upload",
+                enabled = !row.reuploadRequested,
                 onClick = onReuploadVideo,
                 modifier = Modifier.fillMaxWidth(),
                 primary = false,
