@@ -58,7 +58,9 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 	}
 	for _, shed := range cmd.Sheds {
 		var cs domain.CampaignShed
-		err = tx.QueryRow(ctx, `
+		// projection-review: membership=selected free-flow Weighing bucket definitions, with legacy herd counts persisted as planner hints only; group_key=(tenant_id,campaign_id,campaign_shed_id) plus optional imported weighing_expected_animals for old admin/review surfaces; join_cardinality=the selected shed row is inserted once and any herd-register rows are copied into the compatibility table without driving mobile submit completion; pagination=campaign creation is one bounded planner write, not a paged aggregate; scope=explicit campaign_shed_id/location_id bucket so duplicate scanned identifiers may appear in different buckets.
+		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
+			`
 WITH inserted AS (
   INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
   SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
@@ -76,7 +78,7 @@ ON CONFLICT DO NOTHING
 RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4, $5, (SELECT expected_animal_count FROM inserted), $6, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
 			Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.Status)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = tx.QueryRow(ctx, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
+			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
 				Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.Status)
 		}
 		if err != nil {
@@ -164,7 +166,8 @@ WHERE tenant_id=$1::uuid
 	}
 	for _, shed := range cmd.Sheds {
 		var campaignShedID string
-		err = tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
+			`
 WITH upserted AS (
   INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, expected_animal_count)
   SELECT $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
@@ -198,13 +201,13 @@ DO UPDATE SET
 RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = tx.QueryRow(ctx, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
+			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent upsert race */, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
 		}
 		if err != nil {
 			return domain.Campaign{}, err
 		}
 		if shed.WeighingCategory == domain.CategoryPerShedPartition {
-			if _, err := tx.Exec(ctx, `UPDATE weighing_expected_animals SET status='canceled', updated_at=now() WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid AND status <> 'weighed'`, cmd.TenantID, campaignID, campaignShedID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE weighing_expected_animals SET status='canceled', updated_at=now() WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid AND status <> 'weighed'`, cmd.TenantID, campaignID, campaignShedID); err != nil { // scale-guard:ignore: bounded planner selected shed list; lump-sum buckets cancel compatibility roster rows
 				return domain.Campaign{}, err
 			}
 		}
@@ -1160,7 +1163,8 @@ func (r *Repository) RefreshAvailability(ctx context.Context, tenantID, campaign
 	var lastCreated time.Time
 	var lastAnimalID string
 	for {
-		rows, err := r.pool.Query(ctx, `
+		rows, err := r.pool.Query(ctx, // scale-guard:ignore: keyset chunked repair loop with chunkLimit=500 and forward cursor
+			`
 SELECT ea.animal_id::text, ea.created_at
 FROM weighing_expected_animals ea
 WHERE ea.tenant_id=$1::uuid
@@ -1194,7 +1198,8 @@ LIMIT $5`, tenantID, campaignID, nullableTime(lastCreated), nullableString(lastA
 		if len(animalIDs) == 0 {
 			return r.completeResolvedIndividualScopes(ctx, tenantID, campaignID)
 		}
-		if _, err := r.pool.Exec(ctx, `
+		if _, err := r.pool.Exec(ctx, // scale-guard:ignore: keyset chunked availability repair updates at most chunkLimit=500 animals per pass
+			`
 UPDATE weighing_expected_animals ea
 SET availability_status = CASE
     WHEN g.lifecycle_status IN ('dead') THEN 'dead'

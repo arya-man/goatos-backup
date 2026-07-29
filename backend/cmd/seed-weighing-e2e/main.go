@@ -512,7 +512,8 @@ func importFixture(ctx context.Context, pool *pgxpool.Pool, fx fixture) error {
 	locationIDs := map[string]string{}
 	for _, scope := range fx.SelectedScopes {
 		locationIDs[scope.DisplayName] = scope.LocationID
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports a bounded fixture scope list, not a request path
+			`
 INSERT INTO public.locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 VALUES ($1, $2, $3, $4, $5, $6, 'active')
 ON CONFLICT (location_id) DO UPDATE SET location_type = EXCLUDED.location_type, name = EXCLUDED.name, parent_location_id = EXCLUDED.parent_location_id, status = 'active', updated_at = now()`,
@@ -522,7 +523,8 @@ ON CONFLICT (location_id) DO UPDATE SET location_type = EXCLUDED.location_type, 
 	}
 	for label, id := range syntheticLocations(fx) {
 		locationIDs[label] = id
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded synthetic fixture locations
+			`
 INSERT INTO public.locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 VALUES ($1, $2, $3, $4, $5, $6, 'active')
 ON CONFLICT (location_id) DO UPDATE SET name = EXCLUDED.name, parent_location_id = EXCLUDED.parent_location_id, status = 'active', updated_at = now()`,
@@ -541,7 +543,8 @@ ON CONFLICT (department_id) DO UPDATE SET label = EXCLUDED.label, status = 'acti
 		return fmt.Errorf("upsert weighing department: %w", err)
 	}
 	for _, moduleKey := range []string{"vaccination", "weighing"} {
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed writes two fixed module grants
+			`
 INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
 VALUES ($1::uuid, $2::uuid, $3, 'active')
 ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE SET status = 'active', updated_at = now()`, fx.TenantID, departmentID, moduleKey); err != nil {
@@ -553,7 +556,8 @@ ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE SET status = 'activ
 		if grantRole == "" {
 			continue
 		}
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded selected campaign scopes
+			`
 INSERT INTO public.user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, created_by)
 SELECT $1::uuid, $2::uuid, $3, 'tenant', $1::uuid, 'active', now(), $4::uuid
 WHERE EXISTS (SELECT 1 FROM public.org_role_catalog WHERE role_key=$3)
@@ -565,7 +569,8 @@ WHERE EXISTS (SELECT 1 FROM public.org_role_catalog WHERE role_key=$3)
 			return fmt.Errorf("upsert persona grant %s: %w", persona.Code, err)
 		}
 		var grantExists bool
-		if err := tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, // scale-guard:ignore: local E2E seed verifies each bounded persona grant after insert
+			`
 SELECT EXISTS (
   SELECT 1 FROM public.user_scope_grants
   WHERE tenant_id=$1::uuid AND user_id=$2::uuid AND role=$3 AND scope_type='tenant' AND scope_id=$1::uuid AND status='active'
@@ -575,7 +580,8 @@ SELECT EXISTS (
 		if !grantExists {
 			return fmt.Errorf("persona grant %s role %s did not match org_role_catalog", persona.Code, grantRole)
 		}
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded fixture personas
+			`
 INSERT INTO public.workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, department_id, created_by)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'active', $6, $7::uuid, $8::uuid, $9::uuid)
 ON CONFLICT (workforce_member_id) DO UPDATE SET user_id = EXCLUDED.user_id, display_name = EXCLUDED.display_name, status = 'active', primary_role_hint = EXCLUDED.primary_role_hint, primary_location_id = EXCLUDED.primary_location_id, department_id = EXCLUDED.department_id, updated_at = now()`,
@@ -590,7 +596,8 @@ ON CONFLICT (workforce_member_id) DO UPDATE SET user_id = EXCLUDED.user_id, disp
 		}
 		lifecycle := lifecycleStatus(animal.CurrentTruth)
 		health := healthStatus(animal.CurrentTruth)
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded fixture animals
+			`
 INSERT INTO public.goats (goat_id, tenant_id, display_id, species, sex, age_band, lifecycle_status, management_stage, health_status, custodian_party_id, current_location_id, park_id, shed_id, exited_at, exit_reason)
 VALUES ($1, $2, $3, 'goat', 'female', 'kid', $4, 'K1', $5, $6, $7, $8, $7, CASE WHEN $4 IN ('sold','transferred') THEN now() ELSE NULL END, CASE WHEN $4 = 'sold' THEN 'sold' WHEN $4 = 'transferred' THEN 'transferred' ELSE NULL END)
 ON CONFLICT (goat_id) DO UPDATE SET display_id = EXCLUDED.display_id, lifecycle_status = EXCLUDED.lifecycle_status, health_status = EXCLUDED.health_status, current_location_id = EXCLUDED.current_location_id, park_id = EXCLUDED.park_id, shed_id = EXCLUDED.shed_id, updated_at = now()`,
@@ -598,7 +605,8 @@ ON CONFLICT (goat_id) DO UPDATE SET display_id = EXCLUDED.display_id, lifecycle_
 			return fmt.Errorf("upsert goat %s: %w", animal.DisplayID, err)
 		}
 		if animal.RFID != "" {
-			if _, err := tx.Exec(ctx, `
+			if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded fixture RFID identifiers
+				`
 INSERT INTO public.goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
 VALUES ($1, $2, 'animal_identifier_1', $3, $4, 'global', true, 'active', now(), 'weighing_e2e_fixture', $5, 'weighing-e2e-v1', 1)
 ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id = EXCLUDED.goat_id, identifier_value = EXCLUDED.identifier_value, status = 'active', is_primary_for_goat = true, updated_at = now()`,
@@ -616,7 +624,8 @@ ON CONFLICT (campaign_id) DO UPDATE SET status = EXCLUDED.status, planned_cap_pe
 		return fmt.Errorf("upsert campaign: %w", err)
 	}
 	for _, scope := range fx.SelectedScopes {
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded expected-animal compatibility rows
+			`
 INSERT INTO public.weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, status)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (campaign_shed_id) DO UPDATE SET display_name = EXCLUDED.display_name, expected_animal_count = EXCLUDED.expected_animal_count, weighing_category = EXCLUDED.weighing_category, status = EXCLUDED.status, updated_at = now()`,
@@ -633,7 +642,8 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET display_name = EXCLUDED.display_nam
 			return fmt.Errorf("missing scope %s", *animal.ExpectedCampaignShedID)
 		}
 		currentLocationID := locationIDs[animal.CurrentLocationLabel]
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded expected-animal compatibility rows
+			`
 INSERT INTO public.weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status, availability_status, current_location_id, current_location_label, current_lifecycle_status, availability_checked_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
 ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status = EXCLUDED.status, availability_status = EXCLUDED.availability_status, current_location_id = EXCLUDED.current_location_id, current_location_label = EXCLUDED.current_location_label, current_lifecycle_status = EXCLUDED.current_lifecycle_status, availability_checked_at = now(), updated_at = now()`,
@@ -643,7 +653,8 @@ ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status = EXCLUDED.status, ava
 	}
 	for _, proof := range fx.ProofArtifacts {
 		subjectType, subjectID := proofSubject(proof, fx)
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded proof fixture rows
+			`
 INSERT INTO public.proof_artifacts (proof_id, tenant_id, storage_provider, object_key, content_hash, mime_type, size_bytes, duration_ms, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by, metadata, uploaded_at, idempotency_key, request_fingerprint)
 VALUES ($1, $2, 'local', $3, $4, 'video/mp4', 1024, 15000, 'completed', 'task', $5, $6, $7, 'video', $8, $9::jsonb, now(), $10, $11)
 ON CONFLICT (proof_id) DO UPDATE SET upload_state = 'completed', subject_type = EXCLUDED.subject_type, subject_id = EXCLUDED.subject_id, metadata = EXCLUDED.metadata, updated_at = now()`,
@@ -653,7 +664,8 @@ ON CONFLICT (proof_id) DO UPDATE SET upload_state = 'completed', subject_type = 
 	}
 	for _, observation := range fx.Observations {
 		expectedID, expectedLabel, actualID, actualLabel, mismatch := observationLocationContext(observation, fx, locationIDs)
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded observation fixture rows
+			`
 INSERT INTO public.weighing_observations (observation_id, tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, proof_artifact_id = EXCLUDED.proof_artifact_id`,

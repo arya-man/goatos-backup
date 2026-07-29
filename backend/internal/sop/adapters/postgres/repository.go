@@ -1829,7 +1829,7 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
-	keys, err = filterSubmissionItemsToSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
+	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
 	if err != nil {
 		return err
 	}
@@ -1850,7 +1850,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 	return nil
 }
 
-func filterSubmissionItemsToSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
 	shedSubjectIDs := shedScopeIDs(refs, idempotencyKey)
 	if len(shedSubjectIDs) == 0 {
 		return keys, nil

@@ -816,6 +816,7 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
                     color = MeshaColors.BrandD,
                     style = MeshaType.cta,
                     modifier = Modifier
+                        .minimumInteractiveComponentSize()
                         .clickable(onClick = onOpen)
                         .padding(top = 2.dp),
                 )
@@ -1298,7 +1299,7 @@ private fun WeighingExecutionScanScreen(
                 } else {
                     items(
                         items = state.visibleRows,
-                        key = { row -> row.animalId },
+                        key = { row -> row.id },
                     ) { row ->
                         WeighingFreeFlowFeedRow(
                             row = row,

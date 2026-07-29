@@ -29,8 +29,8 @@ test("weighing UI renders category-aware progress and blocks lumpsum individual 
 
   assert.match(data, /individual_animal/);
   assert.match(data, /per_shed_partition/);
-  assert.match(page, /RFID \+ animal identity \+ weight \+ mandatory per-animal video/);
-  assert.match(page, /Selected-scope result \+ scope proof; no individual weight update/);
+  assert.match(page, /Free-flow RFID\/tag bucket \+ weight \+ mandatory per-row video/);
+  assert.match(page, /Free-flow shed bucket result \+ total count \+ at least one synced video/);
   assert.match(page, /categoryLabel\[row\.category\]/);
 });
 
@@ -48,7 +48,7 @@ test("weighing UI uses product labels without fabricating live API labels", () =
   assert.doesNotMatch(data, /parkName: "Selected park"/);
 });
 
-test("weighing UI exposes wrong-shed expected-original and actual-current context", () => {
+test("weighing UI keeps bucket language free-flow and avoids vaccination wrong-shed copy", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
@@ -56,8 +56,9 @@ test("weighing UI exposes wrong-shed expected-original and actual-current contex
   assert.match(data, /originalPartition/);
   assert.match(data, /actualShed/);
   assert.match(data, /currentPartition/);
-  assert.match(page, /Expected \/ original/);
-  assert.match(page, /Actual \/ current/);
+  assert.match(page, /Bucket \/ original/);
+  assert.match(page, /Captured \/ current/);
+  assert.doesNotMatch(page, /wrong shed/);
 });
 
 test("weighing leadership planner covers park-week task creation and duplicate edit state", () => {
@@ -68,7 +69,7 @@ test("weighing leadership planner covers park-week task creation and duplicate e
   assert.match(data, /existingCampaignId/);
   assert.match(data, /getWeighingPlannerCatalog/);
   assert.match(data, /plannerFromCatalog/);
-  assert.match(data, /selectedPark\?\.sheds/);
+  assert.match(data, /selectedPark\?\.park_id/);
   assert.match(data, /operator\.display_name/);
   assert.doesNotMatch(data, /CPT · Channapatna/);
   assert.doesNotMatch(data, /Castro 1/);
@@ -93,7 +94,7 @@ test("weighing leadership planner covers park-week task creation and duplicate e
 test("weighing week strip is derived from campaign response", () => {
   const data = source("data.ts");
 
-  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek\)/);
+  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek, selectedCampaignId\)/);
   assert.match(data, /weeksFromCampaigns\(result\.data\.items, campaign\)/);
   assert.match(data, /sort\(\(a, b\) => a\.period_start_date\.localeCompare\(b\.period_start_date\)\)/);
   assert.match(data, /weekRangeLabel\(item\.period_start_date, item\.period_end_date\)/);

@@ -189,7 +189,7 @@ class ScanViewModel @Inject constructor(
     private val _localDoneGoatIds = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
-    // Transient "already scanned" strip shown under the tap-hint card on a re-scan of an
+    // Transient "already scanned ·" strip shown under the tap-hint card on a re-scan of an
     // already-DONE tag. Does NOT add a feed row (that would pile up duplicates) — cleared on the
     // next ACCEPTED scan and when capture is disabled, so it never lingers stale.
     private val _duplicateNotice = MutableStateFlow<String?>(null)

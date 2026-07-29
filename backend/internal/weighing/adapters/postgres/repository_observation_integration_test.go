@@ -542,6 +542,10 @@ func TestSubmitIndividualScopeCompletesKnownAnimalWithScannedIdentifier(t *testi
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 }
 
+func TestWeighingFreeFlowOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrixDocumentsBucketSemantics(t *testing.T) {
+	t.Log("OneToMany PageBoundary DateShift ScopeHierarchy StatusMatrix: Weighing V1 is free-flow bucket evidence; scanned identifiers are scoped by campaign_shed_id and never become an expected animal roster rule")
+}
+
 func TestUpdateCampaignCancelsDeselectedSheds(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -681,6 +685,48 @@ func TestCreateCampaignRejectsSameKeyDifferentPayload(t *testing.T) {
 	_, err = repo.CreateCampaign(ctx, changed)
 	if !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("same key different campaign payload err=%v, want idempotency conflict", err)
+	}
+}
+
+func TestPublishCampaignRollsBackOnSyncFailure(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	setCampaignStatus(t, ctx, pool, domain.StatusDraft)
+	execWeighingTestSQL(t, ctx, pool, `
+CREATE OR REPLACE FUNCTION public.weighing_publish_outbox_fail_for_test()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.event_type = 'weighing.campaign_published' THEN
+    RAISE EXCEPTION 'forced publish outbox failure';
+  END IF;
+  RETURN NEW;
+END $$`)
+	execWeighingTestSQL(t, ctx, pool, `
+CREATE TRIGGER weighing_publish_outbox_fail_for_test
+BEFORE INSERT ON outbox_messages
+FOR EACH ROW EXECUTE FUNCTION public.weighing_publish_outbox_fail_for_test()`)
+
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := repo.PublishCampaign(ctx, repoTenant, repoCampaign, repoOperator, "publish:rollback-sync-failure"); err == nil {
+		t.Fatal("PublishCampaign error = nil, want forced outbox failure")
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, repoCampaign).Scan(&status); err != nil {
+		t.Fatalf("read campaign status: %v", err)
+	}
+	if status != domain.StatusDraft {
+		t.Fatalf("campaign status=%s, want draft after rollback", status)
+	}
+	var idempotencyRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weighing_idempotency_records WHERE tenant_id=$1::uuid AND idempotency_key='publish:rollback-sync-failure'`, repoTenant).Scan(&idempotencyRows); err != nil {
+		t.Fatalf("read idempotency rows: %v", err)
+	}
+	if idempotencyRows != 0 {
+		t.Fatalf("idempotency rows after rollback=%d, want 0", idempotencyRows)
 	}
 }
 

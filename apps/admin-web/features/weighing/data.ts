@@ -185,7 +185,7 @@ export async function getWeighingPageData(
 async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighingCampaign[] }>> {
   const items: ApiWeighingCampaign[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < 20; page += 1) {
+  for (let page = 0; page < 20; page += 1) { // scale-guard:ignore: admin Weighing page is intentionally hidden; this drains only campaign headers with a 20-page hard cap until a summary endpoint replaces it; serial-await: allow cursor pagination must stay sequential
     const result = await getWeighingCampaigns({ cursor, limit: 100 });
     if (!result.ok) return result;
     items.push(...result.data.items);

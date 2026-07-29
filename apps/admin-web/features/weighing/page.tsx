@@ -261,19 +261,19 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
           <div className="k">Individual animal</div>
           <div className="v">{campaign.individualCompleted}<span>/{campaign.individualExpected}</span></div>
           <div className="weighing-bar"><i style={{ width: `${individualPct}%` }} /></div>
-          <p className="muted small">RFID + animal identity + weight + mandatory per-animal video.</p>
+          <p className="muted small">Free-flow RFID/tag bucket + weight + mandatory per-row video.</p>
         </div>
         <div className="card pad weighing-metric">
           <div className="k">Per shed/partition</div>
           <div className="v">{campaign.shedPartitionCompleted}<span>/{campaign.shedPartitionExpected}</span></div>
           <div className="weighing-bar pur"><i style={{ width: `${shedPct}%` }} /></div>
-          <p className="muted small">Selected-scope result + scope proof; no individual weight update.</p>
+          <p className="muted small">Free-flow shed bucket result + total count + at least one synced video.</p>
         </div>
         <div className="card pad weighing-metric">
           <div className="k">Needs attention</div>
           <div className="v">{campaign.wrongShedScans + campaign.unavailableAnimals + campaign.proofPending}</div>
           <div className="weighing-attention">
-            <Tag tone="warn">{campaign.wrongShedScans} wrong shed</Tag>
+            <Tag tone="warn">{campaign.wrongShedScans} bucket flags</Tag>
             <Tag tone="pur">{campaign.unavailableAnimals} unavailable</Tag>
             <Tag tone="info">{campaign.proofPending} proof pending</Tag>
           </div>
@@ -340,8 +340,8 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
               <thead>
                 <tr>
                   <th>Animal</th>
-                  <th>Expected / original</th>
-                  <th>Actual / current</th>
+                  <th>Bucket / original</th>
+                  <th>Captured / current</th>
                   <th>Scan</th>
                 </tr>
               </thead>
