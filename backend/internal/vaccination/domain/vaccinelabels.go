@@ -90,3 +90,26 @@ func vaccinationAntigenLabel(code string) string {
 		return ""
 	}
 }
+
+// DoseQualifiedDisplayLabel renders the human vaccine label together with the
+// dose position inside its course ("ET+TT · Dose 2", "FMD · Revaccination"), so
+// surfaces whose row grain is per dose (the vaccination command board's shed ×
+// dose × state matrix and verification queue) can show two doses of the same
+// antigen as distinct rows instead of two identical "ET+TT" labels.
+// It stays inside this display mapper per the raw-token firewall: clients never
+// interpret dose codes themselves.
+func DoseQualifiedDisplayLabel(protocolName, doseCode string) string {
+	base := DoseDisplayLabel(protocolName, doseCode)
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(doseCode), " ", "_"))
+	switch {
+	case strings.HasSuffix(normalized, "_W1") || strings.HasSuffix(normalized, "_FIRST"):
+		return base + " · Dose 1"
+	case strings.HasSuffix(normalized, "_W2"):
+		return base + " · Dose 2"
+	case strings.HasSuffix(normalized, "_BOOSTER"):
+		return base + " · Booster"
+	case strings.HasSuffix(normalized, "REVAC") || strings.HasSuffix(normalized, "_REPEAT"):
+		return base + " · Revaccination"
+	}
+	return base
+}

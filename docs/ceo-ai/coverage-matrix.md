@@ -335,6 +335,13 @@ new internal display-label helpers:
 - `func:DoseDisplayLabel` (`backend/internal/vaccination/domain/vaccinelabels.go`)
   — the canonical antigen display label, delegated to by
   `vaccinationexecution/domain.VaccinationDoseDisplayLabel`.
+- `func:DoseQualifiedDisplayLabel`
+  (`backend/internal/vaccination/domain/vaccinelabels.go`) — the same canonical
+  antigen label plus the dose position within its course ("ET+TT · Dose 2"),
+  used by per-dose-grain surfaces (the vaccination command board shed × dose
+  matrix and verification queue). Display-mapper helper only — no new data
+  surface; assistant coverage rides the existing `GET /vaccination/command`
+  coverage row.
 - `func:ControlTowerDoseLabel`
   (`backend/internal/processintegrity/domain/vaccinelabels.go`) — composes that
   base with Control Tower course/dose/booster qualifiers.

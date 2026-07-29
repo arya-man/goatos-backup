@@ -544,3 +544,132 @@ func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+// TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState is the regression for the
+// landed-review P1 finding: the shed dose matrix must aggregate at the shed × dose × STATE
+// cell grain. Two scheduled obligations for the SAME shed and dose with DIFFERENT due dates
+// (a DateShift across business days) must fold into exactly ONE 'scheduled' cell whose
+// animal count covers both goats (OneToMany across dates) and whose min/max due window spans
+// the two dates — never two duplicated rows with a split animal count.
+// Uses the REAL migrated schema (protocol_rules.dose_code; rule_id uuid).
+func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-000000000077"
+	parkID := "70000000-0000-4000-8000-000001000077"
+	shedID := "70000000-0000-4000-8000-000002000077"
+	goatA := "70000000-0000-4000-8000-000003000077"
+	goatB := "70000000-0000-4000-8000-000003000078"
+	protocolVersionID := "70000000-0000-4000-8000-000006000077"
+	ruleID := "70000000-0000-4000-8000-000007000077"
+	oblA := "70000000-0000-4000-8000-000008000077"
+	oblB := "70000000-0000-4000-8000-000008000078"
+
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`, tenantID)
+	execProjectionSQL(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park 77', 'park', NULL, 'active')`, parkID, tenantID)
+	execProjectionSQL(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed 77', 'shed', $3, 'active')`, shedID, tenantID, parkID)
+	for i, goatID := range []string{goatA, goatB} {
+		execProjectionSQL(t, ctx, pool, "goat",
+			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
+			 VALUES ($1, $2, 'female', 'active', 'Non-Pregnant', $3, '2024-01-01')`, goatID, tenantID, shedID)
+		_ = i
+	}
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, rule_dsl)
+		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000000', 'tenant', 1, 'published', '{}')`,
+		protocolVersionID, tenantID)
+	execProjectionSQL(t, ctx, pool, "rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'et_tt_adult_w2', 'birth_age')`, ruleID, tenantID, protocolVersionID)
+
+	// Two scheduled obligations, SAME shed and dose, due on two different business days.
+	asOf := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	for obl, due := range map[string]time.Time{
+		oblA: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		oblB: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
+	} {
+		target := goatA
+		if obl == oblB {
+			target = goatB
+		}
+		execProjectionSQL(t, ctx, pool, "obligation",
+			`INSERT INTO obligation_instances (obligation_id, tenant_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at)
+			 VALUES ($1, $2, $3, 'goat', 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+			obl, tenantID, target, shedID, ruleID, due)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	cells := 0
+	for _, cell := range resp.ShedDoseMatrix {
+		if cell.ShedName != "Shed 77" || cell.State != "scheduled" {
+			continue
+		}
+		cells++
+		if cell.AnimalCount != 2 {
+			t.Fatalf("scheduled cell animal count = %d, want 2 (both goats across both due dates)", cell.AnimalCount)
+		}
+		if cell.MinDueDate == nil || cell.MaxDueDate == nil {
+			t.Fatalf("scheduled cell must carry min/max due window, got %v..%v", cell.MinDueDate, cell.MaxDueDate)
+		}
+		if cell.MinDueDate.Equal(*cell.MaxDueDate) {
+			t.Fatalf("min/max due must span both dates, both = %v", cell.MinDueDate)
+		}
+	}
+	if cells != 1 {
+		t.Fatalf("shed dose matrix returned %d 'scheduled' cells for Shed 77, want exactly 1 (grain = shed x dose x state)", cells)
+	}
+
+	t.Run("StatusMatrixBucketsDisjoint", func(t *testing.T) {
+		// StatusBuckets: with only scheduled obligations, no verified/awaiting/overdue cell may exist.
+		for _, cell := range resp.ShedDoseMatrix {
+			if cell.ShedName == "Shed 77" && cell.State != "scheduled" {
+				t.Fatalf("unexpected %q cell for Shed 77 — status buckets must be disjoint", cell.State)
+			}
+		}
+	})
+
+	t.Run("ParkScopeIsolation", func(t *testing.T) {
+		// ParkScope: filtering to a different park must exclude Shed 77 entirely.
+		otherPark := "70000000-0000-4000-8000-00000100dead"
+		scoped, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf, ParkID: &otherPark})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(park) error = %v", err)
+		}
+		for _, cell := range scoped.ShedDoseMatrix {
+			if cell.ShedName == "Shed 77" {
+				t.Fatalf("park filter leaked Shed 77 into another park's board")
+			}
+		}
+	})
+
+	t.Run("PaginationStableOrdering", func(t *testing.T) {
+		// Pagination/PageBoundary: bounded board reads must return a deterministic order
+		// (shed_name, dose_code, state) so any future keyset page boundary is stable.
+		again, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(repeat) error = %v", err)
+		}
+		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
+			t.Fatalf("row count changed across identical reads: %d vs %d", len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
+		}
+		for i := range again.ShedDoseMatrix {
+			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State {
+				t.Fatalf("ordering unstable at row %d: %+v vs %+v", i, a, b)
+			}
+		}
+	})
+}
