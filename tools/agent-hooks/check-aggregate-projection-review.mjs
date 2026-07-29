@@ -19,6 +19,7 @@ const TESTS = {
 };
 const PROCESS_INTEGRITY_REPO = "backend/internal/processintegrity/adapters/postgres/repository.go";
 const SOP_REPO = "backend/internal/sop/adapters/postgres/repository.go";
+const VACCINATION_EXECUTION_REPO = "backend/internal/vaccinationexecution/adapters/postgres/repository.go";
 
 function git(args, allowFailure = false) {
   try {
@@ -133,6 +134,18 @@ function inspectShedSubmitTerminalState(source) {
   return failures;
 }
 
+function inspectVaccinationExecutionDimensionFanout(source) {
+  const failures = [];
+  const directProtocolDimensionJoin =
+    /\bJOIN\s+protocol_rule_dimensions\s+\w+\s+ON\s+\w+\.tenant_id\s*=\s*pr\.tenant_id\s+AND\s+\w+\.rule_id\s*=\s*pr\.rule_id/i;
+  if (directProtocolDimensionJoin.test(source)) {
+    failures.push(
+      "vaccination execution counts must not join protocol_rule_dimensions directly; collapse/deduplicate dimensions before counting drive animals or shed cards will explode (e.g. 120 -> 480)",
+    );
+  }
+  return failures;
+}
+
 function selfTest() {
   const sql = `-- projection-review: membership=batch_members; group_key=batch_id; join_cardinality=dimensions pre-aggregated; pagination=one tenant aggregate before paging; scope=explicit park/shed/cohort CASE\nSELECT park_id, status, due_date, COUNT(*) FROM obligations JOIN dimensions USING (rule_id) GROUP BY park_id, status, due_date`;
   const hunk = { visible: sql, added: sql };
@@ -145,6 +158,8 @@ function selfTest() {
   const goodParentSubmission = inspectProcessIntegrityShedGrain("FROM sop_submission_items si\nJOIN sop_submissions sub ON sub.submission_id = si.submission_id\nWHERE si.goat_id = oi.target_id");
   const badAcceptedSubmit = inspectShedSubmitTerminalState("func (r *Repository) SubmitTask() {\nINSERT INTO sop_submissions\nUPDATE sop_tasks SET state=$3 WHERE tenant_id = $1::uuid AND state IN ('queued','accepted')\n}\nfunc next() {}");
   const goodAcceptedSubmit = inspectShedSubmitTerminalState("func (r *Repository) SubmitTask() {\nif currentState == \"accepted\" { return ports.ErrConflict }\nINSERT INTO sop_submissions\nUPDATE sop_tasks SET state=$3 WHERE state IN ('queued','needs_review')\n}\nfunc next() {}");
+  const badVaccinationFanout = inspectVaccinationExecutionDimensionFanout("LEFT JOIN protocol_rule_dimensions prd\n  ON prd.tenant_id = pr.tenant_id\n AND prd.rule_id = pr.rule_id");
+  const goodVaccinationFanout = inspectVaccinationExecutionDimensionFanout("LEFT JOIN LATERAL (\n  SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code\n  FROM protocol_rule_dimensions dim\n  WHERE dim.tenant_id = pr.tenant_id\n    AND dim.rule_id = pr.rule_id\n) prd ON true");
   if (
     bad.length !== 6 ||
     good.length !== 0 ||
@@ -153,9 +168,11 @@ function selfTest() {
     badParentSubmission.length !== 1 ||
     goodParentSubmission.length !== 0 ||
     badAcceptedSubmit.length !== 2 ||
-    goodAcceptedSubmit.length !== 0
+    goodAcceptedSubmit.length !== 0 ||
+    badVaccinationFanout.length !== 1 ||
+    goodVaccinationFanout.length !== 0
   ) {
-    console.error("aggregate-projection-guard self-test failed", { bad, good, badShedGrain, goodShedGrain, badParentSubmission, goodParentSubmission, badAcceptedSubmit, goodAcceptedSubmit });
+    console.error("aggregate-projection-guard self-test failed", { bad, good, badShedGrain, goodShedGrain, badParentSubmission, goodParentSubmission, badAcceptedSubmit, goodAcceptedSubmit, badVaccinationFanout, goodVaccinationFanout });
     process.exit(1);
   }
   console.log("aggregate-projection-guard self-test: PASS");
@@ -180,11 +197,15 @@ function main() {
   const terminalSubmitFailures = files.includes(SOP_REPO)
     ? inspectShedSubmitTerminalState(readFileSync(resolve(repo, SOP_REPO), "utf8"))
     : [];
+  const vaccinationFanoutFailures = files.includes(VACCINATION_EXECUTION_REPO)
+    ? inspectVaccinationExecutionDimensionFanout(readFileSync(resolve(repo, VACCINATION_EXECUTION_REPO), "utf8"))
+    : [];
   if (sourceHunks.length === 0) {
-    if (shedGrainFailures.length || terminalSubmitFailures.length) {
+    if (shedGrainFailures.length || terminalSubmitFailures.length || vaccinationFanoutFailures.length) {
       console.error("aggregate-projection-guard: FAIL");
       for (const failure of shedGrainFailures) console.error(`  - ${failure}`);
       for (const failure of terminalSubmitFailures) console.error(`  - ${failure}`);
+      for (const failure of vaccinationFanoutFailures) console.error(`  - ${failure}`);
       console.error("\nSee docs/decisions/scale-anti-patterns.md");
       process.exit(1);
     }
@@ -199,6 +220,7 @@ function main() {
   const failures = inspectFixture(sourceHunks, changedTests);
   failures.push(...shedGrainFailures);
   failures.push(...terminalSubmitFailures);
+  failures.push(...vaccinationFanoutFailures);
   if (failures.length) {
     console.error("aggregate-projection-guard: FAIL");
     for (const hunk of sourceHunks) console.error(`  candidate: ${hunk.file}`);
