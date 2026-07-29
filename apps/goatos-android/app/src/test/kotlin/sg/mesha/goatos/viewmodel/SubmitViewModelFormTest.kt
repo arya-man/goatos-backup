@@ -1355,6 +1355,53 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `cached terminal per goat shed task reopens submit when shed summary is draft`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-per-goat-stale-terminal",
+            sopVersionId = "sop-per-goat-stale-terminal",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-stale",
+            state = "needs_review",
+            rowVersion = 2,
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val draftSummary = ShedCompletionSummaryDto(
+            taskId = "task-per-goat-stale-terminal",
+            shedName = "Shed Stale",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 3,
+            handledCount = 3,
+            proofReadyCount = 3,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 3)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, FormSpec.Empty, proofPolicy = policy, shedSummary = draftSummary),
+            sync,
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.DRAFT, viewModel.state.value.syncState)
+        assertTrue("draft shed summary must reopen the submit action even if task cache is terminal", viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNotNull(sync.lastRequest)
+    }
+
+    @Test
     fun `local synced shed proof updates completion summary before backend refresh catches up`() = runTest(dispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-shed-local-proof",

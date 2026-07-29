@@ -145,6 +145,8 @@ data class WeighingRosterResponseDto(
 @Serializable
 data class WeighingAnimalObservationRequestDto(
     @SerialName("animal_id") val animalId: String,
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("scanned_identifier") val scannedIdentifier: String = "",
     @SerialName("weight_kg") val weightKg: Double,
     @SerialName("proof_artifact_id") val proofArtifactId: String,
     @SerialName("actual_location_id") val actualLocationId: String,

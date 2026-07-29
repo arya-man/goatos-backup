@@ -47,7 +47,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS weighing_campaign_sheds_campaign_location_uidx
 CREATE TABLE IF NOT EXISTS public.weighing_expected_animals (
   campaign_id uuid NOT NULL REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE,
   tenant_id uuid NOT NULL REFERENCES public.tenants(tenant_id),
-  animal_id uuid NOT NULL REFERENCES public.goats(goat_id),
+  animal_id uuid REFERENCES public.goats(goat_id),
+  scanned_identifier text NOT NULL DEFAULT '',
   expected_location_id uuid NOT NULL REFERENCES public.locations(location_id),
   expected_location_label text NOT NULL,
   campaign_shed_id uuid NOT NULL REFERENCES public.weighing_campaign_sheds(campaign_shed_id) ON DELETE CASCADE,
@@ -72,7 +73,8 @@ CREATE TABLE IF NOT EXISTS public.weighing_observations (
   tenant_id uuid NOT NULL REFERENCES public.tenants(tenant_id),
   campaign_id uuid NOT NULL REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE,
   campaign_shed_id uuid REFERENCES public.weighing_campaign_sheds(campaign_shed_id),
-  animal_id uuid NOT NULL REFERENCES public.goats(goat_id),
+  animal_id uuid REFERENCES public.goats(goat_id),
+  scanned_identifier text NOT NULL DEFAULT '',
   weight_kg numeric(8,3) NOT NULL CHECK (weight_kg > 0),
   proof_artifact_id uuid NOT NULL REFERENCES public.proof_artifacts(proof_id),
   expected_location_id uuid,
@@ -84,13 +86,16 @@ CREATE TABLE IF NOT EXISTS public.weighing_observations (
   accepted_at timestamptz NOT NULL DEFAULT now(),
   idempotency_key text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT weighing_observations_mismatch_check CHECK (mismatch_status = ANY (ARRAY['expected_shed','wrong_shed','extra_scan']))
+  CONSTRAINT weighing_observations_mismatch_check CHECK (mismatch_status = ANY (ARRAY['expected_shed','wrong_shed','extra_scan'])),
+  CONSTRAINT weighing_observations_animal_or_identifier_check CHECK (animal_id IS NOT NULL OR btrim(scanned_identifier) <> '')
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS weighing_observations_idempotency_uidx
   ON public.weighing_observations (tenant_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS weighing_observations_campaign_animal_idx
   ON public.weighing_observations (tenant_id, campaign_id, animal_id, accepted_at DESC);
+CREATE INDEX IF NOT EXISTS weighing_observations_campaign_scanned_identifier_idx
+  ON public.weighing_observations (tenant_id, campaign_id, scanned_identifier, accepted_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.weighing_shed_observations (
   shed_observation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

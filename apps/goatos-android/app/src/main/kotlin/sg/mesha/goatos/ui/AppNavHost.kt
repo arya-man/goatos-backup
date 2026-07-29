@@ -473,6 +473,7 @@ internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = nul
     val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
     if (target.isNullOrBlank()) return fallbackDriveRoute
     val normalizedTarget = target.substringBefore('?').trimEnd('/')
+    if (normalizedTarget == Routes.WEIGHING || normalizedTarget == Routes.WEIGHING_SCAN) return target
     if (normalizedTarget == Routes.VACCINATION) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
@@ -703,6 +704,7 @@ fun AppNavHost(
         composable(Routes.WEIGHING) {
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
             WeighingScreen(
                 state = state,
                 onScanInputChange = vm::onScanInputChange,
@@ -715,18 +717,22 @@ fun AppNavHost(
                 onPlannerShedCategory = vm::setPlannerShedCategory,
                 onRefresh = vm::refresh,
                 onOpenAssignment = { assignment ->
-                    navController.navigate(
-                        Routes.weighingScanRoute(
-                            campaignId = assignment.campaignId,
-                            workGroupId = assignment.workGroupId,
-                            campaignShedId = assignment.campaignShedId,
-                            category = assignment.category,
-                            tenantId = assignment.tenantId,
-                            expectedLocationId = assignment.expectedLocationId,
-                            expectedLocationLabel = assignment.expectedLocationLabel,
-                            scanTitle = assignment.label,
-                        ),
-                    ) { launchSingleTop = true }
+                    if (assignment.status.isClosedWeighingAssignmentStatus()) {
+                        Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        navController.navigate(
+                            Routes.weighingScanRoute(
+                                campaignId = assignment.campaignId,
+                                workGroupId = assignment.workGroupId,
+                                campaignShedId = assignment.campaignShedId,
+                                category = assignment.category,
+                                tenantId = assignment.tenantId,
+                                expectedLocationId = assignment.expectedLocationId,
+                                expectedLocationLabel = assignment.expectedLocationLabel,
+                                scanTitle = assignment.label,
+                            ),
+                        ) { launchSingleTop = true }
+                    }
                 },
             )
         }
@@ -1744,6 +1750,12 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
     navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
+
+private fun String.isClosedWeighingAssignmentStatus(): Boolean =
+    when (trim().lowercase()) {
+        "completed", "accepted", "submitted", "done" -> true
+        else -> false
+    }
 
 /**
  * Reverse-maps the Language settings row's native-label value to a language code so

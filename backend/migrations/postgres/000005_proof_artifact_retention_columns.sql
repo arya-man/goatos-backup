@@ -1,10 +1,12 @@
 -- Proof upload completion reads these columns in backend/internal/proof.
 -- Keep this migration idempotent because clean-slate baseline DBs already include them.
+-- +goose Up
 ALTER TABLE public.proof_artifacts
   ADD COLUMN IF NOT EXISTS retention_policy text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS retention_expires_at timestamptz,
   ADD COLUMN IF NOT EXISTS upload_expires_at timestamptz;
 
+-- +goose StatementBegin
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -24,6 +26,7 @@ BEGIN
       ])) NOT VALID;
   END IF;
 END $$;
+-- +goose StatementEnd
 
 ALTER TABLE public.proof_artifacts
   VALIDATE CONSTRAINT proof_artifacts_retention_policy_check;

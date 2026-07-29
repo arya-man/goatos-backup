@@ -557,16 +557,43 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         viewModelScope.launch {
             val match = repository.matchTag(key, tag)
-            val row = match.row
+            val row = match.row ?: unknownWeighingRow(key, tag)
             selectedRow.value = row
             scanInput.value = tag
             message.value = when {
-                row == null -> "Tag not found in this weighing scope."
+                match.row == null -> "New RFID captured for this shed. Enter weight, then capture video."
                 match.outcome == "wrong_shed" ->
                     "Wrong shed scan: expected ${match.expectedLocationLabel}, currently ${match.actualLocationLabel}."
                 else -> "Matched ${row.displayAnimalId}."
             }
         }
+    }
+
+    private fun unknownWeighingRow(key: String, tag: String): WeighingRosterRowEntity {
+        val normalizedTag = tag.trim()
+        val label = normalizedTag.ifBlank { "Unidentified animal" }
+        return WeighingRosterRowEntity(
+            id = "$key:$label",
+            scopeKey = key,
+            tenantId = tenantId,
+            campaignId = campaignId,
+            workGroupId = workGroupId,
+            campaignShedId = campaignShedId,
+            expectedLocationId = expectedLocationId.ifBlank { campaignShedId },
+            expectedLocationLabel = expectedLocationLabel.ifBlank { routeTitle.ifBlank { "Assigned shed" } },
+            actualLocationId = expectedLocationId.takeIf { it.isNotBlank() },
+            actualLocationLabel = expectedLocationLabel.takeIf { it.isNotBlank() },
+            animalId = label,
+            displayAnimalId = label,
+            primaryTag = label,
+            secondaryTag = null,
+            normalizedPrimaryTag = normalizedTag.lowercase(),
+            normalizedSecondaryTag = null,
+            status = "pending",
+            availabilityStatus = null,
+            seq = Long.MAX_VALUE,
+            updatedAt = System.currentTimeMillis(),
+        )
     }
 
     private fun WeighingScopeState?.toUiState(
