@@ -36,14 +36,16 @@ Field roles and vaccination capacity:
 | Chandrakant | `Chandrakant@2026` | **director** | Preventive Care | Vaccination, Weighing | **no** |
 | Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
 | Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
+| Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing only | **no** |
 | Dinakar | `Dinakar@2026` | operator app role; business title Breeding and Growth Director | Breeding & Growth | Weighing only | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
-- Pramod and Dinakar are weighing-only STG users. Dinakar's business title is
-  Breeding and Growth Director, but his current app role is `operator` so the
-  deployed module gate shows only Weighing, not Vaccination or Counts.
+- Pramod, Kumar Sharath, and Dinakar are weighing-only STG users. Dinakar's
+  business title is Breeding and Growth Director, but his current app role is
+  `operator` so the deployed module gate shows only Weighing, not Vaccination
+  or Counts.
 - Counts is temporarily inactive for operator module grants in STG.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
@@ -76,6 +78,7 @@ Canonical current STG credentials:
 | Chandrakant | chandrakanth119527@gmail.com | `Chandrakant@2026` |
 | Jyothi | jyothipvg12345@gmail.com | `Jyothi@2026` |
 | Pramod | pramodsahu616285@gmail.com | `Pramod@2026` |
+| Kumar Sharath | kumarsharath95279@gmail.com | `Kumar@2026` |
 | Dinakar | babureddy315@gmail.com | `Dinakar@2026` |
 
 Do not invent random passwords for these STG accounts.
