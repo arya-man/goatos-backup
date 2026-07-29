@@ -118,6 +118,11 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 
 		route, ok := permissions.Match(r.Method, r.URL.Path)
 		if !ok {
+			a.logAuthFailure(r, http.StatusForbidden, "route_not_registered",
+				slog.String("route", r.Method+" "+r.URL.Path),
+				slog.String("actor_id", userID),
+				slog.String("tenant_id", tenantID),
+			)
 			writeAuthError(w, r, http.StatusForbidden, "route_not_registered", "route is not registered for Phase 1 authorization")
 			return
 		}
@@ -135,6 +140,12 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		ctx = WithAuthGrants(ctx, grants)
 		roles := routeRoles(route, grants, tenantID)
 		if !permissions.RolesAuthorize(roles, route.Permissions, route.AdminOnly) {
+			a.logAuthFailure(r, http.StatusForbidden, "permission_denied",
+				slog.String("route", route.OperationID),
+				slog.String("actor_id", userID),
+				slog.String("tenant_id", tenantID),
+				slog.String("roles", strings.Join(roles, ",")),
+			)
 			writeAuthError(w, r.WithContext(ctx), http.StatusForbidden, "permission_denied", "permission denied")
 			return
 		}
@@ -147,11 +158,18 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 	case AuthModeBearer:
 		token, ok := bearerToken(r.Header.Get("Authorization"))
 		if !ok {
+			a.logAuthFailure(r, http.StatusUnauthorized, "missing_bearer_token",
+				slog.Bool("authorization_header_present", strings.TrimSpace(r.Header.Get("Authorization")) != ""),
+			)
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_bearer_token", "Authorization: Bearer token is required")
 			return r.Context(), "", "", false
 		}
 		claims, err := a.verifier.Verify(token)
 		if err != nil {
+			a.logAuthFailure(r, http.StatusUnauthorized, "invalid_bearer_token",
+				slog.String("error", err.Error()),
+				slog.Int("token_length", len(token)),
+			)
 			writeAuthError(w, r, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
 			return r.Context(), "", "", false
 		}
@@ -159,6 +177,12 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			return r.Context(), "", "", false
 		}
 		if !a.allowedEmails.Allows(claims.Email, claims.EmailVerified) {
+			a.logAuthFailure(r, http.StatusForbidden, "email_not_allowed",
+				slog.String("email", normalizedEmailForLog(claims.Email)),
+				slog.String("firebase_uid", claims.ExternalSubject),
+				slog.String("actor_id", claims.Subject),
+				slog.Bool("email_verified", claims.EmailVerified != nil && *claims.EmailVerified),
+			)
 			writeAuthError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
 			return r.Context(), "", "", false
 		}
@@ -167,6 +191,12 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			tenantID = strings.TrimSpace(TenantIDFromContext(r.Context()))
 		}
 		if !uuidutil.IsUUIDString(tenantID) {
+			a.logAuthFailure(r, http.StatusUnauthorized, "missing_tenant_context",
+				slog.String("email", normalizedEmailForLog(claims.Email)),
+				slog.String("firebase_uid", claims.ExternalSubject),
+				slog.String("actor_id", claims.Subject),
+				slog.String("tenant_id", tenantID),
+			)
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 			return r.Context(), "", "", false
 		}
@@ -176,12 +206,14 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
 		actorID := strings.TrimSpace(r.Header.Get(headerActorID))
 		if tenantID == "" || actorID == "" {
+			a.logAuthFailure(r, http.StatusUnauthorized, "missing_dev_auth_headers")
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_dev_auth_headers", "local development auth headers are required")
 			return r.Context(), "", "", false
 		}
 		ctx := WithActorID(WithTenantID(r.Context(), tenantID), actorID)
 		return ctx, actorID, tenantID, true
 	default:
+		a.logAuthFailure(r, http.StatusUnauthorized, "invalid_auth_mode")
 		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
 		return r.Context(), "", "", false
 	}
@@ -206,6 +238,7 @@ func (a *AuthMiddleware) verifyAppCheck(w http.ResponseWriter, r *http.Request) 
 		return true
 	case AppCheckModeMonitor, AppCheckModeEnforce:
 	default:
+		a.logAuthFailure(r, http.StatusUnauthorized, "invalid_auth_mode")
 		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
 		return false
 	}
@@ -213,6 +246,7 @@ func (a *AuthMiddleware) verifyAppCheck(w http.ResponseWriter, r *http.Request) 
 	token := strings.TrimSpace(r.Header.Get(FirebaseAppCheckHeader))
 	if token == "" {
 		if a.appCheckMode == AppCheckModeEnforce {
+			a.logAuthFailure(r, http.StatusUnauthorized, "missing_app_check")
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_app_check", FirebaseAppCheckHeader+" header is required")
 			return false
 		}
@@ -221,6 +255,9 @@ func (a *AuthMiddleware) verifyAppCheck(w http.ResponseWriter, r *http.Request) 
 	}
 	if _, err := a.appCheckVerifier.Verify(token); err != nil {
 		if a.appCheckMode == AppCheckModeEnforce {
+			a.logAuthFailure(r, http.StatusUnauthorized, "invalid_app_check",
+				slog.String("error", err.Error()),
+			)
 			writeAuthError(w, r, http.StatusUnauthorized, "invalid_app_check", "Firebase App Check token is invalid")
 			return false
 		}
@@ -249,6 +286,27 @@ func (a *AuthMiddleware) logAppCheckMonitor(r *http.Request, result string, err 
 		return
 	}
 	a.log.WarnContext(r.Context(), "app_check_monitor", args...)
+}
+
+func (a *AuthMiddleware) logAuthFailure(r *http.Request, status int, code string, fields ...slog.Attr) {
+	args := []any{
+		slog.String("request_id", RequestIDFromContext(r.Context())),
+		slog.String("trace_id", TraceIDFromContext(r.Context())),
+		slog.String("method", r.Method),
+		slog.String("path", r.URL.Path),
+		slog.Int("status", status),
+		slog.String("code", code),
+		slog.String("remote_addr", r.RemoteAddr),
+		slog.String("user_agent", r.UserAgent()),
+	}
+	for _, field := range fields {
+		args = append(args, field)
+	}
+	a.log.WarnContext(r.Context(), "auth_failed", args...)
+}
+
+func normalizedEmailForLog(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func bearerToken(value string) (string, bool) {
