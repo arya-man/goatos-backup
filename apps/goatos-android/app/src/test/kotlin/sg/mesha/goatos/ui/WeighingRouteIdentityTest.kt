@@ -36,6 +36,7 @@ class WeighingRouteIdentityTest {
         assertTrue(routeAcceptsWeighingRfid("/weighing/scan?campaignId=c&workGroupId=g&campaignShedId=s"))
         assertTrue(routeAcceptsWeighingRfid("/weighing/scan?weighingCategory=individual_animal"))
         assertFalse(routeAcceptsWeighingRfid("/weighing/scan?weighingCategory=per_shed_partition"))
+        assertFalse(routeAcceptsWeighingRfid("/weighing/scan?weighingCategory=%20Per%20Shed%20Partition%20"))
         assertFalse(routeAcceptsWeighingRfid("/weighing"))
         assertFalse(routeAcceptsWeighingRfid("/scan?shedId=shed-1"))
         assertFalse(routeAcceptsWeighingRfid(null))
@@ -50,5 +51,6 @@ class WeighingRouteIdentityTest {
         assertTrue(navHost.contains("WeighingScreen("))
         assertTrue(navHost.contains("vm.setCaptureActive(rfidCaptureEnabled)"))
         assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(rfidCaptureEnabled)"))
+        assertFalse(navHost.contains(") { launchSingleTop = true }\n                    }\n                },"))
     }
 }
