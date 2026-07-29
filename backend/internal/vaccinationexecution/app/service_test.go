@@ -23,6 +23,10 @@ type fakeRepo struct {
 	err         error
 }
 
+func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	return domain.CommandBoardResponse{}, nil
+}
+
 func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
 	if r.err != nil {
 		return nil, r.err

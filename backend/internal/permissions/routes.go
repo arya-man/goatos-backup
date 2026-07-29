@@ -175,6 +175,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listVaccinationDriveAssignments", Method: "GET", Pattern: "/vaccination/drive-assignments", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getVaccinationCommandBoard", Method: "GET", Pattern: "/vaccination/command", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationShedSummary", Method: "GET", Pattern: "/vaccination/sheds", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationShedDetail", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationShedAnimals", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}/animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},

@@ -55,6 +55,10 @@ type fakeReader struct {
 	optionValues  domain.TaskOptionValuesResponse
 }
 
+func (f *fakeReader) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	return domain.CommandBoardResponse{}, nil
+}
+
 type fakeWriter struct {
 	rescheduleID          string
 	rescheduleReplay      bool
