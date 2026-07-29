@@ -123,6 +123,38 @@ device. Use this checklist when Google SSO appears to succeed but the mobile app
 shows "Couldn't load your workspace", returns to login, or crashes immediately
 after login.
 
+### STG bootstrap auth logs
+
+When the app shows "Couldn't load your workspace", start with the backend auth
+failure logs for `/app/bootstrap`:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="goatos-api-stg" AND jsonPayload.msg="auth_failed" AND jsonPayload.path="/app/bootstrap"' \
+  --project=goatos-stg \
+  --limit=50 \
+  --format='table(timestamp,jsonPayload.code,jsonPayload.email,jsonPayload.firebase_uid,jsonPayload.actor_id,jsonPayload.status,httpRequest.remoteIp)'
+```
+
+Interpretation:
+
+- `missing_bearer_token`: the app did not send `Authorization: Bearer ...`.
+  Clear app data, sign in again, and verify the STG app/flavor is installed.
+- `invalid_bearer_token`: the app sent a token, but backend could not validate
+  it. This is usually an expired/wrong-environment Firebase token or bad SSO
+  session. Clear app data and sign in again with the exact expected account.
+- `email_not_allowed`: Firebase token was valid; use `jsonPayload.email` to see
+  the Google account that was actually selected. Add/fix allowlist only if that
+  email is intentionally approved.
+- `missing_tenant_context`: the token was valid, but the request did not carry
+  the required tenant context header.
+- `permission_denied`: auth succeeded; inspect backend grants/materialized
+  workforce profile for the logged `actor_id`.
+
+The logs intentionally do not include bearer tokens. For invalid/missing token
+cases the backend cannot safely know the email, so the log will not have
+`jsonPayload.email`.
+
 ### Required mobile request context
 
 Firebase ID tokens authenticate the Google/Firebase subject, but Goat OS tenant

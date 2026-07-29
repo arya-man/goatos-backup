@@ -1,5 +1,12 @@
 # Goat OS Android changelog
 
+## 0.1.13-stg — 2026-07-29
+
+- Uses the latest staging backend/admin runtime from `origin/main`.
+- Includes the Weighing sync/outbox validator fix and sync sheet behavior update.
+- Keeps the signed staging package on `sg.mesha.goatos.stg`.
+- Points the app at `https://stg-api.dashboard.mesha.sg/`.
+
 ## 0.1.2-stg — 2026-07-21
 
 - Uses the latest staging backend/admin runtime deployed from `origin/main`.

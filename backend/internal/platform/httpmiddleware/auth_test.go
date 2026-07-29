@@ -1,6 +1,7 @@
 package httpmiddleware
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +186,104 @@ func TestBearerAuthRejectsEmailOutsideAllowlist(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	assertAuthErrorCode(t, rec, "email_not_allowed")
+}
+
+func TestBearerAuthLogsFailureReasonAndSafeIdentityContext(t *testing.T) {
+	verified := true
+	externalSubject := "firebase-uid-hr"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	var logBuf bytes.Buffer
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AllowedEmails: []string{"ravi@mesha.sg"}},
+		staticVerifier{claims: platformauth.Claims{
+			Subject:         actorID,
+			ExternalSubject: externalSubject,
+			Issuer:          authTestIssuer,
+			Audience:        authTestAudience,
+			Email:           "HR@Mesha.SG",
+			EmailVerified:   &verified,
+		}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewJSONHandler(&logBuf, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run for an unlisted email")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/app/bootstrap", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	logText := logBuf.String()
+	for _, want := range []string{
+		`"msg":"auth_failed"`,
+		`"code":"email_not_allowed"`,
+		`"path":"/app/bootstrap"`,
+		`"email":"hr@mesha.sg"`,
+		`"firebase_uid":"firebase-uid-hr"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("auth failure log missing %s in %s", want, logText)
+		}
+	}
+	if strings.Contains(logText, "verified-firebase-token") {
+		t.Fatalf("auth failure log leaked bearer token: %s", logText)
+	}
+}
+
+func TestBearerAuthLogsMissingAndInvalidTokenWithoutLeakingBearer(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		authHeader string
+		wantCode   string
+	}{
+		{name: "missing", wantCode: "missing_bearer_token"},
+		{name: "invalid", authHeader: "Bearer not-a-token", wantCode: "invalid_bearer_token"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			mw, err := NewAuthMiddleware(
+				AuthConfig{Mode: AuthModeBearer},
+				testHS256Verifier(t, 24*time.Hour),
+				grantAdapter{fakeGrantSource{}},
+				slog.New(slog.NewJSONHandler(&logBuf, nil)),
+			)
+			if err != nil {
+				t.Fatalf("NewAuthMiddleware: %v", err)
+			}
+			handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				t.Fatal("handler should not run")
+			})))
+			req := httptest.NewRequest(http.MethodGet, "/app/bootstrap", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			logText := logBuf.String()
+			for _, want := range []string{`"msg":"auth_failed"`, `"code":"` + tt.wantCode + `"`, `"path":"/app/bootstrap"`} {
+				if !strings.Contains(logText, want) {
+					t.Fatalf("auth failure log missing %s in %s", want, logText)
+				}
+			}
+			if strings.Contains(logText, "not-a-token") {
+				t.Fatalf("auth failure log leaked bearer token: %s", logText)
+			}
+		})
+	}
 }
 
 func TestBearerAuthRejectsUnverifiedEmailWhenAllowlistIsConfigured(t *testing.T) {

@@ -23,10 +23,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
@@ -160,6 +162,7 @@ class ScanViewModelTest {
             obligationId = "obl-1",
         )
         val scanAttempts = FakeScanAttemptRepository()
+        val proofSource = FakeProofCaptureSource()
         val reader = FakeRfidReaderPort()
 
         // A new ViewModel represents a recreated process. No transient _localDone state exists.
@@ -171,7 +174,7 @@ class ScanViewModelTest {
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
             proofCaptureRepository = FakeProofCaptureRepository(),
-            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
@@ -187,8 +190,10 @@ class ScanViewModelTest {
         reader.emit("TAG-100")
         advanceUntilIdle()
 
-        assertEquals("restored evidence must follow the duplicate path", 1, scanCaptures.recordScanCalls)
-        assertEquals(listOf(RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+        assertEquals("restored proof rescan must repair the durable scan capture idempotently", 2, scanCaptures.recordScanCalls)
+        assertEquals("proof-missing restored evidence must reopen the proof path", 1, proofSource.captureCount)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+        assertEquals("proof_rescan", scanAttempts.calls.single().reason)
     }
 
     @Test
@@ -232,6 +237,196 @@ class ScanViewModelTest {
     fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+        assertEquals("already scanned duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
+    fun `secondary tag for same goat records duplicate attempt but does not count twice`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(scanRow("goat-1", "901007000504418", "obl-1", secondaryTag = "901007000504419")),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("901007000504418")
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+        reader.emit("901007000504419")
+        advanceUntilIdle()
+
+        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(1, scanCaptures.recordScanCalls)
+        assertEquals(
+            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE),
+            scanAttempts.calls.map { it.outcome },
+        )
+        assertEquals(listOf(RfidScanTagRole.PRIMARY, RfidScanTagRole.SECONDARY), scanAttempts.calls.map { it.tagRole })
+        assertEquals("goat-1", scanAttempts.calls[1].goatId)
+        assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        assertEquals(1, scanVm.state.value.doneCount)
+        assertEquals("secondary duplicate stays out of the visible scan list", 1, scanVm.state.value.feed.size)
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+    }
+
+    @Test
+    fun `synced proof replacement requires explicit arm and same RFID rescan`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("unarmed duplicate must not open replacement camera", 1, proofSource.captureCount)
+        assertEquals("goat_already_scanned", scanAttempts.calls.last().reason)
+
+        proofSource.queue(CapturedVideo(localUri = "file://replacement.mp4", startedAtMs = 10, endedAtMs = 20))
+        scanVm.onEvent(ScanEvent.ArmProofReplacement("goat-1"))
+        advanceUntilIdle()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals("armed same-tag scan opens replacement camera", 2, proofSource.captureCount)
+        assertEquals("proof_replace_requested", scanAttempts.calls.last().reason)
+        assertEquals(RfidScanAttemptOutcome.DUPLICATE, scanAttempts.calls.last().outcome)
+        assertEquals("file://replacement.mp4", proofRepo.captureCalls.last().localUri)
+        assertEquals(1, scanCaptures.recordScanCalls)
+    }
+
+    @Test
+    fun `latest replace arm wins and stale duplicate notice is cleared`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-1").copy(status = "done"),
+                        scanRow("goat-2", "TAG-200", "obl-2").copy(status = "done"),
+                    ),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+        seedSyncedProof(proofRepo, "goat-1")
+        seedSyncedProof(proofRepo, "goat-2")
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+
+        scanVm.onEvent(ScanEvent.ArmProofReplacement("goat-1"))
+        advanceUntilIdle()
+        scanVm.onEvent(ScanEvent.ArmProofReplacement("goat-2"))
+        advanceUntilIdle()
+        assertNull("replace intent should not share the duplicate notice strip", scanVm.state.value.duplicateNotice)
+        assertEquals("goat-2", scanVm.state.value.proofReplacementGoatId)
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("wrong armed tag should stay duplicate, not replace", "goat_already_scanned", scanAttempts.calls.last().reason)
+        assertEquals(0, proofSource.captureCount)
+        assertNull(scanVm.state.value.proofReplacementGoatId)
+
+        scanVm.onEvent(ScanEvent.ArmProofReplacement("goat-2"))
+        proofSource.queue(CapturedVideo(localUri = "file://right.mp4", startedAtMs = 30, endedAtMs = 40))
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+
+        assertEquals("proof_replace_requested", scanAttempts.calls.last().reason)
+        assertEquals("file://right.mp4", proofRepo.captureCalls.last().localUri)
+    }
+
+    @Test
+    fun `rescan of proof missing goat repairs durable roster capture`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
@@ -251,57 +446,15 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         reader.emit("TAG-100")
+        advanceUntilIdle()
         reader.emit("TAG-100")
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
-        assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
-        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(2, scanVm.state.value.feed.size)
-        assertTrue(scanVm.state.value.feed.first().vaccineLabel.startsWith("already scanned"))
-        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-    }
-
-    @Test
-    fun `secondary tag for same goat records duplicate attempt but does not count twice`() = runTest(dispatcher) {
-        val scanCaptures = FakeScanCaptureRepository()
-        val scanAttempts = FakeScanAttemptRepository()
-        val reader = FakeRfidReaderPort()
-        val scanVm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(
-                    rows = listOf(scanRow("goat-1", "901007000504418", "obl-1", secondaryTag = "901007000504419")),
-                ),
-            ),
-            reader = reader,
-            scanCaptureRepository = scanCaptures,
-            scanAttemptRepository = scanAttempts,
-            proofCaptureRepository = FakeProofCaptureRepository(),
-            proofCaptureSource = FakeProofCaptureSource(),
-            bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
-        )
-        backgroundScope.launch { scanVm.state.collect {} }
-        advanceUntilIdle()
-
-        reader.emit("901007000504418")
-        reader.emit("901007000504419")
-        advanceUntilIdle()
-
-        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
-        assertEquals(1, scanCaptures.recordScanCalls)
-        assertEquals(
-            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE),
-            scanAttempts.calls.map { it.outcome },
-        )
-        assertEquals(listOf(RfidScanTagRole.PRIMARY, RfidScanTagRole.SECONDARY), scanAttempts.calls.map { it.tagRole })
-        assertEquals("goat-1", scanAttempts.calls[1].goatId)
-        assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
-        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-        assertEquals(1, scanVm.state.value.doneCount)
-        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
+        assertEquals("proof rescan must repair the durable scan capture idempotently", 2, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+        assertEquals("proof_rescan", scanAttempts.calls[1].reason)
+        assertNull("proof rescan is not a duplicate notice", scanVm.state.value.duplicateNotice)
     }
 
     @Test
@@ -492,6 +645,137 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `refresh writes shed-specific completion summary used by proof gate`() = runTest(dispatcher) {
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            summaryOnRefresh = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = true,
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("shed-1", tasks.refreshedShedIds.single())
+        assertTrue("server-confirmed shed proof readiness clears stale local orange state", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
+    fun `server proof override still obeys backend submit enabled gate`() = runTest(dispatcher) {
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = false,
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("local UI must not override a backend submit block with matching counts", vm.state.value.canSubmit)
+        assertEquals(listOf("goat-1", "goat-2", "goat-3"), vm.state.value.proofActionNeeded.map { it.goatId })
+    }
+
+    @Test
+    fun `task-wide persisted scans do not block current shed finalize`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        (1..3).forEach {
+            scanCaptures.recordScan(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-$it",
+                goatId = "goat-$it",
+                obligationId = "obl-$it",
+                capturedAtMs = it.toLong(),
+            )
+        }
+        val proofRepo = FakeProofCaptureRepository()
+        seedSyncedProof(proofRepo, "goat-4")
+        seedSyncedProof(proofRepo, "goat-5")
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-2", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 5,
+                handledCount = 3,
+                proofReadyCount = 2,
+                proofMode = "per_goat_video",
+                submitEnabled = false,
+                blockingReason = "2 of 5 animals are not yet scanned.",
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-4", "TAG-4", "obl-4").copy(status = "done"),
+                    scanRow("goat-5", "TAG-5", "obl-5").copy(status = "done"),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-2", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.pendingCount)
+        assertEquals(listOf("goat-4", "goat-5"), vm.state.value.roster.map { it.goatId })
+        assertTrue("Shed 2 finalize must ignore task-wide Shed 1 scans", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
     fun `shed-level proof policy does not show per-animal camera proof actions`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val vm = proofGateVm(
@@ -603,7 +887,7 @@ class ScanViewModelTest {
 
         assertTrue("the bounded window still has more rows", vm.state.value.hasMore)
         assertEquals(1, vm.state.value.doneCount)
-        assertTrue("persisted scan below the first page must render in Scanned goats", vm.state.value.feed.any { it.primaryTag == "TAG-21" })
+        assertTrue("persisted proof-missing scan below the first page must render in proof action rows", vm.state.value.proofActionNeeded.any { it.primaryTag == "TAG-21" })
         assertEquals(ScanStatus.DONE, vm.state.value.roster.single { it.goatId == "goat-21" }.status)
         assertEquals("scan screen re-entry must re-enqueue durable Room scans", 1, scanCaptures.enqueuePendingScansCalls)
     }

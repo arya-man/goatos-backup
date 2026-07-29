@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
-    <string name="verify_detail_recorded_answer">ಉತ್ತರ: %1$s</string>
-    <string name="verify_detail_death_video">ಮರಣದ ವೀಡಿಯೊ</string>
-    <string name="verify_detail_post_mortem_video">ಮರಣೋತ್ತರ ಪರೀಕ್ಷೆಯ ವೀಡಿಯೊ</string>
+    <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
+    <string name="verify_module_weighing">ತೂಕ</string>
     <string name="verify_module_birth">ಜನನ</string>
     <string name="verify_module_death">ಮರಣ</string>
-    <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
+    <string name="verify_module_counts">ಎಣಿಕೆ</string>
     <string name="verify_module_shifting">ಸ್ಥಳಾಂತರ</string>
     <string name="verify_module_packing">ಪ್ಯಾಕಿಂಗ್</string>
     <string name="verify_module_feed_direction">ಆಹಾರ ನಿರ್ದೇಶನ</string>
+    <string name="verify_module_transport">ಸಾಗಣೆ</string>
+    <string name="verify_module_under_construction">ನಿರ್ಮಾಣ ಹಂತದಲ್ಲಿದೆ</string>
+    <string name="verify_module_under_construction_subtitle">ಇದರ ಕಾರ್ಯಪ್ರವಾಹ ಸಿದ್ಧವಾದಾಗ ಈ ಪರಿಶೀಲನಾ ಸರತಿ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ.</string>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
     <string name="verify_action_queue_title">ಲಸಿಕೆ ವೀಡಿಯೊಗಳು</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
@@ -19,6 +21,10 @@
     <string name="verify_action_queue_empty_subtitle">ಸಲ್ಲಿಸಿದ ಲಸಿಕೆ ವೀಡಿಯೊಗಳು ನಿರ್ದೇಶಕರ ಪರಿಶೀಲನೆಗೆ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ</string>
     <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="verify_scope_all">ಎಲ್ಲಾ</string>
+    <string name="verify_scope_individual">ಪ್ರತ್ಯೇಕ (%1$d)</string>
+    <string name="verify_scope_lumpsum">ಒಟ್ಟು ತೂಕ (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d ಸಾಲುಗಳು · %2$d ವೀಡಿಯೊಗಳು</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
     <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>
@@ -28,6 +34,7 @@
     <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
     <string name="verify_detail_operator_label">ಆಪರೇಟರ್</string>
     <string name="verify_detail_captured_label">ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ</string>
+    <string name="verify_detail_recorded_answer">ದಾಖಲಿಸಲಾಗಿದೆ: %1$s</string>
     <string name="verify_detail_no_media">ಈ ಐಟಂಗೆ ಯಾವುದೇ ವೀಡಿಯೊ ಲಗತ್ತಿಸಿಲ್ಲ</string>
     <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
     <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>
@@ -53,5 +60,4 @@
     <string name="verify_status_approved">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
     <string name="verify_status_rejected">ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
     <string name="verify_category_all">ಎಲ್ಲಾ</string>
-    <string name="verify_module_transport">ಸಾಗಣೆ</string>
 </resources>

@@ -1,5 +1,7 @@
 package sg.mesha.goatos.core.data.capture
 
+import android.database.SQLException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
@@ -62,10 +64,21 @@ interface ScanCaptureRepository {
         capturedAtMs: Long? = null,
     )
 
+    /** Persists a free-flow scan locally without creating a vaccination scan outbox item.
+     * Returns false when the same normalized tag already exists for this task/field. */
+    suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long? = null,
+    ): Boolean
+
     /** Re-enqueues already-durable Room scan rows as backend draft captures. This is idempotent
      *  and exists for app/process re-entry after a prior build or crash left local evidence without
      *  a matching outbox row. */
     suspend fun enqueuePendingScans(taskId: String, fieldKey: String)
+
+    suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String)
 
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
      *  shed-submit answer payload. */
@@ -127,6 +140,31 @@ class DefaultScanCaptureRepository(
         )
     }
 
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+    ): Boolean {
+        val normalized = tag.filter { it.isLetterOrDigit() }.lowercase()
+        if (normalized.isBlank()) return false
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
+        return withContext(dispatchers.io) {
+            dao.insert(
+                ScannedGoatEntity(
+                    id = idGenerator(),
+                    taskId = taskId,
+                    fieldKey = fieldKey,
+                    tag = normalized,
+                    goatId = null,
+                    obligationId = null,
+                    capturedAtMs = durableCapturedAtMs,
+                    syncStatus = EntitySyncStatus.PENDING.name,
+                ),
+            ) > 0L
+        }
+    }
+
     override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
         if (syncRepository == null) return
         val rows = withContext(dispatchers.io) {
@@ -142,6 +180,15 @@ class DefaultScanCaptureRepository(
                 capturedAtMs = row.capturedAtMs,
             )
         }
+    }
+
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = withContext(dispatchers.io) {
+        dao.markFieldTagStatus(
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = tag.filter { it.isLetterOrDigit() }.lowercase(),
+            status = EntitySyncStatus.SYNCED.name,
+        )
     }
 
     private suspend fun enqueueScanCapture(
@@ -213,6 +260,7 @@ interface ScanAttemptRepository {
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long? = null,
     )
 
     suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow>
@@ -223,6 +271,7 @@ interface ScanAttemptRepository {
 class DefaultScanAttemptRepository(
     private val dao: RfidScanAttemptDao,
     private val syncRepository: SyncRepository? = null,
+    private val appScope: CoroutineScope = CoroutineScope(DefaultDispatchers.io),
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -239,12 +288,13 @@ class DefaultScanAttemptRepository(
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long?,
     ) {
         val trimmed = tag.trim()
         val normalized = normalizeTag(trimmed)
         if (trimmed.isEmpty() || normalized.isEmpty()) return
         val id = idGenerator()
-        val capturedAtMs = clock()
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
         val idempotencyKey = "scan-attempt:$taskId:$id"
         val entity = RfidScanAttemptEntity(
             id = id,
@@ -257,13 +307,13 @@ class DefaultScanAttemptRepository(
             outcome = outcome.wireValue,
             tagRole = tagRole.wireValue,
             reason = reason?.takeIf { it.isNotBlank() },
-            capturedAtMs = capturedAtMs,
+            capturedAtMs = durableCapturedAtMs,
             syncStatus = EntitySyncStatus.PENDING.name,
             idempotencyKey = idempotencyKey,
         )
         val inserted = withContext(dispatchers.io) { dao.insert(entity) }
         if (inserted <= 0L) return
-        syncRepository?.enqueueScanAttempt(
+        when (val result = syncRepository?.enqueueScanAttempt(
             taskId = taskId,
             groupKey = taskId,
             idempotencyKey = idempotencyKey,
@@ -276,9 +326,43 @@ class DefaultScanAttemptRepository(
                 outcome = outcome.wireValue,
                 tagRole = tagRole.wireValue,
                 reason = reason?.takeIf { it.isNotBlank() },
-                capturedAtMs = capturedAtMs,
+                capturedAtMs = durableCapturedAtMs,
             ),
-        )
+        )) {
+            is AppResult.Ok -> followAttemptOutboxItem(id, result.value)
+            is AppResult.Err -> dao.updateStatus(id, EntitySyncStatus.FAILED.name)
+            null -> Unit
+        }
+    }
+
+    private fun followAttemptOutboxItem(rowId: String, outboxItemId: String) {
+        val repo = syncRepository ?: return
+        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
+            try {
+                repo.observeItem(outboxItemId)
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .transformWhile { item ->
+                        emit(item)
+                        item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
+                    }
+                    .collect { item ->
+                        when {
+                            item.status == SyncItemStatus.IN_FLIGHT ->
+                                dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name)
+                            item.status == SyncItemStatus.SUCCEEDED ->
+                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name)
+                            item.isDeadLetter || item.conflict ->
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name)
+                            else -> Unit
+                        }
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SQLException) {
+                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+            }
+        }
     }
 
     override suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow> = withContext(dispatchers.io) {
@@ -442,7 +526,8 @@ class DefaultProofCaptureRepository(
                 dao.activeCountForSubjectType(taskId, subject.wireValue)
             else -> 0
         }
-        if (existing >= maxPerSubject) {
+        val bypassHistoricalGoatProofCap = subject == ProofSubject.GOAT && effectiveSubjectId != null
+        if (!bypassHistoricalGoatProofCap && existing >= maxPerSubject) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
@@ -664,7 +749,7 @@ class DefaultProofCaptureRepository(
         )
         when (
             val result = syncRepository.enqueueProofUpload(
-                groupKey = scopeId.ifBlank { entity.taskId },
+                groupKey = proofUploadGroupKey(entity, scopeId),
                 idempotencyKey = entity.idempotencyKey,
                 request = request,
                 localFilePath = entity.localUri,
@@ -679,6 +764,14 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    private fun proofUploadGroupKey(entity: ProofCaptureEntity, scopeId: String): String =
+        when {
+            entity.proofSubject.equals(ProofSubject.GOAT.wireValue, ignoreCase = true) &&
+                !entity.subjectId.isNullOrBlank() -> entity.subjectId.orEmpty()
+            scopeId.isNotBlank() -> scopeId
+            else -> entity.taskId
+        }
+
     /** R50-029: follows one outbox item to ITS terminal state via observeItem (by-id, window-independent),
      *  then stops — [transformWhile] ends the collection right after the terminal emission, so this
      *  coroutine (and its subscription to the per-item [SyncRepository.observeItem] flow) does not
@@ -687,33 +780,39 @@ class DefaultProofCaptureRepository(
      *  before reaching its terminal state. */
     private fun followOutboxItem(rowId: String, outboxItemId: String) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            syncRepository.observeItem(outboxItemId)
-                .filterNotNull()
-                .distinctUntilChanged()
-                .transformWhile { item ->
-                    emit(item)
-                    item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
-                }
-                .collect { item ->
-                    when {
-                        item.status == SyncItemStatus.IN_FLIGHT ->
-                            dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
-                        item.status == SyncItemStatus.SUCCEEDED -> {
-                            val proofId = decodeServerProofId(item.resultJson)
-                            if (proofId.isNullOrBlank()) {
-                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
-                            } else {
-                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
-                                // R50-028: the video is durably server-side now — reclaim the
-                                // device-local copy so a long shift's captures cannot fill storage.
-                                dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
-                            }
-                        }
-                        item.isDeadLetter || item.conflict ->
-                            dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
-                        else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
+            try {
+                syncRepository.observeItem(outboxItemId)
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .transformWhile { item ->
+                        emit(item)
+                        item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
                     }
-                }
+                    .collect { item ->
+                        when {
+                            item.status == SyncItemStatus.IN_FLIGHT ->
+                                dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
+                            item.status == SyncItemStatus.SUCCEEDED -> {
+                                val proofId = decodeServerProofId(item.resultJson)
+                                if (proofId.isNullOrBlank()) {
+                                    dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                                } else {
+                                    dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                                    // R50-028: the video is durably server-side now — reclaim the
+                                    // device-local copy so a long shift's captures cannot fill storage.
+                                    dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
+                                }
+                            }
+                            item.isDeadLetter || item.conflict ->
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
+                            else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
+                        }
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SQLException) {
+                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+            }
         }
     }
 

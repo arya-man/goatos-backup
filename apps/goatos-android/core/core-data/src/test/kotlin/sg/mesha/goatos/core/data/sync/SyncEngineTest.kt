@@ -1,9 +1,14 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -356,7 +361,20 @@ class SyncEngineTest {
     @Test
     fun `dispatches a SCAN_CAPTURE item via the scan-captures endpoint with its idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
+        val scannedGoatDao = FakeScannedGoatDao()
         val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
+        scannedGoatDao.insert(
+            ScannedGoatEntity(
+                id = "scan-row-1",
+                taskId = "task-1",
+                fieldKey = "__scan_roster__",
+                tag = "901007000504392",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                capturedAtMs = 123L,
+                syncStatus = CaptureSyncStatus.PENDING.name,
+            ),
+        )
         store.insert(
             OutboxEntity(
                 id = "row-scan-1",
@@ -405,7 +423,13 @@ class SyncEngineTest {
                 )
             }
         }
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { 0L },
+            scannedGoatDao = scannedGoatDao,
+        )
 
         engine.drainOnce()
 
@@ -413,6 +437,10 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals("901007000504392", seenTag)
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(
+            CaptureSyncStatus.SYNCED.name,
+            scannedGoatDao.listForField("task-1", "__scan_roster__").single().syncStatus,
+        )
     }
 
     @Test
@@ -482,6 +510,90 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals("duplicate", seenOutcome)
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+    }
+
+    @Test
+    fun `offline SCAN_ATTEMPT stays queued then syncs unchanged when online`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "scan-attempt:task-1:unknown-419"
+        store.insert(
+            OutboxEntity(
+                id = "row-attempt-offline",
+                opType = OutboxOpType.SCAN_ATTEMPT.name,
+                groupKey = "task-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    ScanAttemptPayload(
+                        taskId = "task-1",
+                        request = ScanAttemptRequestDto(
+                            fieldKey = "__scan_roster__",
+                            tag = "901007000504419",
+                            normalizedTag = "901007000504419",
+                            goatId = null,
+                            obligationId = null,
+                            outcome = "unknown",
+                            tagRole = "unknown",
+                            reason = "unknown_tag",
+                            capturedAtMs = 9_001L,
+                        ),
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var online = false
+        var scanAttemptCalls = 0
+        var seenKey: String? = null
+        var seenRequest: ScanAttemptRequestDto? = null
+        val api = ScriptedAppApi().apply {
+            recordScanAttemptFn = { taskId, key, request ->
+                assertEquals("task-1", taskId)
+                scanAttemptCalls++
+                seenKey = key
+                seenRequest = request
+                ScanAttemptResponseDto(
+                    attempt = ScanAttemptDto(
+                        attemptId = "attempt-offline",
+                        taskId = taskId,
+                        fieldKey = request.fieldKey,
+                        tag = request.tag,
+                        goatId = request.goatId,
+                        obligationId = request.obligationId,
+                        outcome = request.outcome,
+                        tagRole = request.tagRole,
+                        reason = request.reason,
+                    ),
+                )
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { online }, clock = { 0L })
+
+        val offlineResult = engine.drainOnce()
+
+        assertEquals(false, offlineResult)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("row-attempt-offline")!!.status)
+        assertEquals(0, store.findById("row-attempt-offline")!!.attemptCount)
+        assertEquals(0, scanAttemptCalls)
+
+        online = true
+        engine.drainOnce()
+
+        val row = store.findById("row-attempt-offline")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(1, scanAttemptCalls)
+        assertEquals(idempotencyKey, seenKey)
+        assertEquals("901007000504419", seenRequest!!.tag)
+        assertEquals("unknown", seenRequest!!.outcome)
+        assertEquals("unknown_tag", seenRequest!!.reason)
+        assertEquals(9_001L, seenRequest!!.capturedAtMs)
     }
 
     @Test
@@ -945,6 +1057,55 @@ class SyncEngineTest {
 
         assertTrue(engine.drainOnce())
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-1")!!.status)
+    }
+}
+
+private class FakeScannedGoatDao : ScannedGoatDao {
+    private val rows = mutableListOf<ScannedGoatEntity>()
+
+    override suspend fun insert(entity: ScannedGoatEntity): Long {
+        if (rows.any { it.taskId == entity.taskId && it.fieldKey == entity.fieldKey && it.tag == entity.tag }) {
+            return -1L
+        }
+        rows += entity
+        return 1L
+    }
+
+    override fun observeForField(taskId: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit))
+
+    override suspend fun listForField(taskId: String, fieldKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit)
+
+    override fun observeCountForField(taskId: String, fieldKey: String): Flow<Int> =
+        flowOf(rows.count { it.taskId == taskId && it.fieldKey == fieldKey })
+
+    override suspend fun listForTask(taskId: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId }.take(limit)
+
+    override fun observeForTask(taskId: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId }.take(limit))
+
+    override suspend fun markTaskStatus(taskId: String, status: String) {
+        rows.replaceAll { row -> if (row.taskId == taskId) row.copy(syncStatus = status) else row }
+    }
+
+    override suspend fun markFieldTagStatus(taskId: String, fieldKey: String, tag: String, status: String) {
+        rows.replaceAll { row ->
+            if (row.taskId == taskId && row.fieldKey == fieldKey && row.tag == tag) {
+                row.copy(syncStatus = status)
+            } else {
+                row
+            }
+        }
+    }
+
+    override suspend fun clearForTask(taskId: String) {
+        rows.removeAll { it.taskId == taskId }
+    }
+
+    override suspend fun clearAll() {
+        rows.clear()
     }
 }
 

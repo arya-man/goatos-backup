@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 22,
-    "identityHash": "a903e3271e99a5b326ffb861dfe18d62",
+    "identityHash": "3f5d02f8037aaa8d912b3b4d00d7f50c",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -1909,9 +1909,15 @@
         }
       },
       {
-        "tableName": "feed_transport_scoped_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `taskId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `taskId`))",
+        "tableName": "weighing_roster_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, `displayAnimalId` TEXT NOT NULL, `primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, `normalizedPrimaryTag` TEXT NOT NULL, `normalizedSecondaryTag` TEXT, `status` TEXT NOT NULL, `availabilityStatus` TEXT, `seq` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
           {
             "fieldPath": "scopeKey",
             "columnName": "scopeKey",
@@ -1919,21 +1925,100 @@
             "notNull": true
           },
           {
-            "fieldPath": "taskId",
-            "columnName": "taskId",
+            "fieldPath": "tenantId",
+            "columnName": "tenantId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "sortIndex",
-            "columnName": "sortIndex",
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workGroupId",
+            "columnName": "workGroupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignShedId",
+            "columnName": "campaignShedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationId",
+            "columnName": "expectedLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationLabel",
+            "columnName": "expectedLocationLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actualLocationId",
+            "columnName": "actualLocationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "actualLocationLabel",
+            "columnName": "actualLocationLabel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "animalId",
+            "columnName": "animalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayAnimalId",
+            "columnName": "displayAnimalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "primaryTag",
+            "columnName": "primaryTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "secondaryTag",
+            "columnName": "secondaryTag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "normalizedPrimaryTag",
+            "columnName": "normalizedPrimaryTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedSecondaryTag",
+            "columnName": "normalizedSecondaryTag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availabilityStatus",
+            "columnName": "availabilityStatus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
             "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "dtoJson",
-            "columnName": "dtoJson",
-            "affinity": "TEXT",
             "notNull": true
           },
           {
@@ -1946,27 +2031,71 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeKey",
-            "taskId"
+            "id"
           ]
         },
         "indices": [
           {
-            "name": "index_feed_transport_scoped_items_scopeKey_sortIndex",
+            "name": "index_weighing_roster_row_scopeKey",
+            "unique": false,
+            "columnNames": [
+              "scopeKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey` ON `${TABLE_NAME}` (`scopeKey`)"
+          },
+          {
+            "name": "index_weighing_roster_row_scopeKey_seq",
             "unique": false,
             "columnNames": [
               "scopeKey",
-              "sortIndex"
+              "seq"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_scopeKey_sortIndex` ON `${TABLE_NAME}` (`scopeKey`, `sortIndex`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_seq` ON `${TABLE_NAME}` (`scopeKey`, `seq`)"
+          },
+          {
+            "name": "index_weighing_roster_row_scopeKey_normalizedPrimaryTag",
+            "unique": false,
+            "columnNames": [
+              "scopeKey",
+              "normalizedPrimaryTag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedPrimaryTag` ON `${TABLE_NAME}` (`scopeKey`, `normalizedPrimaryTag`)"
+          },
+          {
+            "name": "index_weighing_roster_row_scopeKey_normalizedSecondaryTag",
+            "unique": false,
+            "columnNames": [
+              "scopeKey",
+              "normalizedSecondaryTag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedSecondaryTag` ON `${TABLE_NAME}` (`scopeKey`, `normalizedSecondaryTag`)"
+          },
+          {
+            "name": "index_weighing_roster_row_campaignId_animalId",
+            "unique": true,
+            "columnNames": [
+              "campaignId",
+              "animalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_animalId` ON `${TABLE_NAME}` (`campaignId`, `animalId`)"
           }
         ]
       },
       {
-        "tableName": "feed_transport_scoped_remote_keys",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `filtersJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        "tableName": "weighing_observation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, `scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
         "fields": [
+          {
+            "fieldPath": "observationId",
+            "columnName": "observationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
           {
             "fieldPath": "scopeKey",
             "columnName": "scopeKey",
@@ -1974,40 +2103,286 @@
             "notNull": true
           },
           {
-            "fieldPath": "nextCursor",
-            "columnName": "nextCursor",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "endReached",
-            "columnName": "endReached",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "filtersJson",
-            "columnName": "filtersJson",
+            "fieldPath": "tenantId",
+            "columnName": "tenantId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workGroupId",
+            "columnName": "workGroupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignShedId",
+            "columnName": "campaignShedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationId",
+            "columnName": "expectedLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationLabel",
+            "columnName": "expectedLocationLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actualLocationId",
+            "columnName": "actualLocationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "actualLocationLabel",
+            "columnName": "actualLocationLabel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "animalId",
+            "columnName": "animalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scannedIdentifier",
+            "columnName": "scannedIdentifier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weightKg",
+            "columnName": "weightKg",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proofCaptureId",
+            "columnName": "proofCaptureId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "serverProofId",
+            "columnName": "serverProofId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "syncStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capturedAtMs",
+            "columnName": "capturedAtMs",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeKey"
+            "observationId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_weighing_observation_idempotencyKey",
+            "unique": true,
+            "columnNames": [
+              "idempotencyKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_idempotencyKey` ON `${TABLE_NAME}` (`idempotencyKey`)"
+          },
+          {
+            "name": "index_weighing_observation_scopeKey_capturedAtMs",
+            "unique": false,
+            "columnNames": [
+              "scopeKey",
+              "capturedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` ON `${TABLE_NAME}` (`scopeKey`, `capturedAtMs`)"
+          },
+          {
+            "name": "index_weighing_observation_campaignId_animalId",
+            "unique": true,
+            "columnNames": [
+              "campaignId",
+              "animalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_animalId` ON `${TABLE_NAME}` (`campaignId`, `animalId`)"
+          },
+          {
+            "name": "index_weighing_observation_campaignId_workGroupId_campaignShedId",
+            "unique": false,
+            "columnNames": [
+              "campaignId",
+              "workGroupId",
+              "campaignShedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` ON `${TABLE_NAME}` (`campaignId`, `workGroupId`, `campaignShedId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_shed_observation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shedObservationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `resultJson` TEXT NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`shedObservationId`))",
+        "fields": [
+          {
+            "fieldPath": "shedObservationId",
+            "columnName": "shedObservationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scopeKey",
+            "columnName": "scopeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tenantId",
+            "columnName": "tenantId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workGroupId",
+            "columnName": "workGroupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignShedId",
+            "columnName": "campaignShedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationId",
+            "columnName": "expectedLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocationLabel",
+            "columnName": "expectedLocationLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultJson",
+            "columnName": "resultJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proofCaptureId",
+            "columnName": "proofCaptureId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "serverProofId",
+            "columnName": "serverProofId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "syncStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capturedAtMs",
+            "columnName": "capturedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shedObservationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_shed_observation_idempotencyKey",
+            "unique": true,
+            "columnNames": [
+              "idempotencyKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_idempotencyKey` ON `${TABLE_NAME}` (`idempotencyKey`)"
+          },
+          {
+            "name": "index_weighing_shed_observation_campaignId_campaignShedId",
+            "unique": true,
+            "columnNames": [
+              "campaignId",
+              "campaignShedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_campaignId_campaignShedId` ON `${TABLE_NAME}` (`campaignId`, `campaignShedId`)"
+          },
+          {
+            "name": "index_weighing_shed_observation_scopeKey_capturedAtMs",
+            "unique": false,
+            "columnNames": [
+              "scopeKey",
+              "capturedAtMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_shed_observation_scopeKey_capturedAtMs` ON `${TABLE_NAME}` (`scopeKey`, `capturedAtMs`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a903e3271e99a5b326ffb861dfe18d62')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3f5d02f8037aaa8d912b3b4d00d7f50c')"
     ]
   }
 }

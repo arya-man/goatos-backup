@@ -1,0 +1,385 @@
+{
+  "fixture_id": "weighing_e2e_2026_07_29",
+  "business_date": "2026-07-29",
+  "tenant_id": "11111111-1111-4111-8111-111111111111",
+  "park_id": "22222222-2222-4222-8222-222222222222",
+  "campaign": {
+    "campaign_id": "33333333-3333-4333-8333-333333333333",
+    "period_start_date": "2026-07-26",
+    "period_end_date": "2026-08-01",
+    "start_business_date": "2026-07-29",
+    "cadence_type": "weekly_kids",
+    "animal_group_filter": "kids_k_f",
+    "planned_cap_per_day": 100,
+    "status": "published",
+    "operator_code": "amit_operator"
+  },
+  "personas": [
+    {
+      "code": "ravi_ceo",
+      "display_name": "Ravi",
+      "grant_role": "ceo_internal",
+      "workforce_hint": "cxo",
+      "capabilities": ["weighing.plan", "weighing.monitor"],
+      "expected_access": {
+        "create": true,
+        "edit": true,
+        "publish": true,
+        "monitor": true,
+        "execute": false
+      }
+    },
+    {
+      "code": "dinakar_director",
+      "display_name": "Dinakar",
+      "grant_role": "pc_director",
+      "workforce_hint": "director",
+      "capabilities": ["weighing.monitor"],
+      "expected_access": {
+        "create": false,
+        "edit": false,
+        "publish": false,
+        "monitor": true,
+        "execute": false
+      }
+    },
+    {
+      "code": "amit_operator",
+      "display_name": "Amit",
+      "grant_role": "field_operator",
+      "workforce_hint": "operator",
+      "capabilities": ["weighing.execute"],
+      "expected_access": {
+        "create": false,
+        "edit": false,
+        "publish": false,
+        "monitor": false,
+        "execute": true
+      }
+    },
+    {
+      "code": "unauthorized_viewer",
+      "display_name": "No Weighing Role",
+      "grant_role": "viewer",
+      "workforce_hint": "viewer",
+      "capabilities": [],
+      "expected_access": {
+        "create": false,
+        "edit": false,
+        "publish": false,
+        "monitor": false,
+        "execute": false
+      }
+    }
+  ],
+  "selected_scopes": [
+    {
+      "campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "location_id": "55555555-0001-4555-8555-555555555551",
+      "display_name": "Kid Shed A / Part 1",
+      "location_type": "shed",
+      "weighing_category": "individual_animal",
+      "expected_animal_count": 4
+    },
+    {
+      "campaign_shed_id": "44444444-0002-4444-8444-444444444442",
+      "location_id": "55555555-0002-4555-8555-555555555552",
+      "display_name": "Kid Shed B / Part 2",
+      "location_type": "shed",
+      "weighing_category": "individual_animal",
+      "expected_animal_count": 2
+    },
+    {
+      "campaign_shed_id": "44444444-0003-4444-8444-444444444443",
+      "location_id": "55555555-0003-4555-8555-555555555553",
+      "display_name": "Kid Shed C Lumpsum",
+      "location_type": "shed",
+      "weighing_category": "per_shed_partition",
+      "expected_animal_count": 120
+    }
+  ],
+  "work_groups": [
+    {
+      "work_group_id": "66666666-0001-4666-8666-666666666661",
+      "sequence_no": 1,
+      "planned_business_date": "2026-07-29",
+      "effective_business_date": "2026-07-29",
+      "campaign_shed_ids": [
+        "44444444-0001-4444-8444-444444444441",
+        "44444444-0003-4444-8444-444444444443"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "work_group_id": "66666666-0002-4666-8666-666666666662",
+      "sequence_no": 2,
+      "planned_business_date": "2026-07-30",
+      "effective_business_date": "2026-08-02",
+      "rolled_from_date": "2026-07-30",
+      "campaign_shed_ids": ["44444444-0002-4444-8444-444444444442"],
+      "status": "delayed"
+    }
+  ],
+  "animals": [
+    {
+      "animal_id": "77777777-0001-4777-8777-777777777771",
+      "rfid": "WG-RFID-0001",
+      "display_id": "KID-A-001",
+      "expected_campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "expected_location_label": "Kid Shed A / Part 1",
+      "current_location_label": "Kid Shed A / Part 1",
+      "current_truth": "active_expected_shed",
+      "expected_status": "weighed"
+    },
+    {
+      "animal_id": "77777777-0002-4777-8777-777777777772",
+      "rfid": "WG-RFID-0002",
+      "display_id": "KID-A-002",
+      "expected_campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "expected_location_label": "Kid Shed A / Part 1",
+      "current_location_label": "Kid Shed B / Part 2",
+      "current_truth": "moved_other_shed",
+      "expected_status": "weighed",
+      "mismatch_required": true
+    },
+    {
+      "animal_id": "77777777-0003-4777-8777-777777777773",
+      "rfid": "WG-RFID-0003",
+      "display_id": "KID-A-003",
+      "expected_campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "expected_location_label": "Kid Shed A / Part 1",
+      "current_location_label": "ICU",
+      "current_truth": "icu",
+      "expected_status": "unavailable"
+    },
+    {
+      "animal_id": "77777777-0004-4777-8777-777777777774",
+      "rfid": "WG-RFID-0004",
+      "display_id": "KID-A-004",
+      "expected_campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "expected_location_label": "Kid Shed A / Part 1",
+      "current_location_label": "Kid Shed A / Part 1",
+      "current_truth": "active_expected_shed",
+      "expected_status": "pending"
+    },
+    {
+      "animal_id": "77777777-0005-4777-8777-777777777775",
+      "rfid": "WG-RFID-0005",
+      "display_id": "KID-B-001",
+      "expected_campaign_shed_id": "44444444-0002-4444-8444-444444444442",
+      "expected_location_label": "Kid Shed B / Part 2",
+      "current_location_label": "Sold/Transferred",
+      "current_truth": "sold_transferred",
+      "expected_status": "unavailable"
+    },
+    {
+      "animal_id": "77777777-0006-4777-8777-777777777776",
+      "rfid": "WG-RFID-5001",
+      "display_id": "KID-B-5001",
+      "expected_campaign_shed_id": "44444444-0002-4444-8444-444444444442",
+      "expected_location_label": "Kid Shed B / Part 2",
+      "current_location_label": "Kid Shed B / Part 2",
+      "current_truth": "active_expected_shed",
+      "expected_status": "weighed",
+      "off_page": true
+    },
+    {
+      "animal_id": "77777777-0099-4777-8777-777777777799",
+      "rfid": "WG-RFID-X999",
+      "display_id": "EXTRA-999",
+      "expected_campaign_shed_id": null,
+      "expected_location_label": null,
+      "current_location_label": "Adult Shed Z",
+      "current_truth": "active_not_in_campaign",
+      "expected_status": "not_in_campaign"
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "88888888-0001-4888-8888-888888888881",
+      "animal_id": "77777777-0001-4777-8777-777777777771",
+      "work_group_id": "66666666-0001-4666-8666-666666666661",
+      "campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "weight_kg": 13.4,
+      "location_match_status": "expected",
+      "proof_artifact_id": "99999999-0001-4999-8999-999999999991",
+      "status": "accepted",
+      "idempotency_key": "weighing:33333333:66666666-0001:77777777-0001:proof-0001"
+    },
+    {
+      "observation_id": "88888888-0002-4888-8888-888888888882",
+      "animal_id": "77777777-0002-4777-8777-777777777772",
+      "work_group_id": "66666666-0001-4666-8666-666666666661",
+      "campaign_shed_id": "44444444-0001-4444-8444-444444444441",
+      "weight_kg": 12.8,
+      "location_match_status": "other_shed",
+      "expected_location_label": "Kid Shed A / Part 1",
+      "actual_location_label": "Kid Shed B / Part 2",
+      "proof_artifact_id": "99999999-0002-4999-8999-999999999992",
+      "status": "accepted",
+      "idempotency_key": "weighing:33333333:66666666-0001:77777777-0002:proof-0002"
+    },
+    {
+      "observation_id": "88888888-0003-4888-8888-888888888883",
+      "animal_id": "77777777-0006-4777-8777-777777777776",
+      "work_group_id": "66666666-0002-4666-8666-666666666662",
+      "campaign_shed_id": "44444444-0002-4444-8444-444444444442",
+      "weight_kg": 14.1,
+      "location_match_status": "expected",
+      "proof_artifact_id": "99999999-0003-4999-8999-999999999993",
+      "status": "accepted",
+      "idempotency_key": "weighing:33333333:66666666-0002:77777777-0006:proof-0003",
+      "off_page_scan": true
+    },
+    {
+      "observation_id": "88888888-0099-4888-8888-888888888899",
+      "animal_id": "77777777-0099-4777-8777-777777777799",
+      "work_group_id": "66666666-0001-4666-8666-666666666661",
+      "campaign_shed_id": null,
+      "weight_kg": 31.2,
+      "location_match_status": "not_in_campaign",
+      "proof_artifact_id": "99999999-0099-4999-8999-999999999999",
+      "status": "accepted",
+      "idempotency_key": "weighing:33333333:66666666-0001:77777777-0099:proof-0099"
+    }
+  ],
+  "duplicate_scans": [
+    {
+      "scan_id": "dup-wg-rfid-0001",
+      "animal_id": "77777777-0001-4777-8777-777777777771",
+      "rfid": "WG-RFID-0001",
+      "original_observation_id": "88888888-0001-4888-8888-888888888881",
+      "idempotency_key": "weighing:33333333:66666666-0001:77777777-0001:proof-0001",
+      "expected_result": "idempotent_replay",
+      "progress_delta": 0,
+      "must_not_create_second_observation": true
+    }
+  ],
+  "shed_observations": [
+    {
+      "shed_observation_id": "aaaaaaaa-0003-4aaa-8aaa-aaaaaaaaaaa3",
+      "campaign_shed_id": "44444444-0003-4444-8444-444444444443",
+      "work_group_id": "66666666-0001-4666-8666-666666666661",
+      "weighing_result": {
+        "measurement_mode": "lumpsum",
+        "total_weight_kg": 1560.5,
+        "animal_count_basis": "selected_scope_snapshot"
+      },
+      "proof_artifact_id": "99999999-0004-4999-8999-999999999994",
+      "status": "accepted",
+      "must_not_create_individual_weights": true,
+      "must_not_update_latest_trusted_animal_weight": true
+    }
+  ],
+  "proof_artifacts": [
+    {
+      "proof_artifact_id": "99999999-0001-4999-8999-999999999991",
+      "subject_scope": "animal",
+      "proof_mode": "per_animal_video",
+      "upload_state": "accepted"
+    },
+    {
+      "proof_artifact_id": "99999999-0002-4999-8999-999999999992",
+      "subject_scope": "animal",
+      "proof_mode": "per_animal_video",
+      "upload_state": "accepted_after_retry",
+      "retry_attempts": 2
+    },
+    {
+      "proof_artifact_id": "99999999-0003-4999-8999-999999999993",
+      "subject_scope": "animal",
+      "proof_mode": "per_animal_video",
+      "upload_state": "accepted"
+    },
+    {
+      "proof_artifact_id": "99999999-0004-4999-8999-999999999994",
+      "subject_scope": "shed_partition",
+      "proof_mode": "shed_partition_video",
+      "upload_state": "accepted"
+    },
+    {
+      "proof_artifact_id": "99999999-0005-4999-8999-999999999995",
+      "subject_scope": "animal",
+      "proof_mode": "per_animal_video",
+      "upload_state": "uploaded_unsubmitted_removed_before_acceptance",
+      "removal_required_endpoint": true
+    },
+    {
+      "proof_artifact_id": "99999999-0099-4999-8999-999999999999",
+      "subject_scope": "animal",
+      "proof_mode": "per_animal_video",
+      "upload_state": "accepted"
+    }
+  ],
+  "mobile_contract": {
+    "room_first": true,
+    "outbox_idempotent": true,
+    "process_death_safe": true,
+    "sign_out_wipe_tables": [
+      "weighing_work_groups",
+      "weighing_expected_animals",
+      "weighing_observations",
+      "weighing_shed_observations",
+      "weighing_proof_uploads",
+      "weighing_outbox",
+      "weighing_saved_routes"
+    ],
+    "rfid_terminators_swallowed_only_on_routes": ["WeighingScanRoute"],
+    "rfid_terminators_not_swallowed_on_routes": [
+      "VaccinationScanRoute",
+      "BootstrapRoute",
+      "GenericFormRoute"
+    ],
+    "off_page_scan_expected": {
+      "rfid": "WG-RFID-5001",
+      "visible_page_size": 20,
+      "expected_total_animals": 5001,
+      "must_update_scan_feed_without_fetch_all": true
+    }
+  },
+  "scale_profile": {
+    "expected_campaign_animals": 5001,
+    "visible_page_size": 20,
+    "required_indexes": [
+      "tenant_id,campaign_id,animal_id",
+      "tenant_id,rfid",
+      "tenant_id,campaign_id,status,animal_id",
+      "tenant_id,campaign_id,campaign_shed_id",
+      "tenant_id,work_group_id,campaign_shed_id"
+    ],
+    "forbidden_read_shapes": [
+      "load_all_animals_for_progress",
+      "linear_scan_rfid_lookup",
+      "visible_page_totals_as_campaign_totals",
+      "order_by_limit_1_for_membership"
+    ]
+  },
+  "expected_progress": {
+    "individual_expected_total": 6,
+    "individual_weighed_expected": 3,
+    "individual_pending_expected": 1,
+    "individual_unavailable_expected": 2,
+    "individual_closed_by_leadership": 0,
+    "per_shed_partition_selected_total": 1,
+    "per_shed_partition_completed": 1,
+    "per_shed_partition_pending": 0,
+    "per_shed_partition_proof_blocked": 0,
+    "per_shed_partition_closed_by_leadership": 0,
+    "wrong_shed_expected": 1,
+    "not_in_campaign_scans": 1,
+    "proof_retry_cases": 1,
+    "delayed_work_groups": 1
+  },
+  "e2e_steps": [
+    "CEO creates and publishes weekly kids weighing campaign with mixed categories.",
+    "Dinakar opens monitoring view and cannot create, edit, publish, or execute.",
+    "Amit opens Room-backed work group, scans WG-RFID-0001, records weight, captures animal proof, and submits.",
+    "Amit scans WG-RFID-0002 from another shed; row remains visible with expected/original and actual/current shed.",
+    "Amit scans WG-RFID-5001 while it is outside the visible page; feed updates without loading the 5001-row roster.",
+    "Duplicate WG-RFID-0001 scan replays idempotently without incrementing progress.",
+    "One proof upload fails twice and retries to accepted; one uploaded unsynced proof is removed before final acceptance.",
+    "Amit submits Kid Shed C as per-shed/partition weighing with shed proof; no individual weights or latest trusted animal weight updates are created.",
+    "Availability reconciliation classifies ICU and sold/transferred animals as unavailable, not ordinary operator misses.",
+    "Work group 2 rolls forward to 2026-08-02 and remains executable while leadership sees delayed/open state."
+  ]
+}

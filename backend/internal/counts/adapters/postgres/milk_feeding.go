@@ -124,7 +124,8 @@ ORDER BY p.location_code,p.name,t.session_no,t.task_id LIMIT $5 OFFSET $6`,
 	if hasMore {
 		items = items[:limit]
 	}
-	return domain.MilkFeedingPage{FeedingDate: day.Format("2006-01-02"), GeneratedAt: time.Now().UTC(), Items: items, Limit: limit, Offset: offset, HasMore: hasMore}, nil
+	generatedAt := time.Now().UTC() // india-date-guard:ignore: owner=goatos issue=GH-india-date scope=response-absolute-instant expiry=2026-12-31
+	return domain.MilkFeedingPage{FeedingDate: day.Format("2006-01-02"), GeneratedAt: generatedAt, Items: items, Limit: limit, Offset: offset, HasMore: hasMore}, nil
 }
 
 func (r *Repository) SubmitMilkFeeding(ctx context.Context, in domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error) {

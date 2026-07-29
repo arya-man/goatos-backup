@@ -410,9 +410,14 @@ private fun RfidDrivenVaccinationScanScreen(
                 ScanEvent.Submit -> Unit
                 ScanEvent.LoadMore -> Unit
                 ScanEvent.ReconnectReader -> onReconnect()
+                ScanEvent.OpenShedSwitcher -> Unit
+                ScanEvent.DismissShedSwitcher -> Unit
+                is ScanEvent.SwitchShed -> Unit
+                is ScanEvent.CaptureVideo -> Unit
                 is ScanEvent.SelectGroup -> Unit
                 is ScanEvent.CaptureProof -> Unit
                 is ScanEvent.RetryProof -> Unit
+                is ScanEvent.ArmProofReplacement -> Unit
             }
         },
     )

@@ -42,6 +42,9 @@ const (
 	VaccinationOverviewRead   = "vaccination.overview_read"
 	VaccinationVerify         = "vaccination.verify"
 	VaccinationCampaign       = "vaccination.campaign"
+	WeighingPlan              = "weighing.plan"
+	WeighingMonitor           = "weighing.monitor"
+	WeighingExecute           = "weighing.execute"
 	CalendarRead              = "calendar.read"
 	CalendarAction            = "calendar.action"
 	ProcurementRead           = "procurement.read"
@@ -247,14 +250,16 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
+		WeighingMonitor: {},
+		CalendarRead:    {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
-		CountsWrite: {},
+		CountsWrite:     {},
+		WeighingExecute: {},
 		// Maintainer decision 2026-07-22: operators now see the Feed vertical on the phone. This
 		// reverses the earlier "deliberately NOT granted to RoleOperator" note on the feed reads --
 		// the operator dispatches and packs what the direction says, and the FeedPackingRead comment
@@ -274,6 +279,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		VaccinationOverviewRead: {},
+		WeighingPlan:            {},
+		WeighingMonitor:         {},
+		WeighingExecute:         {},
 		CalendarRead:            {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},

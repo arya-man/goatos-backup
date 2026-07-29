@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class KeyboardWedgeRfidReader(
     context: Context,
-    private val nameHints: List<String> = DEFAULT_HINTS,
+    private val nameHints: List<String> = RfidReaderNameMatcher.DEFAULT_HINTS,
 ) : RfidReaderPort {
 
     private val context = context.applicationContext
@@ -123,8 +123,8 @@ class KeyboardWedgeRfidReader(
         if (visibleDevices.any { it.signalLabel == "Ready" }) return RfidReaderStatus.READY
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
             ?: return RfidReaderStatus.NOT_PAIRED
-        if (!adapter.isEnabled) return RfidReaderStatus.BLUETOOTH_OFF
         if (needsBluetoothConnectPermission()) return RfidReaderStatus.PERMISSION_NEEDED
+        if (!adapter.isEnabled) return RfidReaderStatus.BLUETOOTH_OFF
         return if (visibleDevices.isNotEmpty()) RfidReaderStatus.PAIRED_NOT_READY else RfidReaderStatus.NOT_PAIRED
     }
 
@@ -134,19 +134,24 @@ class KeyboardWedgeRfidReader(
             .filter { it.signalLabel == "Disconnected" }
             .map { it.name.lowercase() }
             .toSet()
-        val inputDevices = findReaderInputDevices(disconnectedNames)
-        return (inputDevices + pairedDevices)
-            .distinctBy { it.name.lowercase() }
-            .sortedWith(compareByDescending<RfidReaderDevice> { it.signalLabel == "Ready" }.thenBy { it.name })
+        val inputDevices = findReaderInputDevices(
+            disconnectedNames = disconnectedNames,
+            disconnectedNameFilterBypassNames = RfidReaderDeviceSelector.disconnectedNameFilterBypassNames(pairedDevices),
+        )
+        return RfidReaderDeviceSelector.mergeVisibleDevices(inputDevices, pairedDevices)
     }
 
-    private fun findReaderInputDevices(disconnectedNames: Set<String>): List<RfidReaderDevice> {
+    private fun findReaderInputDevices(
+        disconnectedNames: Set<String>,
+        disconnectedNameFilterBypassNames: Set<String>,
+    ): List<RfidReaderDevice> {
         val im = context.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return emptyList()
         return im.inputDeviceIds.asSequence().mapNotNull { id ->
             val device = im.getInputDevice(id) ?: return@mapNotNull null
             val isKeyboard = device.sources and InputDevice.SOURCE_KEYBOARD == InputDevice.SOURCE_KEYBOARD
             if (!isKeyboard || device.isVirtual || !matchesHint(device.name)) return@mapNotNull null
-            if (device.name.lowercase() in disconnectedNames) return@mapNotNull null
+            val deviceName = device.name.lowercase()
+            if (deviceName in disconnectedNames && deviceName !in disconnectedNameFilterBypassNames) return@mapNotNull null
             RfidReaderDevice(
                 id = "input-$id",
                 name = device.name,
@@ -212,8 +217,7 @@ class KeyboardWedgeRfidReader(
     }
 
     private fun matchesHint(name: String?): Boolean {
-        val lower = name?.lowercase() ?: return false
-        return nameHints.any { lower.contains(it) }
+        return RfidReaderNameMatcher.matches(name, nameHints)
     }
 
     private fun needsBluetoothConnectPermission(): Boolean =
@@ -258,9 +262,4 @@ class KeyboardWedgeRfidReader(
             @Suppress("DEPRECATION")
             getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
         }
-
-    private companion object {
-        // Name/vendor hints for known field readers (e.g. "IDT RHLS-3", "Chainway R3").
-        val DEFAULT_HINTS = listOf("rfid", "reader", "idt", "rhls", "chainway", "r3")
-    }
 }

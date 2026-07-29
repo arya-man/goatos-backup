@@ -182,7 +182,7 @@ fun MilkFeedingScreen(state: MilkFeedingUiState, onEvent: (MilkFeedingEvent) -> 
             item(key = "intro") { Card { Text("Answer the feeding report, then record both fresh videos.", color = MeshaColors.Muted, fontSize = 12.sp) } }
             if (state.watchlist.isNotEmpty()) {
                 item(key = "watch-title") { Title("Watchlist kids — did they drink?") }
-                items(state.watchlist, key = { it.goatId }) { kid ->
+                items(state.watchlist, key = { it.goatId }) { kid -> // compose-guard:ignore: watchlist grain is exactly one row per unique goat
                     Card {
                         Text(kid.label, color = MeshaColors.Ink, fontWeight = FontWeight.W700)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

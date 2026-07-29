@@ -101,6 +101,9 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
+import sg.mesha.goatos.feature.weighing.WeighingScreen
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
+import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
@@ -138,12 +141,17 @@ import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
+import sg.mesha.goatos.viewmodel.WeighingViewModel
+import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
 object Routes {
     const val CALENDAR = "/calendar"
     const val VACCINATION = "/vaccination"
+    const val WEIGHING = "/weighing"
+    const val WEIGHING_VIDEOS = "/weighing/videos"
+    const val WEIGHING_SCAN = "/weighing/scan"
     /**
      * Hosted Calendar child destination. It deliberately differs from the
      * top-level Vaccination module route so a Calendar drill never activates
@@ -331,12 +339,17 @@ object Routes {
     // approve/reject, threading both the item id AND its category (the detail VM re-observes
     // that SAME category's Room cache scope rather than adding a second network call).
     const val VERIFY = "/verify"
+    const val VERIFY_VACCINATION = "/verify/vaccination"
+    const val VERIFY_WEIGHING = "/verify/weighing"
     const val VERIFY_ACTION = "/verify/action"
+    const val VERIFY_ACTION_VACCINATION = "/verify/action/vaccination"
+    const val VERIFY_ACTION_WEIGHING = "/verify/action/weighing"
     const val VERIFY_DETAIL = "/verify/item"
     const val VERIFY_ACTION_DETAIL = "/verify/action/item"
     const val VERIFY_ITEM_ARG = "itemId"
     const val VERIFY_CATEGORY_ARG = "category"
     const val VERIFY_ACTION_ARG = "actionMode"
+    const val VERIFY_MODULE_ARG = "module"
     const val VERIFY_PARK_ARG = "parkId"
     const val VERIFY_SHED_ARG = "shedId"
 
@@ -372,6 +385,13 @@ object Routes {
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
+    const val WEIGHING_CAMPAIGN_ARG = "campaignId"
+    const val WEIGHING_WORK_GROUP_ARG = "workGroupId"
+    const val WEIGHING_CAMPAIGN_SHED_ARG = "campaignShedId"
+    const val WEIGHING_CATEGORY_ARG = "weighingCategory"
+    const val WEIGHING_TENANT_ARG = "tenantId"
+    const val WEIGHING_EXPECTED_LOCATION_ARG = "expectedLocationId"
+    const val WEIGHING_EXPECTED_LOCATION_LABEL_ARG = "expectedLocationLabel"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
@@ -394,6 +414,29 @@ object Routes {
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
     ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
+
+    fun weighingScanRoute(
+        campaignId: String,
+        workGroupId: String,
+        campaignShedId: String,
+        category: String,
+        tenantId: String,
+        expectedLocationId: String,
+        expectedLocationLabel: String,
+        scanTitle: String? = null,
+    ): String {
+        val args = listOfNotNull(
+            WEIGHING_CAMPAIGN_ARG to campaignId,
+            WEIGHING_WORK_GROUP_ARG to workGroupId,
+            WEIGHING_CAMPAIGN_SHED_ARG to campaignShedId,
+            WEIGHING_CATEGORY_ARG to category,
+            WEIGHING_TENANT_ARG to tenantId,
+            WEIGHING_EXPECTED_LOCATION_ARG to expectedLocationId,
+            WEIGHING_EXPECTED_LOCATION_LABEL_ARG to expectedLocationLabel,
+            scanTitle?.takeIf { it.isNotBlank() }?.let { EXECUTION_SCAN_TITLE_ARG to it },
+        )
+        return "$WEIGHING_SCAN?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+    }
 
     private fun executionRoute(
         base: String,
@@ -441,6 +484,18 @@ object Routes {
 
 }
 
+internal fun routeAcceptsWeighingRfid(route: String?): Boolean =
+    route?.substringBefore("?") == Routes.WEIGHING_SCAN &&
+        Uri.parse(route)
+            .getQueryParameter(Routes.WEIGHING_CATEGORY_ARG)
+            ?.isPerShedPartitionCategory() != true
+
+private fun String.isPerShedPartitionCategory(): Boolean =
+    trim()
+        .replace('-', '_')
+        .replace(' ', '_')
+        .equals("per_shed_partition", ignoreCase = true)
+
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
  * to an app route. Live shed-scoped work opens the execute loop, explicit `record/...` targets
@@ -456,6 +511,7 @@ internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = nul
     val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
     if (target.isNullOrBlank()) return fallbackDriveRoute
     val normalizedTarget = target.substringBefore('?').trimEnd('/')
+    if (normalizedTarget == Routes.WEIGHING || normalizedTarget == Routes.WEIGHING_SCAN) return target
     if (normalizedTarget == Routes.VACCINATION) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
@@ -546,6 +602,7 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
     showProtocolAdherenceCard: Boolean = false,
+    leadershipWeighing: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -681,6 +738,145 @@ fun AppNavHost(
                     }
                 },
             )
+        }
+
+        composable(Routes.WEIGHING) {
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            if (leadershipWeighing) {
+                LeadershipWeighingScreen(
+                    state = state,
+                    onRefresh = vm::refresh,
+                )
+            } else {
+                WeighingScreen(
+                state = state,
+                onScanInputChange = vm::onScanInputChange,
+                onScanSubmit = vm::submitTypedScan,
+                onWeightChange = vm::onWeightInputChange,
+                onRecordIndividual = vm::recordIndividual,
+                onRecordShedPartition = vm::recordShedPartition,
+                onCreateOrEditTask = vm::createOrEditDefaultPlan,
+                onTogglePlannerShed = vm::togglePlannerShed,
+                onPlannerShedCategory = vm::setPlannerShedCategory,
+                onRefresh = vm::refresh,
+                onOpenAssignment = { assignment ->
+                    if (assignment.status.isClosedWeighingAssignmentStatus()) {
+                        Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        navController.navigate(
+                            Routes.weighingScanRoute(
+                                campaignId = assignment.campaignId,
+                                workGroupId = assignment.workGroupId,
+                                campaignShedId = assignment.campaignShedId,
+                                category = assignment.category,
+                                tenantId = assignment.tenantId,
+                                expectedLocationId = assignment.expectedLocationId,
+                                expectedLocationLabel = assignment.expectedLocationLabel,
+                                scanTitle = assignment.label,
+                            ),
+                        )
+                    }
+                },
+                )
+            }
+        }
+
+        composable(Routes.WEIGHING_VIDEOS) {
+            val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingLeadershipVideosScreen(state = state)
+        }
+
+        composable(
+            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_CATEGORY_ARG}={${Routes.WEIGHING_CATEGORY_ARG}}&${Routes.WEIGHING_TENANT_ARG}={${Routes.WEIGHING_TENANT_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_WORK_GROUP_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_CAMPAIGN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_CATEGORY_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_TENANT_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_EXPECTED_LOCATION_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rfidCaptureEnabled = entry.arguments
+                ?.getString(Routes.WEIGHING_CATEGORY_ARG)
+                ?.equals("per_shed_partition", ignoreCase = true) != true
+            DisposableEffect(vm, rfidCaptureEnabled) {
+                vm.setCompletionKeySwallowActive(rfidCaptureEnabled)
+                vm.setCaptureActive(rfidCaptureEnabled)
+                onDispose {
+                    vm.setCompletionKeySwallowActive(false)
+                    vm.setCaptureActive(false)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                WeighingScreen(
+                    state = state,
+                    onScanInputChange = vm::onScanInputChange,
+                    onScanSubmit = vm::submitTypedScan,
+                    onWeightChange = vm::onWeightInputChange,
+                    onAnimalCountChange = vm::onAnimalCountInputChange,
+                    onWeightEntryActive = vm::setWeightEntryActive,
+                    onAnimalWeightChange = vm::onAnimalWeightInputChange,
+                    onRecordAnimalWeight = vm::recordIndividual,
+                    onRetryVideo = vm::retryVideo,
+                    onReuploadVideo = vm::reuploadVideo,
+                    onSelectAnimal = vm::selectAnimal,
+                    onRecordIndividual = vm::recordIndividual,
+                    onSubmitIndividualScope = {
+                        vm.submitIndividualScope { navController.popBackStack() }
+                    },
+                    onRecordShedPartition = {
+                        vm.recordShedPartition { navController.popBackStack() }
+                    },
+                    onCaptureShedVideo = vm::captureShedVideo,
+                    onRetryShedVideo = vm::retryShedVideo,
+                    onReplaceShedVideo = vm::replaceShedVideo,
+                    onRemoveShedVideo = vm::removeShedVideo,
+                    onReconnectReader = { navController.navigate(Routes.RFID) { launchSingleTop = true } },
+                    onRefresh = vm::refresh,
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
         composable(
             route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}",
@@ -1512,9 +1708,125 @@ fun AppNavHost(
         }
 
         composable(
+            route = "${Routes.VERIFY_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) {
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = state.isActionQueue,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) {
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = state.isActionQueue,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
             route = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
             arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true }),
         ) { entry ->
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = true,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_ACTION_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
+            ),
+        ) {
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = true,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_ACTION_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
+            ),
+        ) {
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             VerifyQueueScreen(
@@ -1672,10 +1984,15 @@ internal fun startDestinationFor(navState: NavState): String {
 private const val SUBMIT_SUCCESS_RETURN_DELAY_MS = 800L
 
 private val supportedRootDestinations = setOf(
-    Routes.CALENDAR,
-    Routes.VACCINATION,
-    Routes.VERIFY,
+	Routes.CALENDAR,
+	Routes.VACCINATION,
+	Routes.WEIGHING,
+	Routes.VERIFY,
+    Routes.VERIFY_VACCINATION,
+    Routes.VERIFY_WEIGHING,
     Routes.VERIFY_ACTION,
+    Routes.VERIFY_ACTION_VACCINATION,
+    Routes.VERIFY_ACTION_WEIGHING,
     Routes.YOU,
     Routes.ALERTS,
     Routes.TIMETABLE,
@@ -1713,6 +2030,12 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
     navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
+
+private fun String.isClosedWeighingAssignmentStatus(): Boolean =
+    when (trim().lowercase()) {
+        "completed", "accepted", "submitted", "done" -> true
+        else -> false
+    }
 
 /**
  * Reverse-maps the Language settings row's native-label value to a language code so

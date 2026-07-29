@@ -80,6 +80,12 @@
         "verification.item.closed",
         "verification.vaccination_drive.ready",
         "verification.vaccination_drive.closed",
+        "weighing.campaign_created",
+        "weighing.campaign_updated",
+        "weighing.campaign_published",
+        "weighing.observation_accepted",
+        "weighing.shed_observation_accepted",
+        "weighing.shed_submission.completed",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
         "vaccination.leave.changed"
@@ -113,6 +119,7 @@
       "count_projection_exception",
       "counts_approval_request",
         "verification_item",
+        "weighing",
         "vaccination_batch",
         "park",
         "absence"
@@ -140,6 +147,9 @@
         "shifting_event",
         "count_projection_exception",
         "verification_item",
+        "weighing_campaign",
+        "weighing_campaign_shed",
+        "weighing_observation",
         "vaccination_batch",
         "notification_request"
       ]

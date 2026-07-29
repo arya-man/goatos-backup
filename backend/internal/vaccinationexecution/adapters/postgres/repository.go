@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -466,9 +467,12 @@ WITH assignment_vaccines AS (
   LEFT JOIN protocol_rules pr
     ON pr.tenant_id = vda.tenant_id
    AND pr.rule_id = assigned_rule.rule_id
-  LEFT JOIN protocol_rule_dimensions prd
-    ON prd.tenant_id = pr.tenant_id
-   AND prd.rule_id = pr.rule_id
+  LEFT JOIN LATERAL (
+    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
+    FROM protocol_rule_dimensions dim
+    WHERE dim.tenant_id = pr.tenant_id
+      AND dim.rule_id = pr.rule_id
+  ) prd ON true
   LEFT JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
    AND pv.protocol_version_id = pr.protocol_version_id
@@ -741,6 +745,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
     oi.rule_id,
     oi.due_at,
     oi.window_start,
@@ -1101,6 +1106,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
     oi.rule_id,
     oi.batch_id,
     oi.due_at,
@@ -1153,6 +1159,12 @@ raw AS (
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id
    AND pr.rule_id = oi.rule_id
+  LEFT JOIN LATERAL (
+    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
+    FROM protocol_rule_dimensions dim
+    WHERE dim.tenant_id = pr.tenant_id
+      AND dim.rule_id = pr.rule_id
+  ) prd ON true
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
@@ -1189,10 +1201,16 @@ raw AS (
   LEFT JOIN LATERAL (
     SELECT
       vda_guess.operator_id,
-      (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      (COALESCE(override.override_date, vda_guess.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
       vda_guess.physical_shed,
       vda_guess.partition_label
     FROM vaccination_drive_assignments vda_guess
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = vda_guess.tenant_id
+     AND override.park_id = vda_guess.park_id
+     AND (override.original_drive_date = vda_guess.planned_date OR override.override_date = vda_guess.planned_date)
+     AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+     AND override.canceled_at IS NULL
     WHERE vda_guess.tenant_id = oi.tenant_id
       AND vda_guess.batch_id = oi.batch_id
       AND vda_guess.shed_id = CASE
@@ -1212,10 +1230,19 @@ raw AS (
   -- Member path: formatted assignment when membership exists
   LEFT JOIN LATERAL (
     SELECT
-      assignment.operator_id,
-      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
-      assignment.physical_shed,
-      assignment.partition_label
+      member_assignment.operator_id,
+      (COALESCE(override.override_date, member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      member_assignment.physical_shed,
+      member_assignment.partition_label
+    FROM vaccination_drive_assignments member_assignment
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = member_assignment.tenant_id
+     AND override.park_id = member_assignment.park_id
+     AND (override.original_drive_date = member_assignment.planned_date OR override.override_date = member_assignment.planned_date)
+     AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+     AND override.canceled_at IS NULL
+    WHERE member_assignment.tenant_id = assignment.tenant_id
+      AND member_assignment.assignment_id = assignment.assignment_id
   ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
@@ -1292,33 +1319,84 @@ located AS (
   ) shed_proof ON raw.sop_task_id IS NOT NULL AND raw.shed_uuid IS NOT NULL
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+animal_rollup AS (
+  SELECT
+    located.park_uuid,
+    located.shed_uuid,
+    located.batch_id,
+    located.animal_id,
+    BOOL_OR(located.eff_status = 'scheduled') AS has_scheduled,
+    BOOL_OR(located.eff_status = 'due') AS has_due,
+    BOOL_OR(located.eff_status = 'in_progress') AS has_in_progress,
+    BOOL_OR(located.eff_status = 'completed') AS has_completed,
+    BOOL_OR(located.eff_status = 'missed') AS has_missed,
+    BOOL_OR(located.eff_status IN ('waived', 'deferred')) AS has_deferred,
+    BOOL_OR(located.completion_status = 'recorded') AS has_recorded_completion,
+    BOOL_OR(located.completion_status = 'accepted') AS has_accepted_completion,
+    BOOL_OR(located.completion_status = 'rejected') AS has_rejected_completion,
+    BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
+    BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
+    BOOL_OR(located.scanned) AS has_scan,
+    BOOL_OR(located.shed_proof_submitted) AS has_shed_proof
+  FROM located
+  WHERE located.park_uuid IS NOT NULL
+    AND ($2::text = '' OR located.park_uuid = $2::uuid)
+    AND ($3::text = '' OR located.shed_uuid = $3::uuid)
+    AND (
+      $15::text = ''
+      OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.animal_id
+),
+animal_counts AS (
+  SELECT
+    animal_rollup.park_uuid,
+    animal_rollup.shed_uuid,
+    animal_rollup.batch_id,
+    COUNT(*)::bigint AS obligation_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_due)::bigint AS due_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_in_progress)::bigint AS in_progress_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_completed)::bigint AS completed_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_missed)::bigint AS missed_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_deferred)::bigint AS deferred_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_recorded_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_recorded,
+    COUNT(*) FILTER (WHERE animal_rollup.has_accepted_completion AND animal_rollup.all_completions_accepted)::bigint AS completion_accepted,
+    COUNT(*) FILTER (WHERE animal_rollup.has_rejected_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_rejected,
+    COUNT(*) FILTER (WHERE animal_rollup.has_reversed_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_reversed,
+    COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_shed_proof)::bigint AS proof_submitted_count
+  FROM animal_rollup
+  GROUP BY animal_rollup.park_uuid, animal_rollup.shed_uuid, animal_rollup.batch_id
+),
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id) so mobile PA/shed cards count distinct drive animals, not protocol obligations/doses; join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at animal grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 -- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 grouped AS (
   SELECT
     located.park_uuid,
     located.shed_uuid,
     located.batch_id,
-    located.rule_id,
-    located.protocol_name,
-    located.dose_code,
+    (ARRAY_AGG(located.rule_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.rule_id DESC))[1] AS rule_id,
+    (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
+    (ARRAY_AGG(located.dose_code ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.dose_code ASC))[1] AS dose_code,
     MIN(located.execution_due_at) AS due_at,
-    COUNT(*)::bigint AS obligation_count,
-    -- Bucket counts use the as_of-effective status; completion counts use the pre-aggregated,
-    -- as-of-bounded completion projection above.
-    COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'due')::bigint AS due_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'in_progress')::bigint AS in_progress_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'completed')::bigint AS completed_count,
-    COUNT(*) FILTER (WHERE located.eff_status = 'missed')::bigint AS missed_count,
-    COUNT(*) FILTER (WHERE located.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
+    MAX(animal_counts.obligation_count) AS obligation_count,
+    -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
+    -- as_of-effective status at distinct-animal grain; completion counts use the
+    -- pre-aggregated, as-of-bounded completion projection above.
+    MAX(animal_counts.scheduled_count) AS scheduled_count,
+    MAX(animal_counts.due_count) AS due_count,
+    MAX(animal_counts.in_progress_count) AS in_progress_count,
+    MAX(animal_counts.completed_count) AS completed_count,
+    MAX(animal_counts.missed_count) AS missed_count,
+    MAX(animal_counts.deferred_count) AS deferred_count,
     0::bigint AS canceled_count,
-    COUNT(*) FILTER (WHERE located.completion_status = 'recorded')::bigint AS completion_recorded,
-    COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
-    COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::bigint AS completion_rejected,
-    COUNT(*) FILTER (WHERE located.completion_status = 'reversed')::bigint AS completion_reversed,
-    COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count,
-    COUNT(*) FILTER (WHERE located.shed_proof_submitted)::bigint AS proof_submitted_count,
+    MAX(animal_counts.completion_recorded) AS completion_recorded,
+    MAX(animal_counts.completion_accepted) AS completion_accepted,
+    MAX(animal_counts.completion_rejected) AS completion_rejected,
+    MAX(animal_counts.completion_reversed) AS completion_reversed,
+    MAX(animal_counts.scanned_count) AS scanned_count,
+    MAX(animal_counts.proof_submitted_count) AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -1372,7 +1450,7 @@ grouped AS (
       MAX(NULLIF(regexp_replace(initcap(replace(located.goat_stage, '_', ' ')), '\s+', ' ', 'g'), '')),
       'Unknown'
     ) AS animal_stage,
-    COUNT(*) FILTER (
+    COUNT(DISTINCT located.animal_id) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count,
@@ -1410,6 +1488,10 @@ grouped AS (
     ON operator.tenant_id = $1::uuid
    AND operator.workforce_member_id = COALESCE(located.conducted_by, located.assigned_to)
    AND operator.status = 'active'
+  JOIN animal_counts
+    ON animal_counts.park_uuid = located.park_uuid
+   AND animal_counts.shed_uuid = located.shed_uuid
+   AND animal_counts.batch_id IS NOT DISTINCT FROM located.batch_id
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
@@ -1417,7 +1499,7 @@ grouped AS (
       $15::text = ''
       OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
     )
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_name, located.dose_code
+  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id
 ),
 enriched AS (
   SELECT
@@ -1502,7 +1584,7 @@ classified AS (
       END,
       9223372036854775807::bigint
     ) AS sort_due_micros,
-    stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' || stateful.rule_id::text || '|' ||
+    stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' ||
       COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') || '|' ||
       stateful.obligation_id::text AS sort_row_key,
     CASE
@@ -3588,27 +3670,31 @@ func (r *Repository) VaccinationExecutionCarrySummary(ctx context.Context, q dom
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// Real SQL from coordinator: aggregates obligation_instances by (eff_date, vaccine_label)
+	// Real SQL from coordinator: aggregates obligation_instances by (eff_date, protocol_name, dose_code)
 	// for the scoped operator, with override-aware date resolution.
 	// OperatorScopeActorID is already the workforce_member_id; no external resolution.
+	// Note: vaccine_label is constructed in Go using domain.DoseDisplayLabel after scanning.
 	sql := `
 WITH scoped AS (
   SELECT oi.obligation_id, oi.status, m.goat_id,
-         COALESCE(pr.eligibility_json->'vaccine'->>'name', pr.dose_code) AS vaccine_label,
+         pd.name AS protocol_name,
+         pr.dose_code,
          COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
          vda.operator_id
   FROM obligation_instances oi
   JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
   JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
   JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+  JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
   LEFT JOIN vaccination_drive_date_overrides ovr
     ON ovr.tenant_id = vda.tenant_id AND ovr.park_id = vda.park_id AND ovr.canceled_at IS NULL
    AND lower(btrim(ovr.vaccine_code)) = lower(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code','')))
    AND (ovr.original_drive_date = vda.planned_date OR ovr.override_date = vda.planned_date)
   WHERE oi.tenant_id = $1
 )
--- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, vaccine_label) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments.
-SELECT eff_date::date as eff_date, vaccine_label,
+-- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, protocol_name, dose_code) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments.
+SELECT eff_date::date as eff_date, protocol_name, dose_code,
        count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS remaining,
        count(DISTINCT goat_id) AS total
 FROM scoped
@@ -3624,8 +3710,8 @@ WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
                               wm.workforce_member_id DESC
                      LIMIT 1)
   AND eff_date BETWEEN $3::date AND $4::date
-GROUP BY eff_date::date, vaccine_label
-ORDER BY eff_date::date, vaccine_label
+GROUP BY eff_date::date, protocol_name, dose_code
+ORDER BY eff_date::date, protocol_name, dose_code
 `
 	rows, err := r.pool.Query(ctx, sql, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
 	if err != nil {
@@ -3637,10 +3723,12 @@ ORDER BY eff_date::date, vaccine_label
 	for rows.Next() {
 		var line domain.VaccineCarryLine
 		var effDate time.Time
-		if err := rows.Scan(&effDate, &line.VaccineLabel, &line.RemainingDoses, &line.TotalDoses); err != nil {
+		var protocolName, doseCode string
+		if err := rows.Scan(&effDate, &protocolName, &doseCode, &line.RemainingDoses, &line.TotalDoses); err != nil {
 			return nil, fmt.Errorf("vaccination execution: carry summary scan: %w", err)
 		}
 		line.Date = effDate.Format("2006-01-02") // ISO date
+		line.VaccineLabel = vaccinatdomain.DoseDisplayLabel(protocolName, doseCode)
 		out = append(out, line)
 	}
 	if err := rows.Err(); err != nil {
@@ -3672,10 +3760,11 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	// projection-review:
 	// (a) producer: obligation_id, status, due_at, batch_id | consumer: obligation_id GROUP BY none
 	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1
-	// (c) doses_verified numerator: bool_or(status='accepted'), denominator: all obligations;
-	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted), denominator: all obligations;
+	// (c) all KPI numerators count distinct animals, not obligation/dose fan-out.
+	//     doses_verified numerator: bool_or(status='accepted');
+	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted);
 	//     overdue_not_given numerator: scheduled AND (due_at's IST business date)<(asOf's IST business
-	//     date) AND no completions, denominator: all obligations; scheduled_ahead numerator: scheduled
+	//     date) AND no completions; scheduled_ahead numerator: scheduled
 	//     AND (due_at's IST business date)>=(asOf's IST business date), denominator: all obligations.
 	//     Vaccination time grain is the IST business DAY, never an instant — a dose due today at
 	//     00:00 IST must never read overdue merely because as_of is later the same day.
@@ -3690,11 +3779,11 @@ WITH comp AS (
   GROUP BY obligation_id
 )
 SELECT
-  COUNT(DISTINCT oi.obligation_id) as targets,
-  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as doses_verified,
-  COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.obligation_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.obligation_id END) as overdue_not_given,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.obligation_id END) as scheduled_ahead
+  COUNT(DISTINCT oi.target_id) as targets,
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.target_id END) as doses_verified,
+  COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.target_id END) as awaiting_verification,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.target_id END) as scheduled_ahead
 FROM obligation_instances oi
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
@@ -3719,34 +3808,44 @@ WHERE oi.tenant_id = $1::uuid
 	// (c) pending_count numerator: (scheduled AND (due_at's IST business date)<=(asOf's IST business
 	//     date)) OR (has_recorded_unverified), denominator: all obligations per cohort — due-today
 	//     counts pending (matches CEO pending semantics; IST business-day grain, never an instant);
-	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals
+	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals;
+	//     verified_count numerator: bool_or(status='accepted'), denominator: all obligations per
+	//     cohort. pending_count and verified_count are DISJOINT: an accepted obligation is neither
+	//     still-scheduled nor recorded-unverified, so the two may be read side by side without
+	//     double counting, and pending + verified <= animal-level obligation total per cohort.
 	cohortSQL := `
 WITH comp AS (
   SELECT
     obligation_id,
-    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified,
+    bool_or(status = 'accepted') AS has_accepted
   FROM vaccination_completions
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 )
 SELECT
+  COALESCE(park.location_id::text, '') as park_id,
+  COALESCE(park.name, '') as park_name,
   g.management_stage,
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count
+  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+LEFT JOIN locations shed ON oi.scope_id = shed.location_id AND oi.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
 WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
   AND g.lifecycle_status != 'terminated'
-GROUP BY g.management_stage, g.sex, pr.dose_code
-ORDER BY g.management_stage, g.sex, pr.dose_code
+GROUP BY park.location_id, park.name, g.management_stage, g.sex, pr.dose_code
+ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 `
 	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
@@ -3757,21 +3856,29 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 	// Build cohort matrix cells. SQL rows arrive per dose_code; the board cell grain is
 	// cohort (stage × sex) × VACCINE, so fold dose rows into their vaccine label here
 	// (pending counts sum across doses; animal count is per-cohort and identical per row).
-	type cohortKey struct{ stage, sex, vaccine string }
+	// Farm (park) is part of the cell key: leadership reads this matrix farmwise, so a cohort in
+	// Channapatna must never merge with the same cohort in Coimbatore.
+	type cohortKey struct{ parkID, stage, sex, vaccine string }
 	cohortAgg := map[cohortKey]*domain.CommandBoardCohortCell{}
 	cohortOrder := []cohortKey{}
 	for cohortRows.Next() {
-		var stage, sex, doseCode string
-		var animalCount, pendingCount int
-		if err := cohortRows.Scan(&stage, &sex, &doseCode, &animalCount, &pendingCount); err != nil {
+		var parkID, parkName, stage, sex, doseCode string
+		var animalCount, pendingCount, verifiedCount int
+		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
-		key := cohortKey{stage, sex, vaccinatdomain.DoseDisplayLabel("", doseCode)}
+		// Dose-QUALIFIED, not vaccine-collapsed. Collapsing ET+TT's three doses into one column
+		// summed Dose 1 + Dose 2 + Revaccination into a single number, which buried the figure
+		// leadership actually asks for (ET+TT Dose 2: 210 pending, 114 verified) behind a total
+		// that also exceeded the cohort head count. Same grain the shed matrix already uses.
+		key := cohortKey{parkID, stage, sex, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)}
 		cell, ok := cohortAgg[key]
 		if !ok {
 			cell = &domain.CommandBoardCohortCell{
 				Cohort: domain.CommandBoardCohort{
+					ParkID:          parkID,
+					ParkName:        parkName,
 					ManagementStage: stage,
 					Sex:             sex,
 					AnimalCount:     animalCount,
@@ -3782,6 +3889,7 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 			cohortOrder = append(cohortOrder, key)
 		}
 		cell.PendingCount += pendingCount
+		cell.VerifiedCount += verifiedCount
 	}
 	if err := cohortRows.Err(); err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort rows: %w", err)
@@ -4022,5 +4130,104 @@ ORDER BY shed_name, pr.dose_code
 		return resp, fmt.Errorf("vaccination command board: verification queue rows: %w", err)
 	}
 
+	// 6. Drive options — the drives the board can be narrowed to. Deliberately NOT filtered by
+	// the selected drive (the select must still offer the others), but it IS park-scoped so the
+	// list matches the top bar's park.
+	//
+	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, status, window_start, window_end); join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by array_agg(DISTINCT pr.dose_code) rather than joined 1:1, and protocol_rules is 1:1 per obligation on rule_id; pagination=bounded to one row per batch ordered newest window first with a hard LIMIT 50 and no count or ratio is derived so page size cannot alter a total; scope=tenant plus optional park resolved from canonical locations.parent_location_id
+	//
+	// Producer unique columns: obligation_batches(batch_id). Consumer match/group columns:
+	// (batch_id, status, window_start, window_end). Row multiplicity: obligation_instances N:1 to
+	// batch (pre-aggregated), protocol_rules 1:1 to obligation, locations 1:1 to obligation scope.
+	// No ratio or cap check is computed, so there is no numerator/denominator key set to compare.
+	driveOptionsSQL := `
+SELECT
+  b.batch_id,
+  b.status,
+  b.window_start,
+  b.window_end,
+  array_agg(DISTINCT pr.dose_code) AS dose_codes
+FROM obligation_batches b
+JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
+JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+WHERE b.tenant_id = $1::uuid
+  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
+GROUP BY b.batch_id, b.status, b.window_start, b.window_end
+ORDER BY b.window_start DESC NULLS LAST, b.batch_id
+LIMIT 50
+`
+	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: drive options query: %w", err)
+	}
+	defer driveRows.Close()
+
+	for driveRows.Next() {
+		var batchID, status string
+		var windowStart, windowEnd pgtype.Timestamptz
+		var doseCodes []string
+		if err := driveRows.Scan(&batchID, &status, &windowStart, &windowEnd, &doseCodes); err != nil {
+			return resp, fmt.Errorf("vaccination command board: drive options scan: %w", err)
+		}
+
+		option := domain.CommandBoardDriveOption{
+			DriveBatchID: batchID,
+			Status:       status,
+			Label:        commandBoardDriveLabel(doseCodes, windowStart, windowEnd, status),
+		}
+		if windowStart.Valid {
+			option.WindowStart = &windowStart.Time
+		}
+		if windowEnd.Valid {
+			option.WindowEnd = &windowEnd.Time
+		}
+		resp.DriveOptions = append(resp.DriveOptions, option)
+	}
+	if err := driveRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: drive options rows: %w", err)
+	}
+
 	return resp, nil
+}
+
+// commandBoardDriveLabel renders a drive as an operator would name it: the vaccines it covers,
+// the business-day window it runs over, and its status. Raw config tokens such as
+// et_tt_adult_w2 never reach this label — they go through the display mapper first.
+func commandBoardDriveLabel(doseCodes []string, windowStart, windowEnd pgtype.Timestamptz, status string) string {
+	labels := make([]string, 0, len(doseCodes))
+	seen := map[string]bool{}
+	for _, code := range doseCodes {
+		label := vaccinatdomain.DoseQualifiedDisplayLabel("", code)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	name := strings.Join(labels, " + ")
+	if name == "" {
+		name = "Drive"
+	}
+
+	// The window is a span of business DAYS in Asia/Kolkata, never an instant.
+	if windowStart.Valid {
+		from := biztime.BusinessDate(windowStart.Time)
+		if windowEnd.Valid {
+			to := biztime.BusinessDate(windowEnd.Time)
+			if from == to {
+				name = fmt.Sprintf("%s — %s", name, from)
+			} else {
+				name = fmt.Sprintf("%s — %s to %s", name, from, to)
+			}
+		} else {
+			name = fmt.Sprintf("%s — from %s", name, from)
+		}
+	}
+	if status != "" {
+		name = fmt.Sprintf("%s (%s)", name, status)
+	}
+	return name
 }

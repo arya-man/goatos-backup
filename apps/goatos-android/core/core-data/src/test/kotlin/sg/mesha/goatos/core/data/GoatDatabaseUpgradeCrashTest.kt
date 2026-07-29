@@ -62,6 +62,9 @@ import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
 import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -124,6 +127,8 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
+                MIGRATION_23_24,
             )
             .build()
         try {
@@ -314,6 +319,9 @@ class GoatDatabaseUpgradeCrashTest {
             //     its @Entity declares — both summary blobs, both normalized paged-row tables, and
             //     both remote-key tables.
             assertFeedTablesRoundTrip(upgraded, base = 40L)
+
+            // 12. The v22 Weighing tables are separate from Vaccination capture state and round-trip.
+            assertWeighingTablesRoundTrip(upgraded, base = 120L)
         } finally {
             upgraded.close()
         }
@@ -428,6 +436,8 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
+                MIGRATION_23_24,
             )
             .build()
         try {
@@ -530,9 +540,91 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 9. The four v20 Birth/Death workflow tables (MIGRATION_19_20) exist and round-trip.
             assertWorkflowTablesRoundTrip(upgraded, base = 100L)
+
+            // 10. The three v22 Weighing tables (MIGRATION_21_22) exist and round-trip.
+            assertWeighingTablesRoundTrip(upgraded, base = 120L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the v22 Weighing local tables so an omitted migration fails on upgrade. */
+    private suspend fun assertWeighingTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        val scope = "campaign-1:work-1:shed-1"
+        upgraded.weighingRosterDao().upsertAll(
+            listOf(
+                WeighingRosterRowEntity(
+                    id = "row-1",
+                    scopeKey = scope,
+                    tenantId = "tenant-1",
+                    campaignId = "campaign-1",
+                    workGroupId = "work-1",
+                    campaignShedId = "shed-1",
+                    expectedLocationId = "loc-1",
+                    expectedLocationLabel = "Gandhi 1",
+                    actualLocationId = null,
+                    actualLocationLabel = null,
+                    animalId = "animal-1",
+                    displayAnimalId = "G-1",
+                    primaryTag = "RFID-1",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "rfid1",
+                    normalizedSecondaryTag = null,
+                    status = "pending",
+                    availabilityStatus = "expected_shed",
+                    seq = 1L,
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.weighingRosterDao().observeScopeTotal(scope).first())
+        assertEquals("animal-1", upgraded.weighingRosterDao().findByTag(scope, "rfid1")?.animalId)
+
+        upgraded.weighingObservationDao().insert(
+            WeighingObservationEntity(
+                observationId = "obs-1",
+                scopeKey = scope,
+                tenantId = "tenant-1",
+                campaignId = "campaign-1",
+                workGroupId = "work-1",
+                campaignShedId = "shed-1",
+                expectedLocationId = "loc-1",
+                expectedLocationLabel = "Gandhi 1",
+                actualLocationId = "loc-1",
+                actualLocationLabel = "Gandhi 1",
+                animalId = "animal-1",
+                scannedIdentifier = "RFID-1",
+                weightKg = 12.4,
+                proofCaptureId = null,
+                serverProofId = null,
+                syncStatus = "PENDING_LOCAL",
+                idempotencyKey = "obs-key-1",
+                capturedAtMs = base + 1,
+                lastError = null,
+            ),
+        )
+        assertEquals("obs-1", upgraded.weighingObservationDao().findByAnimal(scope, "animal-1")?.observationId)
+
+        upgraded.weighingShedObservationDao().insert(
+            WeighingShedObservationEntity(
+                shedObservationId = "shed-obs-1",
+                scopeKey = scope,
+                tenantId = "tenant-1",
+                campaignId = "campaign-1",
+                workGroupId = "work-1",
+                campaignShedId = "shed-1",
+                expectedLocationId = "loc-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = "{}",
+                proofCaptureId = null,
+                serverProofId = null,
+                syncStatus = "PENDING_LOCAL",
+                idempotencyKey = "shed-obs-key-1",
+                capturedAtMs = base + 2,
+                lastError = null,
+            ),
+        )
+        assertEquals("shed-obs-1", upgraded.weighingShedObservationDao().findByScope(scope)?.shedObservationId)
     }
 
     /** Round-trips the v18 shifting pending-execution queue pair so a missing/mismatched CREATE in

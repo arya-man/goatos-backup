@@ -63,9 +63,22 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         }
     }
 
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+    ): Boolean {
+        if (rows.any { it.fieldKey == fieldKey && it.tag == tag }) return false
+        recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs)
+        return true
+    }
+
     override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
         enqueuePendingScansCalls++
     }
+
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = Unit
 
     override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }
 
@@ -87,6 +100,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         val outcome: RfidScanAttemptOutcome,
         val tagRole: RfidScanTagRole,
         val reason: String?,
+        val capturedAtMs: Long?,
     )
 
     val calls = mutableListOf<AttemptCall>()
@@ -105,8 +119,9 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long?,
     ) {
-        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason)
+        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason, capturedAtMs)
         rows += RfidScanAttemptRow(
             id = "attempt-${rows.size}",
             taskId = taskId,
@@ -118,7 +133,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
             outcome = outcome,
             tagRole = tagRole,
             reason = reason,
-            capturedAtMs = rows.size.toLong(),
+            capturedAtMs = capturedAtMs ?: rows.size.toLong(),
         )
         flow.value = rows.toList()
     }
@@ -151,6 +166,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     private var nextId = 0
 
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> = flow
+
+    fun seedProofs(vararg proofRows: ProofCaptureRow) {
+        rows += proofRows
+        flow.value = rows.toList()
+    }
 
     override suspend fun capture(
         taskId: String,
@@ -277,12 +297,27 @@ class FakeCaptureBootstrapRepository(
  *  care about proof policy keep their historical hardcoded-constant behavior unchanged. */
 class FakeTasksRepositoryForCapture(
     private val detail: TaskDetail? = null,
+    initialSummary: ShedCompletionSummaryDto? = null,
+    private val summaryOnRefresh: ShedCompletionSummaryDto? = initialSummary,
 ) : TasksRepository {
+    private val summaries = mutableMapOf<Pair<String, String?>, MutableStateFlow<ShedCompletionSummaryDto?>>()
+    val refreshedShedIds = mutableListOf<String?>()
+
     override suspend fun taskDetail(taskId: String): TaskDetail = detail ?: error("unused")
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         MutableStateFlow(Resource(data = detail))
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
     override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
-        MutableStateFlow(null)
-    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
+        summaryFlow(taskId, shedId)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> {
+        refreshedShedIds += shedId
+        summaryFlow(taskId, shedId).value = summaryOnRefresh
+        return Result.success(Unit)
+    }
+
+    private fun summaryFlow(taskId: String, shedId: String?): MutableStateFlow<ShedCompletionSummaryDto?> =
+        summaries.getOrPut(taskId to shedId) { MutableStateFlow(initialSummaryForKey(shedId)) }
+
+    private fun initialSummaryForKey(shedId: String?): ShedCompletionSummaryDto? =
+        if (shedId == null) null else summaryOnRefresh
 }

@@ -14,8 +14,10 @@
 #      tunnels the device loopback to the laptop over USB (works on emulator AND a
 #      physical phone; 10.0.2.2 is emulator-only and does NOT work on a real phone).
 #
-# Prereqs: local backend up on :8080 (make dev-local-service-start), device
-# connected via USB with USB debugging enabled ("Allow" the RSA prompt).
+# Prereqs: device connected via USB with USB debugging enabled ("Allow" the RSA
+# prompt). The script starts/repairs the local backend service on :8080 before
+# minting the dev token, so a dead API cannot strand the phone at the workspace
+# error screen.
 #
 # Usage:
 #   tools/dev/android-dev-run.sh                 # auto-pick device, full run
@@ -41,6 +43,13 @@ user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000201}"
 ttl="${GOATOS_DEV_TOKEN_TTL:-23h}"
 gradle_props="$HOME/.gradle/gradle.properties"
 supervisor="$repo_root/tools/dev/run-local-stack-supervised.sh"
+service="$repo_root/tools/dev/local-stack-service.sh"
+android_api_log_dir="$repo_root/.codex-goatos-render/logs"
+android_api_log="$android_api_log_dir/local-api-android-dev.log"
+android_api_bin="$repo_root/.codex-goatos-render/bin/goatos-api-android-dev"
+android_api_label="sg.mesha.goatos.android-dev-api"
+android_api_plist="$HOME/Library/LaunchAgents/$android_api_label.plist"
+launch_domain="gui/$(id -u)"
 
 serial=""; do_clear=1; token_only=0
 while [ $# -gt 0 ]; do
@@ -83,12 +92,132 @@ validate() { # $1=token -> 0 if /app/bootstrap==200
   [ "$code" = "200" ]
 }
 
+detect_android_database_url() {
+  local port
+  port="$(
+    docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+      | awk '$1 == "goatos-local-current" && match($0, /127\.0\.0\.1:[0-9]+->5432\/tcp/) {
+          print $0
+        }' \
+      | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
+      | head -n 1
+  )"
+  if [ -n "$port" ]; then
+    printf 'postgres://postgres:goatos@127.0.0.1:%s/goatos?sslmode=disable\n' "$port"
+    return 0
+  fi
+  printf 'postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable\n'
+}
+
+start_android_api_fallback() {
+  local code pid
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+  [ "$code" = "204" ] && return 0
+
+  pid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  if [ -n "$pid" ]; then
+    die "port 8080 is in use but /readyz is not healthy; stop pid $pid or free :8080"
+  fi
+
+  mkdir -p "$android_api_log_dir"
+  log "shared service did not become ready; starting Android dev API fallback on canonical local DB..."
+  mkdir -p "$(dirname "$android_api_bin")"
+  ( cd "$backend_dir" && go build -buildvcs=false -o "$android_api_bin" ./cmd/api )
+  mkdir -p "$(dirname "$android_api_plist")"
+  cat >"$android_api_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$android_api_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$android_api_bin</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$backend_dir</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$android_api_log</string>
+  <key>StandardErrorPath</key>
+  <string>$android_api_log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DATABASE_URL</key>
+    <string>${DATABASE_URL:-$(detect_android_database_url)}</string>
+    <key>GOATOS_ENV</key>
+    <string>${GOATOS_ENV:-local}</string>
+    <key>GOATOS_TENANT_ID</key>
+    <string>$tenant_id</string>
+    <key>GOATOS_AUTH_MODE</key>
+    <string>${GOATOS_AUTH_MODE:-bearer}</string>
+    <key>GOATOS_AUTH_ISSUER</key>
+    <string>$iss</string>
+    <key>GOATOS_AUTH_AUDIENCE</key>
+    <string>$aud</string>
+    <key>GOATOS_AUTH_HS256_SECRET</key>
+    <string>${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}</string>
+    <key>GOATOS_AUTH_MAX_TOKEN_TTL</key>
+    <string>${maxttl:-24h}</string>
+    <key>GOATOS_HTTP_ADDR</key>
+    <string>127.0.0.1:8080</string>
+    <key>GOATOS_ALLOW_STALE_LOCAL_STACK</key>
+    <string>1</string>
+    <key>GOATOS_LOCAL_MEDIA_SIGNING_SECRET</key>
+    <string>${GOATOS_LOCAL_MEDIA_SIGNING_SECRET:-goatos-local-media-secret-32-bytes-min}</string>
+  </dict>
+</dict>
+</plist>
+EOF
+  launchctl bootout "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+  launchctl bootstrap "$launch_domain" "$android_api_plist" >/dev/null
+  launchctl enable "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+
+  for _ in $(seq 1 60); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  cat "$android_api_log" >&2 || true
+  die "Android dev API fallback did not become ready on :8080"
+}
+
+ensure_backend() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+  if [ "$code" = "204" ]; then
+    return 0
+  fi
+  log "backend not ready on :8080 (readyz=$code); starting local backend service..."
+  bash "$service" start >/dev/null
+  for _ in $(seq 1 45); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  log "backend still not ready; restarting local backend service..."
+  bash "$service" restart >/dev/null
+  for _ in $(seq 1 60); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  bash "$service" logs >&2 || true
+  start_android_api_fallback
+}
+
 # issuer/audience/max-ttl from the supervised script (with sane fallbacks)
 eval "$(grep -E '^export GOATOS_AUTH_(ISSUER|AUDIENCE|MAX_TOKEN_TTL)=' "$supervisor" 2>/dev/null || true)"
 iss="${GOATOS_AUTH_ISSUER:-goatos-local}"
 aud="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 maxttl="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 
+ensure_backend
 log "backend health: $(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || echo unreachable) (expect 204); minting a dev token that /app/bootstrap accepts..."
 
 token=""
@@ -113,10 +242,11 @@ fi
 
 # bake into ~/.gradle/gradle.properties (token value never printed)
 mkdir -p "$(dirname "$gradle_props")"; touch "$gradle_props"
-grep -v '^goatosDevBearerToken=' "$gradle_props" > "$gradle_props.tmp" 2>/dev/null || true
+grep -Ev '^(goatosDevBearerToken|goatosDevApiBaseUrl)=' "$gradle_props" > "$gradle_props.tmp" 2>/dev/null || true
+printf 'goatosDevApiBaseUrl=http://localhost:8080/\n' >> "$gradle_props.tmp"
 printf 'goatosDevBearerToken=%s\n' "$token" >> "$gradle_props.tmp"
 mv "$gradle_props.tmp" "$gradle_props"
-log "fresh dev token baked into ~/.gradle/gradle.properties (validated: /app/bootstrap 200, ttl $ttl)"
+log "dev API URL + fresh token baked into ~/.gradle/gradle.properties (validated: /app/bootstrap 200, ttl $ttl)"
 [ "$token_only" = "1" ] && { log "token-only: done."; exit 0; }
 
 # --- build + install + tunnel + launch ---------------------------------------

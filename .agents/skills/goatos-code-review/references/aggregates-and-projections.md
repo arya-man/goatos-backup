@@ -70,6 +70,12 @@ and page boundary independently.
    every join, prove `1:1`, pre-aggregate the many side, use a semijoin, or
    explicitly deduplicate by the fact's stable id. A comment saying "one row per
    obligation" is not proof if a selector/dimension table can contain many rows.
+   Mobile vaccination execution has a hard version of this rule:
+   `protocol_rule_dimensions` must never be joined directly into the row/count
+   path that feeds Android overview or shed cards. Collapse it to one row per
+   protocol rule before counting. A direct dimension join is the 2026-07-29
+   `324 -> 1296` / `120 -> 480` incident and is blocked by
+   `make aggregate-projection-guard`.
    Vaccination shed proof has a hard write-path version of this rule: the hidden
    park/batch `sop_tasks` row is not the submitted/proof/verification grain for
    WF, CT, AC, Calendar, Android, verifier queues, proof drawers, or leadership

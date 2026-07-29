@@ -285,6 +285,41 @@ func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *test
 	}
 }
 
+func TestVaccinationSubmissionBridgeFailsWhenAnyScannedGoatLacksCameraProof(t *testing.T) {
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{
+				CompletionID:   "completion-1",
+				SubmissionID:   "sub-1",
+				GoatID:         "goat-1",
+				AdministeredAt: time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC),
+			},
+			{
+				CompletionID:   "completion-2",
+				SubmissionID:   "sub-1",
+				GoatID:         "goat-2",
+				AdministeredAt: time.Date(2026, 7, 13, 8, 1, 0, 0, time.UTC),
+			},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	goatID := "goat-1"
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "proof-goat-1", SubjectType: "goat", SubjectID: &goatID}},
+	}
+	err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission)
+	if !errors.Is(err, ErrMissingGoatProof) {
+		t.Fatalf("err = %v, want ErrMissingGoatProof", err)
+	}
+	if producer.calls != 0 {
+		t.Fatalf("verification producer calls = %d, want 0", producer.calls)
+	}
+}
+
 func TestVaccinationSubmissionBridgeFailsClosedOnVerificationError(t *testing.T) {
 	administeredAt := time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC)
 	rec := &captureVaccinationRecorder{

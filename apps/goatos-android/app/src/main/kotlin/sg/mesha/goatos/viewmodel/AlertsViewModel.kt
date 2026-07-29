@@ -60,7 +60,7 @@ class AlertsViewModel @Inject constructor(
     ) { resource, isRefreshing, isOffline, readSet ->
         val dto = resource.data
         val base = dto?.toAlertsUiState()
-            ?: if (resource.hasData) alertsPlaceholder("No alerts") else alertsPlaceholder("Loading…")
+            ?: if (resource.hasData || isOffline) alertsPlaceholder("No alerts") else alertsPlaceholder("Loading…")
         base.copy(
             rows = base.rows.map { it.copy(unread = it.id !in readSet) },
             isRefreshing = isRefreshing,
@@ -104,7 +104,7 @@ class AlertsViewModel @Inject constructor(
     }
 
     private fun ControlTowerResponseDto.toAlertsUiState(): AlertsUiState? {
-        if (alerts.isEmpty()) return null
+        if (alerts.isEmpty()) return alertsPlaceholder("No alerts")
         val base = sampleAlertsState()
         val rows = alerts.map { alert ->
             AlertRow(

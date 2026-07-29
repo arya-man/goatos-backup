@@ -88,6 +88,12 @@ import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheDao
 import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingRosterDao
+import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
 
 /**
  * The on-device SSOT database (docs/decisions/android-offline-first.md). v1 held only the
@@ -132,6 +138,11 @@ import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
  * the Feed Packing worklist, each as a summary-envelope blob + normalized paged rows + per-scope
  * remote keys, so both Feed screens are offline-first and bounded from day one. Renumbered from the
  * branch's original v16 so main's scan-timestamp migration keeps v16 as the integration baseline.
+ * v22 (see [MIGRATION_21_22]) adds Weighing's Room-first roster and category-aware observation
+ * rows without touching Vaccination state. v23 (see [MIGRATION_22_23]) scopes Weighing's local
+ * RFID uniqueness to the selected shed bucket so duplicate tags across buckets remain valid.
+ * v24 (see [MIGRATION_23_24]) adds filter-scoped Feed Transport pages without replacing the
+ * existing date-only cache, preserving every previously installed Room migration path.
  */
 @Database(
     entities = [
@@ -179,8 +190,11 @@ import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
         FeedTransportRemoteKeyEntity::class,
         FeedTransportScopedItemEntity::class,
         FeedTransportScopedRemoteKeyEntity::class,
+        WeighingRosterRowEntity::class,
+        WeighingObservationEntity::class,
+        WeighingShedObservationEntity::class,
     ],
-    version = 22,
+    version = 24,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -208,6 +222,10 @@ import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
     // (docs/decisions/birth-death-workflows.md): the keyset card list + its remote keys, the
     // per-day chips rollup, and the drill-in detail blob — the two new work-list modules
     // (/counts/birth, /counts/death) offline-first and bounded from day one.
+    // v22 (see [MIGRATION_21_22]) adds Weighing's local roster and observation tables.
+    // v23 (see [MIGRATION_22_23]) relaxes Weighing RFID uniqueness from campaign-wide to
+    // selected shed-bucket-wide, matching the free-flow bucket model.
+    // v24 (see [MIGRATION_23_24]) adds scoped Feed Transport items and remote keys.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -255,4 +273,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun workflowRemoteKeyDao(): WorkflowRemoteKeyDao
     abstract fun workflowChipsCacheDao(): WorkflowChipsCacheDao
     abstract fun workflowDetailCacheDao(): WorkflowDetailCacheDao
+    abstract fun weighingRosterDao(): WeighingRosterDao
+    abstract fun weighingObservationDao(): WeighingObservationDao
+    abstract fun weighingShedObservationDao(): WeighingShedObservationDao
 }

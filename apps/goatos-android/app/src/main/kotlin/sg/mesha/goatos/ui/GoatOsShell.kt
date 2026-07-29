@@ -71,6 +71,7 @@ import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
 import sg.mesha.goatos.push.PushNavigationViewModel
@@ -158,9 +159,6 @@ fun GoatOsShell(navState: NavState) {
     val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
-    LaunchedEffect(syncStatus.failedCount, syncStatus.deadLetterCount) {
-        if (syncStatus.failedCount > 0 || syncStatus.deadLetterCount > 0) showSyncSheet = true
-    }
 
     // Drawer identity + settings actions (mock `ovl-drawer`). ProfileViewModel already resolves
     // name/role/initials from the bootstrap cache and owns sign-out + language persistence.
@@ -201,9 +199,27 @@ fun GoatOsShell(navState: NavState) {
     // and process death (see ShellModuleViewModel).
     val moduleVm: ShellModuleViewModel = hiltViewModel()
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+    val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)
+    val visibleNavState = navState
+        .withLeadershipWeighingNavigation(leadershipWeighing)
+        .withVerifierVideoNavigation()
+
+    LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
+        val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
+        val currentBaseRoute = backStackEntry?.destination?.route?.routeBase()
+        val allTopLevelRoutes = visibleNavState.availableModules().flatMap { module -> module.navItems.map { it.href } }
+        if (
+            selected != null &&
+            selected.href.isNotBlank() &&
+            currentBaseRoute in allTopLevelRoutes &&
+            currentBaseRoute !in selected.navItems.map { it.href }
+        ) {
+            navigate(selected.href)
+        }
+    }
 
     GoatOsShellChrome(
-        navState = navState,
+        navState = visibleNavState,
         currentRoute = backStackEntry?.destination?.route,
         onNavigate = navigate,
         drawerProfile = DrawerProfile(profile.name, profile.roleLabel, profile.initials),
@@ -215,10 +231,12 @@ fun GoatOsShell(navState: NavState) {
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
+        val navState = visibleNavState
         AppNavHost(
             navController = navController,
             startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
+            leadershipWeighing = leadershipWeighing,
         )
     }
 
@@ -240,6 +258,76 @@ fun GoatOsShell(navState: NavState) {
             onDismiss = { showLanguage = false },
         )
     }
+}
+
+internal fun isWeighingLeadershipRole(roleLabel: String): Boolean {
+    val role = roleLabel.trim().lowercase().replace('-', '_').replace(' ', '_')
+    return role in setOf("ceo", "ceo_internal", "cxo", "director", "pc_director", "preventive_care_director")
+}
+
+internal fun NavState.withLeadershipWeighingNavigation(enabled: Boolean): NavState {
+    if (!enabled) return this
+    val weighingModule = modules.firstOrNull { it.key.equals("weighing", ignoreCase = true) } ?: return this
+    val leadershipItems = listOf(
+        NavItem(key = "weighing", label = "Weighing", href = Routes.WEIGHING),
+        NavItem(key = "videos", label = "Videos", href = Routes.WEIGHING_VIDEOS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "you", label = "You", href = Routes.YOU),
+    )
+    return copy(
+        items = if (items == weighingModule.navItems) leadershipItems else items,
+        modules = modules.map { module ->
+            if (module.key.equals("weighing", ignoreCase = true)) {
+                module.copy(href = Routes.WEIGHING, navItems = leadershipItems)
+            } else {
+                module
+            }
+        },
+    )
+}
+
+internal fun NavState.withVerifierVideoNavigation(): NavState {
+    val verificationModule = modules.firstOrNull { it.key.equals("verification", ignoreCase = true) } ?: return this
+    val isAction = verificationModule.href == Routes.VERIFY_ACTION ||
+        verificationModule.navItems.any { it.href == Routes.VERIFY_ACTION }
+    val vaccinationHref = if (isAction) Routes.VERIFY_ACTION_VACCINATION else Routes.VERIFY_VACCINATION
+    val weighingHref = if (isAction) Routes.VERIFY_ACTION_WEIGHING else Routes.VERIFY_WEIGHING
+    val youItem = verificationModule.navItems.firstOrNull { item ->
+        item.key.equals("you", ignoreCase = true) || item.href == Routes.YOU
+    } ?: NavItem(key = "you", label = "You", href = Routes.YOU)
+    val vaccinationItems = listOf(
+        NavItem(key = "videos", label = "Video", href = vaccinationHref),
+        youItem,
+    )
+    val weighingItems = listOf(
+        NavItem(key = "videos", label = "Video", href = weighingHref),
+        youItem,
+    )
+    val verifierModules = listOf(
+        NavModule(
+            key = "vaccination",
+            label = "Vaccination",
+            href = vaccinationHref,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = vaccinationItems,
+        ),
+        NavModule(
+            key = "weighing",
+            label = "Weighing",
+            href = weighingHref,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = weighingItems,
+        ),
+    )
+    return copy(
+        chrome = NavChrome.EXPANDED,
+        items = if (items == verificationModule.navItems) vaccinationItems else items,
+        modules = verifierModules + modules.filterNot { module ->
+            module.key.equals("verification", ignoreCase = true) ||
+                module.key.equals("vaccination", ignoreCase = true) ||
+                module.key.equals("weighing", ignoreCase = true)
+        },
+    )
 }
 
 /**
@@ -287,8 +375,9 @@ fun GoatOsShellChrome(
     // Exact membership only — a drill (L1+) must never inherit root chrome, so no
     // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
     val topLevelRoutes = barItems.map { it.href }
+    val drawerTopLevelRoutes = navState.availableModules().flatMap { module -> module.navItems.map { it.href } }
     val topLevelRouteKey = topLevelRoutes.joinToString(separator = "\u001F")
-    val isTopLevel = isTopLevelRoute(currentRoute, topLevelRoutes)
+    val isTopLevel = isTopLevelRoute(currentRoute, drawerTopLevelRoutes)
 
     // A process/activity restore can resurrect ModalNavigationDrawer in an open or partially
     // offset state while the sheet is not actually visible yet. On real phones that makes the
@@ -506,7 +595,12 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel(stringResource(DesignSystemR.string.nav_modules))
-                modules.forEach { module ->
+                val visibleModules = if (profile?.role.equals("operator", ignoreCase = true)) {
+                    modules.filter { it.status == NavModuleStatus.AVAILABLE }
+                } else {
+                    modules
+                }
+                visibleModules.forEach { module ->
                     if (module.status == NavModuleStatus.AVAILABLE) {
                         val active = module.key == selectedModuleKey
                         DrawerRow(

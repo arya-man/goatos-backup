@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
@@ -28,6 +30,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -82,6 +86,9 @@ class SyncEngine(
     private val backoff: BackoffPolicy = BackoffPolicy.Default,
     private val maxConcurrentGroups: Int = 3,
     private val retryScheduler: SyncRetryScheduler = SyncRetryScheduler.Noop,
+    private val scannedGoatDao: ScannedGoatDao? = null,
+    private val weighingObservationDao: WeighingObservationDao? = null,
+    private val weighingShedObservationDao: WeighingShedObservationDao? = null,
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -124,6 +131,11 @@ class SyncEngine(
                 // IN_FLIGHT row is orphaned, not actively in-flight. Without this they would be
                 // excluded from eligibility forever (never retried, never dead-lettered).
                 store.reclaimInFlight(clock())
+                // Rebuild feature acceptance after a process dies between marking the outbox
+                // success and updating the feature database. This projection is idempotent.
+                store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
+                    .filter { it.status == "SUCCEEDED" }
+                    .forEach { reconcileFeatureSuccess(it) }
                 // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
                 // fails it backs off, so eligibleForDrain would still return that group's NEWER
                 // queued rows on the next batch fetch — dispatching them would post newer writes
@@ -181,7 +193,9 @@ class SyncEngine(
         if (!store.markInFlight(item.id, clock())) return true
         return try {
             val resultJson = dispatch(item)
-            store.markSucceeded(item.id, resultJson, clock())
+            if (store.markSucceeded(item.id, resultJson, clock())) {
+                reconcileFeatureSuccess(item)
+            }
             true
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -245,6 +259,27 @@ class SyncEngine(
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
+        OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
+        OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+    }
+
+    private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
+        when (OutboxOpType.valueOf(item.opType)) {
+            OutboxOpType.SCAN_CAPTURE -> {
+                val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
+                scannedGoatDao?.markFieldTagStatus(
+                    taskId = payload.taskId,
+                    fieldKey = payload.request.fieldKey,
+                    tag = payload.request.tag,
+                    status = CaptureSyncStatus.SYNCED.name,
+                )
+            }
+            OutboxOpType.WEIGHING_ANIMAL_OBSERVATION ->
+                weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SHED_OBSERVATION ->
+                weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            else -> Unit
+        }
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -704,7 +739,20 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    private suspend fun dispatchWeighingAnimalObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingAnimalObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingAnimalObservation(payload.campaignId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWeighingShedObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingShedObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingShedObservation(payload.campaignId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
     private companion object {
+        const val SUCCESS_RECONCILE_LIMIT = 20
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200

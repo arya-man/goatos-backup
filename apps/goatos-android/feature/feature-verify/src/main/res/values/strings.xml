@@ -7,12 +7,17 @@
   AnalyticsFunnels wiring lives in VerifyQueueViewModel/VerifyDetailViewModel (:app).
 -->
 <resources>
+    <string name="verify_module_vaccination">Vaccination</string>
+    <string name="verify_module_weighing">Weighing</string>
     <string name="verify_module_birth">Birth</string>
     <string name="verify_module_death">Death</string>
-    <string name="verify_module_vaccination">Vaccination</string>
+    <string name="verify_module_counts">Counts</string>
     <string name="verify_module_shifting">Shifting</string>
     <string name="verify_module_packing">Packing</string>
     <string name="verify_module_feed_direction">Feed direction</string>
+    <string name="verify_module_transport">Transport</string>
+    <string name="verify_module_under_construction">Under construction</string>
+    <string name="verify_module_under_construction_subtitle">This verification queue will appear here when its workflow is ready.</string>
     <string name="verify_queue_title">Video verification</string>
     <string name="verify_action_queue_title">Vaccination videos</string>
     <string name="verify_queue_refresh">Refresh</string>
@@ -22,6 +27,10 @@
     <string name="verify_action_queue_empty_subtitle">Submitted vaccination videos will appear here for Director review</string>
     <string name="verify_queue_load_more">Load more</string>
     <string name="verify_queue_loading_more">Loading more…</string>
+    <string name="verify_scope_all">All</string>
+    <string name="verify_scope_individual">Individual (%1$d)</string>
+    <string name="verify_scope_lumpsum">Lump-sum (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d rows · %2$d videos</string>
 
     <string name="verify_detail_close">Close</string>
     <string name="verify_detail_fullscreen">Open video fullscreen</string>
@@ -31,10 +40,8 @@
     <string name="verify_detail_park_label">Park</string>
     <string name="verify_detail_operator_label">Operator</string>
     <string name="verify_detail_captured_label">Captured</string>
+    <string name="verify_detail_recorded_answer">Recorded: %1$s</string>
     <string name="verify_detail_no_media">No video attached to this item</string>
-    <string name="verify_detail_recorded_answer">Answer: %1$s</string>
-    <string name="verify_detail_death_video">Death video</string>
-    <string name="verify_detail_post_mortem_video">Post-mortem video</string>
     <string name="verify_detail_approve">Approve</string>
     <string name="verify_detail_reject">Reject</string>
     <string name="verify_detail_already_decided">Already decided — no further action needed</string>
@@ -59,5 +66,4 @@
     <string name="verify_status_approved">Approved</string>
     <string name="verify_status_rejected">Rejected</string>
     <string name="verify_category_all">All</string>
-    <string name="verify_module_transport">Transport</string>
 </resources>

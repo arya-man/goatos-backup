@@ -11,6 +11,13 @@
     <string name="scan_search_empty">कोई मेल खाने वाले पशु नहीं</string>
     <string name="scan_load_more">और लोड करें</string>
     <string name="scan_loading_more">लोड हो रहा है…</string>
+    <string name="scan_scanned_goats_title">स्कैन की गई बकरियाँ</string>
+    <string name="scan_scanned_goats_help">हर बकरी की पंक्ति पर प्रूफ़ रिकॉर्ड करें। एक साफ़ कैमरा क्लिप उस बकरी को दिए गए सभी टीकों को कवर कर सकती है।</string>
+    <string name="scan_one_animal_needs_proof">1 पशु को प्रूफ़ चाहिए। सबमिट करने से पहले वीडियो रिकॉर्ड करने के लिए इसे फिर से स्कैन करें।</string>
+    <string name="scan_many_animals_need_proof">%1$d पशुओं को प्रूफ़ चाहिए। सबमिट करने से पहले वीडियो रिकॉर्ड करने के लिए उन्हें फिर से स्कैन करें।</string>
+    <string name="scan_proof_retry_action">फिर कोशिश करें</string>
+    <string name="scan_proof_replace_action">बदलें</string>
+    <string name="scan_proof_replace_armed">प्रूफ़ बदलने के लिए यही टैग फिर स्कैन करें</string>
     <string name="scan_add_clip">कैमरा क्लिप जोड़ें</string>
     <string name="scan_proof_needed">कैमरा प्रूफ़ चाहिए</string>
     <string name="scan_proof_uploading">प्रूफ़ अपलोड हो रहा है…</string>
@@ -24,4 +31,20 @@
     </plurals>
     <string name="scan_proof_retry">अपलोड विफल · फिर से प्रयास करने के लिए टैप करें</string>
     <string name="scan_submit_default">शेड पूरा करें</string>
+    <string name="scan_switch_shed_title">शेड बदलें</string>
+    <string name="scan_switch_shed_subtitle">सिंक हुई प्रगति खोए बिना किसी भी शेड में वापस जा सकते हैं।</string>
+    <string name="scan_switch_shed_loading">ड्राइव शेड लोड हो रहे हैं…</string>
+    <string name="scan_switch_shed_empty">इस ड्राइव में कोई और शेड उपलब्ध नहीं है।</string>
+    <string name="scan_switch_shed_current">मौजूदा</string>
+    <string name="scan_switch_shed_progress_fmt">%1$d/%2$d स्कैन · %3$d क्लिप · %4$d सिंक</string>
+    <string name="scan_switch_shed_synced">ड्राफ्ट सिंक हुआ</string>
+    <string name="scan_switch_shed_not_started">शुरू नहीं हुआ</string>
+    <plurals name="scan_switch_shed_attention">
+        <item quantity="one">%1$d आइटम को ध्यान चाहिए</item>
+        <item quantity="other">%1$d आइटम को ध्यान चाहिए</item>
+    </plurals>
+    <plurals name="scan_switch_shed_syncing">
+        <item quantity="one">%1$d आइटम सिंक हो रहा है</item>
+        <item quantity="other">%1$d आइटम सिंक हो रहे हैं</item>
+    </plurals>
 </resources>

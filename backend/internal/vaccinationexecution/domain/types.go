@@ -88,6 +88,8 @@ type ExecutionRow struct {
 	TargetCount        int                `json:"targetCount"`
 	OpenCount          int                `json:"openCount"`
 	DoneCount          int                `json:"doneCount"`
+	AcceptedCount      int                `json:"acceptedCount"`
+	ReviewCount        int                `json:"reviewCount"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`
 	DueDate            *string            `json:"dueDate,omitempty"`
@@ -788,6 +790,10 @@ type CommandBoardKPI struct {
 }
 
 type CommandBoardCohort struct {
+	// ParkID/ParkName carry the farm this cohort sits on. The matrix is read farmwise, so the
+	// same cohort on two farms stays two cells.
+	ParkID          string `json:"parkId"`
+	ParkName        string `json:"parkName"`
 	ManagementStage string `json:"managementStage"`
 	Sex             string `json:"sex"`
 	AnimalCount     int    `json:"animalCount"`
@@ -797,6 +803,10 @@ type CommandBoardCohortCell struct {
 	Cohort       CommandBoardCohort `json:"cohort"`
 	VaccineLabel string             `json:"vaccineLabel"`
 	PendingCount int                `json:"pendingCount"`
+	// VerifiedCount is DISJOINT from PendingCount: an accepted obligation is neither
+	// still-scheduled nor recorded-but-unverified, so the two can be shown side by side
+	// without double counting.
+	VerifiedCount int `json:"verifiedCount"`
 }
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination.
@@ -836,14 +846,26 @@ type VerificationQueueRow struct {
 
 // CommandBoardResponse is the CEO closure view aggregating KPIs, cohort vaccine matrix,
 // shed dose matrix, weekly given chart, and verification queue.
+// CommandBoardDriveOption identifies one drive the board can be narrowed to. A drive is a
+// batch with a window, so the label carries the vaccine, the window dates, and the status —
+// rule ID alone is not a drive selector when rules recur across dates and parks.
+type CommandBoardDriveOption struct {
+	DriveBatchID string     `json:"driveBatchId"`
+	Label        string     `json:"label"`
+	Status       string     `json:"status"`
+	WindowStart  *time.Time `json:"windowStart,omitempty"`
+	WindowEnd    *time.Time `json:"windowEnd,omitempty"`
+}
+
 type CommandBoardResponse struct {
-	Source            string                   `json:"source"`
-	KPIs              CommandBoardKPI          `json:"kpis"`
-	CohortMatrix      []CommandBoardCohortCell `json:"cohortMatrix"`
-	ShedDoseMatrix    []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
-	WeeklyGiven       []WeeklyGivenRow         `json:"weeklyGiven"`
-	VerificationQueue []VerificationQueueRow   `json:"verificationQueue"`
-	Freshness         *ProjectionFreshness     `json:"freshness,omitempty"`
+	Source            string                    `json:"source"`
+	KPIs              CommandBoardKPI           `json:"kpis"`
+	DriveOptions      []CommandBoardDriveOption `json:"driveOptions"`
+	CohortMatrix      []CommandBoardCohortCell  `json:"cohortMatrix"`
+	ShedDoseMatrix    []ShedDoseMatrixCell      `json:"shedDoseMatrix"`
+	WeeklyGiven       []WeeklyGivenRow          `json:"weeklyGiven"`
+	VerificationQueue []VerificationQueueRow    `json:"verificationQueue"`
+	Freshness         *ProjectionFreshness      `json:"freshness,omitempty"`
 }
 
 type CommandBoardQuery struct {

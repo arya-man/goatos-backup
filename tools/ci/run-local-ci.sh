@@ -81,6 +81,28 @@ changed_since_base() {
   git diff --name-only --diff-filter=ACMRD 2>/dev/null || true
 }
 
+android_screenshot_proof_coverage_guard() {
+  local screenshot_dir="apps/goatos-android/app/src/test/kotlin/sg/mesha/goatos/ui"
+  local screenshot_count
+
+  screenshot_count="$(find "$screenshot_dir" -name '*ScreenshotTest.kt' -type f | wc -l | tr -d ' ')"
+  if [ "$screenshot_count" -eq 0 ]; then
+    echo "!! android screenshot proof guard: no Paparazzi screenshot test classes found under $screenshot_dir" >&2
+    return 1
+  fi
+
+  if ! grep -Fq ':app:verifyPaparazziDevDebug' tools/ci/run-local-ci.sh; then
+    echo "!! android screenshot proof guard: local CI must run full :app:verifyPaparazziDevDebug" >&2
+    return 1
+  fi
+
+  if grep '^[[:space:]]*optional_step "android screenshots".*:app:verifyPaparazziDevDebug' tools/ci/run-local-ci.sh | grep -- '--tests' >/dev/null; then
+    echo "!! android screenshot proof guard: local CI narrows Paparazzi proof with --tests" >&2
+    echo "!! Use full :app:verifyPaparazziDevDebug so every committed *ScreenshotTest class is covered." >&2
+    return 1
+  fi
+}
+
 # ceo_ai_eval_live_enabled: the CEO-AI answer-quality eval calls a live assistant
 # endpoint (Vertex/Gemini) and a Postgres oracle, so it is opt-in only — same
 # posture as the e2e docker chain. It never runs in the default local/PR gate.
@@ -253,8 +275,11 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "android-row-action-scope-guard" make android-row-action-scope-guard
+  step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard
   step "room-migration-guard"         make room-migration-guard
@@ -276,7 +301,7 @@ run_android() {
     step "android fast compile/unit/lint" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --console=plain'
     case "${GOATOS_FORCE_ANDROID_SCREENSHOTS:-0}" in
       1|true|TRUE|True)
-        optional_step "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+        step "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
         ;;
       *)
         echo "── ci-local: android screenshots SKIPPED by GOATOS_FAST_LOCAL_CI=1 (set GOATOS_FORCE_ANDROID_SCREENSHOTS=1 to run)"
@@ -298,7 +323,7 @@ run_android() {
     echo "── ci-local: android screenshots SKIPPED by GOATOS_SKIP_ANDROID_SCREENSHOTS=1"
     RESULTS+=("SKIP  android screenshots (GOATOS_SKIP_ANDROID_SCREENSHOTS=1)")
   else
-    optional_step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+    step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
   fi
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }

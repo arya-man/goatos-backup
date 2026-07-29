@@ -275,6 +275,9 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
 		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
 	}
+	if row.AcceptedCount != 0 || row.ReviewCount != 0 {
+		t.Fatalf("accepted/review = %d/%d want 0/0", row.AcceptedCount, row.ReviewCount)
+	}
 }
 
 func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *testing.T) {
@@ -312,6 +315,9 @@ func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *te
 	}
 	if row.ProofStatus != domain.ProofStatusAccepted || row.VerificationStatus != domain.VerificationStatusVerified {
 		t.Fatalf("proof/verification = %q/%q want accepted/verified", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.AcceptedCount != 2 || row.ReviewCount != 0 {
+		t.Fatalf("accepted/review = %d/%d want 2/0", row.AcceptedCount, row.ReviewCount)
 	}
 	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
 		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)

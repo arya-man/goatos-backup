@@ -551,7 +551,7 @@ class SubmitViewModel @Inject constructor(
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
             val proofReadiness = currentShedProofReadiness()
-            val formBlock = buildFormRunnerState(currentForm, current)?.blockedReason
+            val formBlock = if (currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(currentForm, current)?.blockedReason
             val ready = if (currentProofPolicy.isShedLevelVideo) {
                 currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
                     proofReadiness.blockingReason == null &&
@@ -700,10 +700,17 @@ class SubmitViewModel @Inject constructor(
             // window in observeStatus() — otherwise a close can wait forever once the row ages out
             // of the window before its terminal status is seen.
             syncRepository.observeItem(itemId)
-                .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-                .collect { item -> item?.let { applyItemStatus(it) } }
+                .collect { item ->
+                    if (item == null) {
+                        if (outboxItemId == itemId) {
+                            outboxItemId = null
+                            renderDraft()
+                        }
+                    } else {
+                        applyItemStatus(item)
+                    }
+                }
         }
     }
 
@@ -856,12 +863,11 @@ class SubmitViewModel @Inject constructor(
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
             syncLabel = "",
-            // Vaccination shed acknowledgement: when a backend shed-completion summary is present,
-            // Submit is gated on its submit_enabled flag (all expected animals handled + proof
-            // ready) AND any residual form gate. Generic tasks with no shed summary keep the
-            // pre-existing form-only gate.
-            canSubmit = summaryReady && formRunner?.blockedReason == null,
-            blockingReason = summaryBlock ?: formRunner?.blockedReason,
+            // Per-goat video proof is captured on the scan rows; once the backend shed summary says
+            // the acknowledgement is ready, stale local proof/outbox rows must not repaint this
+            // screen as Retry after navigating away and back.
+            canSubmit = summaryReady && (summary != null && currentProofPolicy.isPerGoatVideo || formRunner?.blockedReason == null),
+            blockingReason = summaryBlock ?: formRunner?.blockedReason?.takeUnless { summary != null && currentProofPolicy.isPerGoatVideo },
             syncProgress = 0f,
             proofSummaryTitle = proofSummary.title,
             proofSummarySyncedLabel = proofSummary.label,
@@ -917,11 +923,16 @@ class SubmitViewModel @Inject constructor(
 
     private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
         if (!task.state.isSubmissionTerminal()) return false
-        if (!currentProofPolicy.isShedLevelVideo) return true
-        if (currentShedCompletionSummary?.submitState?.isSubmissionTerminal() != true) return false
-        val readiness = currentShedProofReadiness()
-        if (readiness.uploading > 0 || readiness.failed > 0) return false
-        return readiness.blockingReason == null
+        val summary = currentShedCompletionSummary
+        if (summary != null) {
+            if (!summary.submitState.isSubmissionTerminal()) return false
+            if (currentProofPolicy.isShedLevelVideo) {
+                val readiness = currentShedProofReadiness()
+                if (readiness.uploading > 0 || readiness.failed > 0) return false
+                return readiness.blockingReason == null
+            }
+        }
+        return true
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
@@ -1345,10 +1356,14 @@ class SubmitViewModel @Inject constructor(
             }
         }.toMap()
 
-        /** Every completed backend proof (across every `video_proof` field) as the wire proof-ref
-         *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
-         *  as a proof ref, because the backend review path requires completed server proof rows. */
-        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
+        /** Completed backend proof refs for submit. Goat-level replacement keeps old proof rows for
+         *  audit, but only the latest completed proof per goat is the active proof sent to backend. */
+        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs
+            .filter { row ->
+                row.syncStatus == CaptureSyncStatus.SYNCED && !row.serverProofId.isNullOrBlank()
+            }
+            .latestActiveProofs()
+            .mapNotNull { row ->
             val serverProofId = row.serverProofId
                 ?.takeIf { row.syncStatus == CaptureSyncStatus.SYNCED && it.isNotBlank() }
                 ?: return@mapNotNull null
@@ -1363,6 +1378,15 @@ class SubmitViewModel @Inject constructor(
                     row.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
                 },
             )
+        }
+
+        private fun List<ProofCaptureRow>.latestActiveProofs(): List<ProofCaptureRow> {
+            val goatProofs = filter { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+                .groupBy { "${it.fieldKey}:${it.subjectId}" }
+                .values
+                .mapNotNull { rows -> rows.maxByOrNull { it.capturedAtMs } }
+            val nonGoatProofs = filterNot { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+            return nonGoatProofs + goatProofs
         }
     }
 }

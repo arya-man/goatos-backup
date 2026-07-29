@@ -94,6 +94,11 @@ func TestValidateVaccinationDSLAndRepeatItems(t *testing.T) {
 	if len(items) != 2 || items[0].GoatID != "66000000-0000-4000-8000-000000000001" {
 		t.Fatalf("repeat items = %#v", items)
 	}
+	delete(dsl, "repeat_for_each_goat")
+	items = buildSubmissionItems(dsl, answers)
+	if len(items) != 2 || items[0].GoatID != "66000000-0000-4000-8000-000000000001" || items[1].GoatID != "66000000-0000-4000-8000-000000000002" {
+		t.Fatalf("field-level repeat items = %#v", items)
+	}
 }
 
 func TestEvaluateBlocksDeclarativeRule(t *testing.T) {
@@ -522,6 +527,52 @@ func TestSubmitVaccinationShedCompletionAckSkipsGenericProofRefsWhenReady(t *tes
 	}
 	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000001" || got[0].SubjectID == nil || *got[0].SubjectID != goatID {
 		t.Fatalf("proof refs = %#v, want backend-attached completed goat proof", got)
+	}
+}
+
+func TestSubmitVaccinationPerGoatCompletionAckUsesScopedShedReadiness(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = map[string]any{
+		"schema_version": "goatos.sop-form.v1",
+		"fields":         []any{},
+	}
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	shedID := testScopeID
+	goatID := "66000000-0000-4000-8000-000000000001"
+	repo.completedTaskGoatProofRefs = []domain.ProofReference{{
+		ProofID:     "67000000-0000-4000-8000-000000000001",
+		ProofType:   "video",
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+		UploadState: "completed",
+	}}
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "shed-submit:" + testTaskID + ":scope:" + shedID + ":rv:1",
+			Answers:        map[string]any{},
+			ProofRefs:      nil,
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if got := repo.lastShedReadinessShedID; got != shedID {
+		t.Fatalf("readiness shed id = %q, want %q", got, shedID)
+	}
+	if got := repo.lastCompletedProofRefsShedID; got != shedID {
+		t.Fatalf("server-proof recovery shed id = %q, want %q", got, shedID)
+	}
+	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000001" {
+		t.Fatalf("proof refs = %#v, want recovered server goat proof", got)
 	}
 }
 

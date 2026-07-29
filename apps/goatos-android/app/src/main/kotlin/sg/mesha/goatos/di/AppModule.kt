@@ -102,6 +102,8 @@ import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.weighing.DefaultWeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
 import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
@@ -430,6 +432,23 @@ object AppModule {
         dao: VerificationQueueCacheDao,
     ): VerificationRepository = DefaultVerificationRepository(api, dao)
 
+    @Provides
+    @Singleton
+    fun provideWeighingRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: SyncRepository,
+        appScope: CoroutineScope,
+    ): WeighingRepository = DefaultWeighingRepository(
+        api = api,
+        tenantId = BuildConfig.TENANT_ID,
+        rosterDao = database.weighingRosterDao(),
+        observationDao = database.weighingObservationDao(),
+        shedObservationDao = database.weighingShedObservationDao(),
+        syncRepository = syncRepository,
+        appScope = appScope,
+    )
+
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
     // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
     // BtHidScanSource wraps the SAME RfidReaderPort singleton the shed-roster Scan screen
@@ -467,7 +486,8 @@ object AppModule {
     fun provideScanAttemptRepository(
         dao: RfidScanAttemptDao,
         syncRepository: SyncRepository,
-    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository)
+        appScope: CoroutineScope,
+    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository, appScope)
 
     @Provides
     @Singleton
@@ -559,11 +579,15 @@ object AppModule {
         api: AppApi,
         connectivityGate: ConnectivityGate,
         retryScheduler: SyncRetryScheduler,
+        database: GoatDatabase,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
         connectivityGate = connectivityGate,
         retryScheduler = retryScheduler,
+        scannedGoatDao = database.scannedGoatDao(),
+        weighingObservationDao = database.weighingObservationDao(),
+        weighingShedObservationDao = database.weighingShedObservationDao(),
     )
 
     // Drive/Photos-style background upload foreground service (MOB-002 §3,

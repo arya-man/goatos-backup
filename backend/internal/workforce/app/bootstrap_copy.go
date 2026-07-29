@@ -30,6 +30,10 @@ type moduleNavContribution struct {
 	// permissions.routePermissions requires the same permission, so an unlisted page is
 	// unreachable rather than merely invisible.
 	requiredPermission string
+	// requiredAnyPermission gates a nav item when any one of several authorities can
+	// use the surface, e.g. Weighing is visible to planners, monitors, and executors
+	// but each command remains route/API-authorized by its own permission.
+	requiredAnyPermission []string
 	// excludedPermission suppresses a field-lens item when the principal holds a
 	// higher-level module lens. This keeps one Vaccination module reusable without
 	// turning the nav builder into a per-role template: the role table grants the
@@ -78,6 +82,22 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
+			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
+		},
+	},
+	// "weighing" is its own Preventive Care vertical. It is listed beside
+	// Vaccination in the module drawer; its bottom bar is only weighing-owned
+	// destinations, not a Vaccination tab.
+	"weighing": {
+		key:         "weighing",
+		labelKey:    "module.weighing",
+		landingHref: "/weighing", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    2,
+		contributions: []moduleNavContribution{
+			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 2, requiredPermission: permissions.WeighingMonitor},                                                                  //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -208,12 +228,27 @@ func grantsHavePermission(grants []domain.GrantSummary, permission string) bool 
 	return false
 }
 
+func grantsHaveAnyPermission(grants []domain.GrantSummary, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, permission := range required {
+		if grantsHavePermission(grants, permission) {
+			return true
+		}
+	}
+	return false
+}
+
 // permittedContributions returns the module's nav items this principal may actually
 // reach. A module whose every item is gated away is not renderable for them.
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
 	out := make([]moduleNavContribution, 0, len(def.contributions))
 	for _, contrib := range def.contributions {
 		if !grantsHavePermission(grants, contrib.requiredPermission) {
+			continue
+		}
+		if !grantsHaveAnyPermission(grants, contrib.requiredAnyPermission) {
 			continue
 		}
 		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
@@ -243,27 +278,20 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 // permission filtering. Leadership is org-level (not department-scoped), so the set
 // is decided by leadership TIER, not by department_module_grants:
 //
-//   - CEO/CXO (ceo_internal) is whole-org: Vaccination plus Counts, plus the
-//     roadmap "soon" modules (Feed direction, Breeding).
-//   - Park Head runs a park's day-to-day operations, which includes Feed, so they get
-//     the shared Vaccination home PLUS the Feed module. Counts (birth/death/shifting
-//     capture + approvals) is not theirs. Park Head is further limited to his own park
-//     by his grant scope (data scope), not by nav. (maintainer decision 2026-07-25)
-//   - PC Director is preventive-care specialty: ONLY the shared Vaccination module.
-//     Counts, Feed, and Breeding are not preventive-care surfaces, so they never appear.
+//   - CEO/CXO (ceo_internal) is whole-org: Vaccination, Weighing, Counts, built Feed,
+//     plus the roadmap "soon" Breeding module.
+//   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
+//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
+//     are not preventive-care surfaces, so they never appear. Park Head is further
+//     limited to his own park by his grant scope (data scope), not by nav.
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"vaccination", "counts", "feed_direction", "breeding"}
+		return []string{"vaccination", "weighing", "counts", "feed_direction", "breeding"}
 	}
-	if hasRole(grants, permissions.RoleParkHead) {
-		// Park operations include Feed; Counts is excluded (preventive-care leaders
-		// do not run the Counts capture/approval surfaces).
-		return []string{"vaccination", "feed_direction"}
-	}
-	// PC Director: preventive-care specialty, vaccination home only.
-	return []string{"vaccination"}
+	// PC Director / Park Head: preventive-care specialty verticals.
+	return []string{"vaccination", "weighing"}
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -362,19 +390,14 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 			NavItems: items,
 		})
 	}
-	// "Soon" roadmap rows advertise unbuilt modules. They are surfaced globally to
-	// non-leadership principals, but a leadership drawer only shows the "soon" rows
-	// its tier is actually offered (candidateModuleKeys): CEO sees Breeding (Feed is
-	// now a built module, not a soon row), and a preventive-care leader (PC Director,
-	// Park Head) sees no soon rows.
-	allowSoon := func(string) bool { return true }
-	if isLeadershipPrincipal(grants) {
-		offered := make(map[string]bool, len(keys))
-		for _, k := range keys {
-			offered[k] = true
-		}
-		allowSoon = func(k string) bool { return offered[k] }
+	// "Soon" roadmap rows advertise unbuilt modules, but only when that module is
+	// in the principal's offered module set. A field operator granted Vaccination
+	// and Weighing should not see unrelated modules such as Counts, Feed, or Breeding.
+	offered := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		offered[k] = true
 	}
+	allowSoon := func(k string) bool { return offered[k] }
 	for _, key := range soonModuleKeys {
 		def, ok := moduleNavRegistry[key]
 		if !ok || seen[def.key] || !allowSoon(key) {
@@ -487,11 +510,15 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
 		"nav.feed_transport":   "Feed Transport",
+		"nav.birth_death":      "Birth/Death",
+		"nav.approval":         "Approval",
+		"nav.weighing":         "Weighing",
 		"nav.videos":           "Videos",
 		"nav.you":              "You",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
+		"module.weighing":       "Weighing",
 		"module.counts":         "Counts",
 		"module.feed_direction": "Feed direction",
 		"module.breeding":       "Breeding",
@@ -514,11 +541,15 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
 		"nav.feed_transport":   "फ़ीड परिवहन",
+		"nav.birth_death":      "जन्म/मृत्यु",
+		"nav.approval":         "अनुमोदन",
+		"nav.weighing":         "वजन",
 		"nav.videos":           "वीडियो",
 		"nav.you":              "आप",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
+		"module.weighing":       "वजन",
 		"module.counts":         "गिनती",
 		"module.feed_direction": "फ़ीड दिशा",
 		"module.breeding":       "प्रजनन",
@@ -541,11 +572,15 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
+		"nav.birth_death":      "ಜನನ/ಮರಣ",
+		"nav.approval":         "ಅನುಮೋದನೆ",
+		"nav.weighing":         "ತೂಕ",
 		"nav.videos":           "ವೀಡಿಯೊಗಳು",
 		"nav.you":              "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
+		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಎಣಿಕೆ",
 		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
@@ -568,11 +603,15 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",
+		"nav.birth_death":      "జననం/మరణం",
+		"nav.approval":         "ఆమోదం",
+		"nav.weighing":         "బరువు",
 		"nav.videos":           "వీడియోలు",
 		"nav.you":              "మీరు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
+		"module.weighing":       "బరువు",
 		"module.counts":         "లెక్కలు",
 		"module.feed_direction": "ఫీడ్ దిశ",
 		"module.breeding":       "సంతానోత్పత్తి",

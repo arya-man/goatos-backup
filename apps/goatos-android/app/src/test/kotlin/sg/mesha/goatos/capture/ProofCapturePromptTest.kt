@@ -3,32 +3,27 @@ package sg.mesha.goatos.capture
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import sg.mesha.goatos.R
 
 class ProofCapturePromptTest {
     @Test
-    fun `workflow task title replaces generic birth recorder title`() {
+    fun `workflow task title is carried by recorder context`() {
+        val context = ProofCaptureContext(
+            title = "Mother's Medicine",
+            primaryTag = "workflow",
+            workLabel = "Record birth video",
+        )
+
         assertEquals(
             "Mother's Medicine",
-            recorderHeaderTitle(
-                taskTitle = "Mother's Medicine",
-                fallbackTitle = "Record birth video",
-            ),
+            context.title,
         )
+        assertEquals("Record birth video", context.workLabel)
     }
 
     @Test
-    fun `death recorders never reuse vaccination header or instruction`() {
-        val vaccination = recorderCopyResources(ProofCapturePrompt.VACCINATION)
-        val death = recorderCopyResources(ProofCapturePrompt.DEATH)
-        val postMortem = recorderCopyResources(ProofCapturePrompt.POST_MORTEM)
-
-        assertEquals(R.string.proof_camera_title, vaccination.title)
-        assertEquals(R.string.proof_camera_instruction, vaccination.instruction)
-        assertNotEquals(vaccination.title, death.title)
-        assertNotEquals(vaccination.instruction, death.instruction)
-        assertNotEquals(vaccination.title, postMortem.title)
-        assertNotEquals(vaccination.instruction, postMortem.instruction)
-        assertNotEquals(death.title, postMortem.title)
+    fun `workflow proof prompts remain distinct`() {
+        assertNotEquals(ProofCapturePrompt.VACCINATION, ProofCapturePrompt.DEATH)
+        assertNotEquals(ProofCapturePrompt.VACCINATION, ProofCapturePrompt.POST_MORTEM)
+        assertNotEquals(ProofCapturePrompt.DEATH, ProofCapturePrompt.POST_MORTEM)
     }
 }

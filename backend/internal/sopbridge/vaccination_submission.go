@@ -87,11 +87,20 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	completions []vaccinationdomain.SubmissionCompletion,
 ) error {
 	mediaRefs := make([]string, 0)
+	goatProofs := make(map[string]struct{})
+	hasGroupProof := false
 	for _, ref := range submission.ProofRefs {
 		if ref.ProofID == "" {
 			continue
 		}
 		mediaRefs = append(mediaRefs, ref.ProofID)
+		if strings.EqualFold(ref.SubjectType, "goat") && ref.SubjectID != nil && strings.TrimSpace(*ref.SubjectID) != "" {
+			goatProofs[strings.TrimSpace(*ref.SubjectID)] = struct{}{}
+			continue
+		}
+		if !strings.EqualFold(ref.SubjectType, "goat") {
+			hasGroupProof = true
+		}
 	}
 	byGoat := make(map[string]vaccinationdomain.SubmissionCompletion)
 	var earliest time.Time
@@ -104,6 +113,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		}
 		if len(completion.ProofRefIDs) > 0 {
 			mediaRefs = append(mediaRefs, completion.ProofRefIDs...)
+			goatProofs[completion.GoatID] = struct{}{}
 		}
 		if existing, ok := byGoat[completion.GoatID]; !ok || completion.AdministeredAt.Before(existing.AdministeredAt) {
 			byGoat[completion.GoatID] = completion
@@ -131,6 +141,13 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	mediaRefs = uniqueStrings(mediaRefs)
 	if len(mediaRefs) == 0 {
 		return fmt.Errorf("%w: submission_id=%s", ErrMissingGoatProof, submission.SubmissionID)
+	}
+	if !hasGroupProof {
+		for goatID := range byGoat {
+			if _, ok := goatProofs[goatID]; !ok {
+				return fmt.Errorf("%w: submission_id=%s goat_id=%s", ErrMissingGoatProof, submission.SubmissionID, goatID)
+			}
+		}
 	}
 	taskID := task.TaskID
 	submissionID := submission.SubmissionID
