@@ -293,6 +293,15 @@ func TestSubmitTaskShedScopedKeyFiltersPerGoatProofItemsToThatShed(t *testing.T)
 	}
 }
 
+func TestShedScopeFromSubmissionKeyIgnoresMalformedScope(t *testing.T) {
+	if got := shedScopeFromSubmissionKey("shed-submit:task:scope:not-a-uuid:rv:1"); got != "" {
+		t.Fatalf("malformed shed scope = %q, want empty", got)
+	}
+	if got := shedScopeFromSubmissionKey("shed-submit:task:scope:77500000-0000-4000-8000-000000000007:rv:1"); got != "77500000-0000-4000-8000-000000000007" {
+		t.Fatalf("valid shed scope = %q", got)
+	}
+}
+
 func TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
