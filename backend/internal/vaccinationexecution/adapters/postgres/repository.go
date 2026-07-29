@@ -3786,10 +3786,16 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 	}
 
 	// 3. Shed dose matrix query
-	// projection-review:
-	// (a) producer: obligation_id, status, due_at, scope_id, rule_id, dose_code, target_id | consumer: scope_id, dose_code, state GROUP BY
-	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1, rule lookup 1:1
-	// (c) state assignment numerator: has_accepted|has_recorded_unverified|scheduled+overdue|scheduled; denominator: all shed×dose obligations
+	// projection-review: membership=shed-scoped obligation_instances per tenant/batch/park; group_key=shed_id x dose_code x state; join_cardinality=comp CTE 1:1, protocol_rules 1:1, locations 1:1; pagination=bounded tenant aggregate (no paging); scope=tenant + optional batch + optional park EXISTS
+	// Detail (landed-review P1): grain=shed_id x dose_code x state — one row per cell, aggregated ONLY in the outer SELECT.
+	// (a) producer unique columns: obligation_id (with scope_id, dose_code, per-obligation state)
+	//     | consumer GROUP BY: shed_id, shed_name, dose_code, state
+	// (b) join multiplicity: completions pre-aggregated per obligation (comp CTE, 1:1),
+	//     protocol_rules 1:1 on rule_id, locations 1:1 on scope_id; inner CTE has NO GROUP BY
+	//     so due_at/state cannot split cells (landed-review P1 regression:
+	//     TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState)
+	// (c) animal_count numerator: COUNT(DISTINCT target_id) over the cell's obligations;
+	//     denominator/key set: same shed x dose x state cell — identical key sets.
 	shedDoseSQL := `
 WITH comp AS (
   SELECT
@@ -3802,7 +3808,9 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-shed_dose_states AS (
+shed_dose_obligations AS (
+  -- per-OBLIGATION state; aggregation to the shed x dose x state cell happens ONLY in
+  -- the outer SELECT so one cell is always exactly one row regardless of due dates.
   SELECT
     oi.scope_id as shed_id,
     loc.name as shed_name,
@@ -3814,11 +3822,10 @@ shed_dose_states AS (
       WHEN oi.status = 'scheduled' THEN 'scheduled'
       ELSE 'other'
     END as state,
-    COUNT(DISTINCT oi.target_id) as animal_count,
-    MIN(comp.min_administered_at) as min_administered_at,
-    MAX(comp.max_administered_at) as max_administered_at,
-    MIN(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as min_due_at,
-    MAX(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as max_due_at
+    oi.target_id,
+    comp.min_administered_at,
+    comp.max_administered_at,
+    CASE WHEN oi.status = 'scheduled' THEN oi.due_at END as due_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
@@ -3827,11 +3834,16 @@ shed_dose_states AS (
     AND oi.scope_type = 'shed'
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
-  GROUP BY oi.scope_id, loc.name, pr.dose_code, comp.has_accepted, comp.has_recorded_unverified, oi.status, oi.due_at
 )
-SELECT shed_id, shed_name, dose_code, state, animal_count, min_administered_at, max_administered_at, min_due_at, max_due_at
-FROM shed_dose_states
+SELECT shed_id, shed_name, dose_code, state,
+  COUNT(DISTINCT target_id) as animal_count,
+  MIN(min_administered_at) as min_administered_at,
+  MAX(max_administered_at) as max_administered_at,
+  MIN(due_at) as min_due_at,
+  MAX(due_at) as max_due_at
+FROM shed_dose_obligations
 WHERE state != 'other'
+GROUP BY shed_id, shed_name, dose_code, state
 ORDER BY shed_name, dose_code, state
 `
 	shedDoseRows, err := r.pool.Query(ctx, shedDoseSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
@@ -3851,7 +3863,7 @@ ORDER BY shed_name, dose_code, state
 		cell := domain.ShedDoseMatrixCell{
 			ShedID:      shedID,
 			ShedName:    shedName,
-			DoseRule:    vaccinatdomain.DoseDisplayLabel("", doseCode),
+			DoseRule:    vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
 			State:       state,
 			AnimalCount: animalCount,
 		}
@@ -3880,7 +3892,7 @@ ORDER BY shed_name, dose_code, state
 	// join_cardinality=none
 	weeklySQL := `
 SELECT
-  EXTRACT(YEAR FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_year,
+  EXTRACT(ISOYEAR FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_year,
   EXTRACT(WEEK FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_week,
   pr.dose_code as dose_code,
   vc.status,
@@ -3974,7 +3986,7 @@ ORDER BY shed_name, pr.dose_code
 		row := domain.VerificationQueueRow{
 			ShedID:        shedID,
 			ShedName:      shedName,
-			DoseRule:      vaccinatdomain.DoseDisplayLabel("", doseCode),
+			DoseRule:      vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
 			AwaitingCount: awaitingCount,
 			TotalCount:    totalCount,
 		}
