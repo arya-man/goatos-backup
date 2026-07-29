@@ -870,6 +870,11 @@
       "path": "backend/cmd/seed-vaccination-real/main.go",
       "owner": "seed",
       "reason": "idempotent local/source seed; closeout must include HRMS, stages, generation, and sweeper"
+    },
+    {
+      "path": "backend/cmd/seed-vaccination-per-goat-qa/main.go",
+      "owner": "seed",
+      "reason": "idempotent local QA seed for per-goat proof testing; not a production herd mutation writer"
     }
   ],
   "futureFeatureContracts": [

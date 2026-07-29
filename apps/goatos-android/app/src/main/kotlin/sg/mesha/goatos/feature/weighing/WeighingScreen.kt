@@ -74,6 +74,8 @@ import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.feature.scan.VaccineGroup
 import sg.mesha.goatos.R
 
+// telemetry:exempt Weighing execution V1 has repository/viewmodel sync events; screen-level click telemetry is deferred until workflow names settle.
+
 data class WeighingUiState(
     val title: String = "Weighing",
     val scopeLabel: String = "",

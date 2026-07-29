@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.SyncIconButton
 
+// telemetry:exempt Leadership weighing summary is read-only in V1; execution and verification state changes are tracked downstream.
+
 @Composable
 fun LeadershipWeighingScreen(
     state: WeighingUiState,

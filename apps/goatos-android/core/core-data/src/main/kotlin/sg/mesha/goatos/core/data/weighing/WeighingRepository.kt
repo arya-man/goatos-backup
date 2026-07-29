@@ -332,7 +332,7 @@ class DefaultWeighingRepository(
         runCatching {
             val safetyLimit = maxRows.coerceIn(1, MAX_ROSTER_SYNC_ROWS)
             val rows = mutableListOf<WeighingRosterRowEntity>() // mobile-guard:ignore: bounded by safetyLimit and kept until successful atomic Room replace
-            val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>()
+            val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>() // mobile-guard:ignore: bounded by safetyLimit/MAX_ROSTER_SYNC_ROWS within one refreshScope call, then discarded
             var cursor: String? = null
             do {
                 val remaining = safetyLimit - rows.size

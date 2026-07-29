@@ -10,6 +10,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
+func TestMain(m *testing.M) {
+	pgtest.RunMain(m)
+}
+
 func TestDryRunValidatesRepositoryFixture(t *testing.T) {
 	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json")
 	var out bytes.Buffer
