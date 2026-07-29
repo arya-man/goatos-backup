@@ -1734,20 +1734,60 @@ func idempotencyFingerprint(payload any) string {
 }
 
 func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggregateID, idem, fingerprint string, payload any) error {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	headers, err := json.Marshal(map[string]string{"request_fingerprint": fingerprint})
-	if err != nil {
-		return err
-	}
 	eventID := deterministicUUID(eventType + ":" + tenantID + ":" + idem)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	raw, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     eventType,
+		"schema_version": "1.0.0",
+		"schema_ref":     "contracts/jsonschema/domain-event-envelope.schema.json#" + eventType,
+		"aggregate_type": "weighing",
+		"aggregate_id":   aggregateID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "weighing",
+		},
+		"idempotency_key": idem,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_ref":  "weighing",
+		},
+		"subject_type":     weighingSubjectType(eventType),
+		"subject_id":       aggregateID,
+		"visibility_scope": map[string]any{"tenant_id": tenantID},
+		"evidence_refs":    []any{},
+		"payload":          payload,
+		"trace_id":         idem,
+	})
+	if err != nil {
+		return err
+	}
+	headers, err := json.Marshal(map[string]string{
+		"request_fingerprint": fingerprint,
+		"schema_version":      "1.0.0",
+		"idempotency_key":     idem,
+	})
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `
-INSERT INTO outbox_messages (tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id, topic, payload, headers, idempotency_key, status)
-VALUES ($1::uuid, $2::uuid, $3, 'v1', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, 'pending')
+INSERT INTO outbox_messages (tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id, topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at)
+VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
 ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem)
 	return err
+}
+
+func weighingSubjectType(eventType string) string {
+	switch eventType {
+	case "weighing.campaign_created", "weighing.campaign_updated", "weighing.campaign_published":
+		return "weighing_campaign"
+	case "weighing.shed_submission.completed":
+		return "weighing_campaign_shed"
+	default:
+		return "weighing_observation"
+	}
 }
 
 func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wrongShed, missing int) domain.Progress {

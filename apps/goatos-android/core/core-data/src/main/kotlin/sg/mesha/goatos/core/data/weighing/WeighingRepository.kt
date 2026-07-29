@@ -401,9 +401,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
+                val idempotencyKey = weighingSubmitIdempotencyKey(
+                    campaignId,
+                    campaignShedId,
+                    scannedIdentifiers,
+                )
                 service.submitWeighingScope(
                     campaignId,
                     campaignShedId,
+                    idempotencyKey,
                     WeighingScopeSubmitRequestDto(scannedIdentifiers),
                 )
                 AppResult.Ok(Unit)
@@ -411,6 +417,7 @@ class DefaultWeighingRepository(
                 AppResult.Err(error.message ?: "Couldn't submit weighing shed.", error)
             }
         }
+
     override suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft> =
         withContext(Dispatchers.IO) {
             if (capture.weightKg <= 0.0) return@withContext AppResult.Err("Weight must be greater than 0 kg.")
@@ -828,6 +835,23 @@ fun individualIdempotencyKey(
 
 fun shedIdempotencyKey(campaignId: String, workGroupId: String, campaignShedId: String, shedObservationId: String): String =
     "weighing:shed:$campaignId:$workGroupId:$campaignShedId:$shedObservationId"
+
+private fun weighingSubmitIdempotencyKey(
+    campaignId: String,
+    campaignShedId: String,
+    scannedIdentifiers: List<String>,
+): String {
+    val scopeHash = scannedIdentifiers
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .sorted()
+        .joinToString("|")
+        .hashCode()
+        .toUInt()
+        .toString(16)
+    return "weighing:submit:$campaignId:$campaignShedId:$scopeHash"
+}
 
 fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buildJsonObject {
     put("weight", weightKg)

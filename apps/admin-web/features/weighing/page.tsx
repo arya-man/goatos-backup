@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Edit3, Eye, P
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { createWeighingCampaign, publishWeighingCampaign } from "@/lib/api/server";
+import { createWeighingCampaign, publishWeighingCampaign, updateWeighingCampaign } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
@@ -11,15 +11,12 @@ import { getWeighingPageData, roleFromSearchParam, type WeighingCampaignState, t
 
 async function createWeighingCampaignAction(formData: FormData) {
   "use server";
+  const campaignId = String(formData.get("campaign_id") || "");
   if (String(formData.get("duplicate_blocked") || "") === "true") {
     revalidatePath("/weighing");
     redirect("/weighing?notice=duplicate-blocked");
   }
   const selectedShedIds = formData.getAll("shed_id").map(String);
-  const categoryByShed = new Map(formData.getAll("shed_category").map((value) => {
-    const [id, category] = String(value).split(":");
-    return [id, category as WeighingCategory];
-  }));
   const labelByShed = new Map(formData.getAll("shed_label").map((value) => {
     const [id, label] = String(value).split(":", 2);
     return [id, label];
@@ -28,9 +25,9 @@ async function createWeighingCampaignAction(formData: FormData) {
     location_id: id,
     location_type: "shed" as const,
     display_name: labelByShed.get(id) || "Selected shed",
-    weighing_category: categoryByShed.get(id) || "individual_animal",
+    weighing_category: (String(formData.get(`shed_category_${id}`) || "individual_animal") as WeighingCategory),
   }));
-  const result = await createWeighingCampaign({
+  const body = {
     park_id: String(formData.get("park_id") || ""),
     period_start_date: String(formData.get("period_start_date") || ""),
     period_end_date: String(formData.get("period_end_date") || ""),
@@ -38,7 +35,10 @@ async function createWeighingCampaignAction(formData: FormData) {
     planned_cap_per_day: Number(formData.get("planned_cap_per_day") || 100),
     operator_user_id: String(formData.get("operator_user_id") || ""),
     sheds,
-  });
+  };
+  const result = campaignId
+    ? await updateWeighingCampaign(campaignId, body)
+    : await createWeighingCampaign(body);
   if (!result.ok) {
     revalidatePath("/weighing");
     redirect("/weighing?notice=create-failed");
@@ -158,7 +158,7 @@ function CapabilityButton({
 
 export async function WeighingPage({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const role = roleFromSearchParam(one(searchParams ?? {}, "role"));
-  const result = await getWeighingPageData(role, one(searchParams ?? {}, "week"));
+  const result = await getWeighingPageData(role, one(searchParams ?? {}, "week"), one(searchParams ?? {}, "campaign"));
   if (!result.ok) {
     return (
       <div className="screen on weighing-page">
@@ -422,16 +422,13 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
       <div className="bd">
         <form action={createWeighingCampaignAction} className="weighing-plan-form">
           <input type="hidden" name="duplicate_blocked" value={duplicateBlocked ? "true" : "false"} />
-          <input type="hidden" name="park_id" value={planner.selectedParkId} />
+          {planner.editingCampaignId ? <input type="hidden" name="campaign_id" value={planner.editingCampaignId} /> : null}
           <input type="hidden" name="period_start_date" value={planner.periodStartDate} />
           <input type="hidden" name="period_end_date" value={planner.periodEndDate} />
           <input type="hidden" name="start_business_date" value={planner.startBusinessDate} />
           <input type="hidden" name="planned_cap_per_day" value={planner.plannedCapPerDay} />
-          <input type="hidden" name="operator_user_id" value={planner.selectedOperatorId} />
           {planner.sheds.map((shed) => (
             <span key={shed.id}>
-              {shed.selected ? <input type="hidden" name="shed_id" value={shed.id} /> : null}
-              <input type="hidden" name="shed_category" value={`${shed.id}:${shed.category}`} />
               <input type="hidden" name="shed_label" value={`${shed.id}:${shed.label}`} />
             </span>
           ))}
@@ -487,11 +484,12 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               <div className="weighing-step-label">Step 2 · Park</div>
               <h3>Select one park</h3>
               {planner.parks.map((park) => (
-                <div className={`weighing-choice${park.selected ? " on" : ""}`} key={park.id}>
+                <label className={`weighing-choice${park.selected ? " on" : ""}`} key={park.id}>
+                  <input type="radio" name="park_id" value={park.id} defaultChecked={park.selected} />
                   <span className="weighing-radio" />
                   <div><b>{park.label}</b><small>{park.subtitle}</small></div>
                   <strong>{park.kidCount}</strong>
-                </div>
+                </label>
               ))}
             </div>
 
@@ -505,16 +503,21 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               </div>
               {planner.sheds.map((shed) => (
                 <div className={`weighing-shed-choice${shed.selected ? " on" : ""}`} key={shed.id}>
+                  <input type="checkbox" name="shed_id" value={shed.id} defaultChecked={shed.selected} />
                   <span className="weighing-check">{shed.selected ? "✓" : ""}</span>
                   <div className="weighing-shed-main">
                     <b>{shed.label}</b>
                     <small>{shed.subtitle}</small>
-                    {shed.selected ? (
-                      <div className="weighing-segment" aria-label={`${shed.label} category`}>
-                        <span className={shed.category === "individual_animal" ? "on individual" : ""}>Individual</span>
-                        <span className={shed.category === "per_shed_partition" ? "on lumpsum" : ""}>Lumpsum</span>
-                      </div>
-                    ) : null}
+                    <div className="weighing-segment" aria-label={`${shed.label} category`}>
+                      <label className={shed.category === "individual_animal" ? "on individual" : ""}>
+                        <input type="radio" name={`shed_category_${shed.id}`} value="individual_animal" defaultChecked={shed.category === "individual_animal"} />
+                        Individual
+                      </label>
+                      <label className={shed.category === "per_shed_partition" ? "on lumpsum" : ""}>
+                        <input type="radio" name={`shed_category_${shed.id}`} value="per_shed_partition" defaultChecked={shed.category === "per_shed_partition"} />
+                        Lumpsum
+                      </label>
+                    </div>
                   </div>
                   <strong>{shed.kidCount}</strong>
                 </div>
@@ -536,10 +539,11 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
                 <span>Day 3</span><b>Rollover and remaining sheds</b>
               </div>
               {planner.operators.map((operator) => (
-                <div className={`weighing-choice${operator.selected ? " on" : ""}${operator.disabled ? " disabled" : ""}`} key={operator.id}>
+                <label className={`weighing-choice${operator.selected ? " on" : ""}${operator.disabled ? " disabled" : ""}`} key={operator.id}>
+                  <input type="radio" name="operator_user_id" value={operator.id} defaultChecked={operator.selected} disabled={operator.disabled} />
                   <span className="weighing-radio" />
                   <div><b>{operator.name}</b><small>{operator.capabilityLabel}</small></div>
-                </div>
+                </label>
               ))}
               <div className="weighing-assign-summary">
                 <span>Individual</span><b>{planner.individualShedCount} sheds · {planner.individualKidCount} kids</b>

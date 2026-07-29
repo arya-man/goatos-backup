@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS public.weighing_campaigns (
   CONSTRAINT weighing_campaigns_period_check CHECK (period_end_date >= period_start_date)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS weighing_campaigns_one_active_week_per_park_idx
+  ON public.weighing_campaigns (tenant_id, park_id, period_type, cadence_type, period_start_date)
+  WHERE status <> 'canceled';
+
 CREATE TABLE IF NOT EXISTS public.weighing_campaign_sheds (
   campaign_shed_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id uuid NOT NULL REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE,
@@ -103,6 +107,8 @@ CREATE TABLE IF NOT EXISTS public.weighing_shed_observations (
   campaign_id uuid NOT NULL REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE,
   campaign_shed_id uuid NOT NULL REFERENCES public.weighing_campaign_sheds(campaign_shed_id) ON DELETE CASCADE,
   weight_kg numeric(10,3) NOT NULL CHECK (weight_kg > 0),
+  average_weight_kg numeric(8,3) NOT NULL CHECK (average_weight_kg > 0),
+  animal_count integer NOT NULL CHECK (animal_count > 0),
   proof_artifact_id uuid NOT NULL REFERENCES public.proof_artifacts(proof_id),
   recorded_by uuid NOT NULL,
   accepted_at timestamptz NOT NULL DEFAULT now(),
@@ -115,7 +121,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS weighing_shed_observations_idempotency_uidx
 CREATE UNIQUE INDEX IF NOT EXISTS weighing_shed_observations_one_active_scope_uidx
   ON public.weighing_shed_observations (tenant_id, campaign_shed_id);
 
+CREATE TABLE IF NOT EXISTS public.weighing_shed_observation_proofs (
+  shed_observation_id uuid NOT NULL REFERENCES public.weighing_shed_observations(shed_observation_id) ON DELETE CASCADE,
+  tenant_id uuid NOT NULL REFERENCES public.tenants(tenant_id),
+  proof_artifact_id uuid NOT NULL REFERENCES public.proof_artifacts(proof_id),
+  proof_position smallint NOT NULL CHECK (proof_position BETWEEN 1 AND 5),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT weighing_shed_observation_proofs_pk PRIMARY KEY (shed_observation_id, proof_position),
+  CONSTRAINT weighing_shed_observation_proofs_unique_artifact UNIQUE (shed_observation_id, proof_artifact_id)
+);
+
+CREATE INDEX IF NOT EXISTS weighing_shed_observation_proofs_tenant_observation_idx
+  ON public.weighing_shed_observation_proofs (tenant_id, shed_observation_id, proof_position);
+
 -- +goose Down
+DROP TABLE IF EXISTS public.weighing_shed_observation_proofs;
 DROP TABLE IF EXISTS public.weighing_shed_observations;
 DROP TABLE IF EXISTS public.weighing_observations;
 DROP TABLE IF EXISTS public.weighing_expected_animals;

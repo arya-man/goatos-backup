@@ -88,9 +88,8 @@ class WeighingViewModel @Inject constructor(
         .takeIf { parts -> parts.all { it.isNotBlank() } }
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
     private val scanInput = MutableStateFlow("")
-    private val initialLumpSumDraft = scopeKey?.let { lumpSumDrafts[it] }
-    private val weightInput = MutableStateFlow(initialLumpSumDraft?.weightInput.orEmpty())
-    private val animalCountInput = MutableStateFlow(initialLumpSumDraft?.animalCountInput.orEmpty())
+    private val weightInput = MutableStateFlow("")
+    private val animalCountInput = MutableStateFlow("")
     private val animalWeightInputs = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
     private val scannedRows = MutableStateFlow<List<WeighingRosterRowEntity>>(emptyList())
@@ -200,6 +199,7 @@ class WeighingViewModel @Inject constructor(
             viewModelScope.launch {
                 val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
                 currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
+                restoreLumpSumInputDraft()
             }
             viewModelScope.launch {
                 scanCaptureRepository.observeScannedTags(scopeKey, WEIGHING_SCAN_FIELD_KEY).collect { scans ->
@@ -473,15 +473,19 @@ class WeighingViewModel @Inject constructor(
     fun submitIndividualScope(onSubmitted: () -> Unit) {
         if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         val drafts = scopeState.value?.individualDrafts.orEmpty()
-        val capturedAnimalIds = (
-            scannedRows.value.map { it.animalId } + drafts.map { it.animalId }
-        ).distinct()
+        val expectedCount = scopeState.value?.totalExpected ?: 0
+        val syncedDrafts = drafts
+            .filter { it.syncedToBackend }
+        val capturedAnimalIds = syncedDrafts
+            .map { draft -> draft.scannedIdentifier.ifBlank { draft.animalId } }
+            .distinct()
         val everyCaptureComplete = capturedAnimalIds.isNotEmpty() &&
-            capturedAnimalIds.all { animalId ->
-                val draft = drafts.firstOrNull { it.animalId == animalId }
-                draft?.syncedToBackend == true &&
+            expectedCount > 0 &&
+            capturedAnimalIds.size >= expectedCount &&
+            syncedDrafts.all { draft ->
+                draft.syncedToBackend &&
                     (
-                        proofForAnimal(animalId)?.let {
+                        proofForAnimal(draft.animalId)?.let {
                         it.syncStatus == CaptureSyncStatus.SYNCED &&
                             !it.serverProofId.isNullOrBlank()
                         } == true ||
@@ -562,6 +566,11 @@ class WeighingViewModel @Inject constructor(
                                 AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
                                 weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                             )
+                            scanCaptureRepository.markLocalScanSynced(
+                                taskId = key,
+                                fieldKey = WEIGHING_SCAN_FIELD_KEY,
+                                tag = row.animalId,
+                            )
                             weightInput.value = ""
                             animalWeightInputs.value = animalWeightInputs.value - row.animalId
                             scanInput.value = ""
@@ -628,7 +637,7 @@ class WeighingViewModel @Inject constructor(
                 )) {
                     is AppResult.Ok -> {
                         repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId)
-                        lumpSumDrafts.remove(key)
+                        lumpSumDrafts.remove(lumpSumDraftKey(key))
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
@@ -689,12 +698,24 @@ class WeighingViewModel @Inject constructor(
         if (category != PER_SHED_PARTITION_CATEGORY) return
         val weight = weightInput.value
         val animalCount = animalCountInput.value
+        val draftKey = lumpSumDraftKey(key)
         if (weight.isBlank() && animalCount.isBlank()) {
-            lumpSumDrafts.remove(key)
+            lumpSumDrafts.remove(draftKey)
         } else {
-            lumpSumDrafts[key] = LumpSumInputDraft(weight, animalCount)
+            lumpSumDrafts[draftKey] = LumpSumInputDraft(weight, animalCount)
         }
     }
+
+    private fun restoreLumpSumInputDraft() {
+        val key = scopeKey ?: return
+        if (category != PER_SHED_PARTITION_CATEGORY) return
+        val draft = lumpSumDrafts[lumpSumDraftKey(key)] ?: return
+        if (weightInput.value.isBlank()) weightInput.value = draft.weightInput
+        if (animalCountInput.value.isBlank()) animalCountInput.value = draft.animalCountInput
+    }
+
+    private fun lumpSumDraftKey(scope: String): String =
+        listOf(tenantId.ifBlank { "unknown_tenant" }, currentPrincipalId ?: "unknown_principal", scope).joinToString(":")
 
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
@@ -715,15 +736,6 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         viewModelScope.launch {
             try {
-                if (replacingProofId != null) {
-                    when (val removed = proofCaptureRepository.remove(key, replacingProofId)) {
-                        is AppResult.Ok -> Unit
-                        is AppResult.Err -> {
-                            message.value = removed.message
-                            return@launch
-                        }
-                    }
-                }
                 val slotNumber = if (replacingIndex >= 0) replacingIndex + 1 else existing + 1
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -762,10 +774,21 @@ class WeighingViewModel @Inject constructor(
                         ),
                     )
                 ) {
-                    is AppResult.Ok -> message.value = if (replacingProofId == null) {
-                        "Group video saved locally."
-                    } else {
-                        "Group video replaced."
+                    is AppResult.Ok -> {
+                        if (replacingProofId != null) {
+                            when (val removed = proofCaptureRepository.remove(key, replacingProofId)) {
+                                is AppResult.Ok -> Unit
+                                is AppResult.Err -> {
+                                    message.value = removed.message
+                                    return@launch
+                                }
+                            }
+                        }
+                        message.value = if (replacingProofId == null) {
+                            "Group video saved locally."
+                        } else {
+                            "Group video replaced."
+                        }
                     }
                     is AppResult.Err -> message.value = proof.message
                 }
@@ -1242,7 +1265,7 @@ class WeighingViewModel @Inject constructor(
 
     private companion object {
         const val ROSTER_WINDOW_SIZE = 40
-        const val ROSTER_SYNC_MAX_ROWS = 10_000
+        const val ROSTER_SYNC_MAX_ROWS = 100
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"

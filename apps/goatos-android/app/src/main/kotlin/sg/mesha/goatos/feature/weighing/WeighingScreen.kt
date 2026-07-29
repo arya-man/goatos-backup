@@ -103,6 +103,9 @@ data class WeighingUiState(
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
+    val individualSubmitReady: Boolean get() =
+        totalExpected > 0 &&
+            individualDrafts.count { it.readyToSubmit && it.syncedToBackend } >= totalExpected
     val individualResolved: Int get() = maxOf(
         individualCompleted,
         visibleRows.count { it.isResolved },
@@ -1216,12 +1219,6 @@ private fun WeighingExecutionScanScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val allRowsSynced = state.visibleRows.isNotEmpty() &&
-        state.visibleRows.all { row ->
-            row.weightSaved &&
-                row.proofUploadStatus == ProofUploadStatus.SYNCED &&
-                row.backendSynced
-        }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MeshaColors.PageBg,
@@ -1243,7 +1240,7 @@ private fun WeighingExecutionScanScreen(
         bottomBar = {
             ActionButton(
                 text = if (state.isShedPartition) "Submit lump-sum weighing" else "Submit",
-                enabled = if (state.isShedPartition) state.canRecordShedPartition else allRowsSynced,
+                enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
                 onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
                 modifier = Modifier
                     .fillMaxWidth()

@@ -78,6 +78,8 @@ interface ScanCaptureRepository {
      *  a matching outbox row. */
     suspend fun enqueuePendingScans(taskId: String, fieldKey: String)
 
+    suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String)
+
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
      *  shed-submit answer payload. */
     suspend fun tagsForTask(taskId: String): List<String>
@@ -178,6 +180,15 @@ class DefaultScanCaptureRepository(
                 capturedAtMs = row.capturedAtMs,
             )
         }
+    }
+
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = withContext(dispatchers.io) {
+        dao.markFieldTagStatus(
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = tag.filter { it.isLetterOrDigit() }.lowercase(),
+            status = EntitySyncStatus.SYNCED.name,
+        )
     }
 
     private suspend fun enqueueScanCapture(
