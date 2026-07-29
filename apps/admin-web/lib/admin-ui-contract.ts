@@ -47,6 +47,8 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "calendar.drive.rows_label": "rows",
   },
   vaccination: {
+    "command_board.filter.vaccine": "Vaccine",
+    "command_board.filter.all_vaccines": "All vaccines",
     "label.done": "done",
     "label.overdue": "overdue",
     "status.scheduled_drive": "Drive scheduled",
