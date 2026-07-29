@@ -4,6 +4,10 @@ import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy } from "@/lib/admin-ui-contract";
 
 
+// Chart series palette (theme tokens only). Assigned by response order, never by
+// vaccine name, so the renderer stays label-agnostic.
+const VACCINE_SERIES_COLORS = ["var(--ok)", "var(--info)", "var(--warn)", "var(--brand)"] as const;
+
 // Build colored grid heatmap from flat shed-dose matrix
 interface GridCell {
   doseRule: string;
@@ -264,16 +268,13 @@ async function VaccinationCommandBoardContent({ pageContract }: VaccinationComma
                           const count = data?.count || 0;
                           const h = (count / maxCount) * 180;
                           const y = stackY - h;
-                          const color =
-                            vax === "ET+TT"
-                              ? "var(--ok)"
-                              : vax === "FMD"
-                                ? "var(--info)"
-                                : vax === "HS"
-                                  ? "var(--warn)"
-                                  : data?.status === "pending"
-                                    ? "var(--amber)"
-                                    : "var(--brand)";
+                          // Awaiting-verification doses are always amber; verified doses take a
+                          // stable palette slot by the vaccine's position in the response order,
+                          // so a newly protocolled vaccine gets a colour without a code change
+                          // (and no vaccine label is hardcoded in this renderer).
+                          const color = data?.status === "recorded"
+                            ? "var(--amber)"
+                            : VACCINE_SERIES_COLORS[vaccines.indexOf(vax) % VACCINE_SERIES_COLORS.length];
                           const barX = 50 + widx * 60;
                           stackY = y;
                           return (
