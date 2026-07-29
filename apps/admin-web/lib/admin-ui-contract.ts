@@ -47,11 +47,12 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "calendar.drive.rows_label": "rows",
   },
   vaccination: {
-    "command_board.cohort_matrix.meta": "Per farm · doses pending / verified · Animals = head count · red when pending",
+    "command_board.cohort_matrix.meta": "Per farm · per dose: pending / verified · red when pending",
     "command_board.cohort_matrix.empty": "No cohort obligations in this scope",
     "command_board.cohort_matrix.no_farm": "Farm not set",
     "command_board.cohort_matrix.pending_word": "pending",
     "command_board.cohort_matrix.verified_word": "verified",
+    "command_board.weekly.tooltip_total": "Total doses",
     "command_board.filter.vaccine": "Vaccine",
     "command_board.filter.all_vaccines": "All vaccines",
     "command_board.filter.drive": "Drive",

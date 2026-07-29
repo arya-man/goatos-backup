@@ -9,6 +9,9 @@ import { copy, optionGroup } from "@/lib/admin-ui-contract";
 // vaccine name, so the renderer stays label-agnostic.
 const VACCINE_SERIES_COLORS = ["var(--ok)", "var(--info)", "var(--warn)", "var(--brand)"] as const;
 
+// Top of the weekly plot area; bars are drawn from y=220 upward over 180px.
+const PLOT_TOP = 40;
+
 // Build colored grid heatmap from flat shed-dose matrix
 interface GridCell {
   doseRule: string;
@@ -247,6 +250,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
   const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set(STATUS_KEYS));
+  // Hovered ISO week for the weekly chart tooltip.
+  const [hoverWeek, setHoverWeek] = useState<string | null>(null);
 
 
   const view = useMemo(() => {
@@ -589,7 +594,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                     const vaccineData = weekMap.get(week) || new Map();
                     let stackY = 220;
                     return (
-                      <g key={week}>
+                      <g
+                        key={week}
+                        onMouseEnter={() => setHoverWeek(week)}
+                        onMouseLeave={() => setHoverWeek(null)}
+                      >
+                        {/* Full-height capture band: the hit target must cover the whole column,
+                            not just the drawn bar, or thin/zero segments are unhoverable. */}
+                        <rect x={50 + widx * 60 - 6} y={PLOT_TOP} width="48" height={220 - PLOT_TOP} fill="transparent" />
                         {series.map((s) => {
                           const data = vaccineData.get(s.key);
                           const count = data?.count || 0;
@@ -626,6 +638,48 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                     );
                   })}
                 </svg>
+                {hoverWeek
+                  ? (() => {
+                      const bucket = weekMap.get(hoverWeek);
+                      const lines = series
+                        .map((s) => ({ s, data: bucket?.get(s.key) }))
+                        .filter((entry) => (entry.data?.count ?? 0) > 0);
+                      const total = lines.reduce((sum, entry) => sum + (entry.data?.count ?? 0), 0);
+                      return (
+                        <div className="cbm-tip" role="status">
+                          <b>{hoverWeek}</b>
+                          {lines.map((entry) => (
+                            <div key={entry.s.key} className="cbm-tip-row">
+                              <span>
+                                <i
+                                  style={{
+                                    background:
+                                      entry.s.status === "recorded"
+                                        ? "var(--amber)"
+                                        : VACCINE_SERIES_COLORS[
+                                            distinctVaccines.indexOf(entry.s.vaccineLabel) % VACCINE_SERIES_COLORS.length
+                                          ],
+                                  }}
+                                />
+                                {entry.s.vaccineLabel} ·{" "}
+                                {copy(
+                                  pageContract,
+                                  entry.s.status === "recorded"
+                                    ? "command_board.weekly.legend.pending"
+                                    : "command_board.weekly.legend.verified",
+                                )}
+                              </span>
+                              <b>{entry.data?.count ?? 0}</b>
+                            </div>
+                          ))}
+                          <div className="cbm-tip-row cbm-tip-total">
+                            <span>{copy(pageContract, "command_board.weekly.tooltip_total")}</span>
+                            <b>{total}</b>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  : null}
               </div>
               <div className="cbm-legend">
                 <span><i></i>{copy(pageContract, "command_board.weekly.legend.verified")}</span>

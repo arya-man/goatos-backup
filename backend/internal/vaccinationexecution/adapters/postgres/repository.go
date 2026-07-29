@@ -3780,7 +3780,11 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
-		key := cohortKey{parkID, stage, sex, vaccinatdomain.DoseDisplayLabel("", doseCode)}
+		// Dose-QUALIFIED, not vaccine-collapsed. Collapsing ET+TT's three doses into one column
+		// summed Dose 1 + Dose 2 + Revaccination into a single number, which buried the figure
+		// leadership actually asks for (ET+TT Dose 2: 210 pending, 114 verified) behind a total
+		// that also exceeded the cohort head count. Same grain the shed matrix already uses.
+		key := cohortKey{parkID, stage, sex, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)}
 		cell, ok := cohortAgg[key]
 		if !ok {
 			cell = &domain.CommandBoardCohortCell{
