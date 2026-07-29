@@ -481,7 +481,8 @@ class DefaultProofCaptureRepository(
                 dao.activeCountForSubjectType(taskId, subject.wireValue)
             else -> 0
         }
-        if (existing >= maxPerSubject) {
+        val bypassHistoricalGoatProofCap = subject == ProofSubject.GOAT && effectiveSubjectId != null
+        if (!bypassHistoricalGoatProofCap && existing >= maxPerSubject) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"

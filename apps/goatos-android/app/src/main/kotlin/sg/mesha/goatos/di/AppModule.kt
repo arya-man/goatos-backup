@@ -567,6 +567,7 @@ object AppModule {
         api = api,
         connectivityGate = connectivityGate,
         retryScheduler = retryScheduler,
+        scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
     )

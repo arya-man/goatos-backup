@@ -827,6 +827,62 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `per-goat proof summary submit does not get blocked by hidden SOP form`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-per-goat-proof-ready",
+            sopVersionId = "sop-per-goat-proof-ready",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-proof",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField("goat_scan", "Scan goats", FormFieldType.GOAT_SCAN, required = true),
+                FormField("goat_video", "Goat video", FormFieldType.VIDEO_PROOF, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Shed proof",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 3,
+            handledCount = 3,
+            proofReadyCount = 3,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 3)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            sync,
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue("per-goat summary readiness should enable Submit", viewModel.state.value.canSubmit)
+        assertNull("per-goat proof mode hides the generic SOP form gate", viewModel.state.value.formRunner)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertNotNull("tapping Submit must enqueue the shed acknowledgement", sync.lastRequest)
+    }
+
+    @Test
     fun `shed-level SOP proof captures shed subject from camera or gallery and enforces five-video cap`() = runTest(dispatcher) {
         val task = TaskSummaryDto(
             taskId = "task-shed-proof",

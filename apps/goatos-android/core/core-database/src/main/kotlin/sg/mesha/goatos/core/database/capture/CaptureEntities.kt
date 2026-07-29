@@ -21,9 +21,9 @@ enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 /**
  * One de-duplicated RFID scan captured for a task's `goat_scan` recording-form field
  * (docs/mobile/proof-capture-sync-and-e2e.md §1). Room is the SSOT — the UI never owns the
- * scanned list as transient state. [syncStatus] tracks this row's OWN durability, not a
- * network write (a scan itself never leaves the device individually; it rides inside the
- * shed-submit payload) — SYNCED here means "included in a submission the outbox has queued".
+ * scanned list as transient state. [syncStatus] tracks this row's own SCAN_CAPTURE outbox
+ * durability. SYNCED means the backend has accepted this RFID evidence row; shed submit is a
+ * separate gate.
  */
 @Entity(
     tableName = "scanned_goat_capture",
@@ -112,6 +112,12 @@ interface ScannedGoatDao {
 
     @Query("UPDATE scanned_goat_capture SET syncStatus = :status WHERE taskId = :taskId")
     suspend fun markTaskStatus(taskId: String, status: String)
+
+    @Query(
+        "UPDATE scanned_goat_capture SET syncStatus = :status " +
+            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND tag = :tag",
+    )
+    suspend fun markFieldTagStatus(taskId: String, fieldKey: String, tag: String, status: String)
 
     @Query("DELETE FROM scanned_goat_capture WHERE taskId = :taskId")
     suspend fun clearForTask(taskId: String)
