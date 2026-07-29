@@ -32,6 +32,31 @@ machine-readable so the seed lane can fail loudly when required coverage drifts.
 - Delayed roll-forward beyond the campaign week.
 - 5k+ scale query path expectations for paged details and indexed RFID lookup.
 
+## Weighing V1 Review Boundaries
+
+This fixture exercises a deliberately free-flow, tag-first Weighing slice. The
+selected shed/partition is an empty bucket for captured Weighing evidence, not
+a Herd Register or Vaccination roster. Do not review it as a Vaccination-style
+workflow:
+
+- scanned identifiers are valid Weighing subjects even when they are not mapped
+  to Herd Register goat UUIDs;
+- there is no expected animal count or expected animal list per shed for
+  individual Weighing submit;
+- duplicate scanned identifiers across different shed buckets are allowed in
+  V1;
+- mobile capture must not require `matchTag()` before recording weight/proof;
+- submit closes only the submitted scanned identifiers with completed
+  proof-backed observations, never all unscanned expected-roster animals;
+- synced/offline state is allowed to restore by scanned identifier instead of
+  goat UUID;
+- Weighing evidence stays under Weighing tables/storage and must not mutate goat
+  identity, goat location, Vaccination assignment, or Herd Register truth;
+- admin-web `/weighing` is intentionally hidden until product approval, while
+  mobile weighing and backend APIs remain active;
+- fixture `location_type` values must use the API enum (`shed`, `cohort`,
+  `pen`); shed/partition is business grouping text, not a fourth enum value.
+
 ## Remaining Integration Notes
 
 Validate without DB writes:

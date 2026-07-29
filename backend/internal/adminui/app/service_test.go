@@ -594,7 +594,7 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 	}
 }
 
-func TestWeighingIsPublishedInPreventiveCareNavigationAndContract(t *testing.T) {
+func TestWeighingAdminWebSurfaceIsHiddenUntilProductApproval(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
@@ -603,16 +603,14 @@ func TestWeighingIsPublishedInPreventiveCareNavigationAndContract(t *testing.T) 
 		},
 	})
 
-	leaf := navLeafByID(t, resp.Navigation.Groups, "preventive-care-weighing")
-	if !leaf.Enabled || leaf.Label != "Weighing" || leaf.Href != "/weighing" || leaf.Domain != "pc.weighing" {
-		t.Fatalf("weighing PC sidebar leaf mismatch: %#v", leaf)
+	if leaf := optionalNavLeafByID(resp.Navigation.Groups, "preventive-care-weighing"); leaf != nil {
+		t.Fatalf("weighing admin-web sidebar leaf must stay hidden until product approval: %#v", leaf)
 	}
-	if got := routeLabelByPattern(t, resp.RouteLabels, "/weighing"); got != "Weighing" {
-		t.Fatalf("/weighing route label=%q want Weighing", got)
+	if label := optionalRouteLabelByPattern(resp.RouteLabels, "/weighing"); label != nil {
+		t.Fatalf("/weighing admin-web route label must stay hidden until product approval: %#v", label)
 	}
-	page := pageByRouteID(t, resp.Pages, "weighing")
-	if page.Href != "/weighing" || len(page.Tables) != 3 {
-		t.Fatalf("weighing page contract mismatch: %#v", page)
+	if page := optionalPageByRouteID(resp.Pages, "weighing"); page != nil {
+		t.Fatalf("weighing admin-web page contract must stay hidden until product approval: %#v", page)
 	}
 }
 
@@ -700,6 +698,15 @@ func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) do
 	return domain.PageContract{}
 }
 
+func optionalPageByRouteID(pages []domain.PageContract, routeID string) *domain.PageContract {
+	for i := range pages {
+		if pages[i].RouteID == routeID {
+			return &pages[i]
+		}
+	}
+	return nil
+}
+
 func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) domain.NavigationItem {
 	t.Helper()
 	for _, item := range items {
@@ -709,6 +716,17 @@ func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) doma
 	}
 	t.Fatalf("missing primary nav item %q", id)
 	return domain.NavigationItem{}
+}
+
+func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {
+	for _, group := range groups {
+		for i := range group.Leaves {
+			if group.Leaves[i].ID == id {
+				return &group.Leaves[i]
+			}
+		}
+	}
+	return nil
 }
 
 func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domain.NavigationItem {
@@ -744,6 +762,15 @@ func routeLabelByPattern(t *testing.T, labels []domain.RouteLabelRule, pattern s
 	}
 	t.Fatalf("missing route label pattern %q", pattern)
 	return ""
+}
+
+func optionalRouteLabelByPattern(labels []domain.RouteLabelRule, pattern string) *domain.RouteLabelRule {
+	for i := range labels {
+		if labels[i].Pattern == pattern {
+			return &labels[i]
+		}
+	}
+	return nil
 }
 
 func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domain.OptionGroup {

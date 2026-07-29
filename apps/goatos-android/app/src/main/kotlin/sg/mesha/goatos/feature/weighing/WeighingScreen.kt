@@ -104,15 +104,14 @@ data class WeighingUiState(
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
+    // Weighing V1 treats the selected shed as an empty evidence bucket, not a roster.
     val individualSubmitReady: Boolean get() =
-        expectedAnimalIds.isNotEmpty() &&
-            expectedAnimalIds.all { expectedAnimalId ->
-                individualDrafts.any { draft ->
-                    draft.animalId == expectedAnimalId &&
-                        draft.readyToSubmit &&
-                        draft.syncedToBackend
-                }
-            }
+        visibleRows.isNotEmpty() &&
+            visibleRows.all { row ->
+                row.weightSaved &&
+                    row.proofUploadStatus == ProofUploadStatus.SYNCED &&
+                    row.backendSynced
+        }
     val individualResolved: Int get() = maxOf(
         individualCompleted,
         visibleRows.count { it.isResolved },
@@ -1026,16 +1025,18 @@ private fun WeighingCapturePanel(
                 onAction = onScanSubmit,
             )
         }
-        InlineEntryCard(
-            label = "Weight",
-            value = state.weightInput,
-            placeholder = "0.0",
-            suffix = "kg",
-            onValueChange = onWeightChange,
-            actionLabel = if (state.isShedPartition) "Record shed" else "Add row",
-            actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
-            onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
-        )
+        if (state.isShedPartition) {
+            InlineEntryCard(
+                label = "Weight",
+                value = state.weightInput,
+                placeholder = "0.0",
+                suffix = "kg",
+                onValueChange = onWeightChange,
+                actionLabel = "Record shed",
+                actionEnabled = state.canRecordShedPartition,
+                onAction = onRecordShedPartition,
+            )
+        }
     }
 }
 

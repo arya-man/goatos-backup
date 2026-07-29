@@ -190,7 +190,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
 | `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, park drive execution with shed/tag breakdowns, supplier warmup context. |
 | `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
-| `/weighing` | `weighing` | Preventive Care (PC) Weighing | `/weighing/campaigns`, `/app/weighing/campaigns/...` | Weekly kids weighing planning and monitoring: scope/category progress, proof state, wrong-shed scans, missing/unavailable review. |
+| `/weighing` | `weighing` | Preventive Care (PC) Weighing | `/weighing/campaigns`, `/app/weighing/campaigns/...` | Admin-web surface intentionally hidden until product approval; mobile weighing and API endpoints remain active. |
 | `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into Preventive Care (PC) vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
 | `/counts/herd` | `herd-register` | Herd Register | `/goats/search`, admin goat APIs | Vaccination trigger-closure entry point. |
@@ -284,13 +284,13 @@ Explicit exceptions:
   remain as fallback text until the backend contract is extended with full copy keys. Escalation
   counting fix (P2b): now uses backend `escalation_state` or `status` field instead of
   `source === 'escalation'` alone.
-- `features/weighing/*` (route `/weighing`): the weekly kids weighing planning
-  and monitoring slice is backed by generated Weighing API calls, but the
-  backend `AdminWebPageContract` has not yet been extended with planner copy,
-  option labels, scope table labels, disabled reasons, and duplicate-task edit
-  copy. Keep the literal exception until `backend/internal/adminui/app/service.go`
-  registers the weighing route contract and the page reads copy/table labels from
-  that contract.
+- `features/weighing/*` (route `/weighing`): intentionally hidden from
+  admin-web until product approves the web planning/monitoring UX. The frontend
+  route redirects away, the shell strips any stale `/weighing` nav leaf, and
+  `backend/internal/adminui/app/service.go` must not publish a Weighing
+  admin-web nav item, route label, or page contract. This exception applies
+  only to the admin-web surface; mobile weighing and the weighing API endpoints
+  remain active.
 - `features/verification-review/*` (route `/verification`): a new Admin/Data Ops authority screen
   (Head/Director/CEO act surface for the generic Verification vertical,
   `context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`) built ahead of

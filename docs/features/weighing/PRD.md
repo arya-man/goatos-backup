@@ -174,21 +174,41 @@ measurement scope. The app must label it separately from individual animal
 weighing so reports never pretend each RFID animal got a fresh individual
 weight.
 
-### 4.2 Weighing V1 execution simplification
+### 4.2 Weighing V1 empty bucket model
 
-Weighing V1 is allowed to run without a pre-populated animal roster for the
-selected shed/partition. This is a Weighing-only simplification and must not be
-copied back into Vaccination.
+Weighing V1 does not use an expected animal roster. A selected shed/partition is
+only an empty bucket for this weighing campaign. The operator chooses the bucket,
+then puts whatever RFID/tag, weight, and video proof they capture into that
+bucket. This is intentionally separate from Vaccination and Herd Register
+truth.
+
+Non-negotiables for this V1 slice:
+
+- There is no expected animal count per shed for submit.
+- There is no expected animal list per shed for submit.
+- There is no wrong-shed rule.
+- There is no "this RFID belongs only to this shed" rule.
+- There is no rule preventing the same RFID/tag from being captured in multiple
+  shed buckets.
+- Weighing records stay under Weighing tables/storage and must not mutate goat
+  identity, goat location, Vaccination assignment, or Herd Register truth.
+- Submit means "close the scanned evidence captured in this bucket", not
+  "complete every goat that might exist in this shed."
 
 For `individual_animal` weighing in V1:
 
-- The operator can start the shed/partition work even if Goat OS does not know
-  the complete expected animal list for that shed.
+- The selected shed/partition is an empty Weighing bucket, not a Herd Register
+  roster. The operator can put any scanned RFID/tag into that bucket for this
+  weighing campaign.
+- The same RFID/tag may be captured under different shed buckets in this V1
+  slice. Weighing stores that as Weighing evidence only; it does not mutate goat
+  identity, goat location, Vaccination assignment, or Herd Register truth.
 - The scan screen is a free-scan work session: each valid RFID/animal identifier
   scan creates a weighing entry with that identifier, the entered weight, and
   mandatory animal-level proof video.
 - The app should not block execution because an animal is outside a preloaded
-  visible page or because the shed has no complete roster snapshot.
+  visible page, because the shed has no roster snapshot, or because the scanned
+  tag is duplicated in another shed bucket.
 - Duplicate RFID scans in the same weighing work session must be visible and
   handled idempotently; corrections/re-records must not create silent duplicate
   accepted weights.
@@ -209,6 +229,32 @@ scan means "do not require a preloaded roster before accepting a weighing
 entry"; it does not mean network-only writes, no proof, no idempotency, or no
 verification. Weight values and proof are subject to the normal verification
 flow before leadership treats them as trusted.
+
+Reviewer contract for Weighing V1:
+
+- Do not apply Vaccination's roster-completion rule to individual Weighing.
+  Weighing is tag-first/free-flow: a scanned identifier is a valid weighing
+  subject even when it does not resolve to a preloaded goat UUID.
+- Do not require or infer expected animal counts per shed for individual
+  Weighing V1. The shed is a bucket label for captured weighing evidence, not a
+  declaration that only certain goats belong there.
+- Do not flag duplicate scanned identifiers across different shed buckets as a
+  product bug. Cross-bucket duplicates are allowed in V1 because Weighing is
+  evidence capture, not canonical shed membership.
+- Mobile must not require `matchTag()` before capturing a weight/proof. If a tag
+  lookup exists locally, it is only display help; it is not a submit gate and it
+  must not rewrite Weighing into a Herd Register identity workflow.
+- Backend individual-scope submit closes only the submitted scanned identifiers
+  that have completed proof-backed observations. It must not mark every
+  unscanned expected-roster animal as completed, missing, or closed.
+- Accepted/synced local state is keyed by the scanned identifier for Weighing
+  completion. A review that expects restored drafts to be keyed by goat UUID is
+  applying the wrong domain model.
+- The admin-web `/weighing` surface is intentionally hidden until product
+  approval of the web planning/monitoring UX. This does not disable mobile
+  weighing or the weighing API.
+- The E2E fixture may contain shed/partition business names, but contract
+  `location_type` values are the API enum values (`shed`, `cohort`, `pen`).
 
 ## 5. Grouping rules
 
@@ -271,33 +317,32 @@ proof capture.
 
 Android must treat Room as the local source of truth for this flow. The app may
 refresh from network in the background, but the visible work card, scan roster,
-captured observations, video upload state, mismatch rows, and submit/retry state
+captured observations, video upload state, and submit/retry state
 must render from principal-scoped Room rows. Process death, app restart, network
 loss, and sign-in refresh must not drop a captured weight/video pair or route
 the operator into the wrong campaign/work group.
 
-For each animal, the operator must capture:
+For each scanned identifier, the operator must capture:
 
-- RFID/Animal ID scan.
+- RFID/tag scan.
 - Weight value.
 - Mandatory per-animal video proof.
-- Actual scanned context from the current work session.
-- Expected/original shed from canonical herd location at task planning time.
+- The selected Weighing shed bucket from the current work session.
 
-Completion is less strict than vaccination. The operator can submit the animals
-actually scanned and weighed, while the task continues to show pending expected
-animals until all selected sheds/partitions are done or leadership explicitly
-closes/adjusts the task.
+Completion is intentionally looser than Vaccination. The operator submits the
+RFIDs/tags actually scanned, weighed, and proofed in the selected bucket. There
+is no expected-roster remainder to compute or close.
 
-Weighing completion is also two-layered:
+Weighing V1 completion is bucket-local:
 
 | Layer | Completion meaning |
 |---|---|
-| Animal row | A resolved RFID/animal, valid weight, and mandatory per-animal proof video were accepted or explicitly corrected/voided. |
-| Campaign/shed | Every expected animal is either weighed, unavailable under current herd truth, or explicitly closed by leadership with an audited reason. |
+| Scanned row | A scanned RFID/tag, valid weight, and mandatory per-animal proof video were accepted or explicitly corrected/voided. |
+| Shed bucket | The submitted scanned rows in that bucket were accepted. This does not imply anything about unscanned goats in the physical shed. |
 
-Submitting a partial day is allowed. Marking the selected shed/partition itself
-complete is not allowed while active expected animals remain merely pending.
+Submitting one or many scanned rows is allowed. Marking the selected Weighing
+bucket submitted must not update Herd Register location, Vaccination assignment,
+or any expected animal status.
 
 The operator must be able to correct a mistaken local capture before final sync:
 remove/replace a just-captured animal video, edit the weight value, or discard a
@@ -306,82 +351,36 @@ flow rather than silent overwrite.
 
 RFID scan state must be explicit:
 
-- `pending_local`: RFID resolved locally and weight/video capture is in progress.
+- `pending_local`: RFID/tag captured locally and weight/video capture is in progress.
 - `proof_uploading`: video exists locally and upload is running/retryable.
 - `ready_to_submit`: weight is valid and required video proof is durably linked.
 - `sync_failed`: backend or upload rejected; row stays editable/retryable where
   policy allows.
 - `accepted`: backend accepted the observation; only audited correction can
   change it.
-- `conflict/review_needed`: duplicate animal, stale campaign, unknown RFID, or
-  backend semantic mismatch requires operator/supervisor recovery.
+- `conflict/review_needed`: stale campaign, rejected proof, or backend semantic
+  mismatch requires operator/supervisor recovery. Duplicate RFID/tag across
+  different shed buckets is not a conflict in V1.
 
-The operator list must stay usable when a campaign covers thousands of animals.
-The phone shows a paged, shed-grouped worklist with full-task summary counts from
-the backend. It must not download every expected animal in the campaign just to
-render the first screen or compute a progress badge.
+The operator list must stay usable when many RFIDs are captured. The phone shows
+the captured bucket feed from Room and backend-supplied campaign/shed cards. It
+must not download a Herd Register roster or expected animal list just to render
+the first screen or compute a progress badge.
 
 ## 7. Wrong-shed animal behavior
 
-In Vaccination, an animal scanned from a different shed is highlighted and may
-be separated into another table/work item. For Weighing, an animal from another
-shed is an operational mismatch, not a failed clinical rule. Keep the scan in
-the same execution table but make the mismatch obvious.
-
-V1 behavior:
-
-- Accept the scan if the RFID resolves to a current active animal.
-- Show the row in the same table.
-- Add columns such as `Expected/original shed` and `Actual/current shed`.
-- Highlight mismatches.
-- Include mismatch counts in supervisor progress.
-- Keep the expected animal's original/planned shed visible even if current
-  animal location changed after planning.
-- Do not silently change the animal's canonical shed because it appeared during
-  weighing. Movement remains a separate authorized workflow.
-- If the scanned animal was not part of the selected sheds at planning time,
-  record it as `not in campaign` rather than pretending it satisfied another
-  expected animal.
-- If an expected animal shifted to another selected or unselected shed and is
-  weighed there, count that animal as weighed for the campaign only once, while
-  still showing the mismatch/actual shed insight.
+Wrong-shed behavior is not part of Weighing V1. In this slice the selected shed
+is only a Weighing bucket, so a scanned RFID/tag cannot be rejected or flagged
+because canonical herd location says it belongs somewhere else. Reviewers must
+not raise missing wrong-shed validation as a PR bug for this V1 flow.
 
 ## 8. Missing expected animals and lifecycle exceptions
 
-An expected animal can be missing from the weighing session for two very
-different reasons:
-
-1. The operator did not weigh it yet.
-2. The animal is no longer practically available in that shed because another
-   canonical workflow changed its status or location.
-
-Weighing must not flatten these into one "missed" bucket. At execution and
-supervisor review time, the app should classify pending expected animals using
-current canonical herd state:
-
-| Current truth after planning | Weighing display behavior |
-|---|---|
-| Shifted to another normal shed/partition | Show as moved/other shed; allow weighing if the operator scans it, but keep original expected shed visible. |
-| Shifted to ICU or quarantine | Show as unavailable due to ICU/quarantine; do not count as ordinary operator miss. |
-| Dead or culled | Show as lifecycle exit; remove from remaining operator workload after audit/projection catches up. |
-| Sold/transferred/exited | Show as exited; remove from remaining operator workload after audit/projection catches up. |
-| Still active in expected shed | Keep as pending/missed until weighed or leadership closes it. |
-| Unknown or unresolved identity/location | Show as review-needed, not silently completed. |
-
-This classification is read/display and worklist behavior. Weighing must not
-itself perform movement, death, cull, sale, or health-state changes. Those stay
-owned by their canonical workflows.
-
-Missing animal UX must use three buckets:
-
-| Bucket | Meaning |
-|---|---|
-| Pending | Still active in expected shed and not yet weighed. |
-| Unavailable | Canonical state says ICU, quarantine, dead, culled, sold, transferred, or exited. |
-| Review needed | Current state is unknown, contradictory, or movement/lifecycle projection is stale. |
-
-Only `Pending` counts as remaining operator workload. `Unavailable` and
-`Review needed` stay visible to leadership with reason and source timestamp.
+Missing expected animals are not part of Weighing V1. There is no expected
+animal list for a shed bucket, so the app and backend must not compute missing,
+unavailable, or pending herd animals during submit. Future leadership analytics
+may compare captured RFIDs to herd truth, but that would be a new reviewable
+feature and must not be used to block this mobile free-flow slice.
 
 ## 9. Evidence model
 
