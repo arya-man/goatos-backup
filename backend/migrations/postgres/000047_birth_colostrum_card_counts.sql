@@ -4,7 +4,8 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer unique =
+-- projection-review: membership=birth_kid workflow actions across main and scheduled colostrum sections; group_key=tenant_id and workflow_id; join_cardinality=rollup is one row and next action is at most one row per workflow; pagination=one migration repair set independent of page size; scope=template_key birth_kid and the identical non-approval operator-action set
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer unique =
 -- workflow_instances(tenant_id, workflow_id). rollup is exactly one row per Birth-kid workflow and
 -- next_action is reduced to at most one row at that same key. total, done, and next range over the
 -- identical non-approval operator-action key set across both main and colostrum_session sections.

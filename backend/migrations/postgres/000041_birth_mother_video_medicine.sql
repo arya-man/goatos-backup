@@ -47,7 +47,8 @@ WHERE wi.workflow_id = wa.workflow_id
   AND wi.tenant_id = wa.tenant_id
   AND wi.template_key = 'birth_mother';
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer match =
+-- projection-review: membership=birth_mother workflow actions for affected workflow instances; group_key=workflow_id; join_cardinality=actions are pre-aggregated and next action reduces to at most one row per workflow; pagination=one migration repair set independent of page size; scope=template_key birth_mother and the identical main non-approval action set
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer match =
 -- workflow_instances(workflow_id). Every action side is pre-aggregated to one row per workflow;
 -- next_action is a one-row LATERAL over the same workflow_id. Numerator and denominator both range
 -- over section='main' AND action_type<>'approval' for this exact workflow.

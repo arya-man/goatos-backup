@@ -33,7 +33,8 @@ UPDATE public.workflow_instances
 SET awaiting_verification = false, row_version = row_version + 1, updated_at = now()
 WHERE template_key IN ('birth_kid', 'birth_mother') AND awaiting_verification;
 
--- projection-review: actions are unique(workflow_id, action_key), pre-aggregated by workflow_id;
+-- projection-review: membership=birth_kid and birth_mother workflow actions for affected workflow instances; group_key=workflow_id; join_cardinality=actions aggregate to one rollup row per workflow before instance update; pagination=one migration repair set independent of page size; scope=template_key birth_kid or birth_mother and the identical main non-approval action set
+-- Actions are unique(workflow_id, action_key), pre-aggregated by workflow_id;
 -- numerator and denominator use the identical main/non-approval key set before the 1:1 update.
 WITH rollup AS (
   SELECT wa.workflow_id,

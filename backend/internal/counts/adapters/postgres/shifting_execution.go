@@ -726,7 +726,8 @@ WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`, tenantID, sh
 
 // ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
-// projection-review: canonical-source read, not a projection. GRAIN = one row per shifting_event,
+// projection-review: membership=date-and-status-scoped shifting_events plus one preferred request per event; group_key=shifting_event_id; join_cardinality=request and preview lateral joins reduce to at most one row per event; pagination=keyset over raised_at and shifting_event_id with limit plus one; scope=tenant_id plus business-date status park and shed filters
+// This is a canonical-source read, not a projection. GRAIN = one row per shifting_event,
 // which is the queue's natural unit of work (an operator executes a movement, not an animal). The
 // only aggregate is animal_count, computed from ONE selected pending/approved request payload per
 // event. The LATERAL selector is bounded to LIMIT 1 and prefers approved over pending, so

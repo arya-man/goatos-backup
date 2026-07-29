@@ -4,6 +4,7 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
+-- projection-review: membership=death workflow_instances joined to their persisted workflow_actions; group_key=workflow_id state and awaiting_verification; join_cardinality=actions are many-to-one and aggregate to one death_cards row per workflow before update; pagination=one migration-wide repair set with no paging; scope=template_key death and matching workflow_id
 WITH death_cards AS (
   SELECT
     wi.workflow_id,

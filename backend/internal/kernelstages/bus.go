@@ -14,6 +14,9 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -25,6 +28,7 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -52,6 +56,10 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
+	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -63,10 +71,19 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
-	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on
-	// every bus so approved births/deaths always open their follow-up work.
-	eventwiring.RegisterWorkflowConsumers(bus,
-		eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
+	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
+	// guard compares this list with cmd/domain-event-consumer so a wrapper cannot hide bus drift.
+	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
+	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
+	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
+	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewGoatExitedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewIdentifierAddedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewDeathVerificationHandler(workflowService, nil).Register(bus)
+	tasksapp.NewBirthVerificationHandler(workflowService, nil).Register(bus)
 
 	if logger != nil {
 		logger.Info("kernelstages_domain_event_handlers_registered")

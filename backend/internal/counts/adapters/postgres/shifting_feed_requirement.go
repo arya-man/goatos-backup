@@ -22,7 +22,8 @@ type shiftingFeedQueryer interface {
 
 // loadShiftingFeedRequirements resolves every high-priority event in one set-based query.
 //
-// projection-review: producer_unique=(tenant_id, shifting_event_id) in shifting_events;
+// projection-review: membership=request-captured goat_ids for selected shifting events resolved against destination feed config; group_key=tenant_id shifting_event_id and feed_item_key; join_cardinality=request is one per event and goats are pre-aggregated by event and breed before config joins; pagination=bounded explicit event-id batch with no page-local totals; scope=tenant_id destination park selected target stage and as-of date
+// producer_unique=(tenant_id, shifting_event_id) in shifting_events;
 // consumer_group=(tenant_id, shifting_event_id, feed_item_key). The selected approval request is
 // one row per event through the bounded LATERAL selector; goat_ids is expanded then PRE-AGGREGATED
 // to (event, breed) before joining config. Session items are DISTINCT per (event,item), rates are

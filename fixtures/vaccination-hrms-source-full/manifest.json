@@ -101,6 +101,11 @@
   },
   "seed_contract_coupling_reviews": [
     {
+      "date": "2026-07-29",
+      "change": "seed-roster-real adds feed_direction to the preventive_care department module grant",
+      "vaccination_hrms_source_impact": "none: this changes only runtime module and navigation authorization for the already-seeded preventive_care department. It does not change HRMS roster rows, vaccination history, protocol rules, source dates, fixture bytes, hashes, or counts."
+    },
+    {
       "date": "2026-07-20",
       "change": "counts approval + department_module_grants + feed_direction migrations (000009-000015) and the seed-roster-real department-module-grants write",
       "vaccination_hrms_source_impact": "none: the counts and feed tables are orthogonal to the vaccination HRMS roster source. This fixture's data is unchanged, minimum_migration stays 000008, and validateFixture still passes. Recorded to satisfy the seed/config/SOP coupling review."

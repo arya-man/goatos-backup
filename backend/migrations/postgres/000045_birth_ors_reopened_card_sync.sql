@@ -5,7 +5,8 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer match =
+-- projection-review: membership=birth_mother workflows whose reopened ORS second-round action left a stale completed card; group_key=tenant_id and workflow_id; join_cardinality=candidates are unique and action sides aggregate to one row per workflow; pagination=one migration repair set independent of page size; scope=template_key birth_mother and the identical main non-approval action set
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer match =
 -- workflow_instances(tenant_id, workflow_id). candidate_workflows is unique at that consumer key;
 -- every action side is pre-aggregated to one row per workflow. Numerator and denominator both range
 -- over section='main' AND action_type<>'approval' for the identical candidate workflow key set.

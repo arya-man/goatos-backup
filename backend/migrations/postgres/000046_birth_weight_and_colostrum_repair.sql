@@ -57,7 +57,8 @@ WHERE candidate.tenant_id = wa.tenant_id
   AND candidate.workflow_id = wa.workflow_id
   AND candidate.action_id = wa.action_id;
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer match =
+-- projection-review: membership=birth_kid workflows with invalid completed birth weight actions; group_key=tenant_id and workflow_id; join_cardinality=affected is distinct and actions aggregate to one row per workflow before update; pagination=one migration repair set independent of page size; scope=template_key birth_kid and the identical main non-approval action set
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer match =
 -- workflow_instances(tenant_id, workflow_id). affected is distinct at that consumer key, each
 -- action side is pre-aggregated to one row per workflow, and actions_done/actions_total range over
 -- the identical section=main, non-approval key set.
@@ -135,7 +136,8 @@ WHERE candidate.tenant_id = wa.tenant_id
   AND candidate.workflow_id = wa.workflow_id
   AND wa.action_key LIKE 'colostrum_session_%';
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer match =
+-- projection-review: membership=birth_kid workflows selected for colostrum schedule repair; group_key=tenant_id workflow_id and numbered session; join_cardinality=candidates are unique and slots expand to one row per retained due time before keyed insert; pagination=one migration repair set independent of page size; scope=template_key birth_kid and the candidate birth-day window
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer match =
 -- candidate (tenant_id, workflow_id), exactly one row per workflow. slots is exactly ten rows per
 -- candidate before the birth-day predicate and numbered is exactly one row per retained due time.
 -- No ratio is computed; inserted and tag-sequence key sets both range over the identical numbered

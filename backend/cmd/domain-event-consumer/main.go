@@ -24,6 +24,7 @@ import (
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
@@ -37,6 +38,7 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -135,6 +137,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
 	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
 	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -146,16 +149,19 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
-	// Shifting + feed verification appliers (maintainer decision 2026-07-27): the ONE shared
-	// registration used by bootstrap/api.go and cmd/outbox-relay too, so a verifier's approve/reject
-	// actually applies on the durable bus. Missing this here is what stranded every feed/shifting
-	// approval in pending_verification.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
-	// Birth/death workflow consumers (docs/decisions/birth-death-workflows.md): the durable bus is
-	// where goat.created/goat.exited/goat.identifier.added and the death_evidence verdicts actually
-	// arrive, so this registration is load-bearing, not parity.
-	eventwiring.RegisterWorkflowConsumers(bus,
-		eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
+	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
+	// guard compares this list with kernelstages.BuildDomainBus so a wrapper cannot hide bus drift.
+	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
+	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
+	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
+	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewGoatExitedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewIdentifierAddedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewDeathVerificationHandler(workflowService, nil).Register(bus)
+	tasksapp.NewBirthVerificationHandler(workflowService, nil).Register(bus)
 
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")
