@@ -396,9 +396,7 @@ internal fun protocolAdherenceSummary(
     counts: ExecutionCounts = executionCounts(rows),
 ): ProtocolAdherenceSummary? {
     if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
-    val accepted = rows.sumOf { row ->
-        if (row.isAcceptedForProtocolSummary()) row.doneCount.coerceAtLeast(0) else 0
-    }
+    val accepted = rows.sumOf { row -> row.acceptedAnimalCount() }
     val review = rows.count { it.isVerificationPending() }
     return ProtocolAdherenceSummary(
         expectedCount = counts.target,
@@ -563,6 +561,10 @@ private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =
         workState.equals("accepted", ignoreCase = true) ||
         workState.equals("closed", ignoreCase = true) ||
         workState.equals("completed", ignoreCase = true)
+
+private fun VaccinationExecutionRowDto.acceptedAnimalCount(): Int =
+    acceptedCount?.coerceAtLeast(0)
+        ?: if (isAcceptedForProtocolSummary()) doneCount.coerceAtLeast(0) else 0
 
 private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
     "accepted", "closed", "completed" -> true

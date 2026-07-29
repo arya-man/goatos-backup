@@ -408,6 +408,8 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		TargetCount:        targetCount,
 		OpenCount:          openCount,
 		DoneCount:          doneCount,
+		AcceptedCount:      p.CompletionAccepted,
+		ReviewCount:        p.CompletionRecorded + p.CompletionRejected,
 		DriveID:            p.BatchID,
 		DriveName:          driveName(p),
 		DueDate:            dueDate(p),
