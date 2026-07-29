@@ -466,6 +466,36 @@ class WeighingRepositoryTest {
     }
 
     @Test
+    fun `same RFID can be captured independently in different weighing shed buckets`() = runTest {
+        val otherScopeKey = weighingScopeKey("campaign-1", "group-1", "campaign-shed-2")
+        val first = repository.recordIndividual(individualCapture("TAG-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        val second = repository.recordIndividual(
+            IndividualWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-2",
+                animalId = "TAG-1",
+                scannedIdentifier = "TAG-1",
+                weightKg = 11.4,
+            ),
+        ) as AppResult.Ok
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+        repository.attachIndividualProof(otherScopeKey, "TAG-1", proofCaptureId = "proof-local-2", serverProofId = "proof-server-2")
+
+        val firstBucket = repository.observeScope(scopeKey, windowSize = 20).first()
+        val secondBucket = repository.observeScope(otherScopeKey, windowSize = 20).first()
+
+        assertEquals(first.value.observationId, firstBucket.individualDrafts.single().observationId)
+        assertEquals(second.value.observationId, secondBucket.individualDrafts.single().observationId)
+        assertEquals(10.2, firstBucket.individualDrafts.single().weightKg, 0.0)
+        assertEquals(11.4, secondBucket.individualDrafts.single().weightKg, 0.0)
+        assertEquals("proof-server-1", firstBucket.individualDrafts.single().serverProofId)
+        assertEquals("proof-server-2", secondBucket.individualDrafts.single().serverProofId)
+    }
+
+    @Test
     fun `correcting an editable individual draft creates a fresh idempotency key and cancels stale queued write`() = runTest {
         val store = FakeOutboxStore()
         repository = DefaultWeighingRepository(

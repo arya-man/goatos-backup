@@ -482,12 +482,12 @@ class WeighingViewModel @Inject constructor(
         val scannedIdentifiers = scannedRows.value
             .map { it.animalId }
             .distinct()
-        val completedDrafts = drafts
+        val pairedDrafts = drafts
             .filter { draft ->
-                draft.syncedToBackend &&
+                draft.readyToSubmit &&
                     scannedIdentifiers.contains(draft.scannedIdentifier.ifBlank { draft.animalId })
             }
-        val submittedIdentifiers = completedDrafts.mapNotNull { draft ->
+        val submittedIdentifiers = pairedDrafts.mapNotNull { draft ->
             val proofReady = proofForAnimal(draft.animalId)?.let {
                 it.syncStatus == CaptureSyncStatus.SYNCED &&
                     !it.serverProofId.isNullOrBlank()
@@ -501,7 +501,7 @@ class WeighingViewModel @Inject constructor(
         if (
             scannedIdentifiers.isEmpty() ||
             submittedIdentifiers.size != scannedIdentifiers.size ||
-            submittedIdentifiers.size != completedDrafts.size
+            submittedIdentifiers.size != pairedDrafts.size
         ) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
             return

@@ -126,6 +126,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
             )
             .build()
         try {
@@ -417,6 +418,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
             )
             .build()
         try {

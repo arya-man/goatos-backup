@@ -135,7 +135,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
  * remote keys, so both Feed screens are offline-first and bounded from day one. Renumbered from the
  * branch's original v16 so main's scan-timestamp migration keeps v16 as the integration baseline.
  * v22 (see [MIGRATION_21_22]) adds Weighing's Room-first roster and category-aware observation
- * rows without touching Vaccination state.
+ * rows without touching Vaccination state. v23 (see [MIGRATION_22_23]) scopes Weighing's local
+ * RFID uniqueness to the selected shed bucket so duplicate tags across buckets remain valid.
  */
 @Database(
     entities = [
@@ -185,7 +186,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingObservationEntity::class,
         WeighingShedObservationEntity::class,
     ],
-    version = 22,
+    version = 23,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -214,6 +215,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // per-day chips rollup, and the drill-in detail blob — the two new work-list modules
     // (/counts/birth, /counts/death) offline-first and bounded from day one.
     // v22 (see [MIGRATION_21_22]) adds Weighing's local roster and observation tables.
+    // v23 (see [MIGRATION_22_23]) relaxes Weighing RFID uniqueness from campaign-wide to
+    // selected shed-bucket-wide, matching the free-flow bucket model.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

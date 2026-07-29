@@ -109,8 +109,7 @@ data class WeighingUiState(
         visibleRows.isNotEmpty() &&
             visibleRows.all { row ->
                 row.weightSaved &&
-                    row.proofUploadStatus == ProofUploadStatus.SYNCED &&
-                    row.backendSynced
+                    row.proofUploadStatus == ProofUploadStatus.SYNCED
         }
     val individualResolved: Int get() = maxOf(
         individualCompleted,
@@ -119,6 +118,7 @@ data class WeighingUiState(
     val shedCompleted: Int get() = shedDrafts.count { it.readyToSubmit }
     val progress: Float get() = when {
         isShedPartition -> if (shedCompleted > 0) 1f else 0f
+        visibleRows.isNotEmpty() -> individualCompleted.toFloat() / visibleRows.size.toFloat()
         totalExpected <= 0 -> 0f
         else -> individualResolved.toFloat() / totalExpected.toFloat()
     }

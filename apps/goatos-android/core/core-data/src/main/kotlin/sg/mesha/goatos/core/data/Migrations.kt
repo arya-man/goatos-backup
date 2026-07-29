@@ -580,8 +580,8 @@ val MIGRATION_21_22: Migration = object : Migration(21, 22) {
                 "ON `weighing_roster_row` (`scopeKey`, `normalizedSecondaryTag`)",
         )
         db.execSQL(
-            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_animalId` " +
-                "ON `weighing_roster_row` (`campaignId`, `animalId`)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_roster_row` (`campaignId`, `campaignShedId`, `animalId`)",
         )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `weighing_observation` " +
@@ -599,8 +599,8 @@ val MIGRATION_21_22: Migration = object : Migration(21, 22) {
                 "ON `weighing_observation` (`scopeKey`, `capturedAtMs`)",
         )
         db.execSQL(
-            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_animalId` " +
-                "ON `weighing_observation` (`campaignId`, `animalId`)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `animalId`)",
         )
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` " +
@@ -623,6 +623,21 @@ val MIGRATION_21_22: Migration = object : Migration(21, 22) {
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS `index_weighing_shed_observation_scopeKey_capturedAtMs` " +
                 "ON `weighing_shed_observation` (`scopeKey`, `capturedAtMs`)",
+        )
+    }
+}
+
+val MIGRATION_22_23: Migration = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS `index_weighing_roster_row_campaignId_animalId`")
+        db.execSQL("DROP INDEX IF EXISTS `index_weighing_observation_campaignId_animalId`")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_roster_row` (`campaignId`, `campaignShedId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `animalId`)",
         )
     }
 }

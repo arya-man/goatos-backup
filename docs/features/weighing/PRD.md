@@ -195,6 +195,35 @@ Non-negotiables for this V1 slice:
 - Submit means "close the scanned evidence captured in this bucket", not
   "complete every goat that might exist in this shed."
 
+Acceptance matrix:
+
+| Flow | Required before submit | Allowed before submit | Not allowed as a gate |
+|---|---|---|---|
+| Individual shed bucket | Every visible captured RFID/tag row in that bucket has one saved weight and one synced video proof. | Random RFID/tag values, duplicate RFID/tag values across different shed buckets, navigating away/back, editing weight before submit, replacing/reuploading video before submit. | Expected animal count, expected animal list, Herd Register UUID resolution, wrong-shed validation, duplicate-across-shed rejection, backend accepted-state restore lag. |
+| Lump-sum shed bucket | Total weight, total animal number, and at least one synced shed-level video proof. | Additional shed-level proof videos up to the configured proof policy limit; V1 UI/verification should handle 1-5 videos. | Expected animal count, individual RFID rows, Herd Register roster completion, wrong-shed validation. |
+
+Backend/list restore requirement: when the app returns to a shed bucket, the
+backend and Room must surface every captured Weighing entry for that bucket,
+including duplicate RFID/tag values that also appear in other buckets. Each
+individual entry remains valid only as a pair of saved weight + synced video.
+
+Offline/Room/outbox requirement: the local Android database, proof upload queue,
+weighing observation queue, backend submit endpoint, and backend restore
+endpoint must all use the same bucket-local grain:
+
+- `campaign_id + work_group_id + campaign_shed_id + scanned_identifier` for
+  individual evidence rows.
+- `campaign_id + work_group_id + campaign_shed_id` for lump-sum shed evidence.
+- Duplicate scanned identifiers across different shed buckets must never be
+  collapsed, rejected, or overwritten by Room, offline replay, backend restore,
+  or verification reads.
+- Leaving the screen, returning from L0, losing network, restarting the app, or
+  syncing the proof before the weighing observation must not change submit
+  readiness once a captured row has saved weight + synced video.
+- A reviewer must not require Weighing to resolve scanned identifiers to Herd
+  Register goat UUIDs before submit. If a future version adds identity
+  resolution, it must be an additive reconciliation layer, not a V1 submit gate.
+
 For `individual_animal` weighing in V1:
 
 - The selected shed/partition is an empty Weighing bucket, not a Herd Register
@@ -273,10 +302,9 @@ Rules:
   shed/partition work forward.
 - If the task extends one or two days beyond the selected week, keep it open and
   visibly delayed instead of blocking execution.
-- Missing expected animals must be explained against current herd truth before
-  they are treated as operator misses. Animals can legitimately leave the
-  selected shed after planning because of shifting, ICU, quarantine, death,
-  culling, sale/transfer, or other lifecycle workflows.
+- Planning estimates are not submit requirements. Operator execution records the
+  bucket evidence actually captured; missing Herd Register animals are not
+  treated as operator misses in V1.
 
 Example:
 
@@ -414,15 +442,14 @@ Leadership needs to know:
 
 - Which weekly weighing tasks exist.
 - Which sheds/partitions were selected.
-- Expected animals, weighed animals, pending animals, and mismatch animals.
+- For individual buckets: captured RFID/tag rows, accepted weight+video rows,
+  pending upload/sync rows, and rows needing correction.
 - Which operator owns execution.
 - Which day the task started.
 - Whether the task has rolled beyond the week or expected finish date.
-- Which animals have fresh trusted weight observations.
+- Which scanned RFID/tag values have fresh Weighing observations.
 - Which per-shed/partition selected scopes have completed proof-backed weighing
   results without animal latest-weight updates.
-- Which expected animals are still pending versus unavailable because they
-  shifted, entered ICU/quarantine, died, were culled, or exited.
 
 Delay is an operational signal, not a task failure. If a task spills past the
 week, show it as delayed/open and keep it executable.
@@ -432,10 +459,10 @@ Progress buckets must be category-aware, disjoint, and explainable.
 For `individual_animal` selected sheds/partitions:
 
 ```text
-individual_expected_at_planning
-= individual_weighed_expected
-+ individual_pending_expected
-+ individual_unavailable_expected
+individual_captured_rows
+= individual_weight_video_accepted
++ individual_pending_weight_or_proof_sync
++ individual_failed_or_needs_correction
 + individual_closed_by_leadership
 ```
 
@@ -453,33 +480,32 @@ Per-shed/partition progress is based on accepted selected-scope observations,
 not expected-animal rows. These rows are excluded from animal latest-weight truth
 and must not mark every expected animal as individually weighed.
 
-Wrong-shed and not-in-campaign scans are shown as separate insight counts. They
-must not inflate the expected completion numerator unless the animal was one of
-the campaign's expected animals.
+Wrong-shed and not-in-campaign counts are not V1 submit gates. A future
+analytics layer may compare Weighing scans to Herd Register truth, but that must
+be clearly labeled as analysis and must not rewrite or reject bucket evidence.
 
 Leadership and operator recovery screens must make incomplete work actionable:
 
-- proof missing/uploading/failed by animal;
-- sync pending/failed by animal;
-- unresolved RFID or duplicate scan conflicts;
-- expected animals unavailable because of movement, ICU/quarantine, death,
-  culling, sale/transfer, or unknown state;
+- proof missing/uploading/failed by captured row;
+- sync pending/failed by captured row;
+- duplicate RFID/tag values across buckets shown as bucket-local evidence, not
+  submit conflicts;
 - delayed work groups rolled beyond the suggested date/week; and
 - manual close/cancel decisions with audit reason when leadership chooses not to
-  chase remaining animals.
+  chase remaining bucket work.
 
 Leadership progress card contract:
 
 - Header: campaign date range, cadence lane, status, operator, and start date.
-- Primary counts: individual expected at planning, individual weighed expected,
-  individual pending expected, individual unavailable expected,
+- Primary counts: individual captured rows, individual accepted rows,
+  individual pending-sync/proof rows, individual correction-needed rows,
   per-shed/partition selected scopes completed/pending/proof-blocked, and closed
   by leadership.
-- Insight counts: other-shed weighed, not-in-campaign weighed, proof
-  missing/failed, and delayed days.
-- Shed rows: selected shed/partition, category, planned count, individual
-  weighed/pending/unavailable counts where applicable, per-shed/partition
-  observation/proof status where applicable, latest activity, and status.
+- Insight counts: duplicate-across-bucket evidence, proof missing/failed, sync
+  retrying, and delayed days.
+- Shed rows: selected shed/partition, category, captured-row counts where
+  applicable, per-shed/partition observation/proof status where applicable,
+  latest activity, and status.
 - Actions: edit pending sheds, close with reason, cancel, view animal rows, and
   view proof issues.
 
@@ -490,14 +516,12 @@ Leadership assistant/reporting must answer:
 
 - Which kids-only weighing campaigns are active this week?
 - Which sheds are delayed and by how many days?
-- How many individual expected animals were weighed, pending, unavailable, or
-  closed?
+- How many individual captured rows are accepted, pending upload/sync, needing
+  correction, or closed?
 - Which per-shed/partition selected scopes are completed, pending,
   proof-blocked, or closed?
-- Which animals from other sheds were weighed during this campaign?
-- Which expected animals are missing because of ICU, death, cull,
-  sale/transfer, or movement?
-- Which weighed animals are missing mandatory proof or have failed upload?
+- Which RFID/tag values appear in more than one Weighing bucket?
+- Which captured rows are missing mandatory proof or have failed upload?
 
 Assistant answers must come from Weighing read models, not raw observation rows
 or frontend-calculated totals.
@@ -562,37 +586,37 @@ acceptance includes these visible outcomes:
 - For per-shed/partition sheds/partitions, the operator can record the selected
   scope's weighing result with the required shed/partition proof video, without
   updating animal-level latest trusted weights.
-- Wrong-shed scans remain in the table with expected/original shed context and
-  visible highlighting.
-- Missing expected animals are classified separately from ordinary pending
-  animals when current herd truth says they shifted, entered ICU/quarantine,
-  died, were culled, sold/transferred, or otherwise exited.
-- Leadership can see expected, completed, pending, mismatch, and delayed state.
+- Random RFID/tag scans remain in the selected Weighing bucket as Weighing
+  evidence, even if Herd Register truth would place that tag elsewhere.
+- The same RFID/tag can be captured in different shed buckets without Room,
+  offline sync, backend restore, submit, or verification collapsing the rows.
+- Leadership can see captured, accepted, pending-sync, failed/retry, and delayed
+  state for Weighing buckets.
 - Progress counts remain correct when one work group contains multiple sheds,
-  when one shed rolls to the next day, and when an extra animal from another
-  shed is scanned.
+  when one shed rolls to the next day, and when the same RFID/tag appears in
+  multiple shed buckets.
 - Leadership close/adjust flow is explicit and category-aware: every close
   requires a reason code, actor, timestamp, affected count, and affected-grain
-  snapshot. Closing `individual_animal` pending work requires an animal list
-  snapshot. Closing `per_shed_partition` pending work requires the selected
-  `campaign_shed_id`/scope snapshot. Closed rows are excluded from operator
-  workload but remain visible in campaign audit and reporting.
+  snapshot. Closing `individual_animal` pending work uses captured bucket rows,
+  not a Herd Register expected-animal list. Closing `per_shed_partition` pending
+  work requires the selected `campaign_shed_id`/scope snapshot. Closed rows are
+  excluded from operator workload but remain visible in campaign audit and
+  reporting.
 - No Weighing implementation reuses Vaccination's clinical due-window or dose
   obligation logic as the source of grouping truth.
 
 ## 13. Product non-negotiables before build
 
-- Backend contracts own all status labels, counts, disabled reasons, mismatch
-  reasons, media availability states, and tap/deep-link targets.
+- Backend contracts own all status labels, counts, disabled reasons, media
+  availability states, and tap/deep-link targets.
 - Leadership and operator screens must distinguish pending, delayed,
-  unavailable, mismatch, not-in-campaign, sync-pending, sync-failed, and
-  correction-needed states.
-- A row scanned from another shed can be accepted as a weighing observation, but
-  it must not silently complete a different expected animal or mutate canonical
-  location.
-- Animals missing because of shifting, ICU/quarantine, death, culling, sale, or
-  transfer must be explained from current canonical herd truth before being
-  blamed on the operator.
+  sync-pending, sync-failed, proof-failed, and correction-needed states.
+- A row scanned into a Weighing bucket can be accepted as a Weighing
+  observation, regardless of Herd Register location truth, but it must not
+  mutate canonical goat location or Vaccination assignment.
+- Missing Herd Register animals are not a V1 execution concept. Future analytics
+  may compare captured bucket evidence to canonical herd truth, but that must
+  not become a mobile submit gate.
 - The v1 operator capacity calculation counts Amit only. Dinakar is a
   preventive-director reviewer/supervisor.
 - Per-animal media is mandatory for completed `individual_animal` rows.

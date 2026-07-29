@@ -51,6 +51,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
+import sg.mesha.goatos.feature.scan.ProofUploadStatus
+import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
+import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -102,6 +105,31 @@ class WeighingViewModelTest {
             draft.sheds.map { it.category },
         )
         assertNull(repository.updatedDraft)
+    }
+
+    @Test
+    fun `individual submit ready survives navigation before accepted sync restores`() {
+        val state = WeighingUiState(
+            hasScope = true,
+            category = "individual_animal",
+            visibleRows = listOf(
+                WeighingRosterUiRow(
+                    id = "row-1",
+                    animalId = "901007000504407",
+                    displayAnimalId = "901007000504407",
+                    expectedLocationLabel = "Kid Shed B",
+                    actualLocationLabel = null,
+                    status = "Scanned",
+                    availabilityStatus = null,
+                    wrongShed = false,
+                    weightSaved = true,
+                    proofUploadStatus = ProofUploadStatus.SYNCED,
+                    backendSynced = false,
+                ),
+            ),
+        )
+
+        assertTrue(state.individualSubmitReady)
     }
 
     @Test
@@ -489,7 +517,12 @@ class WeighingViewModelTest {
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not used")
 
-        override suspend fun attachShedPartitionProof(scopeKey: String, proofCaptureId: String, serverProofId: String?) {}
+        override suspend fun attachShedPartitionProof(
+            scopeKey: String,
+            proofCaptureId: String,
+            serverProofId: String?,
+            serverProofIds: List<String>,
+        ) {}
 
         override suspend fun submitIndividualScope(
             campaignId: String,
