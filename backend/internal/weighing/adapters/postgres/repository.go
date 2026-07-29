@@ -133,6 +133,35 @@ WHERE tenant_id=$1::uuid
 	if tag.RowsAffected() == 0 {
 		return domain.Campaign{}, ports.ErrImmutable
 	}
+	selectedLocationIDs := make([]string, 0, len(cmd.Sheds))
+	for _, shed := range cmd.Sheds {
+		selectedLocationIDs = append(selectedLocationIDs, shed.LocationID)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds
+SET status='canceled', updated_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status NOT IN ('completed', 'canceled')
+  AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
+		return domain.Campaign{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE weighing_expected_animals expected
+SET status='canceled', updated_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status <> 'weighed'
+  AND EXISTS (
+    SELECT 1
+    FROM weighing_campaign_sheds shed
+    WHERE shed.tenant_id=expected.tenant_id
+      AND shed.campaign_id=expected.campaign_id
+      AND shed.campaign_shed_id=expected.campaign_shed_id
+      AND shed.status='canceled'
+  )`, cmd.TenantID, campaignID); err != nil {
+		return domain.Campaign{}, err
+	}
 	for _, shed := range cmd.Sheds {
 		var campaignShedID string
 		err = tx.QueryRow(ctx, `
@@ -731,8 +760,8 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	   AND proof.scope_type='goat'
 	   AND proof.scope_id=$3::uuid
 	), inserted AS (
-	  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
-	  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
+	  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
+	  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $10, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
 	    CASE WHEN campaign_shed_id IS NULL THEN 'extra_scan' WHEN expected_location_id IS DISTINCT FROM actual_location_id THEN 'wrong_shed' ELSE 'expected_shed' END,
     $7::uuid, $6
   FROM expected
@@ -740,7 +769,7 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
 	)
 	SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID).
+		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID, strings.TrimSpace(cmd.ScannedIdentifier)).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyAnimalObservationRejection(ctx, tx, cmd)

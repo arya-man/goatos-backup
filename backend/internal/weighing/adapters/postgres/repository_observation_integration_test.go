@@ -493,7 +493,7 @@ ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availabilit
 	insertProof(t, ctx, pool, repoAnimalTwoProof, "video", "completed", "goat", repoAnimalTwo, "goat", repoAnimalTwo)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, ScannedIdentifier: "expected-rfid-1", WeightKg: 12.4,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:only-first-expected", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record first expected animal: %v", err)
@@ -503,7 +503,7 @@ INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, ani
 VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'extra-rfid', 13.1, $4::uuid, $5::uuid, 'animal:extra-rfid')`,
 		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator)
 
-	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:missing-expected-with-extra", []string{"", "extra-rfid"})
+	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:missing-expected-with-extra", []string{"expected-rfid-1", "extra-rfid"})
 	if !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("submit err=%v, want not found while expected animal is missing", err)
 	}
@@ -519,6 +519,56 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
 	if missingStatus != "pending" {
 		t.Fatalf("missing expected animal status=%s, want pending", missingStatus)
 	}
+}
+
+func TestSubmitIndividualScopeCompletesKnownAnimalWithScannedIdentifier(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const scannedTag = "901007000504332"
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, ScannedIdentifier: scannedTag, WeightKg: 12.4,
+		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:known-submit", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record known animal observation: %v", err)
+	}
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:known-animal", []string{scannedTag}); err != nil {
+		t.Fatalf("submit known animal scope: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+}
+
+func TestUpdateCampaignCancelsDeselectedSheds(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.UpdateCampaign(ctx, repoCampaign, domain.UpdateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2026-07-27",
+		PeriodEndDate:     "2026-08-02",
+		StartBusinessDate: "2026-07-29",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "update:deselect-shed",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID: repoExpectedShed, LocationType: "shed", DisplayName: "Gandhi 1 - Part 1", WeighingCategory: domain.CategoryIndividualAnimal,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("update campaign: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	assertScopeStatus(t, ctx, pool, repoShedScope, "canceled")
 }
 
 func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
