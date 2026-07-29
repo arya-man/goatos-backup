@@ -270,7 +270,7 @@ internal fun NavState.withLeadershipWeighingNavigation(enabled: Boolean): NavSta
     val weighingModule = modules.firstOrNull { it.key.equals("weighing", ignoreCase = true) } ?: return this
     val leadershipItems = listOf(
         NavItem(key = "weighing", label = "Weighing", href = Routes.WEIGHING),
-        NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
+        NavItem(key = "videos", label = "Videos", href = Routes.WEIGHING_VIDEOS),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )

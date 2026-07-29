@@ -1289,8 +1289,8 @@ private fun WeighingExecutionScanScreen(
                             updating = row.weightUpdating,
                             onWeightChange = { onAnimalWeightChange(row.animalId, it) },
                             onWeightEntryActive = onWeightEntryActive,
-                            onSaveWeight = {
-                                onRecordAnimalWeight(row.animalId, row.weightInput)
+                            onSaveWeight = { weight ->
+                                onRecordAnimalWeight(row.animalId, weight)
                             },
                             onRetryVideo = { onRetryVideo(row.animalId) },
                             onReuploadVideo = { onReuploadVideo(row.animalId) },
@@ -1395,15 +1395,22 @@ private fun WeighingFreeFlowFeedRow(
     updating: Boolean,
     onWeightChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
-    onSaveWeight: () -> Unit,
+    onSaveWeight: (String) -> Unit,
     onRetryVideo: () -> Unit,
     onReuploadVideo: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }
+    var draftWeight by remember(row.animalId) { mutableStateOf(row.weightInput) }
+    LaunchedEffect(row.animalId, row.weightInput, row.weightSaved) {
+        if (!editingWeight || row.weightSaved) {
+            draftWeight = row.weightInput
+        }
+    }
     LaunchedEffect(row.savedWeightLabel) {
         if (row.weightSaved) editingWeight = false
     }
+    val canSaveDraftWeight = draftWeight.toDoubleOrNull()?.let { it > 0.0 } == true
     val complete = row.weightSaved &&
         row.proofUploadStatus == ProofUploadStatus.SYNCED &&
         row.backendSynced
@@ -1475,7 +1482,8 @@ private fun WeighingFreeFlowFeedRow(
                     enabled = !updating,
                     onClick = {
                         editingWeight = true
-                        onWeightChange(row.weightInput)
+                        draftWeight = row.weightInput
+                        onWeightChange(draftWeight)
                     },
                     primary = false,
                 )
@@ -1486,8 +1494,11 @@ private fun WeighingFreeFlowFeedRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedTextField(
-                    value = row.weightInput,
-                    onValueChange = onWeightChange,
+                    value = draftWeight,
+                    onValueChange = {
+                        draftWeight = it
+                        onWeightChange(it)
+                    },
                     label = { Text("Weight") },
                     suffix = { Text("kg") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -1499,10 +1510,10 @@ private fun WeighingFreeFlowFeedRow(
                 )
                 ActionButton(
                     text = if (updating) "Updating..." else if (row.weightSaved) "Update" else "Save",
-                    enabled = row.canSaveWeight && !updating,
+                    enabled = canSaveDraftWeight && !updating,
                     onClick = {
                         focusManager.clearFocus()
-                        onSaveWeight()
+                        onSaveWeight(draftWeight)
                     },
                     primary = true,
                 )

@@ -52,7 +52,7 @@ class LeadershipWeighingPolicyTest {
             result.modules.single().navItems.map { it.label },
         )
         assertEquals(
-            listOf(Routes.WEIGHING, Routes.VERIFY_ACTION, Routes.ALERTS, Routes.YOU),
+            listOf(Routes.WEIGHING, Routes.WEIGHING_VIDEOS, Routes.ALERTS, Routes.YOU),
             result.modules.single().navItems.map { it.href },
         )
     }
