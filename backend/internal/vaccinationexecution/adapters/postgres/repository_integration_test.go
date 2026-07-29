@@ -138,6 +138,7 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 		"scan capture table":        "FROM sop_task_scan_captures scan",
 		"scan capture task scope":   "scan.task_id = st.task_id",
 		"scan capture roster field": "scan.field_key IN ('goat_ids', '__scan_roster__')",
+		"animal rollup input grain": "CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id",
 		"scan capture goat grain":   "COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count",
 	}
 	for name, fragment := range requiredFragments {

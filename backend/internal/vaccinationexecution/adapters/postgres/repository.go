@@ -1106,6 +1106,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
     oi.rule_id,
     oi.batch_id,
     oi.due_at,
