@@ -191,6 +191,8 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-model"))
     implementation(project(":core:core-common"))

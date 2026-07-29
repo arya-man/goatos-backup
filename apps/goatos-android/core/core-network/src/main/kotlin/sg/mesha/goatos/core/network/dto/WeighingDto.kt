@@ -138,8 +138,24 @@ data class WeighingRosterRowDto(
 @Serializable
 data class WeighingRosterResponseDto(
     @SerialName("items") val items: List<WeighingRosterRowDto> = emptyList(),
+    @SerialName("observations") val observations: List<WeighingAcceptedObservationDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
+)
+
+@Serializable
+data class WeighingAcceptedObservationDto(
+    @SerialName("observation_id") val observationId: String = "",
+    @SerialName("campaign_id") val campaignId: String = "",
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    @SerialName("animal_id") val scannedIdentifier: String = "",
+    @SerialName("weight_kg") val weightKg: Double = 0.0,
+    @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,
+    @SerialName("animal_count") val animalCount: Int = 0,
+    @SerialName("proof_artifact_id") val proofArtifactId: String = "",
+    @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
+    @SerialName("expected_location_id") val expectedLocationId: String = "",
+    @SerialName("accepted_at") val acceptedAt: String = "",
 )
 
 @Serializable
@@ -156,6 +172,8 @@ data class WeighingAnimalObservationRequestDto(
 data class WeighingShedObservationRequestDto(
     @SerialName("campaign_shed_id") val campaignShedId: String,
     @SerialName("weight_kg") val weightKg: Double,
+    @SerialName("animal_count") val animalCount: Int = 1,
+    @SerialName("average_weight_kg") val averageWeightKg: Double = weightKg,
     @SerialName("proof_artifact_id") val proofArtifactId: String,
 )
 
@@ -166,15 +184,48 @@ data class WeighingObservationDto(
     @SerialName("campaign_shed_id") val campaignShedId: String? = null,
     @SerialName("animal_id") val animalId: String? = null,
     @SerialName("weight_kg") val weightKg: Double = 0.0,
+    @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,
+    @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("proof_artifact_id") val proofArtifactId: String = "",
+    @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
     @SerialName("expected_location_id") val expectedLocationId: String? = null,
     @SerialName("actual_location_id") val actualLocationId: String? = null,
     @SerialName("actual_location_label") val actualLocationLabel: String? = null,
     @SerialName("accepted_at") val acceptedAt: String = "",
+    @SerialName("media") val media: List<WeighingProofMediaDto> = emptyList(),
+)
+
+@Serializable
+data class WeighingProofMediaDto(
+    @SerialName("proof_id") val proofId: String = "",
+    @SerialName("download_url") val downloadUrl: String = "",
+    @SerialName("mime_type") val mimeType: String = "",
+)
+
+@Serializable
+data class WeighingLeadershipShedVideosDto(
+    @SerialName("campaign_id") val campaignId: String = "",
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("weighing_category") val weighingCategory: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("individual") val individual: List<WeighingObservationDto> = emptyList(),
+    @SerialName("lump_sum") val lumpSum: WeighingObservationDto? = null,
+)
+
+@Serializable
+data class WeighingLeadershipShedVideosResponseDto(
+    @SerialName("shed") val shed: WeighingLeadershipShedVideosDto = WeighingLeadershipShedVideosDto(),
+    @SerialName("trace_id") val traceId: String? = null,
 )
 
 @Serializable
 data class WeighingObservationResponseDto(
     @SerialName("observation") val observation: WeighingObservationDto = WeighingObservationDto(),
     @SerialName("trace_id") val traceId: String? = null,
+)
+@kotlinx.serialization.Serializable
+data class WeighingScopeSubmitRequestDto(
+    @kotlinx.serialization.SerialName("scanned_identifiers")
+    val scannedIdentifiers: List<String>,
 )

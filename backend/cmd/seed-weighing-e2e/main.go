@@ -121,11 +121,13 @@ type shedObservationFixture struct {
 	CampaignShedID    string `json:"campaign_shed_id"`
 	WorkGroupID       string `json:"work_group_id"`
 	WeighingResult    struct {
-		TotalWeightKG float64 `json:"total_weight_kg"`
+		AverageWeightKG float64 `json:"average_weight_kg"`
+		TotalWeightKG   float64 `json:"total_weight_kg"`
 	} `json:"weighing_result"`
-	ProofArtifactID                        string `json:"proof_artifact_id"`
-	MustNotCreateIndividualWeights         bool   `json:"must_not_create_individual_weights"`
-	MustNotUpdateLatestTrustedAnimalWeight bool   `json:"must_not_update_latest_trusted_animal_weight"`
+	ProofArtifactID                        string   `json:"proof_artifact_id"`
+	ProofArtifactIDs                       []string `json:"proof_artifact_ids"`
+	MustNotCreateIndividualWeights         bool     `json:"must_not_create_individual_weights"`
+	MustNotUpdateLatestTrustedAnimalWeight bool     `json:"must_not_update_latest_trusted_animal_weight"`
 }
 
 type mobileContractFixture struct {
@@ -184,8 +186,8 @@ func run(args []string, stdout io.Writer) error {
 	if err := validateFixture(fx); err != nil {
 		return err
 	}
-	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d work_groups=%d animals=%d proofs=%d observations=%d duplicate_scans=%d shed_observations=%d scale_animals=%d",
-		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.WorkGroups), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.DuplicateScans), len(fx.ShedObservations), fx.ScaleProfile.ExpectedCampaignAnimals)
+	summary := fmt.Sprintf("fixture=%s tenant=%s campaign=%s scopes=%d work_groups=%d animals=%d proofs=%d observations=%d duplicate_scans=%d shed_observations=%d lump_sum_assignments=%d scale_animals=%d",
+		fx.FixtureID, fx.TenantID, fx.Campaign.CampaignID, len(fx.SelectedScopes), len(fx.WorkGroups), len(fx.Animals), len(fx.ProofArtifacts), len(fx.Observations), len(fx.DuplicateScans), len(fx.ShedObservations), countLumpSumAssignments(fx), fx.ScaleProfile.ExpectedCampaignAnimals)
 	if *dryRun {
 		fmt.Fprintf(stdout, "weighing E2E seed dry-run ok: %s\n", summary)
 		return nil
@@ -336,16 +338,28 @@ func validateFixture(fx fixture) error {
 		return err
 	}
 	for _, observation := range fx.ShedObservations {
-		if !proofs[observation.ProofArtifactID] {
-			return fmt.Errorf("shed observation %s references unknown proof %s", observation.ShedObservationID, observation.ProofArtifactID)
+		proofIDs := shedObservationProofIDs(observation)
+		if len(proofIDs) < 1 || len(proofIDs) > 5 {
+			return fmt.Errorf("shed observation %s must contain 1..5 proof videos", observation.ShedObservationID)
+		}
+		for _, proofID := range proofIDs {
+			if !proofs[proofID] {
+				return fmt.Errorf("shed observation %s references unknown proof %s", observation.ShedObservationID, proofID)
+			}
 		}
 		scope := scopes[observation.CampaignShedID]
 		if scope.WeighingCategory != "per_shed_partition" {
 			return fmt.Errorf("shed observation %s must target per-shed/partition scope", observation.ShedObservationID)
 		}
+		if shedObservationAverageWeight(observation, scope) <= 0 {
+			return fmt.Errorf("shed observation %s average weight must be positive", observation.ShedObservationID)
+		}
 		if !observation.MustNotCreateIndividualWeights || !observation.MustNotUpdateLatestTrustedAnimalWeight {
 			return fmt.Errorf("shed observation %s must assert no individual/latest trusted weight mutation", observation.ShedObservationID)
 		}
+	}
+	if countLumpSumAssignments(fx) == 0 {
+		return errors.New("fixture must assign at least one per_shed_partition lump-sum scope to Amit")
 	}
 	if err := validateExpectedProgress(fx); err != nil {
 		return err
@@ -647,15 +661,8 @@ ON CONFLICT (tenant_id, idempotency_key) DO UPDATE SET weight_kg = EXCLUDED.weig
 			return fmt.Errorf("upsert observation %s: %w", observation.ObservationID, err)
 		}
 	}
-	for _, observation := range fx.ShedObservations {
-		if _, err := tx.Exec(ctx, `
-INSERT INTO public.weighing_shed_observations (shed_observation_id, tenant_id, campaign_id, campaign_shed_id, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (tenant_id, idempotency_key) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, proof_artifact_id = EXCLUDED.proof_artifact_id`,
-			observation.ShedObservationID, fx.TenantID, fx.Campaign.CampaignID, observation.CampaignShedID, observation.WeighingResult.TotalWeightKG, observation.ProofArtifactID, operatorID, "weighing-e2e:"+observation.ShedObservationID); err != nil {
-			return fmt.Errorf("upsert shed observation %s: %w", observation.ShedObservationID, err)
-		}
-	}
+	// Lump-sum fixture observations document contract coverage, but are not
+	// imported: Shed C must remain pending so Amit can execute it on the phone.
 	return tx.Commit(ctx)
 }
 
@@ -806,6 +813,9 @@ func availabilityStatus(truth string) string {
 }
 
 func scopeStatus(scope scopeFixture, fx fixture) string {
+	if scope.WeighingCategory == "per_shed_partition" {
+		return "pending"
+	}
 	for _, shedObservation := range fx.ShedObservations {
 		if shedObservation.CampaignShedID == scope.CampaignShedID {
 			return "completed"
@@ -824,6 +834,50 @@ func scopeStatus(scope scopeFixture, fx fixture) string {
 		return "completed"
 	}
 	return "in_progress"
+}
+
+func countLumpSumAssignments(fx fixture) int {
+	if fx.Campaign.OperatorCode != "amit_operator" {
+		return 0
+	}
+	count := 0
+	for _, scope := range fx.SelectedScopes {
+		if scope.WeighingCategory == "per_shed_partition" {
+			count++
+		}
+	}
+	return count
+}
+
+func shedObservationProofIDs(observation shedObservationFixture) []string {
+	ids := make([]string, 0, len(observation.ProofArtifactIDs)+1)
+	seen := make(map[string]struct{}, len(observation.ProofArtifactIDs)+1)
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	add(observation.ProofArtifactID)
+	for _, id := range observation.ProofArtifactIDs {
+		add(id)
+	}
+	return ids
+}
+
+func shedObservationAverageWeight(observation shedObservationFixture, scope scopeFixture) float64 {
+	if observation.WeighingResult.AverageWeightKG > 0 {
+		return observation.WeighingResult.AverageWeightKG
+	}
+	if observation.WeighingResult.TotalWeightKG > 0 && scope.ExpectedAnimalCount > 0 {
+		return observation.WeighingResult.TotalWeightKG / float64(scope.ExpectedAnimalCount)
+	}
+	return 0
 }
 
 func scopeByID(fx fixture, id string) *scopeFixture {

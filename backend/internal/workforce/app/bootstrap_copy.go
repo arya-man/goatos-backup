@@ -97,6 +97,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority:    2,
 		contributions: []moduleNavContribution{
 			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 2, requiredPermission: permissions.WeighingMonitor},                                                                  //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -114,41 +115,29 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// The census page is Admin/CEO-only: field capture and tenant-wide population
 			// visibility are different authorities (maintainer decision 2026-07-18).
 			{key: "counts", labelKey: "nav.counts", href: "/counts", shared_key: "", priority: 1, requiredPermission: permissions.CountsRead}, //nav-composition:ignore: registry entry
-			// The capture pages follow CountsWrite, so an Operator or Park Head gets a
-			// capture-only Counts module while Admin/CEO also get census.
-			// Birth and Death split into two modules-with-work-lists (maintainer decision
-			// 2026-07-27, docs/decisions/birth-death-workflows.md): each opens on the
-			// outstanding per-goat SOP actions; recording moves behind the ＋ button.
-			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
-			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
-			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
-			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
-			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
-			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
-			// its bar is capture-only (birth_death + shifting, plus census for Admin/CEO).
-		},
-	},
-	// "feed_direction" is the Feed vertical on the phone. Its bar is the two read surfaces an
-	// operator dispatches from: the generated feed sheet (Feed Direction) and the per-shed bag
-	// worklist (Feed Packing). Both are read-only projections of the authored ration grid plus
-	// projected counts; there is no capture/write here, so no outbox. The two tabs gate on
-	// DIFFERENT authorities on purpose (see permissions.go): direction reads follow ProtocolRead,
-	// packing follows FeedPackingRead, so a park head who may draw this morning's bags sees the
-	// packing tab without inheriting the direction sheet.
-	"feed_direction": {
-		key:         "feed_direction",
-		labelKey:    "module.feed_direction",
-		landingHref: "/feed/direction", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    3,
-		contributions: []moduleNavContribution{
-			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
-			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
-			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
+			// The two capture pages follow CountsWrite, so an Operator or Park Head gets a
+			// two-tab Counts module while Admin/CEO get all three.
+			{key: "birth_death", labelKey: "nav.birth_death", href: "/counts/birth-death", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			// Counts takes the trailing bar slot for the APPROVER's queue instead of the global
+			// You tab (maintainer decision 2026-07-19). The Counts module is where lifecycle
+			// requests are raised, so it is where they are decided; an operator holding no
+			// approval permission simply does not receive this item and gets a two-tab module.
+			// CountsApproveAccess is the coarse surface gate -- WHICH request types the caller
+			// may actually decide is resolved server-side per row
+			// (permissions.DecidableApprovalRequestTypes), never re-derived on the phone.
+			{key: "approval", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 4, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
 	// client no longer needs its own hardcoded coming-soon list.
+	"feed_direction": {
+		key:         "feed_direction",
+		labelKey:    "module.feed_direction",
+		landingHref: "",
+		status:      moduleStatusSoon,
+		priority:    3,
+	},
 	"breeding": {
 		key:         "breeding",
 		labelKey:    "module.breeding",
@@ -173,7 +162,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 
 // soonModuleKeys are surfaced to every principal as disabled drawer rows regardless of
 // grants; they advertise the roadmap, they do not confer access.
-var soonModuleKeys = []string{"breeding"}
+var soonModuleKeys = []string{"feed_direction", "breeding"}
 
 // visibleNavigationFor composes navigation from the person's granted modules.
 // If the person has any leadership grant, they see the shared module set for that tier.
@@ -277,25 +266,17 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 //
 //   - CEO/CXO (ceo_internal) is whole-org: Vaccination plus Counts, plus the
 //     roadmap "soon" modules (Feed direction, Breeding).
-//   - Park Head runs a park's day-to-day operations, which includes Feed, so they get
-//     the shared Vaccination home PLUS the Feed module. Counts (birth/death/shifting
-//     capture + approvals) is not theirs. Park Head is further limited to his own park
-//     by his grant scope (data scope), not by nav. (maintainer decision 2026-07-25)
-//   - PC Director is preventive-care specialty: ONLY the shared Vaccination module.
-//     Counts, Feed, and Breeding are not preventive-care surfaces, so they never appear.
+//   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
+//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
+//     are not preventive-care surfaces, so they never appear. Park Head is further
+//     limited to his own park by his grant scope (data scope), not by nav.
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
 		return []string{"vaccination", "weighing", "counts", "feed_direction", "breeding"}
 	}
-	if hasRole(grants, permissions.RoleParkHead) {
-		// Park operations include Feed; Counts is excluded (preventive-care leaders
-		// do not run the Counts capture/approval surfaces). Weighing is a separate
-		// preventive-care vertical, not a Vaccination tab.
-		return []string{"vaccination", "weighing", "feed_direction"}
-	}
-	// PC Director: preventive-care specialty verticals.
+	// PC Director / Park Head: preventive-care specialty verticals.
 	return []string{"vaccination", "weighing"}
 }
 
@@ -395,19 +376,14 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 			NavItems: items,
 		})
 	}
-	// "Soon" roadmap rows advertise unbuilt modules. They are surfaced globally to
-	// non-leadership principals, but a leadership drawer only shows the "soon" rows
-	// its tier is actually offered (candidateModuleKeys): CEO sees Breeding (Feed is
-	// now a built module, not a soon row), and a preventive-care leader (PC Director,
-	// Park Head) sees no soon rows.
-	allowSoon := func(string) bool { return true }
-	if isLeadershipPrincipal(grants) {
-		offered := make(map[string]bool, len(keys))
-		for _, k := range keys {
-			offered[k] = true
-		}
-		allowSoon = func(k string) bool { return offered[k] }
+	// "Soon" roadmap rows advertise unbuilt modules, but only when that module is
+	// in the principal's offered module set. A field operator granted Vaccination
+	// and Weighing should not see unrelated modules such as Counts, Feed, or Breeding.
+	offered := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		offered[k] = true
 	}
+	allowSoon := func(k string) bool { return offered[k] }
 	for _, key := range soonModuleKeys {
 		def, ok := moduleNavRegistry[key]
 		if !ok || seen[def.key] || !allowSoon(key) {
@@ -506,21 +482,18 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.verify":         "Verify",
-		"nav.overview":       "Overview",
-		"nav.calendar":       "Calendar",
-		"nav.alerts":         "Alerts",
-		"nav.drives":         "Drives",
-		"nav.counts":         "Counts",
-		"nav.birth":          "Birth",
-		"nav.death":          "Death",
-		"nav.shifting":       "Shifting",
-		"nav.feed_direction": "Feed Direction",
-		"nav.feed_packing":   "Feed Packing",
-		"nav.feed_transport": "Feed Transport",
-		"nav.weighing":       "Weighing",
-		"nav.videos":         "Videos",
-		"nav.you":            "You",
+		"nav.verify":      "Verify",
+		"nav.overview":    "Overview",
+		"nav.calendar":    "Calendar",
+		"nav.alerts":      "Alerts",
+		"nav.drives":      "Drives",
+		"nav.counts":      "Counts",
+		"nav.birth_death": "Birth/Death",
+		"nav.shifting":    "Shifting",
+		"nav.approval":    "Approval",
+		"nav.weighing":    "Weighing",
+		"nav.videos":      "Videos",
+		"nav.you":         "You",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
@@ -533,21 +506,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.verify":         "सत्यापित करें",
-		"nav.overview":       "अवलोकन",
-		"nav.calendar":       "कैलेंडर",
-		"nav.alerts":         "अलर्ट",
-		"nav.drives":         "ड्राइव",
-		"nav.counts":         "गिनती",
-		"nav.birth":          "जन्म",
-		"nav.death":          "मृत्यु",
-		"nav.shifting":       "शिफ्टिंग",
-		"nav.feed_direction": "फ़ीड दिशा",
-		"nav.feed_packing":   "फ़ीड पैकिंग",
-		"nav.feed_transport": "फ़ीड परिवहन",
-		"nav.weighing":       "वजन",
-		"nav.videos":         "वीडियो",
-		"nav.you":            "आप",
+		"nav.verify":      "सत्यापित करें",
+		"nav.overview":    "अवलोकन",
+		"nav.calendar":    "कैलेंडर",
+		"nav.alerts":      "अलर्ट",
+		"nav.drives":      "ड्राइव",
+		"nav.counts":      "गिनती",
+		"nav.birth_death": "जन्म/मृत्यु",
+		"nav.shifting":    "शिफ्टिंग",
+		"nav.approval":    "अनुमोदन",
+		"nav.weighing":    "वजन",
+		"nav.videos":      "वीडियो",
+		"nav.you":         "आप",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
@@ -560,21 +530,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.verify":         "ಪರಿಶೀಲಿಸಿ",
-		"nav.overview":       "ಅವಲೋಕನ",
-		"nav.calendar":       "ಕ್ಯಾಲೆಂಡರ್",
-		"nav.alerts":         "ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":         "ಡ್ರೈವ್‌ಗಳು",
-		"nav.counts":         "ಎಣಿಕೆ",
-		"nav.birth":          "ಜನನ",
-		"nav.death":          "ಮರಣ",
-		"nav.shifting":       "ಸ್ಥಳಾಂತರ",
-		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
-		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
-		"nav.feed_transport": "ಆಹಾರ ಸಾಗಣೆ",
-		"nav.weighing":       "ತೂಕ",
-		"nav.videos":         "ವೀಡಿಯೊಗಳು",
-		"nav.you":            "ನೀವು",
+		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
+		"nav.overview":    "ಅವಲೋಕನ",
+		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
+		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
+		"nav.counts":      "ಎಣಿಕೆ",
+		"nav.birth_death": "ಜನನ/ಮರಣ",
+		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
+		"nav.approval":    "ಅನುಮೋದನೆ",
+		"nav.weighing":    "ತೂಕ",
+		"nav.videos":      "ವೀಡಿಯೊಗಳು",
+		"nav.you":         "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
@@ -587,21 +554,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.verify":         "ధృవీకరించండి",
-		"nav.overview":       "అవలోకనం",
-		"nav.calendar":       "క్యాలెండర్",
-		"nav.alerts":         "అలర్ట్లు",
-		"nav.drives":         "డ్రైవ్‌లు",
-		"nav.counts":         "లెక్కలు",
-		"nav.birth":          "జననం",
-		"nav.death":          "మరణం",
-		"nav.shifting":       "షిఫ్టింగ్",
-		"nav.feed_direction": "ఫీడ్ దిశ",
-		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",
-		"nav.feed_transport": "ఫీడ్ రవాణా",
-		"nav.weighing":       "బరువు",
-		"nav.videos":         "వీడియోలు",
-		"nav.you":            "మీరు",
+		"nav.verify":      "ధృవీకరించండి",
+		"nav.overview":    "అవలోకనం",
+		"nav.calendar":    "క్యాలెండర్",
+		"nav.alerts":      "అలర్ట్లు",
+		"nav.drives":      "డ్రైవ్‌లు",
+		"nav.counts":      "లెక్కలు",
+		"nav.birth_death": "జననం/మరణం",
+		"nav.shifting":    "షిఫ్టింగ్",
+		"nav.approval":    "ఆమోదం",
+		"nav.weighing":    "బరువు",
+		"nav.videos":      "వీడియోలు",
+		"nav.you":         "మీరు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",

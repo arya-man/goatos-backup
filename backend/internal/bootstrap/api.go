@@ -377,7 +377,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
 	weighingService := weighingapp.NewService(weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
-	weighingHandler := weighinghttp.NewHandler(weighingService, log)
+	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
@@ -666,6 +666,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// events published by sopbridge. They resolve each completion to its obligation context, then
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).

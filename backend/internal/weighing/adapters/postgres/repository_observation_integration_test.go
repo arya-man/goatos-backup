@@ -28,6 +28,11 @@ const (
 	repoShedProof       = "00000000-0000-4000-8000-000000009303"
 	repoPhotoProof      = "00000000-0000-4000-8000-000000009304"
 	repoAnimalShedProof = "00000000-0000-4000-8000-000000009305"
+	repoShedProofTwo    = "00000000-0000-4000-8000-000000009306"
+	repoShedProofThree  = "00000000-0000-4000-8000-000000009307"
+	repoShedProofFour   = "00000000-0000-4000-8000-000000009308"
+	repoShedProofFive   = "00000000-0000-4000-8000-000000009309"
+	repoShedProofSix    = "00000000-0000-4000-8000-000000009310"
 	repoExpectedShed    = "f1b1bad0-47ab-4248-95dc-8fa1472d4fec"
 	repoActualShed      = "654260da-956e-4015-bc95-edf3421cae3c"
 	repoPerShed         = "86e47f9c-fd1d-461d-9b9a-45d3be9bf12d"
@@ -133,6 +138,95 @@ func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("completed campaign err=%v, want immutable", err)
+	}
+}
+
+func TestRecordShedObservationPersistsAverageWeightAndOneToFiveProofs(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour, repoShedProofFive, repoShedProofSix} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	proofIDs := []string{repoShedProof, repoShedProofTwo, repoShedProofThree, repoShedProofFour, repoShedProofFive}
+
+	obs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   repoShedScope,
+		AverageWeightKg:  13.375,
+		ProofArtifactIDs: proofIDs,
+		IdempotencyKey:   "shed:five-proof-bundle",
+		RecordedBy:       repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record five-proof shed observation: %v", err)
+	}
+	if obs.AverageWeightKg != 13.375 || len(obs.ProofArtifactIDs) != 5 {
+		t.Fatalf("observation average/proofs=(%v,%v)", obs.AverageWeightKg, obs.ProofArtifactIDs)
+	}
+
+	var average float64
+	var proofCount int
+	if err := pool.QueryRow(ctx, `
+SELECT wso.average_weight_kg::float8, count(wsop.proof_artifact_id)
+FROM weighing_shed_observations wso
+JOIN weighing_shed_observation_proofs wsop
+  ON wsop.tenant_id=wso.tenant_id
+ AND wsop.shed_observation_id=wso.shed_observation_id
+WHERE wso.tenant_id=$1::uuid AND wso.shed_observation_id=$2::uuid
+GROUP BY wso.average_weight_kg`, repoTenant, obs.ObservationID).Scan(&average, &proofCount); err != nil {
+		t.Fatalf("read persisted lump sum: %v", err)
+	}
+	if average != 13.375 || proofCount != 5 {
+		t.Fatalf("persisted average/proof_count=(%v,%d), want (13.375,5)", average, proofCount)
+	}
+
+	replay, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   repoShedScope,
+		AverageWeightKg:  13.375,
+		ProofArtifactIDs: proofIDs,
+		IdempotencyKey:   "shed:five-proof-bundle",
+		RecordedBy:       repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("replay five-proof shed observation: %v", err)
+	}
+	if replay.ObservationID != obs.ObservationID || len(replay.ProofArtifactIDs) != 5 {
+		t.Fatalf("replay=%+v, want original observation and five proofs", replay)
+	}
+}
+
+func TestRecordShedObservationRejectsMoreThanFiveProofs(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour, repoShedProofFive, repoShedProofSix} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID:        repoTenant,
+		CampaignID:      repoCampaign,
+		CampaignShedID:  repoShedScope,
+		AverageWeightKg: 13.375,
+		ProofArtifactIDs: []string{
+			repoShedProof, repoShedProofTwo, repoShedProofThree,
+			repoShedProofFour, repoShedProofFive, repoShedProofSix,
+		},
+		IdempotencyKey: "shed:six-proof-bundle",
+		RecordedBy:     repoOperator,
+	})
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("six-proof error=%v, want invalid argument", err)
 	}
 }
 

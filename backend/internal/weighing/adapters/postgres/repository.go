@@ -519,7 +519,140 @@ ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShe
 		nextCursor = encodeRosterCursor(rosterCursor{CreatedAt: created[limit-1], AnimalID: last.AnimalID})
 		out = out[:limit]
 	}
-	return domain.RosterPage{Items: out, NextCursor: nextCursor}, nil
+	observations := make([]domain.Observation, 0)
+	observationRows, err := r.pool.Query(ctx, `
+SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
+       COALESCE(NULLIF(scanned_identifier, ''), animal_id::text),
+       weight_kg::float8, proof_artifact_id::text,
+       COALESCE(expected_location_id::text, ''), accepted_at
+FROM weighing_observations
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND campaign_shed_id=$3::uuid
+ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID)
+	if err != nil {
+		return domain.RosterPage{}, err
+	}
+	defer observationRows.Close()
+	for observationRows.Next() {
+		var observation domain.Observation
+		if err := observationRows.Scan(
+			&observation.ObservationID,
+			&observation.CampaignID,
+			&observation.CampaignShedID,
+			&observation.AnimalID,
+			&observation.WeightKg,
+			&observation.ProofArtifactID,
+			&observation.ExpectedLocationID,
+			&observation.AcceptedAt,
+		); err != nil {
+			return domain.RosterPage{}, err
+		}
+		observations = append(observations, observation)
+	}
+	if err := observationRows.Err(); err != nil {
+		return domain.RosterPage{}, err
+	}
+	return domain.RosterPage{Items: out, Observations: observations, NextCursor: nextCursor}, nil
+}
+
+func (r *Repository) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	var result domain.LeadershipShedVideos
+	err := r.pool.QueryRow(ctx, `
+SELECT campaign_id::text, campaign_shed_id::text, display_name, weighing_category, status
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid`,
+		tenantID, campaignID, campaignShedID,
+	).Scan(&result.CampaignID, &result.CampaignShedID, &result.ShedName, &result.WeighingCategory, &result.Status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.LeadershipShedVideos{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	result.Individual = []domain.Observation{}
+
+	if result.WeighingCategory == "per_shed_partition" {
+		var lump domain.Observation
+		err = r.pool.QueryRow(ctx, `
+SELECT
+  wso.shed_observation_id::text,
+  wso.campaign_id::text,
+  wso.campaign_shed_id::text,
+  wso.weight_kg::float8,
+  wso.average_weight_kg::float8,
+  wso.animal_count,
+  wso.proof_artifact_id::text,
+  COALESCE(
+    (SELECT array_agg(p.proof_artifact_id::text ORDER BY p.proof_position)
+       FROM weighing_shed_observation_proofs p
+      WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
+    ARRAY[wso.proof_artifact_id::text]
+  ),
+  wso.accepted_at
+FROM weighing_shed_observations wso
+WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_id=$3::uuid
+ORDER BY wso.accepted_at DESC
+LIMIT 1`, tenantID, campaignID, campaignShedID).Scan(
+			&lump.ObservationID,
+			&lump.CampaignID,
+			&lump.CampaignShedID,
+			&lump.WeightKg,
+			&lump.AverageWeightKg,
+			&lump.AnimalCount,
+			&lump.ProofArtifactID,
+			&lump.ProofArtifactIDs,
+			&lump.AcceptedAt,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, nil
+		}
+		if err != nil {
+			return domain.LeadershipShedVideos{}, err
+		}
+		result.LumpSum = &lump
+		return result, nil
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  observation_id::text,
+  campaign_id::text,
+  campaign_shed_id::text,
+  COALESCE(NULLIF(scanned_identifier, ''), animal_id::text),
+  weight_kg::float8,
+  proof_artifact_id::text,
+  accepted_at
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
+ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID)
+	if err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var observation domain.Observation
+		if err := rows.Scan(
+			&observation.ObservationID,
+			&observation.CampaignID,
+			&observation.CampaignShedID,
+			&observation.AnimalID,
+			&observation.WeightKg,
+			&observation.ProofArtifactID,
+			&observation.AcceptedAt,
+		); err != nil {
+			return domain.LeadershipShedVideos{}, err
+		}
+		observation.ProofArtifactIDs = []string{observation.ProofArtifactID}
+		result.Individual = append(result.Individual, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	return result, nil
 }
 
 func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -640,6 +773,27 @@ WITH campaign AS (
     AND proof.proof_id=$5::uuid
     AND proof.upload_state='completed'
     AND proof.proof_type='video'
+), updated AS (
+  UPDATE weighing_observations observation
+  SET weight_kg=$4,
+      proof_artifact_id=p.proof_id,
+      recorded_by=$7::uuid,
+      idempotency_key=$6,
+      accepted_at=now()
+  FROM campaign c
+  JOIN assigned_shed s ON true
+  JOIN proof_ok p ON true
+  WHERE observation.tenant_id=$1::uuid
+    AND observation.campaign_id=$2::uuid
+    AND observation.campaign_shed_id=s.campaign_shed_id
+    AND observation.animal_id IS NULL
+    AND lower(observation.scanned_identifier)=lower($3)
+  RETURNING observation.observation_id::text, observation.campaign_id::text,
+    COALESCE(observation.campaign_shed_id::text,'') AS campaign_shed_id_text,
+    observation.scanned_identifier AS animal_id_text, observation.weight_kg::float8,
+    observation.proof_artifact_id::text,
+    COALESCE(observation.expected_location_id::text,'') AS expected_location_id_text,
+    '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at
 ), inserted AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier,
@@ -652,9 +806,12 @@ WITH campaign AS (
   FROM campaign c
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
+  WHERE NOT EXISTS (SELECT 1 FROM updated)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, '' AS actual_location_id_text, '' AS actual_location_label_text, accepted_at
 )
+SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM updated
+UNION ALL
 SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
 		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
@@ -674,6 +831,12 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 }
 
 func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
+	if cmd.AverageWeightKg <= 0 {
+		cmd.AverageWeightKg = cmd.WeightKg
+	}
+	if len(cmd.ProofArtifactIDs) == 0 && cmd.ProofArtifactID != "" {
+		cmd.ProofArtifactIDs = []string{cmd.ProofArtifactID}
+	}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -695,7 +858,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	  WHERE tenant_id=$1::uuid
 	    AND campaign_id=$2::uuid
 	    AND status IN ('published','in_progress','delayed')
-	    AND operator_user_id=$7::uuid
+	  AND operator_user_id=$7::uuid
 	), scope AS (
 	  SELECT cs.campaign_shed_id, cs.location_id
 	  FROM campaign c
@@ -704,31 +867,65 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	   AND cs.campaign_id=c.campaign_id
 	   AND cs.campaign_shed_id=$3::uuid
 	   AND cs.weighing_category='per_shed_partition'
+	), proof_bundle AS (
+	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
+	  FROM scope
+	  CROSS JOIN unnest($5::uuid[]) WITH ORDINALITY AS requested(proof_id, proof_position)
 	  JOIN proof_artifacts proof
 	    ON proof.tenant_id=$1::uuid
-	   AND proof.proof_id=$5::uuid
+	   AND proof.proof_id=requested.proof_id
 	   AND proof.upload_state='completed'
 	   AND proof.proof_type='video'
 	   AND proof.scope_type='shed'
-	   AND proof.scope_id=cs.location_id
+	   AND proof.scope_id=scope.location_id
 	   AND proof.subject_type='shed'
-	   AND proof.subject_id=cs.location_id
+	   AND proof.subject_id=scope.location_id
+	  HAVING count(*)=cardinality($5::uuid[])
+	     AND count(*) BETWEEN 1 AND 5
 	)
-	INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
-	SELECT $1::uuid, $2::uuid, campaign_shed_id, $4, $5::uuid, $7::uuid, $6
+	INSERT INTO weighing_shed_observations (
+	  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+	  proof_artifact_id, recorded_by, idempotency_key
+	)
+	SELECT $1::uuid, $2::uuid, scope.campaign_shed_id, $4, $8,
+	  $9, proof_bundle.proof_ids[1], $7::uuid, $6
 	FROM scope
+	JOIN proof_bundle ON true
 	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-	RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text, weight_kg::float8, proof_artifact_id::text, accepted_at`,
-		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.ProofArtifactID, &obs.AcceptedAt)
+	RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text,
+	  weight_kg::float8, average_weight_kg::float8, animal_count, proof_artifact_id::text, accepted_at`,
+		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactIDs, cmd.IdempotencyKey, cmd.RecordedBy, cmd.AverageWeightKg, cmd.AnimalCount).
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.AnimalCount, &obs.ProofArtifactID, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyShedObservationRejection(ctx, tx, cmd)
 	}
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE weighing_campaign_sheds SET status='completed', completed_at=now(), updated_at=now() WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.CampaignShedID); err != nil {
+	obs.ProofArtifactIDs = append([]string(nil), cmd.ProofArtifactIDs...)
+	if _, err := tx.Exec(ctx, `
+INSERT INTO weighing_shed_observation_proofs (
+  shed_observation_id, tenant_id, proof_artifact_id, proof_position
+)
+SELECT $1::uuid, $2::uuid, requested.proof_id, requested.proof_position
+FROM unnest($3::uuid[]) WITH ORDINALITY AS requested(proof_id, proof_position)
+ON CONFLICT (shed_observation_id, proof_position) DO NOTHING`,
+		obs.ObservationID, cmd.TenantID, cmd.ProofArtifactIDs); err != nil {
 		return domain.Observation{}, err
+	}
+	completed, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds
+SET status='completed', completed_at=COALESCE(completed_at, now()), updated_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_shed_id=$2::uuid
+  AND status <> 'completed'`, cmd.TenantID, cmd.CampaignShedID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if completed.RowsAffected() > 0 {
+		if err := r.enqueueShedSubmissionCompleted(ctx, tx, cmd.TenantID, cmd.CampaignShedID); err != nil {
+			return domain.Observation{}, err
+		}
 	}
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
@@ -740,7 +937,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 }
 
 func (r *Repository) completeIndividualScopeIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID, campaignShedID string) error {
-	_, err := tx.Exec(ctx, `
+	completed, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
 SET status='completed',
   completed_at=COALESCE(cs.completed_at, now()),
@@ -758,7 +955,69 @@ WHERE cs.tenant_id=$1::uuid
       AND ea.campaign_shed_id=cs.campaign_shed_id
       AND ea.status NOT IN ('weighed', 'unavailable', 'canceled', 'closed_by_override')
   )`, tenantID, campaignID, campaignShedID)
-	return err
+	if err != nil || completed.RowsAffected() == 0 {
+		return err
+	}
+	return r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID)
+}
+
+func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID string, scannedIdentifiers []string) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	result, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds cs
+SET status='completed', completed_at=COALESCE(cs.completed_at, now()), updated_at=now()
+FROM weighing_campaigns campaign
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.campaign_shed_id=$3::uuid
+  AND cs.weighing_category='individual_animal'
+  AND campaign.tenant_id=cs.tenant_id
+  AND campaign.campaign_id=cs.campaign_id
+  AND campaign.operator_user_id=$4::uuid
+  AND cardinality($5::text[]) > 0
+  AND NOT EXISTS (
+    SELECT 1
+    FROM unnest($5::text[]) AS captured(scanned_identifier)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM weighing_observations observation
+      JOIN proof_artifacts proof
+        ON proof.tenant_id=observation.tenant_id
+       AND proof.proof_id=observation.proof_artifact_id
+       AND proof.upload_state='completed'
+       AND proof.proof_type='video'
+    WHERE observation.tenant_id=cs.tenant_id
+      AND observation.campaign_id=cs.campaign_id
+      AND observation.campaign_shed_id=cs.campaign_shed_id
+      AND observation.scanned_identifier=captured.scanned_identifier
+      AND observation.weight_kg > 0
+    )
+  )`, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE weighing_expected_animals
+SET status='closed_by_override', updated_at=now()
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
+  AND status <> 'weighed'`, tenantID, campaignID, campaignShedID); err != nil {
+		return err
+	}
+	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
+		return err
+	}
+	if err := r.completeCampaignIfDone(ctx, tx, tenantID, campaignID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) completeCampaignIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
@@ -1120,8 +1379,27 @@ func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantI
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, false, err
 	}
-	err = tx.QueryRow(ctx, `SELECT shed_observation_id::text, campaign_id::text, campaign_shed_id::text, weight_kg::float8, proof_artifact_id::text, accepted_at FROM weighing_shed_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.ProofArtifactID, &obs.AcceptedAt)
+	err = tx.QueryRow(ctx, `
+SELECT
+  wso.shed_observation_id::text,
+  wso.campaign_id::text,
+  wso.campaign_shed_id::text,
+  wso.weight_kg::float8,
+  wso.average_weight_kg::float8,
+  wso.proof_artifact_id::text,
+  COALESCE(
+    (
+      SELECT array_agg(wsop.proof_artifact_id::text ORDER BY wsop.proof_position)
+      FROM weighing_shed_observation_proofs wsop
+      WHERE wsop.tenant_id=wso.tenant_id
+        AND wsop.shed_observation_id=wso.shed_observation_id
+    ),
+    ARRAY[wso.proof_artifact_id::text]
+  ),
+  wso.accepted_at
+FROM weighing_shed_observations wso
+WHERE wso.tenant_id=$1::uuid AND wso.idempotency_key=$2`, tenantID, idem).
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.ProofArtifactID, &obs.ProofArtifactIDs, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, false, nil
 	}
@@ -1172,8 +1450,8 @@ func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx 
 	   AND proof.subject_id=g.goat_id
 	   AND proof.scope_type='goat'
 	   AND proof.scope_id=g.goat_id
-	  WHERE g.tenant_id=$1::uuid AND g.goat_id=$5::uuid
-	)`, cmd.TenantID, cmd.CampaignID, cmd.ProofArtifactID, cmd.ActualLocationID, cmd.AnimalID).Scan(&proofOK)
+	  WHERE g.tenant_id=$1::uuid AND g.goat_id=$4::uuid
+	)`, cmd.TenantID, cmd.CampaignID, cmd.ProofArtifactID, cmd.AnimalID).Scan(&proofOK)
 	if err != nil {
 		return err
 	}
@@ -1203,22 +1481,24 @@ func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pg
 	var proofOK bool
 	err = tx.QueryRow(ctx, `
 	SELECT cs.weighing_category,
-	  EXISTS (
-	    SELECT 1
-	    FROM proof_artifacts proof
-	    WHERE proof.tenant_id=$1::uuid
-	      AND proof.proof_id=$4::uuid
-	      AND proof.upload_state='completed'
-	      AND proof.proof_type='video'
-	      AND proof.scope_type='shed'
-	      AND proof.scope_id=cs.location_id
-	      AND proof.subject_type='shed'
-	      AND proof.subject_id=cs.location_id
+	  (
+	    SELECT count(*)=cardinality($4::uuid[])
+	      AND count(*) BETWEEN 1 AND 5
+	    FROM unnest($4::uuid[]) AS requested(proof_id)
+	    JOIN proof_artifacts proof
+	      ON proof.tenant_id=$1::uuid
+	     AND proof.proof_id=requested.proof_id
+	     AND proof.upload_state='completed'
+	     AND proof.proof_type='video'
+	     AND proof.scope_type='shed'
+	     AND proof.scope_id=cs.location_id
+	     AND proof.subject_type='shed'
+	     AND proof.subject_id=cs.location_id
 	  ) AS proof_ok
 	FROM weighing_campaign_sheds cs
 	WHERE cs.tenant_id=$1::uuid
 	  AND cs.campaign_id=$2::uuid
-	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactID).
+	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactIDs).
 		Scan(&category, &proofOK)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound

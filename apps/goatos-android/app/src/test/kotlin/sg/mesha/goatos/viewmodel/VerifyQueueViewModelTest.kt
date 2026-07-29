@@ -33,13 +33,8 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 
 /**
- * R50-031 regression: [VerifyQueueViewModel.refresh] sets `_isRefreshing = true` up front, then
- * early-returns when the selected tab has no backing category. Every REVIEW-queue tab is now wired
- * (Shifting/Packing/Feed direction all back a real category), so the surviving early-return path is
- * the ACTION queue, where those same tabs have no leadership close/action step and resolve to a
- * null category. Before the fix, that early return skipped the line that flips `_isRefreshing` back
- * to false, so a pull-to-refresh left the spinner spinning forever. The fix moves the reset into a
- * `finally` block.
+ * Verifier feature segregation regressions. Each top-level feature must observe and refresh
+ * only its backend category so Vaccination and Weighing videos cannot mix.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class VerifyQueueViewModelTest {
@@ -52,37 +47,19 @@ class VerifyQueueViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `refreshing a null-category tab still clears isRefreshing via finally`() = runTest(dispatcher) {
+    fun `selecting weighing observes and refreshes only weighing proof`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
-        // actionMode=true: in the ACTION queue, Shifting/Packing/Feed direction have no leadership
-        // close/action step, so categoryForModule returns null for them — the early-return path.
-        val vm = VerifyQueueViewModel(
-            repo = repo,
-            syncRepo = FakeVerifySyncRepository(),
-            analytics = NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("actionMode" to true)),
-        )
+        val vm = VerifyQueueViewModel(repo = repo, syncRepo = FakeVerifySyncRepository(), analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
-        // The constructor's own initial refresh() runs on the default VACCINATION tab, so it
-        // hits repo.refreshActionQueue exactly once before this test does anything.
+
+        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.WEIGHING))
+        advanceUntilIdle()
+
+        assertEquals(VerifyModuleTab.WEIGHING, vm.state.value.selectedModule)
+        assertEquals("weighing_proof", repo.observedCategories.last())
+        assertEquals("weighing_proof", repo.refreshedCategories.last())
         assertFalse(vm.state.value.isRefreshing)
-        val actionCallsAfterInit = repo.refreshActionQueueCalls
-
-        // SHIFTING has no action queue, so it exercises refresh()'s early-return path.
-        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.SHIFTING))
-        advanceUntilIdle()
-
-        vm.onEvent(VerifyQueueEvent.Refresh)
-        advanceUntilIdle()
-
-        assertFalse(
-            "R50-031: refresh() must clear isRefreshing via finally even on its early-return " +
-                "path for a tab with no backing queue",
-            vm.state.value.isRefreshing,
-        )
-        // The early-return path must never have reached the real network refresh again.
-        assertEquals(actionCallsAfterInit, repo.refreshActionQueueCalls)
     }
 
     @Test
@@ -97,32 +74,7 @@ class VerifyQueueViewModelTest {
 
         assertFalse(vm.state.value.isRefreshing)
         assertEquals(2, repo.refreshQueueCalls) // once from init, once from this explicit Refresh
-    }
-
-    @Test
-    fun `death tab loads the approved death evidence category`() = runTest(dispatcher) {
-        val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo, FakeVerifySyncRepository(), NoopAnalytics(), SavedStateHandle())
-        backgroundScope.launch { vm.state.collect {} }
-        advanceUntilIdle()
-
-        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.DEATH))
-        advanceUntilIdle()
-
-        assertEquals("death_evidence", repo.lastRefreshCategory)
-    }
-
-    @Test
-    fun `birth tab has its own queue category ready for the later birth producer`() = runTest(dispatcher) {
-        val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo, FakeVerifySyncRepository(), NoopAnalytics(), SavedStateHandle())
-        backgroundScope.launch { vm.state.collect {} }
-        advanceUntilIdle()
-
-        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.BIRTH))
-        advanceUntilIdle()
-
-        assertEquals("birth_evidence", repo.lastRefreshCategory)
+        assertEquals(listOf("vaccination_proof", "vaccination_proof"), repo.refreshedCategories)
     }
 }
 
@@ -144,29 +96,25 @@ private class FakeVerifySyncRepository : SyncRepository {
 private class FakeVerifyQueueRepository : VerificationRepository {
     var refreshQueueCalls = 0
         private set
-    var refreshActionQueueCalls = 0
-        private set
-    var lastRefreshCategory: String? = null
-        private set
+    val observedCategories = mutableListOf<String?>()
+    val refreshedCategories = mutableListOf<String?>()
 
     override suspend fun queue(category: String?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = error("unused")
 
-    override fun observeQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
-        flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+    override fun observeQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> {
+        observedCategories += category
+        return flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+    }
 
     override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
         refreshQueueCalls++
-        lastRefreshCategory = category
+        refreshedCategories += category
         return Result.success(Unit)
     }
 
     override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
-    override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
-        flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
-    override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
-        refreshActionQueueCalls++
-        return Result.success(Unit)
-    }
+    override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = error("unused")
+    override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit
     override suspend fun markVerificationItemDecidedLocally(itemId: String) = Unit
 }

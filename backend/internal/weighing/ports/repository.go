@@ -22,6 +22,7 @@ type Repository interface {
 	ListCampaigns(ctx context.Context, tenantID string, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error)
+	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error

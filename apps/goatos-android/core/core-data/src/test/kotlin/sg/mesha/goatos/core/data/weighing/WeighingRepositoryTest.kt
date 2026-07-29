@@ -39,6 +39,10 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingObservationDto
+import sg.mesha.goatos.core.network.dto.WeighingProofMediaDto
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -103,6 +107,82 @@ class WeighingRepositoryTest {
         val after = repository.observeScope(scopeKey, windowSize = 20).first()
         assertEquals(20, after.rosterWindow.size)
         assertEquals(listOf("animal-5001"), after.individualDrafts.map { it.animalId })
+    }
+
+    @Test
+    fun `leadership videos map individual animals and lump sum summaries`() = runTest {
+        val campaigns = WeighingCampaignListResponseDto(
+            items = listOf(
+                WeighingCampaignDto(
+                    campaignId = "campaign",
+                    status = "completed",
+                    periodStartDate = "2026-07-27",
+                    periodEndDate = "2026-08-02",
+                    sheds = listOf(
+                        campaignShed("campaign", "individual", "Gandhi 1", "individual_animal"),
+                        campaignShed("campaign", "lump", "Castro 1", "per_shed_partition"),
+                    ),
+                ),
+            ),
+        )
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns() = campaigns
+
+            override suspend fun getWeighingLeadershipShedVideos(
+                campaignId: String,
+                campaignShedId: String,
+            ) = WeighingLeadershipShedVideosResponseDto(
+                shed = if (campaignShedId == "individual") {
+                    WeighingLeadershipShedVideosDto(
+                        campaignId = campaignId,
+                        campaignShedId = campaignShedId,
+                        shedName = "Gandhi 1",
+                        weighingCategory = "individual_animal",
+                        status = "completed",
+                        individual = listOf(
+                            WeighingObservationDto(
+                                animalId = "RFID-000123",
+                                weightKg = 18.25,
+                                acceptedAt = "2026-07-29T06:00:00Z",
+                                media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
+                            ),
+                        ),
+                    )
+                } else {
+                    WeighingLeadershipShedVideosDto(
+                        campaignId = campaignId,
+                        campaignShedId = campaignShedId,
+                        shedName = "Castro 1",
+                        weighingCategory = "per_shed_partition",
+                        status = "completed",
+                        lumpSum = WeighingObservationDto(
+                            weightKg = 250.0,
+                            averageWeightKg = 25.0,
+                            animalCount = 10,
+                            media = listOf(
+                                WeighingProofMediaDto("proof-2", "https://proof/2"),
+                                WeighingProofMediaDto("proof-3", "https://proof/3"),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+        val subject = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = subject.listLeadershipVideos() as AppResult.Ok
+
+        assertEquals("RFID-000123", result.value[0].animals.single().rfid)
+        assertEquals(18.25, result.value[0].animals.single().weightKg, 0.0)
+        assertEquals(10, result.value[1].animalCount)
+        assertEquals(250.0, result.value[1].totalWeightKg!!, 0.0)
+        assertEquals(25.0, result.value[1].averageWeightKg!!, 0.0)
+        assertEquals(2, result.value[1].videos.size)
     }
 
     @Test
@@ -411,6 +491,40 @@ class WeighingRepositoryTest {
     }
 
     @Test
+    fun `correcting an accepted individual keeps proof and queues weight revision`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
+
+        val first = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "animal-1", "proof-local-1", "proof-server-1")
+        db.weighingObservationDao().markAcceptedByIdempotencyKey(
+            "${first.value.idempotencyKey}:proof:proof-server-1",
+        )
+
+        val corrected = repository.recordIndividual(
+            individualCapture("animal-1", "TAG-1", weightKg = 11.4),
+        ) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "animal-1", "proof-local-1", "proof-server-1")
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        val queued = store.findByIdempotencyKey(
+            "${corrected.value.idempotencyKey}:proof:proof-server-1",
+        )
+
+        assertEquals(11.4, state.individualDrafts.single().weightKg, 0.0)
+        assertEquals("proof-local-1", state.individualDrafts.single().proofCaptureId)
+        assertTrue(queued?.payloadJson.orEmpty().contains("\"weight_kg\":11.4"))
+        assertTrue(queued?.payloadJson.orEmpty().contains("\"proof_artifact_id\":\"proof-server-1\""))
+    }
+
+    @Test
     fun `synced proof after screen exit still enqueues individual observation`() = runTest {
         val store = FakeOutboxStore()
         val concrete = DefaultWeighingRepository(
@@ -647,6 +761,20 @@ class WeighingRepositoryTest {
         status = "pending",
         availabilityStatus = "expected_shed",
         seq = seq,
+    )
+
+    private fun campaignShed(
+        campaignId: String,
+        campaignShedId: String,
+        displayName: String,
+        category: String,
+    ) = WeighingCampaignShedDto(
+        campaignId = campaignId,
+        campaignShedId = campaignShedId,
+        locationId = "location-$campaignShedId",
+        displayName = displayName,
+        weighingCategory = category,
+        status = "completed",
     )
 
     private fun syncedProof(id: String, subjectId: String, serverProofId: String) = ProofCaptureEntity(

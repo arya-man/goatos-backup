@@ -126,6 +126,11 @@ class SyncEngine(
                 // IN_FLIGHT row is orphaned, not actively in-flight. Without this they would be
                 // excluded from eligibility forever (never retried, never dead-lettered).
                 store.reclaimInFlight(clock())
+                // Rebuild feature acceptance after a process dies between marking the outbox
+                // success and updating the feature database. This projection is idempotent.
+                store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
+                    .filter { it.status == "SUCCEEDED" }
+                    .forEach { reconcileFeatureSuccess(it) }
                 // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
                 // fails it backs off, so eligibleForDrain would still return that group's NEWER
                 // queued rows on the next batch fetch — dispatching them would post newer writes
@@ -691,6 +696,7 @@ class SyncEngine(
     }
 
     private companion object {
+        const val SUCCESS_RECONCILE_LIMIT = 200
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200

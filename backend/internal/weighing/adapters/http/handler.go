@@ -23,13 +23,18 @@ type Service interface {
 	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error)
+	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
+	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, scannedIdentifiers []string) error
 }
 
 type Handler struct {
 	service Service
 	log     *slog.Logger
+	media   interface {
+		DownloadURL(context.Context, string, string) (string, error)
+	}
 }
 
 func NewHandler(service Service, log ...*slog.Logger) *Handler {
@@ -40,6 +45,13 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 	return &Handler{service: service, log: l}
 }
 
+func (h *Handler) WithMediaResolver(media interface {
+	DownloadURL(context.Context, string, string) (string, error)
+}) *Handler {
+	h.media = media
+	return h
+}
+
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /weighing/campaigns", h.ListCampaigns)
 	mux.HandleFunc("POST /weighing/campaigns", h.CreateCampaign)
@@ -48,8 +60,10 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.ListCampaigns)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
+	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", h.GetLeadershipShedVideos)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/shed-observations", h.RecordShedObservation)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
 }
 
 type errorEnvelope struct {
@@ -78,9 +92,16 @@ type animalObservationRequest struct {
 }
 
 type shedObservationRequest struct {
-	CampaignShedID  string  `json:"campaign_shed_id"`
-	WeightKg        float64 `json:"weight_kg"`
-	ProofArtifactID string  `json:"proof_artifact_id"`
+	CampaignShedID   string   `json:"campaign_shed_id"`
+	WeightKg         float64  `json:"weight_kg"`
+	AverageWeightKg  float64  `json:"average_weight_kg"`
+	AnimalCount      int      `json:"animal_count"`
+	ProofArtifactID  string   `json:"proof_artifact_id"`
+	ProofArtifactIDs []string `json:"proof_artifact_ids"`
+}
+
+type submitIndividualScopeRequest struct {
+	ScannedIdentifiers []string `json:"scanned_identifiers"`
 }
 
 func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +153,55 @@ func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, err := h.service.ListScopeRoster(r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"), r.URL.Query().Get("cursor"), limit)
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
+	h.respond(w, r, map[string]any{
+		"items":        page.Items,
+		"observations": page.Observations,
+		"next_cursor":  page.NextCursor,
+		"trace_id":     traceID(r),
+	}, err)
+}
+
+func (h *Handler) GetLeadershipShedVideos(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetLeadershipShedVideos(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+	)
+	if err == nil {
+		err = h.resolveLeadershipMedia(r.Context(), actor(r).TenantID, &result)
+	}
+	h.respond(w, r, map[string]any{"shed": result, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) resolveLeadershipMedia(ctx context.Context, tenantID string, result *domain.LeadershipShedVideos) error {
+	if h.media == nil {
+		return errors.New("weighing media resolver is unavailable")
+	}
+	resolve := func(observation *domain.Observation) error {
+		ids := observation.ProofArtifactIDs
+		if len(ids) == 0 && observation.ProofArtifactID != "" {
+			ids = []string{observation.ProofArtifactID}
+		}
+		observation.Media = make([]domain.ProofMedia, 0, len(ids))
+		for _, proofID := range ids {
+			url, err := h.media.DownloadURL(ctx, tenantID, proofID)
+			if err != nil {
+				return err
+			}
+			observation.Media = append(observation.Media, domain.ProofMedia{ProofID: proofID, DownloadURL: url})
+		}
+		return nil
+	}
+	for i := range result.Individual {
+		if err := resolve(&result.Individual[i]); err != nil {
+			return err
+		}
+	}
+	if result.LumpSum != nil {
+		return resolve(result.LumpSum)
+	}
+	return nil
 }
 
 func (h *Handler) queryLimit(w http.ResponseWriter, r *http.Request, fallback int) (int, bool) {
@@ -165,9 +234,25 @@ func (h *Handler) RecordShedObservation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	obs, err := h.service.RecordShedObservation(r.Context(), actor(r), domain.RecordShedObservation{
-		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, WeightKg: req.WeightKg, AverageWeightKg: req.AverageWeightKg, AnimalCount: req.AnimalCount,
+		ProofArtifactID: req.ProofArtifactID, ProofArtifactIDs: req.ProofArtifactIDs, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) SubmitIndividualScope(w http.ResponseWriter, r *http.Request) {
+	var req submitIndividualScopeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	err := h.service.SubmitIndividualScope(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+		req.ScannedIdentifiers,
+	)
+	h.respond(w, r, map[string]any{"status": "completed", "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {

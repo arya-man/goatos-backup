@@ -20,11 +20,15 @@ import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -42,10 +46,14 @@ import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
+import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.RfidReaderStatus
+import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.ui.Routes
+import java.time.Instant
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -60,6 +68,7 @@ class WeighingViewModel @Inject constructor(
     private val bootstrapRepository: BootstrapRepository,
     private val reader: RfidReaderPort,
     private val proofCaptureRepository: ProofCaptureRepository,
+    private val scanCaptureRepository: ScanCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -78,13 +87,21 @@ class WeighingViewModel @Inject constructor(
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
     private val scanInput = MutableStateFlow("")
     private val weightInput = MutableStateFlow("")
+    private val animalCountInput = MutableStateFlow("")
+    private val animalWeightInputs = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
+    private val scannedRows = MutableStateFlow<List<WeighingRosterRowEntity>>(emptyList())
+    private val autoProofs = MutableStateFlow<Map<String, ProofCaptureRow>>(emptyMap())
+    private val proofReplacementAnimalId = MutableStateFlow<String?>(null)
+    private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
+    private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
     private val plannerSelections = MutableStateFlow<Map<String, String>>(emptyMap())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
+    private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val loadingAssignments = MutableStateFlow(false)
     private val plannerWeek = WeighingWeek.current()
     private var readerRefreshJob: Job? = null
@@ -99,9 +116,28 @@ class WeighingViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val weightState: StateFlow<WeighingWeightState> =
+        combine(weightInput, animalCountInput, animalWeightInputs, updatingWeightAnimalIds) {
+                weight,
+                animalCount,
+                animalWeights,
+                updatingAnimalIds,
+            ->
+            WeighingWeightState(weight, animalCount, animalWeights, updatingAnimalIds)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingWeightState())
+
     private val formState: StateFlow<WeighingFormState> =
-        combine(scanInput, weightInput, selectedRow, message, actionInFlight) { scan, weight, selected, currentMessage, busy ->
-            WeighingFormState(scan, weight, selected, currentMessage, busy)
+        combine(scanInput, weightState, selectedRow, message, actionInFlight) { scan, weights, selected, currentMessage, busy ->
+            WeighingFormState(
+                scan,
+                weights.weight,
+                weights.animalCount,
+                weights.animalWeights,
+                weights.updatingAnimalIds,
+                selected,
+                currentMessage,
+                busy,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
@@ -109,11 +145,24 @@ class WeighingViewModel @Inject constructor(
             WeighingRootState(availableAssignments, loading, isPlanner, catalog, selections)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
 
+    private val readerConnectionState: StateFlow<ScanReaderConnection> =
+        combine(reader.status, reader.devices) { readerStatus, devices ->
+            readerStatus.toScanReaderConnection(devices.firstOrNull()?.name)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RfidReaderStatus.NOT_PAIRED.toScanReaderConnection(null))
+
+    private val captureState: StateFlow<WeighingCaptureState> =
+        combine(scannedRows, observedProofs, readerConnectionState) { scans, proofs, readerConnection ->
+            WeighingCaptureState(scans, proofs, readerConnection)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingCaptureState())
+
     val state: StateFlow<WeighingUiState> =
-        combine(scopeState, formState, rootState) { scope, form, root ->
+        combine(scopeState, formState, rootState, captureState) { scope, form, root, capture ->
             scope.toUiState(
                 scan = form.scan,
                 weight = form.weight,
+                animalCount = form.animalCount,
+                animalWeights = form.animalWeights,
+                updatingAnimalIds = form.updatingAnimalIds,
                 selected = form.selected,
                 currentMessage = form.message,
                 busy = form.busy,
@@ -122,6 +171,9 @@ class WeighingViewModel @Inject constructor(
                 isPlanner = root.plannerMode,
                 catalog = root.catalog,
                 selections = root.selections,
+                localScans = capture.scans,
+                proofs = capture.proofs,
+                readerConnection = capture.readerConnection,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
@@ -136,15 +188,27 @@ class WeighingViewModel @Inject constructor(
         if (scopeKey != null) {
             refreshScope()
             viewModelScope.launch {
+                val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
+                currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
+            }
+            viewModelScope.launch {
+                scanCaptureRepository.observeScannedTags(scopeKey, WEIGHING_SCAN_FIELD_KEY).collect { scans ->
+                    scannedRows.value = scans.map { unknownWeighingRow(scopeKey, it.tag, it.capturedAtMs) }
+                }
+            }
+            viewModelScope.launch {
                 reader.reads.collect { read -> matchTag(read.tag) }
             }
             viewModelScope.launch {
                 proofCaptureRepository.observeProofs(scopeKey).collect { proofs ->
+                    observedProofs.value = proofs
                     proofs.forEach { proof ->
                         val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
                         when (proof.fieldKey) {
                             INDIVIDUAL_PROOF_FIELD_KEY -> {
-                                val animalId = proof.subjectId?.takeIf { it.isNotBlank() } ?: return@forEach
+                                val animalId = proof.caption?.takeIf { it.isNotBlank() }
+                                    ?: proof.subjectId?.takeIf { it.isNotBlank() }
+                                    ?: return@forEach
                                 repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
                             }
                             SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(scopeKey, proof.id, serverProofId)
@@ -331,12 +395,28 @@ class WeighingViewModel @Inject constructor(
         reader.setCompletionKeySwallowEnabled(active)
     }
 
+    fun setWeightEntryActive(active: Boolean) {
+        val captureEnabled = !active && category != PER_SHED_PARTITION_CATEGORY
+        reader.setCompletionKeySwallowEnabled(captureEnabled)
+        reader.setCaptureEnabled(captureEnabled)
+    }
+
     fun onScanInputChange(value: String) {
         scanInput.value = value
     }
 
     fun onWeightInputChange(value: String) {
-        weightInput.value = value.filter { it.isDigit() || it == '.' }.take(8)
+        weightInput.value = sanitizeWeighingWeightInput(value)
+    }
+
+    fun onAnimalCountInputChange(value: String) {
+        animalCountInput.value = sanitizeWeighingAnimalCountInput(value)
+    }
+
+    fun onAnimalWeightInputChange(animalId: String, value: String) {
+        if (animalId.isBlank()) return
+        val filtered = sanitizeWeighingWeightInput(value)
+        animalWeightInputs.value = animalWeightInputs.value + (animalId to filtered)
     }
 
     fun selectAnimal(animalId: String) {
@@ -358,10 +438,80 @@ class WeighingViewModel @Inject constructor(
     fun recordIndividual() {
         val key = scopeKey ?: return
         val row = selectedRow.value ?: return
-        val weightKg = weightInput.value.toDoubleOrNull()?.takeIf { it > 0.0 } ?: return
-        if (actionInFlight.value) return
-        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY))
+        recordIndividualRow(key, row)
+    }
+
+    fun recordIndividual(animalId: String, rawWeight: String) {
+        val key = scopeKey ?: return
+        val sanitizedWeight = sanitizeWeighingWeightInput(rawWeight)
+        if (parsePositiveWeighingWeight(sanitizedWeight) == null) return
+        if (animalId in updatingWeightAnimalIds.value) return
+        val row = scannedRows.value.firstOrNull { it.animalId == animalId }
+            ?: scopeState.value?.rosterWindow?.firstOrNull { it.animalId == animalId }
+            ?: unknownWeighingRow(
+                key = key,
+                tag = animalId,
+                capturedAtMs = System.currentTimeMillis(),
+            )
+        animalWeightInputs.value = animalWeightInputs.value + (animalId to sanitizedWeight)
+        selectedRow.value = row
+        recordIndividualRow(key, row, useGlobalBusyGate = false)
+    }
+
+    fun submitIndividualScope(onSubmitted: () -> Unit) {
+        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val drafts = scopeState.value?.individualDrafts.orEmpty()
+        val capturedAnimalIds = (
+            scannedRows.value.map { it.animalId } + drafts.map { it.animalId }
+        ).distinct()
+        val everyCaptureComplete = capturedAnimalIds.isNotEmpty() &&
+            capturedAnimalIds.all { animalId ->
+                val draft = drafts.firstOrNull { it.animalId == animalId }
+                draft?.syncedToBackend == true &&
+                    (
+                        proofForAnimal(animalId)?.let {
+                        it.syncStatus == CaptureSyncStatus.SYNCED &&
+                            !it.serverProofId.isNullOrBlank()
+                        } == true ||
+                            !draft.serverProofId.isNullOrBlank()
+                    )
+            }
+        if (!everyCaptureComplete) {
+            message.value = "Wait for every weight and video to sync before submitting."
+            return
+        }
         actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (
+                    repository.submitIndividualScope(
+                        campaignId,
+                        campaignShedId,
+                        capturedAnimalIds,
+                    )
+                ) {
+                    is AppResult.Ok -> onSubmitted()
+                    is AppResult.Err -> message.value = "Couldn't submit this shed. Try again."
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    private fun recordIndividualRow(
+        key: String,
+        row: WeighingRosterRowEntity,
+        useGlobalBusyGate: Boolean = true,
+    ) {
+        val weightKg = parsePositiveWeighingWeight(animalWeightInputs.value[row.animalId])
+            ?: parsePositiveWeighingWeight(weightInput.value)
+            ?: return
+        if (useGlobalBusyGate && actionInFlight.value) return
+        if (row.animalId in updatingWeightAnimalIds.value) return
+        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY))
+        if (useGlobalBusyGate) actionInFlight.value = true
+        updatingWeightAnimalIds.value = updatingWeightAnimalIds.value + row.animalId
         viewModelScope.launch {
             try {
                 when (val recorded = repository.recordIndividual(
@@ -376,56 +526,62 @@ class WeighingViewModel @Inject constructor(
                     ),
                 )) {
                     is AppResult.Ok -> {
-                        val captured = proofCaptureSource.captureVideo()
-                        if (captured == null) {
-                            message.value = "Weight saved locally. Video proof is still required."
-                            reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, "missing_video")
-                            return@launch
+                        val proof = proofForAnimal(row.animalId)
+                        if (proof != null) {
+                            repository.attachIndividualProof(key, row.animalId, proof.id, proof.serverProofId)
+                        } else {
+                            val restoredProofCaptureId = recorded.value.proofCaptureId
+                            val restoredServerProofId = recorded.value.serverProofId
+                            if (!restoredProofCaptureId.isNullOrBlank() && !restoredServerProofId.isNullOrBlank()) {
+                            repository.attachIndividualProof(
+                                key,
+                                row.animalId,
+                                restoredProofCaptureId,
+                                restoredServerProofId,
+                            )
+                            }
                         }
-                        val proof = proofCaptureRepository.capture(
-                            taskId = key,
-                            fieldKey = INDIVIDUAL_PROOF_FIELD_KEY,
-                            subject = ProofSubject.GOAT,
-                            subjectId = row.animalId,
-                            localUri = captured.localUri,
-                            mimeType = captured.mimeType,
-                            caption = null,
-                            scopeType = "animal",
-                            scopeId = row.animalId,
-                            capturedStartMs = captured.startedAtMs,
-                            capturedEndMs = captured.endedAtMs,
-                            capturedByPrincipalId = null,
-                            proofPolicy = ProofPolicy.Default,
-                        )
-                        if (proof is AppResult.Ok) {
-                            repository.attachIndividualProof(key, row.animalId, proof.value.id, proof.value.serverProofId)
-                            message.value = "Weight and proof saved locally for ${row.displayAnimalId}."
+                            message.value = if (proof == null) {
+                                "Weight saved. Video is still required."
+                            } else {
+                                "Weight saved. Video continues syncing in the background."
+                            }
                             analytics.track(
                                 AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
                                 weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                             )
                             weightInput.value = ""
+                            animalWeightInputs.value = animalWeightInputs.value - row.animalId
                             scanInput.value = ""
-                        } else {
-                            message.value = "Weight saved locally. Proof could not be stored."
-                            reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, "proof_store_failed")
-                        }
                         recorded.value
                     }
                     is AppResult.Err -> {
+                        updatingWeightAnimalIds.value = updatingWeightAnimalIds.value - row.animalId
                         message.value = recorded.message
                         reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, recorded.message)
                     }
                 }
             } finally {
-                actionInFlight.value = false
+                updatingWeightAnimalIds.value = updatingWeightAnimalIds.value - row.animalId
+                if (useGlobalBusyGate) actionInFlight.value = false
             }
         }
     }
 
-    fun recordShedPartition() {
+    fun recordShedPartition(onSubmitted: () -> Unit = {}) {
         val key = scopeKey ?: return
-        val weightKg = weightInput.value.toDoubleOrNull()?.takeIf { it > 0.0 } ?: return
+        val weightKg = parsePositiveWeighingWeight(weightInput.value) ?: return
+        val animalCount = parsePositiveWeighingAnimalCount(animalCountInput.value) ?: return
+        val averageWeightKg = weightKg / animalCount
+        val syncedProof = observedProofs.value
+            .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
+            .filter { it.subjectId == expectedLocationId }
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
+            .minByOrNull { it.capturedAtMs }
+        if (syncedProof == null) {
+            message.value = "Capture and sync at least one group video before submitting."
+            return
+        }
         if (actionInFlight.value) return
         if (category != PER_SHED_PARTITION_CATEGORY) {
             message.value = "This weighing scope expects animal RFID scans."
@@ -440,7 +596,9 @@ class WeighingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val resultJson = buildJsonObject {
-                    put("weight", weightKg)
+                    put("total_weight_kg", weightKg)
+                    put("animal_count", animalCount)
+                    put("average_weight_kg", averageWeightKg)
                     put("category", PER_SHED_PARTITION_CATEGORY)
                     put("expected_location_id", expectedLocationId)
                     put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
@@ -457,45 +615,76 @@ class WeighingViewModel @Inject constructor(
                     ),
                 )) {
                     is AppResult.Ok -> {
-                        val captured = proofCaptureSource.captureVideo()
-                        if (captured == null) {
-                            message.value = "Shed weight saved locally. Video proof is still required."
-                            reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, "missing_video")
-                            return@launch
-                        }
-                        val proof = proofCaptureRepository.capture(
-                            taskId = key,
-                            fieldKey = SHED_PARTITION_PROOF_FIELD_KEY,
-                            subject = ProofSubject.SHED,
-                            subjectId = campaignShedId,
-                            localUri = captured.localUri,
-                            mimeType = captured.mimeType,
-                            caption = null,
-                            scopeType = "shed_partition",
-                            scopeId = campaignShedId,
-                            capturedStartMs = captured.startedAtMs,
-                            capturedEndMs = captured.endedAtMs,
-                            capturedByPrincipalId = null,
-                            proofPolicy = ProofPolicy.Default,
+                        repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId)
+                        message.value = "Lump-sum weighing submitted."
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
+                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY),
                         )
-                        if (proof is AppResult.Ok) {
-                            repository.attachShedPartitionProof(key, proof.value.id, proof.value.serverProofId)
-                            message.value = "Shed weight and proof saved locally."
-                            analytics.track(
-                                AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
-                                weighingCaptureProps(PER_SHED_PARTITION_CATEGORY),
-                            )
-                            weightInput.value = ""
-                        } else {
-                            message.value = "Shed weight saved locally. Proof could not be stored."
-                            reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, "proof_store_failed")
-                        }
+                        onSubmitted()
                         recorded.value
                     }
                     is AppResult.Err -> {
                         message.value = recorded.message
                         reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, recorded.message)
                     }
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    fun captureShedVideo() {
+        val key = scopeKey ?: return
+        if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val existing = observedProofs.value.count { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
+        if (existing >= MAX_SHED_GROUP_VIDEOS) {
+            message.value = "Maximum 5 group videos reached."
+            return
+        }
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                val captured = proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = "Lump-sum weighing proof",
+                        primaryTag = expectedLocationLabel.ifBlank { routeTitle },
+                        secondaryTag = null,
+                        workLabel = "Group video ${existing + 1} of 5",
+                    ),
+                ) ?: return@launch
+                val principalId = currentPrincipalId
+                    ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.also { currentPrincipalId = it }
+                    ?: return@launch
+                when (
+                    val proof = proofCaptureRepository.capture(
+                        taskId = key,
+                        fieldKey = SHED_PARTITION_PROOF_FIELD_KEY,
+                        subject = ProofSubject.SHED,
+                        subjectId = expectedLocationId,
+                        localUri = captured.localUri,
+                        mimeType = captured.mimeType,
+                        caption = "Lump-sum group video ${existing + 1}",
+                        scopeType = "shed",
+                        scopeId = expectedLocationId,
+                        capturedStartMs = captured.startedAtMs,
+                        capturedEndMs = captured.endedAtMs,
+                        capturedByPrincipalId = principalId,
+                        proofPolicy = ProofPolicy.Default.copy(
+                            proofMode = "shed_level_video",
+                            subjectScope = "shed",
+                            expectedSubjects = listOf("shed"),
+                            minimumCount = 1,
+                            maximumCount = MAX_SHED_GROUP_VIDEOS,
+                            maximumCountPerSubject = MAX_SHED_GROUP_VIDEOS,
+                        ),
+                    )
+                ) {
+                    is AppResult.Ok -> message.value = "Group video saved locally."
+                    is AppResult.Err -> message.value = proof.message
                 }
             } finally {
                 actionInFlight.value = false
@@ -555,21 +744,129 @@ class WeighingViewModel @Inject constructor(
 
     private fun matchTag(tag: String) {
         val key = scopeKey ?: return
+        val normalizedTag = normalizeFreeFlowTag(tag)
+        if (normalizedTag.isBlank() || actionInFlight.value) return
         viewModelScope.launch {
-            val match = repository.matchTag(key, tag)
-            val row = match.row ?: unknownWeighingRow(key, tag)
+            val existingRow = scannedRows.value.firstOrNull {
+                normalizeFreeFlowTag(it.animalId) == normalizedTag ||
+                    normalizeFreeFlowTag(it.displayAnimalId) == normalizedTag
+            }
+            if (existingRow != null && proofReplacementAnimalId.value == existingRow.animalId) {
+                proofReplacementAnimalId.value = null
+                message.value = null
+                captureVideoForRow(key, existingRow)
+                return@launch
+            }
+            if (existingRow != null && proofForAnimal(existingRow.animalId) == null) {
+                message.value = null
+                captureVideoForRow(key, existingRow)
+                return@launch
+            }
+            val alreadyRecorded = scopeState.value?.individualDrafts.orEmpty().any { draft ->
+                normalizeFreeFlowTag(draft.scannedIdentifier.ifBlank { draft.animalId }) == normalizedTag
+            }
+            if (alreadyRecorded || existingRow != null) {
+                scanInput.value = normalizedTag
+                message.value = "Already scanned · $normalizedTag"
+                return@launch
+            }
+            val inserted = scanCaptureRepository.recordLocalScanIfAbsent(
+                taskId = key,
+                fieldKey = WEIGHING_SCAN_FIELD_KEY,
+                tag = normalizedTag,
+            )
+            scanInput.value = normalizedTag
+            if (!inserted) {
+                message.value = "Already scanned · $normalizedTag"
+                return@launch
+            }
+            val row = unknownWeighingRow(key, normalizedTag)
             selectedRow.value = row
-            scanInput.value = tag
-            message.value = when {
-                match.row == null -> "New RFID captured for this shed. Enter weight, then capture video."
-                match.outcome == "wrong_shed" ->
-                    "Wrong shed scan: expected ${match.expectedLocationLabel}, currently ${match.actualLocationLabel}."
-                else -> "Matched ${row.displayAnimalId}."
+            message.value = "RFID captured. Record video, then enter weight."
+            captureVideoForRow(key, row)
+        }
+    }
+
+    fun retryVideo(animalId: String) {
+        val key = scopeKey ?: return
+        val proof = proofForAnimal(animalId)
+        if (proof?.syncStatus != CaptureSyncStatus.FAILED) return
+        viewModelScope.launch {
+            when (val result = proofCaptureRepository.retryUpload(key, proof.id)) {
+                is AppResult.Ok -> message.value = "Video retry queued."
+                is AppResult.Err -> message.value = result.message
             }
         }
     }
 
-    private fun unknownWeighingRow(key: String, tag: String): WeighingRosterRowEntity {
+    fun reuploadVideo(animalId: String) {
+        val row = scannedRows.value.firstOrNull { it.animalId == animalId } ?: return
+        proofReplacementAnimalId.value = animalId
+        message.value = "Re-upload armed · tap RFID ${row.displayAnimalId} again"
+    }
+
+    private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
+        if (actionInFlight.value) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val proof = captureProofForRow(key, row)) {
+                    is AppResult.Ok -> {
+                        autoProofs.value = autoProofs.value + (row.animalId to proof.value)
+                        message.value = "Video saved for ${row.displayAnimalId}. Enter weight."
+                    }
+                    is AppResult.Err -> {
+                        message.value = "RFID captured. Video proof is still required."
+                        reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, proof.message)
+                    }
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
+        val captured = proofCaptureSource.captureVideo(
+            ProofCaptureContext(
+                title = "Weighing proof",
+                primaryTag = row.displayAnimalId,
+                secondaryTag = null,
+                workLabel = "Weight needed",
+            ),
+        )
+        if (captured == null) {
+            return AppResult.Err("missing_video")
+        }
+        val principalId = currentPrincipalId
+            ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { currentPrincipalId = it }
+            ?: return AppResult.Err("missing_operator")
+        return proofCaptureRepository.capture(
+            taskId = key,
+            fieldKey = INDIVIDUAL_PROOF_FIELD_KEY,
+            subject = ProofSubject.OTHER,
+            subjectId = null,
+            localUri = captured.localUri,
+            mimeType = captured.mimeType,
+            caption = row.animalId,
+            scopeType = "shed",
+            scopeId = row.expectedLocationId,
+            capturedStartMs = captured.startedAtMs,
+            capturedEndMs = captured.endedAtMs,
+            capturedByPrincipalId = principalId,
+            proofPolicy = ProofPolicy.Default.copy(
+                proofMode = "free_flow_video",
+                subjectScope = "other",
+                expectedSubjects = listOf("other"),
+                maximumCount = ROSTER_SYNC_MAX_ROWS,
+                maximumCountPerSubject = ROSTER_SYNC_MAX_ROWS,
+            ),
+        )
+    }
+
+    private fun unknownWeighingRow(key: String, tag: String, capturedAtMs: Long = System.currentTimeMillis()): WeighingRosterRowEntity {
         val normalizedTag = tag.trim()
         val label = normalizedTag.ifBlank { "Unidentified animal" }
         return WeighingRosterRowEntity(
@@ -592,13 +889,16 @@ class WeighingViewModel @Inject constructor(
             status = "pending",
             availabilityStatus = null,
             seq = Long.MAX_VALUE,
-            updatedAt = System.currentTimeMillis(),
+            updatedAt = capturedAtMs,
         )
     }
 
     private fun WeighingScopeState?.toUiState(
         scan: String,
         weight: String,
+        animalCount: String,
+        animalWeights: Map<String, String>,
+        updatingAnimalIds: Set<String>,
         selected: WeighingRosterRowEntity?,
         currentMessage: String?,
         busy: Boolean,
@@ -607,6 +907,9 @@ class WeighingViewModel @Inject constructor(
         isPlanner: Boolean,
         catalog: WeighingPlannerCatalog?,
         selections: Map<String, String>,
+        localScans: List<WeighingRosterRowEntity>,
+        proofs: List<ProofCaptureRow>,
+        readerConnection: ScanReaderConnection?,
     ): WeighingUiState {
         if (this == null && scopeKey != null) {
             return WeighingUiState(
@@ -617,17 +920,22 @@ class WeighingViewModel @Inject constructor(
                 hasScope = true,
                 scanInput = scan,
                 weightInput = weight,
+                animalCountInput = animalCount,
                 selectedAnimalId = selected?.animalId,
                 selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
                 message = currentMessage,
                 actionInFlight = busy,
                 loading = true,
                 category = category,
+                visibleRows = localScans.toUiRows(proofs = proofs),
+                shedProofs = proofs.toShedProofUiRows(),
+                readerConnection = readerConnection,
             )
         }
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
             weightInput = weight,
+            animalCountInput = animalCount,
             message = currentMessage,
             assignments = availableAssignments.map { it.toUiRow() },
             loading = loading,
@@ -636,6 +944,8 @@ class WeighingViewModel @Inject constructor(
             plannerWeekLabel = plannerWeek.label,
             plannerPeriodLabel = plannerWeek.periodLabel,
             plannerDayTabs = plannerWeek.dayTabs,
+            readerConnection = readerConnection,
+            shedProofs = proofs.toShedProofUiRows(),
             plannerParks = catalog?.parks.orEmpty().map { park ->
                 WeighingPlannerParkUiRow(
                     parkId = park.parkId,
@@ -663,6 +973,15 @@ class WeighingViewModel @Inject constructor(
                 )
             },
         )
+        val effectiveScans = (
+            localScans + scope.individualDrafts.map { draft ->
+                unknownWeighingRow(
+                    key = scopeKey.orEmpty(),
+                    tag = draft.scannedIdentifier.ifBlank { draft.animalId },
+                    capturedAtMs = draft.capturedAtMs,
+                )
+            }
+        ).distinctBy { it.animalId }
         return WeighingUiState(
             title = routeTitle.ifBlank { "Weighing" },
             scopeLabel = expectedLocationLabel
@@ -674,37 +993,31 @@ class WeighingViewModel @Inject constructor(
             selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
             scanInput = scan,
             weightInput = weight,
+            animalCountInput = animalCount,
             message = currentMessage,
             actionInFlight = busy,
             category = category,
-            visibleRows = scope.rosterWindow.map { row ->
-                WeighingRosterUiRow(
-                    id = row.id,
-                    animalId = row.animalId,
-                    displayAnimalId = row.displayAnimalId,
-                    expectedLocationLabel = row.expectedLocationLabel,
-                    actualLocationLabel = row.actualLocationLabel,
-                    status = row.status.readableWeighingStatus(),
-                    availabilityStatus = row.availabilityStatus?.readableWeighingStatus(),
-                    wrongShed = row.availabilityStatus.equals("moved_other_shed", ignoreCase = true) ||
-                        (
-                            row.availabilityStatus.isNullOrBlank() &&
-                                !row.actualLocationId.isNullOrBlank() &&
-                                row.actualLocationId != row.expectedLocationId
-                            ),
-                )
-            },
+            readerConnection = readerConnection,
+            shedProofs = proofs.toShedProofUiRows(),
+            visibleRows = effectiveScans.toUiRows(
+                animalWeights = animalWeights,
+                updatingAnimalIds = updatingAnimalIds,
+                busy = busy,
+                drafts = scope.individualDrafts,
+                proofs = proofs,
+            ),
             individualDrafts = scope.individualDrafts.map { draft ->
                 val animalLabel = scope.rosterWindow
                     .firstOrNull { it.animalId == draft.animalId }
                     ?.displayAnimalId
-                    ?: "Matched animal"
+                    ?: draft.animalId
                 WeighingDraftUiRow(
                     id = draft.observationId,
                     animalId = draft.animalId,
                     label = "$animalLabel - ${draft.weightKg} kg",
                     proofReady = draft.proofReady,
                     readyToSubmit = draft.readyToSubmit,
+                    syncedToBackend = draft.syncedToBackend,
                 )
             },
             shedDrafts = scope.shedDrafts.map { draft ->
@@ -718,16 +1031,138 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
+    private fun List<WeighingRosterRowEntity>.toUiRows(
+        animalWeights: Map<String, String> = emptyMap(),
+        updatingAnimalIds: Set<String> = emptySet(),
+        busy: Boolean = false,
+        drafts: List<sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft> = emptyList(),
+        proofs: List<ProofCaptureRow> = emptyList(),
+    ): List<WeighingRosterUiRow> =
+        map { row ->
+            val draft = drafts.firstOrNull { it.animalId == row.animalId }
+            val savedWeight = draft?.weightKg?.toString()
+            val weight = animalWeights[row.animalId] ?: savedWeight.orEmpty()
+            val proof = proofs
+                .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
+                .filter { it.caption == row.animalId || it.id == draft?.proofCaptureId }
+                .maxByOrNull { it.capturedAtMs }
+                ?: autoProofs.value[row.animalId]
+            val proofStatus = when {
+                proof == null && !draft?.proofCaptureId.isNullOrBlank() && draft?.syncedToBackend == true ->
+                    sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
+                else -> when (proof?.syncStatus) {
+                CaptureSyncStatus.SYNCED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
+                CaptureSyncStatus.FAILED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED
+                CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT -> sg.mesha.goatos.feature.scan.ProofUploadStatus.UPLOADING
+                null -> sg.mesha.goatos.feature.scan.ProofUploadStatus.MISSING
+                }
+            }
+            val weightSaved = draft != null
+            WeighingRosterUiRow(
+                id = row.id,
+                animalId = row.animalId,
+                displayAnimalId = row.displayAnimalId,
+                expectedLocationLabel = row.expectedLocationLabel,
+                actualLocationLabel = null,
+                status = if (draft?.syncedToBackend == true) "Completed" else "Scanned",
+                availabilityStatus = null,
+                wrongShed = false,
+                scannedAtLabel = scanTimeLabel(row.updatedAt),
+                weightInput = weight,
+                savedWeightLabel = savedWeight,
+                canSaveWeight = row.animalId !in updatingAnimalIds &&
+                    weight.toDoubleOrNull()?.let { it > 0.0 } == true,
+                weightSaved = weightSaved,
+                proofCaptureId = proof?.id ?: draft?.proofCaptureId,
+                proofUploadStatus = proofStatus,
+                proofStatusLabel = proof?.proofStatusLabel()
+                    ?: if (draft?.syncedToBackend == true) "Video synced ${timeOnlyLabel(draft.capturedAtMs)}" else null,
+                backendSynced = draft?.syncedToBackend == true,
+                weightUpdating = row.animalId in updatingAnimalIds,
+            )
+        }
+
+    private fun scanTimeLabel(epochMs: Long): String =
+        runCatching {
+            "Scanned " + WEIGHING_SCAN_TIME_FORMATTER.format(Instant.ofEpochMilli(epochMs))
+        }.getOrDefault("just now")
+
+    private fun List<ProofCaptureRow>.toShedProofUiRows(): List<WeighingProofUiRow> =
+        filter {
+            it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY &&
+                it.subjectId == expectedLocationId
+        }
+            .sortedBy { it.capturedAtMs }
+            .mapIndexed { index, proof ->
+                WeighingProofUiRow(
+                    id = proof.id,
+                    label = when (proof.syncStatus) {
+                        CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT -> "uploading"
+                        CaptureSyncStatus.SYNCED -> "synced"
+                        CaptureSyncStatus.FAILED -> "upload failed · retry"
+                    },
+                    status = when (proof.syncStatus) {
+                        CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT ->
+                            sg.mesha.goatos.feature.scan.ProofUploadStatus.UPLOADING
+                        CaptureSyncStatus.SYNCED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
+                        CaptureSyncStatus.FAILED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED
+                    },
+                )
+            }
+
+    private fun ProofCaptureRow.proofStatusLabel(): String = when (syncStatus) {
+        CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT ->
+            "Video uploading ${timeOnlyLabel(capturedAtMs)}"
+        CaptureSyncStatus.SYNCED -> "Video synced ${timeOnlyLabel(capturedAtMs)}"
+        CaptureSyncStatus.FAILED -> "Upload failed ${timeOnlyLabel(capturedAtMs)}"
+    }
+
+    private fun timeOnlyLabel(epochMs: Long): String =
+        WEIGHING_TIME_ONLY_FORMATTER.format(Instant.ofEpochMilli(epochMs))
+
+    private fun proofForAnimal(animalId: String): ProofCaptureRow? {
+        val draftProofId = scopeState.value?.individualDrafts
+            ?.firstOrNull { it.animalId == animalId }
+            ?.proofCaptureId
+        return observedProofs.value
+            .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
+            .filter { it.caption == animalId || it.id == draftProofId }
+            .maxByOrNull { it.capturedAtMs }
+            ?: autoProofs.value[animalId]
+    }
+
+    private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
+        ScanReaderConnection(
+            readerName = readerName ?: "RFID reader",
+            statusLabel = when (this) {
+                RfidReaderStatus.READY -> "Reader connected"
+                RfidReaderStatus.PAIRED_NOT_READY -> "Reader disconnected"
+                RfidReaderStatus.NOT_PAIRED -> "Reader not paired"
+                RfidReaderStatus.PERMISSION_NEEDED -> "Bluetooth permission needed"
+                RfidReaderStatus.BLUETOOTH_OFF -> "Bluetooth off"
+            },
+            connected = this == RfidReaderStatus.READY,
+            actionLabel = "Reconnect",
+        )
+
     private companion object {
         const val ROSTER_WINDOW_SIZE = 40
         const val ROSTER_SYNC_MAX_ROWS = 10_000
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
+        const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"
         const val SHED_PARTITION_PROOF_FIELD_KEY = "weighing_shed_partition_video"
         const val INDIVIDUAL_ANIMAL_CATEGORY = "individual_animal"
         const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
         const val MAX_ANALYTICS_REASON_CHARS = 96
+        const val MAX_SHED_GROUP_VIDEOS = 5
         const val DEFAULT_PLANNED_CAP_PER_DAY = 100
+        val WEIGHING_SCAN_TIME_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("d MMM, h:mm a 'IST'", Locale.ENGLISH)
+                .withZone(ZoneId.of("Asia/Kolkata"))
+        val WEIGHING_TIME_ONLY_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("h:mm a 'IST'", Locale.ENGLISH)
+                .withZone(ZoneId.of("Asia/Kolkata"))
     }
 }
 
@@ -795,9 +1230,19 @@ private fun String.toWeighingReadMessage(): String {
 private data class WeighingFormState(
     val scan: String = "",
     val weight: String = "",
+    val animalCount: String = "",
+    val animalWeights: Map<String, String> = emptyMap(),
+    val updatingAnimalIds: Set<String> = emptySet(),
     val selected: WeighingRosterRowEntity? = null,
     val message: String? = null,
     val busy: Boolean = false,
+)
+
+private data class WeighingWeightState(
+    val weight: String = "",
+    val animalCount: String = "",
+    val animalWeights: Map<String, String> = emptyMap(),
+    val updatingAnimalIds: Set<String> = emptySet(),
 )
 
 private data class WeighingRootState(
@@ -807,6 +1252,29 @@ private data class WeighingRootState(
     val catalog: WeighingPlannerCatalog? = null,
     val selections: Map<String, String> = emptyMap(),
 )
+
+private data class WeighingCaptureState(
+    val scans: List<WeighingRosterRowEntity> = emptyList(),
+    val proofs: List<ProofCaptureRow> = emptyList(),
+    val readerConnection: ScanReaderConnection? = null,
+)
+
+internal fun sanitizeWeighingWeightInput(value: String): String =
+    value.take(8).takeIf { candidate ->
+        candidate.all { it.isDigit() || it == '.' } && candidate.count { it == '.' } <= 1
+    }.orEmpty()
+
+internal fun sanitizeWeighingAnimalCountInput(value: String): String =
+    value.take(6).takeIf { candidate -> candidate.all(Char::isDigit) }.orEmpty()
+
+internal fun parsePositiveWeighingWeight(value: String?): Double? =
+    value?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 }
+
+internal fun parsePositiveWeighingAnimalCount(value: String?): Int? =
+    value?.toIntOrNull()?.takeIf { it > 0 }
+
+private fun normalizeFreeFlowTag(tag: String): String =
+    tag.filter { it.isLetterOrDigit() }.lowercase()
 
 private data class WeighingWeek(
     val startDate: String,

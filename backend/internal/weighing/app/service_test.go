@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -53,6 +54,12 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err == nil {
 		t.Fatal("director read execution roster; want forbidden")
 	}
+	if _, err := service.GetLeadershipShedVideos(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
+		t.Fatalf("director leadership videos read errored: %v", err)
+	}
+	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err == nil {
+		t.Fatal("operator read leadership videos; want forbidden")
+	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
 		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
@@ -85,7 +92,7 @@ func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	service := NewService(repo)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", WeightKg: 450, ProofArtifactID: "00000000-0000-4000-8000-000000000701", IdempotencyKey: "shed-1",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", WeightKg: 450, AnimalCount: 30, ProofArtifactID: "00000000-0000-4000-8000-000000000701", IdempotencyKey: "shed-1",
 	}); err != nil {
 		t.Fatalf("shed observation errored: %v", err)
 	}
@@ -94,6 +101,131 @@ func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	}
 	if repo.shedWrites != 1 {
 		t.Fatalf("shed writes = %d, want 1", repo.shedWrites)
+	}
+}
+
+func TestLumpSumObservationAcceptsTotalWeightAndOneToFiveVideos(t *testing.T) {
+	repo := &shedCaptureRepo{}
+	service := NewService(repo)
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+	proofIDs := []string{
+		proofOne,
+		proofTwo,
+		proofThree,
+		proofShed,
+		"00000000-0000-4000-8000-000000000705",
+	}
+
+	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:   perShedScope,
+		WeightKg:         132.5,
+		AnimalCount:      10,
+		ProofArtifactIDs: proofIDs,
+		IdempotencyKey:   "shed:five-videos",
+	}); err != nil {
+		t.Fatalf("record five-video lump sum: %v", err)
+	}
+	if repo.received.AverageWeightKg != 13.25 || repo.received.WeightKg != 132.5 {
+		t.Fatalf("normalized weight=(%v,%v), want average 13.25 and total 132.5", repo.received.AverageWeightKg, repo.received.WeightKg)
+	}
+	if len(repo.received.ProofArtifactIDs) != 5 || repo.received.ProofArtifactID != proofOne {
+		t.Fatalf("normalized proofs=%v primary=%q", repo.received.ProofArtifactIDs, repo.received.ProofArtifactID)
+	}
+
+	tooMany := append(append([]string(nil), proofIDs...), "00000000-0000-4000-8000-000000000706")
+	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:   perShedScope,
+		WeightKg:         132.5,
+		AnimalCount:      10,
+		ProofArtifactIDs: tooMany,
+		IdempotencyKey:   "shed:six-videos",
+	}); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("six-video error=%v, want invalid argument", err)
+	}
+}
+
+func TestRecordAnimalObservationRejectsInvalidWeight(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+	for name, weight := range map[string]float64{
+		"missing":           0,
+		"negative":          -1,
+		"not a number":      math.NaN(),
+		"positive infinity": math.Inf(1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			_, err := NewService(repo).RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+				CampaignID:        "00000000-0000-4000-8000-000000000501",
+				CampaignShedID:    perShedScope,
+				ScannedIdentifier: "RFID-1",
+				WeightKg:          weight,
+				ProofArtifactID:   proofOne,
+				IdempotencyKey:    "animal:invalid-weight",
+			})
+			if !errors.Is(err, ports.ErrInvalidArgument) {
+				t.Fatalf("weight %v error=%v, want invalid argument", weight, err)
+			}
+			if repo.animalWrites != 0 {
+				t.Fatalf("repository writes=%d, want 0", repo.animalWrites)
+			}
+		})
+	}
+}
+
+func TestLumpSumObservationRejectsInvalidCountAndWeight(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+	tests := []struct {
+		name   string
+		weight float64
+		count  int
+	}{
+		{name: "missing count", weight: 100, count: 0},
+		{name: "negative count", weight: 100, count: -2},
+		{name: "missing total weight", weight: 0, count: 4},
+		{name: "negative total weight", weight: -100, count: 4},
+		{name: "not a number total weight", weight: math.NaN(), count: 4},
+		{name: "infinite total weight", weight: math.Inf(1), count: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &shedCaptureRepo{}
+			_, err := NewService(repo).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+				CampaignID:      "00000000-0000-4000-8000-000000000501",
+				CampaignShedID:  perShedScope,
+				WeightKg:        tt.weight,
+				AnimalCount:     tt.count,
+				ProofArtifactID: proofShed,
+				IdempotencyKey:  "shed:invalid-numeric",
+			})
+			if !errors.Is(err, ports.ErrInvalidArgument) {
+				t.Fatalf("weight=%v count=%d error=%v, want invalid argument", tt.weight, tt.count, err)
+			}
+			if repo.shedWrites != 0 {
+				t.Fatalf("repository writes=%d, want 0", repo.shedWrites)
+			}
+		})
+	}
+}
+
+func TestLumpSumObservationAcceptsSingleProofWithRequiredAnimalCount(t *testing.T) {
+	repo := &shedCaptureRepo{}
+	service := NewService(repo)
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+		CampaignID:      "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:  perShedScope,
+		WeightKg:        12.75,
+		AnimalCount:     1,
+		ProofArtifactID: proofShed,
+		IdempotencyKey:  "shed:legacy-client",
+	}); err != nil {
+		t.Fatalf("record legacy lump sum: %v", err)
+	}
+	if repo.received.AverageWeightKg != 12.75 || len(repo.received.ProofArtifactIDs) != 1 || repo.received.ProofArtifactIDs[0] != proofShed {
+		t.Fatalf("legacy request normalized to %+v", repo.received)
 	}
 }
 
@@ -213,7 +345,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	shedObs, err := service.RecordShedObservation(ctx, operator, domain.RecordShedObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[perShedScope].CampaignShedID, WeightKg: 452.5, ProofArtifactID: proofShed, IdempotencyKey: "weighing-seed:shed-c",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[perShedScope].CampaignShedID, WeightKg: 452.5, AnimalCount: 32, ProofArtifactID: proofShed, IdempotencyKey: "weighing-seed:shed-c",
 	})
 	if err != nil {
 		t.Fatalf("record per-shed observation: %v", err)
@@ -222,7 +354,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 		t.Fatalf("per-shed observation touched animal truth: obs=%+v latestWrites=%d", shedObs, repo.latestAnimalWeightWrites)
 	}
 	if _, err := service.RecordShedObservation(ctx, operator, domain.RecordShedObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, WeightKg: 220, ProofArtifactID: proofShed, IdempotencyKey: "weighing-seed:bad-shed-category",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, WeightKg: 220, AnimalCount: 10, ProofArtifactID: proofShed, IdempotencyKey: "weighing-seed:bad-shed-category",
 	}); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("individual shed accepted per-shed observation err = %v, want not found", err)
 	}
@@ -246,6 +378,21 @@ type fakeRepo struct {
 	shedWrites   int
 }
 
+type shedCaptureRepo struct {
+	fakeRepo
+	received domain.RecordShedObservation
+}
+
+func (r *shedCaptureRepo) RecordShedObservation(_ context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
+	r.received = cmd
+	return domain.Observation{
+		WeightKg:         cmd.WeightKg,
+		AverageWeightKg:  cmd.AverageWeightKg,
+		ProofArtifactID:  cmd.ProofArtifactID,
+		ProofArtifactIDs: append([]string(nil), cmd.ProofArtifactIDs...),
+	}, nil
+}
+
 func (f fakeRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain.Campaign, error) {
 	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
 }
@@ -263,6 +410,9 @@ func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.Planne
 }
 func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+}
+func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+	return domain.LeadershipShedVideos{}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
 	f.animalWrites++
@@ -414,6 +564,10 @@ func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, 
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
 	return domain.RosterPage{Items: out}, nil
+}
+
+func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+	return domain.LeadershipShedVideos{}, nil
 }
 
 func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {

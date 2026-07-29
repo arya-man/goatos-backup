@@ -64,6 +64,15 @@ interface ScanCaptureRepository {
         capturedAtMs: Long? = null,
     )
 
+    /** Persists a free-flow scan locally without creating a vaccination scan outbox item.
+     * Returns false when the same normalized tag already exists for this task/field. */
+    suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long? = null,
+    ): Boolean
+
     /** Re-enqueues already-durable Room scan rows as backend draft captures. This is idempotent
      *  and exists for app/process re-entry after a prior build or crash left local evidence without
      *  a matching outbox row. */
@@ -127,6 +136,31 @@ class DefaultScanCaptureRepository(
             obligationId = obligationId,
             capturedAtMs = durableCapturedAtMs,
         )
+    }
+
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+    ): Boolean {
+        val normalized = tag.filter { it.isLetterOrDigit() }.lowercase()
+        if (normalized.isBlank()) return false
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
+        return withContext(dispatchers.io) {
+            dao.insert(
+                ScannedGoatEntity(
+                    id = idGenerator(),
+                    taskId = taskId,
+                    fieldKey = fieldKey,
+                    tag = normalized,
+                    goatId = null,
+                    obligationId = null,
+                    capturedAtMs = durableCapturedAtMs,
+                    syncStatus = EntitySyncStatus.PENDING.name,
+                ),
+            ) > 0L
+        }
     }
 
     override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {

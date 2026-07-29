@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
@@ -26,10 +25,6 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,18 +65,8 @@ data class VerificationQueueRow(
     val categoryLabel: String,
     val title: String,
     val subtitle: String,
-    val scopeType: VerifyScopeType = VerifyScopeType.OTHER,
-    val shedLabel: String = "",
-    val animalLabel: String = "",
-    val weightLabel: String = "",
-    val mediaCountLabel: String = "",
-    val parkLabel: String = "",
-    val operatorLabel: String = "",
-    val capturedAtLabel: String = "",
     val statusTone: VerifyTone,
 )
-
-enum class VerifyScopeType { INDIVIDUAL, LUMP_SUM, OTHER }
 
 data class VerifyDriveClosure(
     val batchId: String,
@@ -110,7 +95,7 @@ data class VerifyCategoryOption(val value: String?, val label: String?)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
-enum class VerifyModuleTab { BIRTH, DEATH, VACCINATION, WEIGHING, SHIFTING, PACKING, FEED_DIRECTION, TRANSPORT }
+enum class VerifyModuleTab { VACCINATION, WEIGHING }
 
 @Immutable
 data class VerifyQueueUiState(
@@ -158,7 +143,6 @@ fun VerifyQueueScreen(
 ) {
     RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
     val listState = rememberLazyListState()
-    var selectedWeighingScope by remember { mutableStateOf<VerifyScopeType?>(null) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
         if (
             !state.hasMore ||
@@ -180,15 +164,10 @@ fun VerifyQueueScreen(
             .background(MeshaColors.PageBg),
     ) {
         QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        ModuleTabs(
-            selected = state.selectedModule,
-            onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
-        )
-        if (state.selectedModule == VerifyModuleTab.WEIGHING) {
-            WeighingScopeTabs(
-                rows = state.rows,
-                selected = selectedWeighingScope,
-                onSelect = { selectedWeighingScope = it },
+        if (!state.isActionQueue) {
+            ModuleTabs(
+                selected = state.selectedModule,
+                onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
             )
         }
         if (state.categoryOptions.size > 1) {
@@ -241,19 +220,8 @@ fun VerifyQueueScreen(
                     )
                 }
             } else {
-                val visibleRows = if (state.selectedModule == VerifyModuleTab.WEIGHING && selectedWeighingScope != null) {
-                    state.rows.filter { it.scopeType == selectedWeighingScope }
-                } else {
-                    state.rows
-                }
-                val shedGroups = visibleRows.groupBy { it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } } }
-                shedGroups.forEach { (shedLabel, rows) ->
-                    item(key = "shed-$shedLabel") {
-                        ShedGroupHeader(shedLabel = shedLabel, rows = rows)
-                    }
-                    items(rows, key = { it.id }) { row ->
-                        QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
-                    }
+                items(state.rows, key = { it.id }) { row ->
+                    QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
                 }
                 if (state.isLoadingMore) {
                     item {
@@ -363,14 +331,8 @@ private fun ModuleTabs(
     onSelect: (VerifyModuleTab) -> Unit,
 ) {
     val tabs = listOf(
-        VerifyModuleTab.BIRTH to stringResource(R.string.verify_module_birth),
-        VerifyModuleTab.DEATH to stringResource(R.string.verify_module_death),
         VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
         VerifyModuleTab.WEIGHING to stringResource(R.string.verify_module_weighing),
-        VerifyModuleTab.SHIFTING to stringResource(R.string.verify_module_shifting),
-        VerifyModuleTab.PACKING to stringResource(R.string.verify_module_packing),
-        VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
-        VerifyModuleTab.TRANSPORT to stringResource(R.string.verify_module_transport),
     )
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -385,10 +347,6 @@ private fun ModuleTabs(
 
 @Composable
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
-    // Uses the shared MeshaScreenHeader so this L0 root gets the module-drawer HAMBURGER (and a
-    // drill would get Up) automatically from the shell's LocalDrawerOpener — exactly like every
-    // other screen. The old hand-rolled Row skipped it, leaving the verifier with no way back to
-    // another module (or, on a drill, no Up).
     MeshaScreenHeader(
         title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
         below = {
@@ -408,71 +366,6 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
             )
         },
     )
-}
-
-@Composable
-private fun WeighingScopeTabs(
-    rows: List<VerificationQueueRow>,
-    selected: VerifyScopeType?,
-    onSelect: (VerifyScopeType?) -> Unit,
-) {
-    val individualCount = rows.count { it.scopeType == VerifyScopeType.INDIVIDUAL }
-    val lumpSumCount = rows.count { it.scopeType == VerifyScopeType.LUMP_SUM }
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 8.dp),
-    ) {
-        item {
-            CategoryChip(
-                label = stringResource(R.string.verify_scope_all),
-                selected = selected == null,
-                onClick = { onSelect(null) },
-            )
-        }
-        item {
-            CategoryChip(
-                label = stringResource(R.string.verify_scope_individual, individualCount),
-                selected = selected == VerifyScopeType.INDIVIDUAL,
-                onClick = { onSelect(VerifyScopeType.INDIVIDUAL) },
-            )
-        }
-        item {
-            CategoryChip(
-                label = stringResource(R.string.verify_scope_lumpsum, lumpSumCount),
-                selected = selected == VerifyScopeType.LUMP_SUM,
-                onClick = { onSelect(VerifyScopeType.LUMP_SUM) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>) {
-    val videoCount = rows.sumOf { row ->
-        row.mediaCountLabel.substringBefore(' ').toIntOrNull() ?: 0
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = shedLabel,
-                color = MeshaColors.Ink,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W800,
-            )
-            Text(
-                text = stringResource(R.string.verify_shed_group_summary, rows.size, videoCount),
-                color = MeshaColors.Faint,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W700,
-                modifier = Modifier.padding(top = 1.dp),
-            )
-        }
-        Box(Modifier.height(1.dp).weight(1f).background(MeshaColors.Hair))
-    }
 }
 
 @Composable
@@ -568,57 +461,28 @@ private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = row.animalLabel
-                        .ifBlank { row.title }
-                        .ifBlank { row.shedLabel },
+                    text = row.title,
                     color = MeshaColors.Ink,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.W800,
+                    fontWeight = FontWeight.W700,
                 )
                 Text(
-                    text = listOf(row.weightLabel, row.mediaCountLabel, row.operatorLabel)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · ")
-                        .ifBlank { row.subtitle },
+                    text = row.subtitle,
                     color = MeshaColors.Muted,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.W700,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
             StatusPill(tone = row.statusTone)
         }
-        Row(
+        Text(
+            text = row.categoryLabel,
+            color = MeshaColors.Faint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.W700,
             modifier = Modifier.padding(top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            EvidenceChip(row.scopeType.label())
-            row.parkLabel.takeIf { it.isNotBlank() }?.let { EvidenceChip(it) }
-            row.capturedAtLabel.takeIf { it.isNotBlank() }?.let { EvidenceChip(it) }
-        }
+        )
     }
-}
-
-@Composable
-private fun EvidenceChip(label: String) {
-    Text(
-        text = label,
-        color = MeshaColors.Muted,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(999.dp))
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-    )
-}
-
-private fun VerifyScopeType.label(): String = when (this) {
-    VerifyScopeType.INDIVIDUAL -> "Individual"
-    VerifyScopeType.LUMP_SUM -> "Lump-sum"
-    VerifyScopeType.OTHER -> "Evidence"
 }
 
 /** Resolves the LOCALIZED status label for [tone] — the pill text is never a hardcoded

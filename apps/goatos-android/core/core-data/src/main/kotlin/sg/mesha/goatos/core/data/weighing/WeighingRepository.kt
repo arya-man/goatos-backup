@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
@@ -25,7 +26,9 @@ import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import java.util.UUID
+import java.time.Instant
 
 data class WeighingScanMatch(
     val row: WeighingRosterRowEntity?,
@@ -37,10 +40,15 @@ data class WeighingScanMatch(
 data class IndividualWeighingDraft(
     val observationId: String,
     val animalId: String,
+    val scannedIdentifier: String,
     val weightKg: Double,
+    val capturedAtMs: Long,
+    val proofCaptureId: String?,
     val proofReady: Boolean,
     val readyToSubmit: Boolean,
+    val syncedToBackend: Boolean,
     val idempotencyKey: String,
+    val serverProofId: String? = null,
 )
 
 data class ShedWeighingDraft(
@@ -70,6 +78,32 @@ data class WeighingAssignment(
     val status: String,
     val expectedCount: Int,
     val periodLabel: String,
+)
+
+data class WeighingLeadershipVideo(
+    val proofId: String,
+    val downloadUrl: String,
+)
+
+data class WeighingLeadershipAnimal(
+    val rfid: String,
+    val weightKg: Double,
+    val acceptedAt: String,
+    val videos: List<WeighingLeadershipVideo>,
+)
+
+data class WeighingLeadershipShed(
+    val campaignId: String,
+    val campaignShedId: String,
+    val shedName: String,
+    val category: String,
+    val status: String,
+    val periodLabel: String,
+    val animals: List<WeighingLeadershipAnimal>,
+    val animalCount: Int?,
+    val totalWeightKg: Double?,
+    val averageWeightKg: Double?,
+    val videos: List<WeighingLeadershipVideo>,
 )
 
 data class WeighingPlannerCatalog(
@@ -143,6 +177,7 @@ data class ShedPartitionWeighingCapture(
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
     suspend fun listAssignments(): AppResult<List<WeighingAssignment>>
+    suspend fun listLeadershipVideos(): AppResult<List<WeighingLeadershipShed>>
     suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
     suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
@@ -154,6 +189,11 @@ interface WeighingRepository {
     suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft>
     suspend fun attachShedPartitionProof(scopeKey: String, proofCaptureId: String, serverProofId: String?)
     suspend fun discardEditableIndividual(scopeKey: String, animalId: String)
+    suspend fun submitIndividualScope(
+        campaignId: String,
+        campaignShedId: String,
+        scannedIdentifiers: List<String>,
+    ): AppResult<Unit>
 }
 
 class DefaultWeighingRepository(
@@ -196,6 +236,41 @@ class DefaultWeighingRepository(
             val campaigns = client.listWeighingCampaigns().items
             AppResult.Ok(campaigns.flatMap { it.toAssignments() })
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
+    }
+
+    override suspend fun listLeadershipVideos(): AppResult<List<WeighingLeadershipShed>> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        runCatching {
+            val assignments = client.listWeighingCampaigns().items.flatMap { it.toAssignments() }
+            val sheds = assignments.map { assignment ->
+                val detail = client.getWeighingLeadershipShedVideos(
+                    campaignId = assignment.campaignId,
+                    campaignShedId = assignment.campaignShedId,
+                ).shed
+                val lump = detail.lumpSum
+                WeighingLeadershipShed(
+                    campaignId = detail.campaignId,
+                    campaignShedId = detail.campaignShedId,
+                    shedName = detail.shedName,
+                    category = detail.weighingCategory,
+                    status = detail.status,
+                    periodLabel = assignment.periodLabel,
+                    animals = detail.individual.map { observation ->
+                        WeighingLeadershipAnimal(
+                            rfid = observation.animalId.orEmpty(),
+                            weightKg = observation.weightKg,
+                            acceptedAt = observation.acceptedAt,
+                            videos = observation.media.map { WeighingLeadershipVideo(it.proofId, it.downloadUrl) },
+                        )
+                    },
+                    animalCount = lump?.animalCount,
+                    totalWeightKg = lump?.weightKg,
+                    averageWeightKg = lump?.averageWeightKg,
+                    videos = lump?.media.orEmpty().map { WeighingLeadershipVideo(it.proofId, it.downloadUrl) },
+                )
+            }
+            AppResult.Ok(sheds)
+        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing videos.") }
     }
 
     override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> = withContext(Dispatchers.IO) {
@@ -248,6 +323,7 @@ class DefaultWeighingRepository(
         runCatching {
             val safetyLimit = maxRows.coerceIn(1, MAX_ROSTER_SYNC_ROWS)
             val rows = mutableListOf<WeighingRosterRowEntity>() // mobile-guard:ignore: bounded by safetyLimit and kept until successful atomic Room replace
+            val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>()
             var cursor: String? = null
             do {
                 val remaining = safetyLimit - rows.size
@@ -258,10 +334,41 @@ class DefaultWeighingRepository(
                     limit = minOf(ROSTER_SYNC_PAGE_SIZE, remaining),
                 )
                 rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+                response.observations.forEach { observation ->
+                    accepted[observation.observationId] = observation
+                }
                 val next = response.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
                 cursor = next
             } while (cursor != null && rows.size < safetyLimit)
             rosterDao.replaceScope(key, rows)
+            accepted.values.forEach { observation ->
+                val tag = observation.scannedIdentifier.trim()
+                if (tag.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
+                    observationDao.restoreAccepted(
+                        WeighingObservationEntity(
+                            observationId = observation.observationId,
+                            scopeKey = key,
+                            tenantId = tenantId,
+                            campaignId = campaignId,
+                            workGroupId = workGroupId,
+                            campaignShedId = campaignShedId,
+                            expectedLocationId = observation.expectedLocationId,
+                            expectedLocationLabel = "",
+                            actualLocationId = null,
+                            actualLocationLabel = null,
+                            animalId = tag,
+                            scannedIdentifier = tag,
+                            weightKg = observation.weightKg,
+                            proofCaptureId = observation.proofArtifactId,
+                            serverProofId = observation.proofArtifactId,
+                            syncStatus = WeighingSyncStatus.ACCEPTED.name,
+                            idempotencyKey = "weighing:server:${observation.observationId}",
+                            capturedAtMs = observation.acceptedAt.toEpochMillisOrNow(),
+                            lastError = null,
+                        ),
+                    )
+                }
+            }
             AppResult.Ok(rows.size)
         }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
     }
@@ -286,6 +393,24 @@ class DefaultWeighingRepository(
         }
     }
 
+    override suspend fun submitIndividualScope(
+        campaignId: String,
+        campaignShedId: String,
+        scannedIdentifiers: List<String>,
+    ): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                service.submitWeighingScope(
+                    campaignId,
+                    campaignShedId,
+                    WeighingScopeSubmitRequestDto(scannedIdentifiers),
+                )
+                AppResult.Ok(Unit)
+            } catch (error: Throwable) {
+                AppResult.Err(error.message ?: "Couldn't submit weighing shed.", error)
+            }
+        }
     override suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft> =
         withContext(Dispatchers.IO) {
             if (capture.weightKg <= 0.0) return@withContext AppResult.Err("Weight must be greater than 0 kg.")
@@ -293,11 +418,26 @@ class DefaultWeighingRepository(
             val rosterRow = rosterDao.findByAnimal(scopeKey, capture.animalId)
             val observationId = idGenerator()
             val existing = observationDao.findByAnimal(scopeKey, capture.animalId)
-            if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
-                return@withContext AppResult.Err("This animal's weighing has already synced.")
-            }
             if (existing != null && existing.matchesDraft(capture) && existing.proofCaptureId.isNullOrBlank()) {
                 return@withContext AppResult.Ok(existing.toDraft())
+            }
+            if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
+                val revision = existing.copy(
+                    scannedIdentifier = capture.scannedIdentifier,
+                    weightKg = capture.weightKg,
+                    syncStatus = WeighingSyncStatus.READY_TO_SUBMIT.name,
+                    idempotencyKey = individualIdempotencyKey(
+                        campaignId = capture.campaignId,
+                        workGroupId = capture.workGroupId,
+                        campaignShedId = capture.campaignShedId,
+                        animalId = capture.animalId,
+                        observationId = observationId,
+                    ),
+                    capturedAtMs = capture.capturedAtMs?.takeIf { it > 0L } ?: clock(),
+                    lastError = null,
+                )
+                observationDao.update(revision)
+                return@withContext AppResult.Ok(revision.toDraft())
             }
             if (existing != null) {
                 cancelCancellableOutbox(existing.idempotencyKey)
@@ -342,10 +482,22 @@ class DefaultWeighingRepository(
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
         val row = observationDao.findByAnimal(scopeKey, animalId) ?: return@withContext
+        if (
+            row.syncStatus == WeighingSyncStatus.ACCEPTED.name &&
+            row.proofCaptureId == proofCaptureId &&
+            row.serverProofId == serverProofId
+        ) {
+            return@withContext
+        }
+        val revisionIdempotencyKey = serverProofId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "${row.idempotencyKey.substringBefore(":proof:")}:proof:$it" }
+            ?: row.idempotencyKey
         observationDao.attachProof(
             observationId = row.observationId,
             proofCaptureId = proofCaptureId,
             serverProofId = serverProofId,
+            idempotencyKey = revisionIdempotencyKey,
             syncStatus = if (serverProofId.isNullOrBlank()) {
                 WeighingSyncStatus.PROOF_UPLOADING.name
             } else {
@@ -356,7 +508,7 @@ class DefaultWeighingRepository(
             syncRepository?.enqueueWeighingAnimalObservation(
                 campaignId = row.campaignId,
                 groupKey = row.scopeKey,
-                idempotencyKey = row.idempotencyKey,
+                idempotencyKey = revisionIdempotencyKey,
                 request = WeighingAnimalObservationRequestDto(
                     animalId = row.animalId,
                     campaignShedId = row.campaignShedId,
@@ -420,6 +572,13 @@ class DefaultWeighingRepository(
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
         val existing = shedObservationDao.findByScope(scopeKey) ?: return@withContext
+        if (
+            existing.syncStatus == WeighingSyncStatus.ACCEPTED.name &&
+            existing.proofCaptureId == proofCaptureId &&
+            existing.serverProofId == serverProofId
+        ) {
+            return@withContext
+        }
         shedObservationDao.attachProof(
             shedObservationId = existing.shedObservationId,
             proofCaptureId = proofCaptureId,
@@ -430,15 +589,17 @@ class DefaultWeighingRepository(
                 WeighingSyncStatus.READY_TO_SUBMIT.name
             },
         )
-        val resultWeightKg = weighingShedResultWeightKg(existing.resultJson)
-        if (!serverProofId.isNullOrBlank() && resultWeightKg != null) {
+        val result = weighingShedResultValues(existing.resultJson)
+        if (!serverProofId.isNullOrBlank() && result != null) {
             syncRepository?.enqueueWeighingShedObservation(
                 campaignId = existing.campaignId,
                 groupKey = existing.scopeKey,
                 idempotencyKey = existing.idempotencyKey,
                 request = WeighingShedObservationRequestDto(
                     campaignShedId = existing.campaignShedId,
-                    weightKg = resultWeightKg,
+                    weightKg = result.totalWeightKg,
+                    animalCount = result.animalCount,
+                    averageWeightKg = result.averageWeightKg,
                     proofArtifactId = serverProofId,
                 ),
             )
@@ -530,11 +691,16 @@ private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
     IndividualWeighingDraft(
         observationId = observationId,
         animalId = animalId,
+        scannedIdentifier = scannedIdentifier,
         weightKg = weightKg,
+        capturedAtMs = capturedAtMs,
+        proofCaptureId = proofCaptureId,
         proofReady = !proofCaptureId.isNullOrBlank(),
         readyToSubmit = syncStatus == WeighingSyncStatus.READY_TO_SUBMIT.name ||
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
+        syncedToBackend = syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
+        serverProofId = serverProofId,
     )
 
 private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
@@ -570,6 +736,9 @@ private fun WeighingRosterRowDto.toEntity(scopeKey: String, workGroupId: String,
         seq = seq,
         updatedAt = System.currentTimeMillis(),
     )
+
+private fun String.toEpochMillisOrNow(): Long =
+    runCatching { Instant.parse(this).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
 
 private fun WeighingPlannerCatalogResponseDto.toPlannerCatalog(): WeighingPlannerCatalog =
     WeighingPlannerCatalog(
@@ -628,7 +797,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
 private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
     sheds
         .filter { shed ->
-            status in setOf("published", "in_progress", "delayed") &&
+            status in setOf("published", "in_progress", "delayed", "completed") &&
                 shed.status.lowercase() !in setOf("canceled", "cancelled")
         }
         .map { shed ->
@@ -665,11 +834,17 @@ fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buil
     put("unit", unit)
 }
 
-private fun weighingShedResultWeightKg(resultJson: String): Double? =
+private data class WeighingShedResultValues(
+    val totalWeightKg: Double,
+    val animalCount: Int,
+    val averageWeightKg: Double,
+)
+
+private fun weighingShedResultValues(resultJson: String): WeighingShedResultValues? =
     runCatching {
-        Json.parseToJsonElement(resultJson)
-            .jsonObject["weight"]
-            ?.jsonPrimitive
-            ?.doubleOrNull
-            ?.takeIf { it > 0.0 }
+        val result = Json.parseToJsonElement(resultJson).jsonObject
+        val total = (result["total_weight_kg"] ?: result["weight"])?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
+        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: return@runCatching null
+        if (total <= 0 || count <= 0) return@runCatching null
+        WeighingShedResultValues(total, count, total / count)
     }.getOrNull()

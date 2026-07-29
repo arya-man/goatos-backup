@@ -169,6 +169,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so

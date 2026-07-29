@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,9 +43,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,10 +93,13 @@ data class WeighingUiState(
     val selectedAnimalLabel: String? = null,
     val scanInput: String = "",
     val weightInput: String = "",
+    val animalCountInput: String = "",
     val message: String? = null,
     val actionInFlight: Boolean = false,
     val loading: Boolean = false,
     val category: String = "",
+    val readerConnection: ScanReaderConnection? = null,
+    val shedProofs: List<WeighingProofUiRow> = emptyList(),
 ) {
     val isShedPartition: Boolean get() = category == "per_shed_partition"
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -108,8 +116,18 @@ data class WeighingUiState(
     val canRecordIndividual: Boolean get() =
         hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
     val canRecordShedPartition: Boolean get() =
-        hasScope && isShedPartition && !actionInFlight && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+        hasScope && isShedPartition && !actionInFlight &&
+            weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
+            animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
+            shedProofs.isNotEmpty() &&
+            shedProofs.all { it.status == ProofUploadStatus.SYNCED }
 }
+
+data class WeighingProofUiRow(
+    val id: String,
+    val label: String,
+    val status: ProofUploadStatus,
+)
 
 data class WeighingPlannerParkUiRow(
     val parkId: String,
@@ -154,6 +172,16 @@ data class WeighingRosterUiRow(
     val status: String,
     val availabilityStatus: String?,
     val wrongShed: Boolean,
+    val scannedAtLabel: String? = null,
+    val weightInput: String = "",
+    val savedWeightLabel: String? = null,
+    val canSaveWeight: Boolean = false,
+    val weightSaved: Boolean = false,
+    val proofCaptureId: String? = null,
+    val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
+    val proofStatusLabel: String? = null,
+    val backendSynced: Boolean = false,
+    val weightUpdating: Boolean = false,
 ) {
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
@@ -189,6 +217,7 @@ data class WeighingDraftUiRow(
     val label: String,
     val proofReady: Boolean,
     val readyToSubmit: Boolean,
+    val syncedToBackend: Boolean = false,
 )
 
 @Composable
@@ -197,9 +226,18 @@ fun WeighingScreen(
     onScanInputChange: (String) -> Unit = {},
     onScanSubmit: () -> Unit = {},
     onWeightChange: (String) -> Unit = {},
+    onAnimalCountChange: (String) -> Unit = {},
+    onWeightEntryActive: (Boolean) -> Unit = {},
+    onAnimalWeightChange: (String, String) -> Unit = { _, _ -> },
+    onRecordAnimalWeight: (String, String) -> Unit = { _, _ -> },
+    onRetryVideo: (String) -> Unit = {},
+    onReuploadVideo: (String) -> Unit = {},
     onSelectAnimal: (String) -> Unit = {},
     onRecordIndividual: () -> Unit = {},
+    onSubmitIndividualScope: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
+    onCaptureShedVideo: () -> Unit = {},
+    onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
     onTogglePlannerShed: (String) -> Unit = {},
@@ -223,60 +261,57 @@ fun WeighingScreen(
     if (state.hasScope) {
         WeighingExecutionScanScreen(
             state = state,
-            onScanSubmit = onScanSubmit,
-            onWeightChange = onWeightChange,
-            onSelectAnimal = onSelectAnimal,
+            onScanInputChange = onScanInputChange,
+                onScanSubmit = onScanSubmit,
+                onWeightChange = onWeightChange,
+                onAnimalCountChange = onAnimalCountChange,
+                onWeightEntryActive = onWeightEntryActive,
+                onAnimalWeightChange = onAnimalWeightChange,
+                onRecordAnimalWeight = onRecordAnimalWeight,
+                onRetryVideo = onRetryVideo,
+                onReuploadVideo = onReuploadVideo,
+                onSelectAnimal = onSelectAnimal,
             onRecordIndividual = onRecordIndividual,
+            onSubmitIndividualScope = onSubmitIndividualScope,
             onRecordShedPartition = onRecordShedPartition,
+            onCaptureShedVideo = onCaptureShedVideo,
+            onReconnectReader = onReconnectReader,
             onRefresh = onRefresh,
             onBack = onBack,
             modifier = modifier,
         )
         return
     }
-    Scaffold(
+    Column(
         modifier = modifier.fillMaxSize(),
-        containerColor = MeshaColors.PageBg,
-    ) { padding ->
+    ) {
+        MeshaScreenHeader(
+            title = if (state.plannerMode) "Plan" else "My work",
+            eyebrow = "WEIGHING",
+            eyebrowColor = MeshaColors.BrandD,
+            onBack = onBack,
+            actions = {
+                SyncIconButton(
+                    isSyncing = state.loading,
+                    onSync = onRefresh,
+                    contentDescription = stringResource(R.string.weighing_refresh),
+                )
+                MeshaIconButton(
+                    icon = MeshaIcons.Bell,
+                    contentDescription = stringResource(R.string.weighing_alerts),
+                    onClick = {},
+                )
+            },
+        )
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MeshaColors.PageBg)
-                .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MeshaScreenHeader(
-                        title = when {
-                            state.hasScope -> state.title
-                            state.plannerMode -> "Plan"
-                            else -> "My work"
-                        },
-                        eyebrow = "WEIGHING",
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                        actions = {
-                            if (state.hasScope) {
-                                MeshaIconButton(
-                                    icon = MeshaIcons.Refresh,
-                                    contentDescription = stringResource(R.string.weighing_refresh),
-                                    onClick = onRefresh,
-                                )
-                            } else {
-                                SyncIconButton(
-                                    isSyncing = state.loading,
-                                    onSync = onRefresh,
-                                    contentDescription = stringResource(R.string.weighing_refresh),
-                                )
-                            }
-                            MeshaIconButton(
-                                icon = MeshaIcons.Bell,
-                                contentDescription = stringResource(R.string.weighing_alerts),
-                                onClick = {},
-                            )
-                        },
-                    )
                     if (state.scopeLabel.isNotBlank()) {
                         Text(
                             text = state.scopeLabel,
@@ -299,13 +334,16 @@ fun WeighingScreen(
                             onScanInputChange = onScanInputChange,
                             onScanSubmit = onScanSubmit,
                             onWeightChange = onWeightChange,
+                            onAnimalWeightChange = onAnimalWeightChange,
+                            onRecordAnimalWeight = onRecordAnimalWeight,
                             onSelectAnimal = onSelectAnimal,
                             onRecordIndividual = onRecordIndividual,
                             onRecordShedPartition = onRecordShedPartition,
+                            onCaptureShedVideo = onCaptureShedVideo,
                             onOpenRoster = { rosterSheetOpen = true },
                         )
                     } else {
-                        if (state.loading) {
+                        if (state.loading && state.assignments.isEmpty()) {
                             LoadingWorkSkeleton()
                         } else if (state.assignments.isEmpty()) {
                             EmptyWorkCard(
@@ -932,9 +970,12 @@ private fun WeighingCapturePanel(
     onScanInputChange: (String) -> Unit,
     onScanSubmit: () -> Unit,
     onWeightChange: (String) -> Unit,
+    onAnimalWeightChange: (String, String) -> Unit,
+    onRecordAnimalWeight: (String, String) -> Unit,
     onSelectAnimal: (String) -> Unit,
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
+    onCaptureShedVideo: () -> Unit,
     onOpenRoster: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -951,9 +992,9 @@ private fun WeighingCapturePanel(
                 iconLabel = "RFID",
                 title = state.selectedAnimalLabel ?: "Scan RFID tag now",
                 body = if (state.selectedAnimalLabel == null) {
-                    "Keyboard-wedge scans are captured on this screen only."
+                    "Keep scanning RFID tags. Each captured animal stays on this page."
                 } else {
-                    "Animal matched. Add weight and capture video proof."
+                    "Add weight and video proof for this animal."
                 },
                 tone = MeshaColors.Brand,
                 background = MeshaColors.BrandTint,
@@ -974,7 +1015,7 @@ private fun WeighingCapturePanel(
             placeholder = "0.0",
             suffix = "kg",
             onValueChange = onWeightChange,
-            actionLabel = if (state.isShedPartition) "Record shed" else "Save weight",
+            actionLabel = if (state.isShedPartition) "Record shed" else "Add row",
             actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
             onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
         )
@@ -1146,176 +1187,442 @@ private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
 @Composable
 private fun WeighingExecutionScanScreen(
     state: WeighingUiState,
+    onScanInputChange: (String) -> Unit,
     onScanSubmit: () -> Unit,
     onWeightChange: (String) -> Unit,
+    onAnimalCountChange: (String) -> Unit,
+    onWeightEntryActive: (Boolean) -> Unit,
+    onAnimalWeightChange: (String, String) -> Unit,
+    onRecordAnimalWeight: (String, String) -> Unit,
+    onRetryVideo: (String) -> Unit,
+    onReuploadVideo: (String) -> Unit,
     onSelectAnimal: (String) -> Unit,
     onRecordIndividual: () -> Unit,
+    onSubmitIndividualScope: () -> Unit,
     onRecordShedPartition: () -> Unit,
+    onCaptureShedVideo: () -> Unit,
+    onReconnectReader: () -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedFilter by remember { mutableStateOf<ScanStatus?>(null) }
-    var rosterExpanded by remember { mutableStateOf(false) }
-    ScanScreen(
-        state = state.toScanUiState(
-            selectedFilter = selectedFilter,
-            rosterExpanded = rosterExpanded,
-        ),
-        onEvent = { event ->
-            when (event) {
-                ScanEvent.Back -> onBack()
-                ScanEvent.Tap -> {
-                    if (state.isShedPartition) {
-                        onRecordShedPartition()
-                    } else {
-                        onScanSubmit()
-                    }
-                }
-                ScanEvent.OpenList -> rosterExpanded = !rosterExpanded
-                is ScanEvent.OpenTile -> {
-                    selectedFilter = if (selectedFilter == event.status) null else event.status
-                }
-                ScanEvent.Submit -> {
-                    if (state.isShedPartition) {
-                        onRecordShedPartition()
-                    } else {
-                        onRecordIndividual()
-                    }
-                }
-                ScanEvent.ReconnectReader -> onRefresh()
-                is ScanEvent.CaptureProof -> {
-                    onSelectAnimal(event.goatId)
-                }
-                else -> Unit
-            }
+    val allRowsSynced = state.visibleRows.isNotEmpty() &&
+        state.visibleRows.all { row ->
+            row.weightSaved &&
+                row.proofUploadStatus == ProofUploadStatus.SYNCED &&
+                row.backendSynced
+        }
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MeshaColors.PageBg,
+        topBar = {
+            MeshaScreenHeader(
+                title = state.title.ifBlank { "Weighing" },
+                eyebrow = "WEIGHING",
+                subtitle = state.scopeLabel,
+                onBack = onBack,
+                actions = {
+                    MeshaIconButton(
+                        icon = MeshaIcons.Refresh,
+                        contentDescription = stringResource(R.string.weighing_refresh),
+                        onClick = onRefresh,
+                    )
+                },
+            )
         },
-        modifier = modifier,
-    )
+        bottomBar = {
+            ActionButton(
+                text = if (state.isShedPartition) "Submit lump-sum weighing" else "Submit",
+                enabled = if (state.isShedPartition) state.canRecordShedPartition else allRowsSynced,
+                onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MeshaColors.PageBg)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                primary = true,
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (!state.isShedPartition) {
+                item {
+                    WeighingReaderBanner(
+                        reader = state.readerConnection,
+                        onReconnect = onReconnectReader,
+                    )
+                }
+                state.message?.takeIf { it.startsWith("Already scanned") || it.startsWith("Re-upload armed") }?.let { message ->
+                    item { WeighingDuplicateNotice(message) }
+                }
+                item {
+                    Text(
+                        text = "${state.visibleRows.size} ${if (state.visibleRows.size == 1) "animal" else "animals"} captured",
+                        color = MeshaColors.Ink,
+                        style = MeshaType.bodyStrong,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (state.visibleRows.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Scan an RFID tag to begin",
+                            color = MeshaColors.Muted,
+                            style = MeshaType.bodyStrong,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 28.dp),
+                        )
+                    }
+                } else {
+                    items(
+                        items = state.visibleRows.asReversed(),
+                        key = { row -> row.animalId },
+                    ) { row ->
+                        WeighingFreeFlowFeedRow(
+                            row = row,
+                            updating = row.weightUpdating,
+                            onWeightChange = { onAnimalWeightChange(row.animalId, it) },
+                            onWeightEntryActive = onWeightEntryActive,
+                            onSaveWeight = {
+                                onRecordAnimalWeight(row.animalId, row.weightInput)
+                            },
+                            onRetryVideo = { onRetryVideo(row.animalId) },
+                            onReuploadVideo = { onReuploadVideo(row.animalId) },
+                        )
+                    }
+                }
+            } else {
+                item {
+                    WeighingLumpSumCapture(
+                        state = state,
+                        onWeightChange = onWeightChange,
+                        onAnimalCountChange = onAnimalCountChange,
+                        onWeightEntryActive = onWeightEntryActive,
+                        onCaptureShedVideo = onCaptureShedVideo,
+                    )
+                }
+            }
+        }
+    }
 }
 
-private fun WeighingUiState.toScanUiState(
-    selectedFilter: ScanStatus? = null,
-    rosterExpanded: Boolean = false,
-): ScanUiState {
-    val total = if (isShedPartition) 1 else totalExpected
-    val proofReady = individualDrafts.count { it.proofReady } + shedDrafts.count { it.proofReady }
-    val proofMissing = individualDrafts.count { !it.proofReady } + shedDrafts.count { !it.proofReady }
-    val rows = visibleRows.map { row ->
-        val draft = individualDrafts.firstOrNull { it.animalId == row.animalId }
-        val rowStatus = when {
-            row.availabilityStatus.equals("unavailable", ignoreCase = true) ||
-                row.status.equals("Unavailable", ignoreCase = true) -> ScanStatus.SKIPPED
-            row.status.equals("Weighed", ignoreCase = true) || draft != null -> ScanStatus.DONE
-            else -> ScanStatus.PENDING
-        }
-        RosterRow(
-            primaryTag = row.displayAnimalId.compactWeighingTag(),
-            secondaryTag = row.actualLocationLabel?.takeIf { row.wrongShed },
-            vaccineLabel = row.weighingScanLabel(draft),
-            status = rowStatus,
-            goatId = row.animalId,
-            proofRequired = !isShedPartition,
-            proofClipCount = if (draft?.proofReady == true) 1 else 0,
-            proofUploadStatus = draft
-                ?.let { if (it.proofReady) ProofUploadStatus.SYNCED else ProofUploadStatus.MISSING }
-                ?: ProofUploadStatus.MISSING,
+@Composable
+private fun WeighingReaderBanner(
+    reader: ScanReaderConnection?,
+    onReconnect: () -> Unit,
+) {
+    val connected = reader?.connected == true
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (connected) MeshaColors.OkX else MeshaColors.DangerX)
+            .border(
+                1.dp,
+                if (connected) MeshaColors.Ok else MeshaColors.Danger,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Bluetooth,
+            contentDescription = null,
+            tint = if (connected) MeshaColors.Ok else MeshaColors.Danger,
+            modifier = Modifier.size(20.dp),
         )
-    }
-    val visibleDone = rows.count { it.status == ScanStatus.DONE }
-    val visibleSkipped = rows.count { it.status == ScanStatus.SKIPPED }
-    val done = if (isShedPartition) shedCompleted else maxOf(individualCompleted, visibleDone)
-    val skipped = if (isShedPartition) 0 else visibleSkipped
-    val pending = (total - done - skipped).coerceAtLeast(0)
-    val proofRows = individualDrafts
-        .filter { !it.readyToSubmit }
-        .map { draft ->
-            RosterRow(
-                primaryTag = draft.label.substringBefore(" - "),
-                secondaryTag = null,
-                vaccineLabel = draft.weightLabel("Weight saved") +
-                    if (draft.proofReady) " · proof uploading" else " · video required",
-                status = ScanStatus.DONE,
-                goatId = draft.animalId,
-                proofRequired = true,
-                proofClipCount = if (draft.proofReady) 1 else 0,
-                proofUploadStatus = if (draft.proofReady) ProofUploadStatus.UPLOADING else ProofUploadStatus.MISSING,
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = reader?.readerName ?: "RFID reader",
+                color = MeshaColors.Ink,
+                style = MeshaType.bodyStrong,
+            )
+            Text(
+                text = reader?.statusLabel ?: "Checking connection",
+                color = MeshaColors.Muted,
+                style = MeshaType.caption,
             )
         }
-    return ScanUiState(
-        shedLabel = "WEIGHING · ${scopeLabel.ifBlank { title }}",
-        cohortLabel = title.ifBlank { if (isShedPartition) "Shed result" else "Animal weights" },
-        ringDone = done,
-        ringTotal = total,
-        ringUnitLabel = if (isShedPartition) "shed result" else "resolved",
-        tapHint = if (isShedPartition) {
-            "Record total shed weight and attach the mandatory shed video."
-        } else {
-            "Scan a pending kid, enter weight, then attach the mandatory animal video."
-        },
-        vaccineGroups = listOf(
-            VaccineGroup(
-                id = category.ifBlank { "weighing" },
-                vaccine = if (isShedPartition) "Lumpsum" else "Individual",
-                done = done,
-                due = total,
-                active = true,
-            ),
-        ),
-        doneCount = done,
-        pendingCount = pending,
-        skippedCount = skipped,
-        tileLabels = ScanTileLabels(
-            done = if (isShedPartition) "Recorded" else "Done",
-            pending = "Pending",
-            skipped = "Missing",
-        ),
-        feed = visibleRows
-            .filterNot { it.status.equals("Pending", ignoreCase = true) }
-            .take(4)
-            .map { row ->
-                ScanFeedEntry(
-                    primaryTag = row.displayAnimalId.compactWeighingTag(),
-                    secondaryTag = row.actualLocationLabel?.takeIf { row.wrongShed },
-                    vaccineLabel = row.weighingScanLabel(individualDrafts.firstOrNull { it.animalId == row.animalId }),
-                    status = if (
-                        row.availabilityStatus.equals("unavailable", ignoreCase = true) ||
-                        row.status.equals("Unavailable", ignoreCase = true)
-                    ) {
-                        ScanStatus.SKIPPED
-                    } else {
-                        ScanStatus.DONE
-                    },
-                    tone = if (row.wrongShed) ScanFeedTone.REJECTED else ScanFeedTone.ACCEPTED,
+        if (!connected) {
+            ActionButton(
+                text = reader?.actionLabel ?: "Reconnect",
+                enabled = true,
+                onClick = onReconnect,
+                primary = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeighingDuplicateNotice(message: String) {
+    val warning = Color(0xFFF2B84B)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0x24F2B84B))
+            .border(1.dp, warning, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Warn,
+            contentDescription = null,
+            tint = warning,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = message,
+            color = warning,
+            style = MeshaType.bodyStrong,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun WeighingFreeFlowFeedRow(
+    row: WeighingRosterUiRow,
+    updating: Boolean,
+    onWeightChange: (String) -> Unit,
+    onWeightEntryActive: (Boolean) -> Unit,
+    onSaveWeight: () -> Unit,
+    onRetryVideo: () -> Unit,
+    onReuploadVideo: () -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }
+    LaunchedEffect(row.savedWeightLabel) {
+        if (row.weightSaved) editingWeight = false
+    }
+    val complete = row.weightSaved &&
+        row.proofUploadStatus == ProofUploadStatus.SYNCED &&
+        row.backendSynced
+    val tone = when {
+        complete -> MeshaColors.Ok
+        row.proofUploadStatus == ProofUploadStatus.FAILED -> MeshaColors.Danger
+        else -> MeshaColors.Hair
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (complete) MeshaColors.OkX else MeshaColors.Surf)
+            .border(1.dp, tone, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = row.displayAnimalId,
+                color = MeshaColors.Ink,
+                style = MeshaType.bodyStrong,
+                modifier = Modifier.weight(1f),
+            )
+            if (complete) {
+                Icon(
+                    imageVector = MeshaIcons.CheckCircle,
+                    contentDescription = null,
+                    tint = MeshaColors.Ok,
+                    modifier = Modifier.size(20.dp),
                 )
+            }
+        }
+        Text(
+            text = row.scannedAtLabel.orEmpty(),
+            color = MeshaColors.Muted,
+            style = MeshaType.caption,
+        )
+        Text(
+            text = when {
+                complete -> "Weight and video synced"
+                row.proofUploadStatus == ProofUploadStatus.FAILED -> row.proofStatusLabel ?: "Video upload failed"
+                row.proofUploadStatus == ProofUploadStatus.UPLOADING -> "Video syncing"
+                row.proofUploadStatus == ProofUploadStatus.SYNCED && !row.backendSynced ->
+                    "Video synced · weight waiting to sync"
+                row.proofUploadStatus == ProofUploadStatus.SYNCED -> "Video synced"
+                else -> "Video captured"
             },
-        roster = rows,
-        listTitle = if (isShedPartition) "Shed proof and result" else "Tap pending to select kid, weight and proof",
-        submitLabel = when {
-            isShedPartition && shedCompleted > 0 -> "View shed result"
-            isShedPartition -> "Add shed camera clip"
-            selectedAnimalId.isNullOrBlank() -> "Select pending animal"
-            else -> "Add camera clip"
-        },
-        canSubmit = if (isShedPartition) canRecordShedPartition else canRecordIndividual,
-        scanEnabled = !isShedPartition,
-        captureAccessRequired = true,
-        footNote = if (isShedPartition) {
-            "One shed-level video proof is mandatory."
+            color = when {
+                complete -> MeshaColors.Ok
+                row.proofUploadStatus == ProofUploadStatus.FAILED -> MeshaColors.Danger
+                else -> MeshaColors.Muted
+            },
+            style = MeshaType.caption,
+        )
+        if (row.weightSaved && !editingWeight) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Weight ${row.savedWeightLabel ?: row.weightInput} kg",
+                    color = MeshaColors.Ink,
+                    style = MeshaType.bodyStrong,
+                    modifier = Modifier.weight(1f),
+                )
+                ActionButton(
+                    text = if (updating) "Updating..." else "Edit weight",
+                    enabled = !updating,
+                    onClick = {
+                        editingWeight = true
+                        onWeightChange(row.weightInput)
+                    },
+                    primary = false,
+                )
+            }
         } else {
-            "${proofReady} proof ready · ${proofMissing} waiting for upload"
-        },
-        isRefreshing = loading,
-        selectedFilter = selectedFilter,
-        rosterExpanded = rosterExpanded,
-        proofActionNeeded = proofRows,
-        readerConnection = ScanReaderConnection(
-            readerName = if (isShedPartition) "Camera proof" else "RFID reader",
-            statusLabel = if (isShedPartition) "Shed-level proof mode" else "Ready for keyboard-wedge scans",
-            connected = true,
-            actionLabel = "Refresh",
-        ),
-    )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = row.weightInput,
+                    onValueChange = onWeightChange,
+                    label = { Text("Weight") },
+                    suffix = { Text("kg") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    enabled = !updating,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { onWeightEntryActive(it.isFocused) },
+                )
+                ActionButton(
+                    text = if (updating) "Updating..." else if (row.weightSaved) "Update" else "Save",
+                    enabled = row.canSaveWeight && !updating,
+                    onClick = {
+                        focusManager.clearFocus()
+                        onSaveWeight()
+                    },
+                    primary = true,
+                )
+            }
+        }
+        when (row.proofUploadStatus) {
+            ProofUploadStatus.FAILED -> ActionButton(
+                text = "Retry",
+                enabled = true,
+                onClick = onRetryVideo,
+                modifier = Modifier.fillMaxWidth(),
+                primary = false,
+            )
+            ProofUploadStatus.SYNCED -> ActionButton(
+                text = "Re-upload",
+                enabled = true,
+                onClick = onReuploadVideo,
+                modifier = Modifier.fillMaxWidth(),
+                primary = false,
+            )
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+private fun WeighingLumpSumCapture(
+    state: WeighingUiState,
+    onWeightChange: (String) -> Unit,
+    onAnimalCountChange: (String) -> Unit,
+    onWeightEntryActive: (Boolean) -> Unit,
+    onCaptureShedVideo: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedTextField(
+            value = state.weightInput,
+            onValueChange = onWeightChange,
+            label = { Text("Total weight") },
+            suffix = { Text("kg") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { onWeightEntryActive(it.isFocused) },
+        )
+        OutlinedTextField(
+            value = state.animalCountInput,
+            onValueChange = onAnimalCountChange,
+            label = { Text("Animal count") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { onWeightEntryActive(it.isFocused) },
+        )
+        val totalWeight = state.weightInput.toDoubleOrNull()
+        val animalCount = state.animalCountInput.toIntOrNull()
+        if (totalWeight != null && totalWeight > 0 && animalCount != null && animalCount > 0) {
+            Text(
+                text = "Average ${"%.2f".format(totalWeight / animalCount)} kg per animal",
+                color = MeshaColors.Ok,
+                style = MeshaType.bodyStrong,
+            )
+        }
+        state.shedProofs.forEachIndexed { index, proof ->
+            val proofColor = when (proof.status) {
+                ProofUploadStatus.SYNCED -> MeshaColors.Ok
+                ProofUploadStatus.FAILED -> MeshaColors.Danger
+                else -> MeshaColors.Muted
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MeshaColors.PageBg)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = if (proof.status == ProofUploadStatus.SYNCED) {
+                        MeshaIcons.CheckCircle
+                    } else {
+                        MeshaIcons.Video
+                    },
+                    contentDescription = null,
+                    tint = proofColor,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "Video ${index + 1}",
+                    color = MeshaColors.Ink,
+                    style = MeshaType.bodyStrong,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = proof.label,
+                    color = proofColor,
+                    style = MeshaType.caption,
+                )
+            }
+        }
+        ActionButton(
+            text = if (state.shedProofs.isEmpty()) "Capture group video" else "Add another video",
+            enabled = !state.actionInFlight && state.shedProofs.size < 5,
+            onClick = onCaptureShedVideo,
+            modifier = Modifier.fillMaxWidth(),
+            primary = false,
+        )
+    }
 }
 
 private fun WeighingRosterUiRow.weighingScanLabel(draft: WeighingDraftUiRow? = null): String = buildString {
@@ -1538,8 +1845,22 @@ private fun ActionButton(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (primary) MeshaColors.Brand else MeshaColors.Surf)
-            .border(1.dp, if (primary) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .background(
+                when {
+                    !enabled -> MeshaColors.Hair
+                    primary -> MeshaColors.Brand
+                    else -> MeshaColors.Surf
+                },
+            )
+            .border(
+                1.dp,
+                when {
+                    !enabled -> MeshaColors.Faint
+                    primary -> MeshaColors.Brand
+                    else -> MeshaColors.Hair
+                },
+                RoundedCornerShape(14.dp),
+            )
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 13.dp),
     )
