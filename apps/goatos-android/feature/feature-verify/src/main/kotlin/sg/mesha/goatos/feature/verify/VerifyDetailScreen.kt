@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -206,6 +207,7 @@ fun VerifyDetailScreen(
                             }
                             VerifyVideoPlayer(
                                 media = media,
+                                onPlayback = { onEvent(it) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -312,9 +314,16 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
  * recycling this row never leaks a player instance.
  */
 @Composable
-private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modifier) {
+private fun VerifyVideoPlayer(
+    media: VerifyMediaItem,
+    onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
+    val view = LocalView.current
     var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
+    var isPlaying by remember { mutableStateOf(false) }
+    val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
@@ -322,8 +331,41 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
             playWhenReady = false
         }
     }
+    DisposableEffect(view) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = previous }
+    }
     DisposableEffect(player) {
-        onDispose { player.release() }
+        val tracker = VideoPlaybackTracker(media = media, onPlayback = currentOnPlayback)
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                isPlaying = isPlayingNow
+                tracker.onPlayingChanged(isPlayingNow, player.duration, player.currentPosition)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                tracker.onPlaybackStateChanged(playbackState, player.duration, player.currentPosition)
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                tracker.onPositionDiscontinuity(reason)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                tracker.onError(error.message ?: error.errorCodeName)
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            tracker.flush(player.duration, player.currentPosition)
+            player.removeListener(listener)
+            player.release()
+        }
     }
     Box(
         modifier = modifier
@@ -335,13 +377,34 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     this.player = player
-                    useController = true
+                    useController = false
+                    keepScreenOn = true
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
+        PlayPauseButton(
+            isPlaying = isPlaying,
+            onClick = {
+                if (player.isPlaying) {
+                    player.pause()
+                } else {
+                    player.play()
+                }
+            },
+            modifier = Modifier.align(Alignment.Center),
+        )
         VideoFullscreenButton(
             onClick = {
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.FULLSCREEN_OPENED,
+                        durationMs = player.duration.coerceAtLeast(0L),
+                        positionMs = player.currentPosition.coerceAtLeast(0L),
+                    ),
+                )
                 player.playWhenReady = false
                 isFullscreen = true
             },
@@ -352,6 +415,7 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
     if (isFullscreen) {
         FullscreenVideoDialog(
             media = media,
+            onPlayback = onPlayback,
             onDismiss = { isFullscreen = false },
         )
     }
@@ -403,11 +467,32 @@ private fun VideoFullscreenButton(onClick: () -> Unit, modifier: Modifier = Modi
 }
 
 @Composable
+private fun PlayPauseButton(isPlaying: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(58.dp)
+            .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (isPlaying) MeshaIcons.Pause else MeshaIcons.Play,
+            contentDescription = null,
+            tint = MeshaColors.Surf,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+@Composable
 private fun FullscreenVideoDialog(
     media: VerifyMediaItem,
+    onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(true) }
+    val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
@@ -416,7 +501,35 @@ private fun FullscreenVideoDialog(
         }
     }
     DisposableEffect(player) {
-        onDispose { player.release() }
+        val tracker = VideoPlaybackTracker(media = media, onPlayback = currentOnPlayback)
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                isPlaying = isPlayingNow
+                tracker.onPlayingChanged(isPlayingNow, player.duration, player.currentPosition)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                tracker.onPlaybackStateChanged(playbackState, player.duration, player.currentPosition)
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                tracker.onPositionDiscontinuity(reason)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                tracker.onError(error.message ?: error.errorCodeName)
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            tracker.flush(player.duration, player.currentPosition)
+            player.removeListener(listener)
+            player.release()
+        }
     }
 
     Dialog(
@@ -431,10 +544,22 @@ private fun FullscreenVideoDialog(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = true
+                        useController = false
+                        keepScreenOn = true
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
+            )
+            PlayPauseButton(
+                isPlaying = isPlaying,
+                onClick = {
+                    if (player.isPlaying) {
+                        player.pause()
+                    } else {
+                        player.play()
+                    }
+                },
+                modifier = Modifier.align(Alignment.Center),
             )
             Box(
                 modifier = Modifier
