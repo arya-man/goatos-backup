@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -53,7 +54,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             id = shed.campaignShedId,
             name = shed.shedName,
             status = shed.status,
-            periodLabel = shed.periodLabel,
+            periodLabel = formatPeriodLabel(shed.periodLabel),
             category = shed.category,
             animals = shed.animals.mapIndexed { index, animal ->
                 WeighingLeadershipAnimalUi(
@@ -80,6 +81,14 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     private fun formatTimestamp(value: String): String =
         runCatching { timestampFormatter.format(Instant.parse(value)) }.getOrDefault(value)
 
+    private fun formatPeriodLabel(value: String): String {
+        val parts = value.split(" - ")
+        if (parts.size != 2) return value
+        val start = runCatching { LocalDate.parse(parts[0].trim()) }.getOrNull() ?: return value
+        val end = runCatching { LocalDate.parse(parts[1].trim()) }.getOrNull() ?: return value
+        return "${periodFormatter.format(start)} - ${periodFormatter.format(end)}"
+    }
+
     private fun String.toAbsoluteApiUrl(): String =
         when {
             startsWith("http://") || startsWith("https://") -> this
@@ -90,5 +99,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     private companion object {
         val timestampFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a").withZone(ZoneId.systemDefault())
+        val periodFormatter: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("d MMM", Locale.US)
     }
 }
