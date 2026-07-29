@@ -1285,6 +1285,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.sheds.reason":                              "Search park or shed name...",
 			"filter.sheds.filter_reason":                       "Park, shed, status, and capacity filters apply server-side; search matches park or shed name.",
 			"filter.sheds.rows_suffix":                         "sheds, animal counts, sessions, capacity",
+			"label.done":                                       "done",
 			"label.all_status":                                 "All status",
 			"label.all_capacity":                               "All capacity",
 			"label.sheds_noun":                                 "sheds",

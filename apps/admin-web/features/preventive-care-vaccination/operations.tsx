@@ -58,21 +58,6 @@ export function VaccinationOperationsPage({
         <VaccinationCommandBoard pageContract={pageContract} />
       </Suspense>
 
-      {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="bd">
-          <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "section.drive_flow.aria")}>
-            {driveSteps.map((c) => (
-              <div className="cstep" key={c.key} style={{ cursor: "default" }}>
-                <div className="s">{c.step}</div>
-                <b>{c.title}</b>
-                <div className="d">{c.detail}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
       <Suspense fallback={<VaccinationShedBoardSkeleton pageContract={pageContract} />}>
