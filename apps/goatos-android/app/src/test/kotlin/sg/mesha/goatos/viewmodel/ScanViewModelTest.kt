@@ -645,6 +645,79 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `refresh writes shed-specific completion summary used by proof gate`() = runTest(dispatcher) {
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            summaryOnRefresh = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = true,
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("shed-1", tasks.refreshedShedIds.single())
+        assertTrue("server-confirmed shed proof readiness clears stale local orange state", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
+    fun `server proof override still obeys backend submit enabled gate`() = runTest(dispatcher) {
+        val tasks = FakeTasksRepositoryForCapture(
+            detail = TaskDetail(
+                task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                form = FormSpec.Empty,
+                proofPolicy = ProofPolicy.Default,
+            ),
+            initialSummary = ShedCompletionSummaryDto(
+                taskId = "task-1",
+                expectedCount = 3,
+                handledCount = 3,
+                proofReadyCount = 3,
+                proofMode = "per_goat_video",
+                submitEnabled = false,
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = doneRosterRepo(3),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("local UI must not override a backend submit block with matching counts", vm.state.value.canSubmit)
+        assertEquals(listOf("goat-1", "goat-2", "goat-3"), vm.state.value.proofActionNeeded.map { it.goatId })
+    }
+
+    @Test
     fun `shed-level proof policy does not show per-animal camera proof actions`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val vm = proofGateVm(

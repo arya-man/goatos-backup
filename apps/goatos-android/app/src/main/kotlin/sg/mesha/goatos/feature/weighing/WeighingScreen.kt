@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -176,7 +175,13 @@ data class WeighingAssignmentUiRow(
     val status: String,
     val expectedCount: Int,
     val periodLabel: String,
-)
+) {
+    val isClosed: Boolean
+        get() = status.equals("Completed", ignoreCase = true) ||
+            status.equals("Accepted", ignoreCase = true) ||
+            status.equals("Submitted", ignoreCase = true) ||
+            status.equals("Done", ignoreCase = true)
+}
 
 data class WeighingDraftUiRow(
     val id: String,
@@ -289,23 +294,6 @@ fun WeighingScreen(
                             onPlannerShedCategory = onPlannerShedCategory,
                         )
                     } else if (state.hasScope) {
-                        LinearProgressIndicator(
-                            progress = { state.progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (state.isShedPartition) {
-                            Text(
-                                text = if (state.shedCompleted > 0) "Shed / partition result ready" else "Shed / partition result pending",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MeshaColors.Muted,
-                            )
-                        } else {
-                            Text(
-                                text = "${state.individualResolved}/${state.totalExpected} roster rows resolved",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MeshaColors.Muted,
-                            )
-                        }
                         WeighingCapturePanel(
                             state = state,
                             onScanInputChange = onScanInputChange,
@@ -333,11 +321,10 @@ fun WeighingScreen(
             }
             if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {
                 item {
-                    SectionTitle(
-                        state.assignments.firstOrNull()?.periodLabel
-                            ?.takeIf { it.isNotBlank() }
-                            ?.uppercase()
-                            ?: "TODAY",
+                    WeekPlanStrip(
+                        weekLabel = state.plannerWeekLabel,
+                        periodLabel = state.assignments.firstOrNull()?.periodLabel ?: state.plannerPeriodLabel,
+                        tabs = state.plannerDayTabs,
                     )
                 }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
@@ -752,7 +739,6 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusPill(row.status)
-                CategoryPill(row.category)
             }
             Text(
                 text = row.label,
@@ -768,13 +754,16 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            WeighingProgressBar(complete = row.status.equals("Completed", ignoreCase = true), category = row.category)
-            Text(
-                text = assignmentAction(row),
-                color = MeshaColors.BrandD,
-                style = MeshaType.cta,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            if (!row.isClosed) {
+                Text(
+                    text = assignmentAction(),
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.cta,
+                    modifier = Modifier
+                        .clickable(onClick = onOpen)
+                        .padding(top = 2.dp),
+                )
+            }
         }
     }
 }
@@ -841,19 +830,11 @@ private fun WeighingProgressBar(complete: Boolean, category: String) {
 
 @Composable
 private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
-    if (row.category == "per_shed_partition") {
-        stringResource(R.string.weighing_assignment_summary_lumpsum, row.expectedCount)
-    } else {
-        stringResource(R.string.weighing_assignment_summary_individual, row.expectedCount)
-    }
+    "Free-flow RFID, weight, and video capture"
 
 @Composable
-private fun assignmentAction(row: WeighingAssignmentUiRow): String =
-    when {
-        row.status.equals("Completed", ignoreCase = true) -> stringResource(R.string.weighing_action_view_result)
-        row.category == "per_shed_partition" -> stringResource(R.string.weighing_action_record_shed)
-        else -> stringResource(R.string.weighing_action_scan_animals)
-    }
+private fun assignmentAction(): String =
+    stringResource(R.string.weighing_action_scan_animals)
 
 @Composable
 private fun weighingCategoryLabel(category: String): String =
@@ -957,7 +938,6 @@ private fun WeighingCapturePanel(
     onOpenRoster: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        CaptureProgressTiles(state)
         if (state.isShedPartition) {
             WeighingActionCard(
                 iconLabel = "KG",
@@ -998,14 +978,6 @@ private fun WeighingCapturePanel(
             actionEnabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
             onAction = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
         )
-        if (!state.isShedPartition) {
-            RosterPeekCard(
-                total = state.totalExpected,
-                visible = state.visibleRows.size,
-                wrongShed = state.visibleRows.count { it.wrongShed },
-                onOpenRoster = onOpenRoster,
-            )
-        }
     }
 }
 

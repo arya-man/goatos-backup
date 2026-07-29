@@ -700,10 +700,17 @@ class SubmitViewModel @Inject constructor(
             // window in observeStatus() — otherwise a close can wait forever once the row ages out
             // of the window before its terminal status is seen.
             syncRepository.observeItem(itemId)
-                .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-                .collect { item -> item?.let { applyItemStatus(it) } }
+                .collect { item ->
+                    if (item == null) {
+                        if (outboxItemId == itemId) {
+                            outboxItemId = null
+                            renderDraft()
+                        }
+                    } else {
+                        applyItemStatus(item)
+                    }
+                }
         }
     }
 
@@ -856,12 +863,11 @@ class SubmitViewModel @Inject constructor(
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
             syncLabel = "",
-            // Vaccination shed acknowledgement: when a backend shed-completion summary is present,
-            // Submit is gated on its submit_enabled flag (all expected animals handled + proof
-            // ready) AND any residual form gate. Generic tasks with no shed summary keep the
-            // pre-existing form-only gate.
-            canSubmit = summaryReady && formRunner?.blockedReason == null,
-            blockingReason = summaryBlock ?: formRunner?.blockedReason,
+            // Per-goat video proof is captured on the scan rows; once the backend shed summary says
+            // the acknowledgement is ready, stale local proof/outbox rows must not repaint this
+            // screen as Retry after navigating away and back.
+            canSubmit = summaryReady && (summary != null && currentProofPolicy.isPerGoatVideo || formRunner?.blockedReason == null),
+            blockingReason = summaryBlock ?: formRunner?.blockedReason?.takeUnless { summary != null && currentProofPolicy.isPerGoatVideo },
             syncProgress = 0f,
             proofSummaryTitle = proofSummary.title,
             proofSummarySyncedLabel = proofSummary.label,
@@ -917,11 +923,16 @@ class SubmitViewModel @Inject constructor(
 
     private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
         if (!task.state.isSubmissionTerminal()) return false
-        if (!currentProofPolicy.isShedLevelVideo) return true
-        if (currentShedCompletionSummary?.submitState?.isSubmissionTerminal() != true) return false
-        val readiness = currentShedProofReadiness()
-        if (readiness.uploading > 0 || readiness.failed > 0) return false
-        return readiness.blockingReason == null
+        val summary = currentShedCompletionSummary
+        if (summary != null) {
+            if (!summary.submitState.isSubmissionTerminal()) return false
+            if (currentProofPolicy.isShedLevelVideo) {
+                val readiness = currentShedProofReadiness()
+                if (readiness.uploading > 0 || readiness.failed > 0) return false
+                return readiness.blockingReason == null
+            }
+        }
+        return true
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =

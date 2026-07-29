@@ -158,14 +158,16 @@ type CreateCampaignShed struct {
 }
 
 type RecordAnimalObservation struct {
-	TenantID         string
-	CampaignID       string
-	AnimalID         string
-	WeightKg         float64
-	ProofArtifactID  string
-	ActualLocationID string
-	IdempotencyKey   string
-	RecordedBy       string
+	TenantID          string
+	CampaignID        string
+	CampaignShedID    string
+	AnimalID          string
+	ScannedIdentifier string
+	WeightKg          float64
+	ProofArtifactID   string
+	ActualLocationID  string
+	IdempotencyKey    string
+	RecordedBy        string
 }
 
 type RecordShedObservation struct {

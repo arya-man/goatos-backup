@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
-import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/vaccination-sheds";
+import { VaccinationCommandBoard } from "./command-board";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { VaccinationFullSchedule, VaccinationFullScheduleSkeleton, vaccinationScheduleYear } from "./full-vaccine-schedule";
 import { VaccinationCommandBoard, VaccinationCommandBoardSkeleton } from "./command-board";
@@ -58,11 +58,9 @@ export function VaccinationOperationsPage({
         <VaccinationCommandBoard pageContract={pageContract} driveBatchId={one(sp, "cb_drive")} />
       </Suspense>
 
-      {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
-          and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
-      <Suspense fallback={<VaccinationShedBoardSkeleton pageContract={pageContract} />}>
-        <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
-      </Suspense>
+      {/* PROTOTYPE (local-only, do not push): Vaccination Command closure board replaces the
+          shed-wise table for maintainer visual review. Restore VaccinationShedBoard before landing. */}
+      <VaccinationCommandBoard />
         </>
       )}
     </div>

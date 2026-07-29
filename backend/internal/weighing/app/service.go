@@ -110,7 +110,10 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.AnimalID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || cmd.WeightKg <= 0 || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || cmd.WeightKg <= 0 || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return domain.Observation{}, ports.ErrInvalidArgument
+	}
+	if !uuidutil.IsUUIDString(cmd.AnimalID) && strings.TrimSpace(cmd.ScannedIdentifier) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {

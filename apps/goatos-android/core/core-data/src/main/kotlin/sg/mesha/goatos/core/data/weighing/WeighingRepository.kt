@@ -291,7 +291,6 @@ class DefaultWeighingRepository(
             if (capture.weightKg <= 0.0) return@withContext AppResult.Err("Weight must be greater than 0 kg.")
             val scopeKey = weighingScopeKey(capture.campaignId, capture.workGroupId, capture.campaignShedId)
             val rosterRow = rosterDao.findByAnimal(scopeKey, capture.animalId)
-                ?: return@withContext AppResult.Err("Animal is not in this weighing scope.")
             val observationId = idGenerator()
             val existing = observationDao.findByAnimal(scopeKey, capture.animalId)
             if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
@@ -318,10 +317,10 @@ class DefaultWeighingRepository(
                 campaignId = capture.campaignId,
                 workGroupId = capture.workGroupId,
                 campaignShedId = capture.campaignShedId,
-                expectedLocationId = rosterRow.expectedLocationId,
-                expectedLocationLabel = rosterRow.expectedLocationLabel,
-                actualLocationId = rosterRow.actualLocationId,
-                actualLocationLabel = rosterRow.actualLocationLabel,
+                expectedLocationId = rosterRow?.expectedLocationId ?: capture.campaignShedId,
+                expectedLocationLabel = rosterRow?.expectedLocationLabel ?: "Assigned shed",
+                actualLocationId = rosterRow?.actualLocationId,
+                actualLocationLabel = rosterRow?.actualLocationLabel,
                 animalId = capture.animalId,
                 scannedIdentifier = capture.scannedIdentifier,
                 weightKg = capture.weightKg,
@@ -360,6 +359,8 @@ class DefaultWeighingRepository(
                 idempotencyKey = row.idempotencyKey,
                 request = WeighingAnimalObservationRequestDto(
                     animalId = row.animalId,
+                    campaignShedId = row.campaignShedId,
+                    scannedIdentifier = row.scannedIdentifier,
                     weightKg = row.weightKg,
                     proofArtifactId = serverProofId,
                     actualLocationId = row.actualLocationId ?: row.expectedLocationId,

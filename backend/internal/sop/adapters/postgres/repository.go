@@ -1828,7 +1828,7 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
-	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, keys)
+	keys, err = filterSubmissionItemsToSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
 	if err != nil {
 		return err
 	}
@@ -1849,8 +1849,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 	return nil
 }
 
-func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
-	shedSubjectIDs := shedProofSubjectIDs(refs)
+func filterSubmissionItemsToSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	shedSubjectIDs := shedScopeIDs(refs, idempotencyKey)
 	if len(shedSubjectIDs) == 0 {
 		return keys, nil
 	}
@@ -1917,6 +1917,29 @@ func shedProofSubjectIDs(refs []domain.ProofReference) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func shedScopeIDs(refs []domain.ProofReference, idempotencyKey string) []string {
+	out := shedProofSubjectIDs(refs)
+	if shedID := shedScopeFromSubmissionKey(idempotencyKey); shedID != "" {
+		for _, existing := range out {
+			if existing == shedID {
+				return out
+			}
+		}
+		out = append(out, shedID)
+	}
+	return out
+}
+
+func shedScopeFromSubmissionKey(key string) string {
+	parts := strings.Split(key, ":")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "scope" {
+			return strings.TrimSpace(parts[i+1])
+		}
+	}
+	return ""
 }
 
 func insertMovementForLatestSubmission(ctx context.Context, tx pgx.Tx, tenantID, taskID string) error {

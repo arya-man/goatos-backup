@@ -71,6 +71,7 @@ import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
 import sg.mesha.goatos.push.PushNavigationViewModel
@@ -201,6 +202,19 @@ fun GoatOsShell(navState: NavState) {
     // and process death (see ShellModuleViewModel).
     val moduleVm: ShellModuleViewModel = hiltViewModel()
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+    LaunchedEffect(navState, selectedModuleKey, backStackEntry?.destination?.route) {
+        val selected = navState.availableModules().firstOrNull { it.key == selectedModuleKey }
+        val currentBaseRoute = backStackEntry?.destination?.route?.routeBase()
+        val allTopLevelRoutes = navState.availableModules().flatMap { module -> module.navItems.map { it.href } }
+        if (
+            selected != null &&
+            selected.href.isNotBlank() &&
+            currentBaseRoute in allTopLevelRoutes &&
+            currentBaseRoute !in selected.navItems.map { it.href }
+        ) {
+            navigate(selected.href)
+        }
+    }
 
     GoatOsShellChrome(
         navState = navState,

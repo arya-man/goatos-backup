@@ -31,6 +31,14 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name="sg.mesha.goatos.debug.DebugNavigationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="sg.mesha.goatos.debug.NAVIGATE" />
+            </intent-filter>
+        </receiver>
+
         <!-- Debug-only startup hook that forwards LeakCanary heap-analysis leaks to Crashlytics
              (see sg.mesha.goatos.leak.LeakCanaryBridgeInstaller). No-op ContentProvider used purely
              for its onCreate() at process start; not exported, unique authority per applicationId. -->

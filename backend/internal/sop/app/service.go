@@ -544,7 +544,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if submissionFanoutNeeded(task) {
 		gate := vaccinationCompletionProofGate(version.ProofPolicy)
 		shedProofSubjectID := submittedShedProofSubjectID(cmd.Body.ProofRefs)
-		if gate.SubjectType == "shed" && shedProofSubjectID == "" {
+		if shedProofSubjectID == "" {
 			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
 		}
 		if gate.SubjectType == "shed" && len(cmd.Body.ProofRefs) == 0 {
@@ -1348,7 +1348,8 @@ func repeatSourceField(formDSL map[string]any) string {
 	case map[string]any:
 		return stringValue(repeat, "source_field")
 	case nil:
-		return ""
+		// Newer form DSLs mark the repeated goat scan on the field itself instead of
+		// using the older top-level repeat_for_each_goat wrapper.
 	}
 	fields, _ := formDSL["fields"].([]any)
 	for _, raw := range fields {

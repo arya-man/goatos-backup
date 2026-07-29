@@ -129,9 +129,9 @@ class ScanViewModel @Inject constructor(
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val observedProofs: StateFlow<List<ProofCaptureRow>> =
+    private val observedProofs: StateFlow<List<ProofCaptureRow>?> =
         (taskId?.let { proofCaptureRepository.observeProofs(it) } ?: flowOf(emptyList()))
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
     // per-goat capture's default subject instead of a hardcoded ProofSubject.GOAT.
@@ -245,7 +245,8 @@ class ScanViewModel @Inject constructor(
         val readerStatus = values[13] as RfidReaderStatus
         val readerName = values[14] as String?
         val counts = values[15] as List<StatusCount>
-        val proofs = values[16] as List<ProofCaptureRow>
+        val proofs = values[16] as List<ProofCaptureRow>?
+        val proofRows = proofs.orEmpty()
         val operatorAllowed = values[17] as Boolean?
         val refreshError = values[18] as String?
         val policy = values[19] as ProofPolicy
@@ -284,7 +285,7 @@ class ScanViewModel @Inject constructor(
             hasMore = hasMore,
             localDone = localDone,
             persistedScans = persistedScans,
-            proofs = proofs,
+            proofs = proofRows,
             operatorAllowed = operatorAllowed == true,
             isRefreshing = isRefreshing,
             taskId = taskId,
@@ -410,7 +411,7 @@ class ScanViewModel @Inject constructor(
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
         val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
-        taskId?.let { tasksRepository.refreshShedCompletionSummary(it) }
+        taskId?.let { tasksRepository.refreshShedCompletionSummary(it, id) }
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         _refreshError.value = result.exceptionOrNull()?.message
@@ -849,7 +850,7 @@ class ScanViewModel @Inject constructor(
         persistedDoneGoats: List<String>,
         localDoneGoats: Set<String>,
         persistedScans: List<ScannedGoatRow>,
-        proofs: List<ProofCaptureRow>,
+        proofs: List<ProofCaptureRow>?,
         policy: ProofPolicy,
         shedSummary: ShedCompletionSummaryDto?,
     ): ScanUiState {
@@ -869,7 +870,11 @@ class ScanViewModel @Inject constructor(
         val requiredGoatIds = (persistedDoneGoats.toSet() + localDoneGoats + scannedAtByGoatId.keys)
             .filter { it.isNotBlank() }
             .toSet()
-        val syncedGoatIds = proofs
+        if (proofs == null && !shedSummary.allHandledProofsReady()) {
+            return base.copy(canSubmit = false, proofActionNeeded = emptyList())
+        }
+        val proofRows = proofs.orEmpty()
+        val syncedGoatIds = proofRows
             .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .mapNotNull { it.subjectId }
             .toSet()
@@ -879,7 +884,7 @@ class ScanViewModel @Inject constructor(
         val missingGoatIds = requiredGoatIds - syncedGoatIds
         val proofComplete = missingGoatIds.isEmpty()
         // Surface the proof-incomplete animals (bounded set) even if they are outside the window.
-        val goatProofsBySubject = proofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
+        val goatProofsBySubject = proofRows.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
         val actionNeeded = if (missingGoatIds.isEmpty()) {
             emptyList()
         } else {
@@ -935,9 +940,10 @@ class ScanViewModel @Inject constructor(
 
     private fun ShedCompletionSummaryDto?.allHandledProofsReady(): Boolean =
         this != null &&
+            submitEnabled &&
             expectedCount > 0 &&
-            handledCount >= expectedCount &&
-            proofReadyCount >= handledCount
+            handledCount == expectedCount &&
+            proofReadyCount == expectedCount
 
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
@@ -997,7 +1003,7 @@ class ScanViewModel @Inject constructor(
         val selectedTaskId = taskId ?: return
         if (_operatorAllowed.value != true || goatId.isBlank()) return
         viewModelScope.launch {
-            observedProofs.value
+            observedProofs.value.orEmpty()
                 .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
                 .forEach { proofCaptureRepository.retryUpload(selectedTaskId, it.id) }
         }

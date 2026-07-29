@@ -69,10 +69,12 @@ type createCampaignRequest struct {
 }
 
 type animalObservationRequest struct {
-	AnimalID         string  `json:"animal_id"`
-	WeightKg         float64 `json:"weight_kg"`
-	ProofArtifactID  string  `json:"proof_artifact_id"`
-	ActualLocationID string  `json:"actual_location_id"`
+	AnimalID          string  `json:"animal_id"`
+	CampaignShedID    string  `json:"campaign_shed_id"`
+	ScannedIdentifier string  `json:"scanned_identifier"`
+	WeightKg          float64 `json:"weight_kg"`
+	ProofArtifactID   string  `json:"proof_artifact_id"`
+	ActualLocationID  string  `json:"actual_location_id"`
 }
 
 type shedObservationRequest struct {
@@ -152,7 +154,7 @@ func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	obs, err := h.service.RecordAnimalObservation(r.Context(), actor(r), domain.RecordAnimalObservation{
-		CampaignID: r.PathValue("campaign_id"), AnimalID: req.AnimalID, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, AnimalID: req.AnimalID, ScannedIdentifier: req.ScannedIdentifier, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
 }

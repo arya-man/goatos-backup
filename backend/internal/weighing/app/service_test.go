@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -53,12 +54,12 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 		t.Fatal("director read execution roster; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
 		t.Fatalf("operator execute errored: %v", err)
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), director, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
 	}); err == nil {
 		t.Fatal("director executed weighing observation; want forbidden")
 	}
@@ -102,6 +103,7 @@ func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
 
 	_, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
 		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:   "00000000-0000-4000-8000-000000000801",
 		AnimalID:         animalOne,
 		WeightKg:         12.3,
 		ProofArtifactID:  proofOne,
@@ -172,7 +174,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("record first animal: %v", err)
@@ -181,7 +183,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 		t.Fatalf("first animal context = %+v, want expected current shed", first)
 	}
 	replay, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("replay animal observation: %v", err)
@@ -191,13 +193,23 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	wrongShed, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, IdempotencyKey: "weighing-seed:wrong-shed",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, IdempotencyKey: "weighing-seed:wrong-shed",
 	})
 	if err != nil {
 		t.Fatalf("record wrong-shed animal: %v", err)
 	}
 	if wrongShed.ExpectedLocationID != secondShed || wrongShed.ActualLocationID != testShed || wrongShed.ActualLocationLabel != "Kid Shed A" {
 		t.Fatalf("wrong-shed context = %+v, want expected shed B and actual shed A", wrongShed)
+	}
+
+	freeFlow, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "RFID-NEW-001", WeightKg: 12.7, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:free-flow",
+	})
+	if err != nil {
+		t.Fatalf("record free-flow RFID animal: %v", err)
+	}
+	if freeFlow.AnimalID != "RFID-NEW-001" || freeFlow.CampaignShedID != repo.shedByLocation[testShed].CampaignShedID {
+		t.Fatalf("free-flow context = %+v, want RFID-only observation scoped to selected shed", freeFlow)
 	}
 
 	shedObs, err := service.RecordShedObservation(ctx, operator, domain.RecordShedObservation{
@@ -216,7 +228,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	if _, err := service.RecordAnimalObservation(ctx, director, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
 	}); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director execute err = %v, want forbidden", err)
 	}
@@ -410,7 +422,30 @@ func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.Rec
 	}
 	expected, ok := r.expectedByAnimal[cmd.AnimalID]
 	if !ok {
-		return domain.Observation{}, ports.ErrNotFound
+		var shed domain.CampaignShed
+		shedOK := false
+		for _, candidate := range r.shedByLocation {
+			if candidate.CampaignShedID == cmd.CampaignShedID {
+				shed = candidate
+				shedOK = true
+				break
+			}
+		}
+		if !shedOK || strings.TrimSpace(cmd.ScannedIdentifier) == "" {
+			return domain.Observation{}, ports.ErrNotFound
+		}
+		obs := domain.Observation{
+			ObservationID:      fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
+			CampaignID:         cmd.CampaignID,
+			CampaignShedID:     shed.CampaignShedID,
+			AnimalID:           cmd.ScannedIdentifier,
+			WeightKg:           cmd.WeightKg,
+			ProofArtifactID:    cmd.ProofArtifactID,
+			ExpectedLocationID: shed.LocationID,
+		}
+		r.animalByIdem[cmd.IdempotencyKey] = obs
+		r.animalWrites++
+		return obs, nil
 	}
 	expectedShed := r.shedByLocation[expected.ExpectedLocationID]
 	actualLocation := r.currentLocation[cmd.AnimalID]
