@@ -334,7 +334,8 @@ LEFT JOIN locations shed
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
-// projection-review: producer grain = `workflow_actions` unique (workflow_id, action_key); consumer
+// projection-review: membership=workflow_instances for tenant module and event_date with card state pre-aggregated on write; group_key=workflow_id and status chip bucket; join_cardinality=goat tag park and shed enrichments are each one-to-at-most-one; pagination=chips aggregate the whole filter while cards use next_due_at and workflow_id keyset; scope=tenant_id module event_date and requested status
+// Producer grain = `workflow_actions` unique (workflow_id, action_key); consumer
 // card grain = `workflow_instances` unique (tenant_id, template_key, subject_goat_id) = 1 row per
 // card. The card counters were pre-aggregated ON WRITE in the action-write transaction, so this
 // read touches workflow_instances alone for state — the joins here (goat PK, one LATERAL tag row,

@@ -5,7 +5,8 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- projection-review: producer unique = workflow_actions(workflow_id, action_key); consumer match =
+-- projection-review: membership=birth_mother workflows with an invalid unverified ORS second-round completion; group_key=tenant_id and workflow_id; join_cardinality=reopened actions and action rollups reduce to at most one row per workflow before update; pagination=one migration repair set independent of page size; scope=template_key birth_mother and the identical main non-approval action set
+-- Producer unique = workflow_actions(workflow_id, action_key); consumer match =
 -- workflow_instances(tenant_id, workflow_id). The reopened side returns at most one ORS-2 row per
 -- workflow and every joined action side is pre-aggregated to one row per workflow. Numerator and
 -- denominator both range over section='main' AND action_type<>'approval' for the same workflow_id.

@@ -179,12 +179,12 @@ func feedProjQuery(target time.Time) domain.FeedProjectedCountQuery {
 	return domain.FeedProjectedCountQuery{TenantID: countsTenant, TargetDate: target, Limit: 100}
 }
 
-// TestFeedProjectionTimingRule proves the zero-lead timing rule at the SQL layer (maintainer
+// TestFeedProjectionDateShiftTimingRule proves the zero-lead timing rule at the SQL layer (maintainer
 // decision 2026-07-27): a movement counts from its AUTHORIZATION day onward regardless of priority,
 // and is flagged OVERDUE only once it has been standing open since before the packing day
 // (feed day - 1). It also proves the <= comparison: an overdue movement keeps counting instead of
 // silently dropping out and de-feeding a shed whose animals are still expected.
-func TestFeedProjectionTimingRule(t *testing.T) {
+func TestFeedProjectionDateShiftTimingRule(t *testing.T) {
 	ctx := context.Background()
 
 	cases := []struct {

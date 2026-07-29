@@ -28,11 +28,57 @@ import sg.mesha.goatos.feature.feed.FeedTransportRowUi
 import sg.mesha.goatos.feature.feed.FeedTransportSubmitStatus
 import sg.mesha.goatos.feature.feed.FeedTransportUiState
 
-@HiltViewModel class FeedTransportViewModel @Inject constructor(private val repo:FeedTransportRepository):ViewModel(){
-    private val date=LocalDate.now(ZoneId.of("Asia/Kolkata")).toString();private val flags=MutableStateFlow(Triple(false,false,20))
-    val state:StateFlow<FeedTransportUiState> = combine(repo.observe(date,100),flags){page,f->FeedTransportUiState(date,page.items.map{FeedTransportRowUi(it.taskId,it.parkId,it.shedId,it.shedLabel,it.parkLabel,it.status,it.reworkReason)},f.first,f.second,page.nextCursor!=null,false)}.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),FeedTransportUiState(date=date))
-    init{refresh()};fun onEvent(e:FeedTransportEvent){when(e){FeedTransportEvent.Refresh->refresh();FeedTransportEvent.LoadMore->viewModelScope.launch{repo.loadMore(date)};is FeedTransportEvent.Open->Unit}}
-    private fun refresh()=viewModelScope.launch{flags.value=Triple(true,false,20);val r=repo.refresh(date);flags.value=Triple(false,r.isFailure,20)}
+private data class FeedTransportFlags(
+    val isRefreshing: Boolean = false,
+    val isOffline: Boolean = false,
+    val isLoadingMore: Boolean = false,
+)
+
+@HiltViewModel
+class FeedTransportViewModel @Inject constructor(
+    private val repo: FeedTransportRepository,
+) : ViewModel() {
+    private val date = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+    private val flags = MutableStateFlow(FeedTransportFlags())
+    val state: StateFlow<FeedTransportUiState> = combine(repo.observe(date, 100), flags) { page, current ->
+        FeedTransportUiState(
+            date = date,
+            rows = page.items.map {
+                FeedTransportRowUi(it.taskId, it.parkId, it.shedId, it.shedLabel, it.parkLabel, it.status, it.reworkReason)
+            },
+            isRefreshing = current.isRefreshing,
+            isOffline = current.isOffline,
+            hasMore = page.nextCursor != null,
+            isLoadingMore = current.isLoadingMore,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FeedTransportUiState(date = date))
+
+    init {
+        refresh()
+    }
+
+    fun onEvent(event: FeedTransportEvent) {
+        when (event) {
+            FeedTransportEvent.Refresh -> refresh()
+            FeedTransportEvent.LoadMore -> loadMore()
+            is FeedTransportEvent.Open -> Unit
+        }
+    }
+
+    private fun refresh() = viewModelScope.launch {
+        flags.value = flags.value.copy(isRefreshing = true, isOffline = false)
+        val result = repo.refresh(date)
+        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.isFailure)
+    }
+
+    private fun loadMore() {
+        if (flags.value.isLoadingMore) return
+        flags.value = flags.value.copy(isLoadingMore = true)
+        viewModelScope.launch {
+            val result = repo.loadMore(date)
+            flags.value = flags.value.copy(isLoadingMore = false, isOffline = result.isFailure)
+        }
+    }
 }
 
 @HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,saved:SavedStateHandle):ViewModel(){

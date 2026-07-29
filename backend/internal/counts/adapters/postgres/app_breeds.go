@@ -10,7 +10,7 @@ import (
 
 // appActiveBreedsQuery returns the distinct breeds PRESENT on the tenant's live herd, each with a
 // head count, ordered most-common first. It is the same source and grain as the Counts Breakdown
-// `breeds` facet (`COALESCE(g.breed,'')` over alive, non-merged goats) so the value an operator
+// `breeds` facet (`COALESCE(g.breed,”)` over alive, non-merged goats) so the value an operator
 // picks here is exactly the value that screen shows and that the birth write stores -- but served
 // on the operator (CountsWrite) surface, which the read-only Counts Breakdown (`CountsRead`) is not.
 //
@@ -18,7 +18,7 @@ import (
 // empty option. The tenant+lifecycle predicate is index-friendly and the GROUP BY collapses to at
 // most a handful of breed rows, so this is bounded well within the current scale envelope.
 //
-// projection-review: single-table aggregate, no JOIN, so no fan-out to prove.
+// projection-review: membership=tenant live non-merged goats with a nonblank breed; group_key=normalized breed; join_cardinality=single-table aggregate counts each goat row once; pagination=whole bounded breed facet independent of page size; scope=tenant_id plus alive and non-merged predicates
 //   - membership source: canonical `goats` (tenant-scoped, alive, non-merged) -- the same source and
 //     predicate as the Counts Breakdown `breeds` facet (countsBreakdownFacetsSQL), so both surfaces
 //     resolve this count to one authoritative source/grain (cross-surface count parity).
