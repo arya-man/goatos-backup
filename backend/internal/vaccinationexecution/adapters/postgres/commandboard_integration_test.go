@@ -977,3 +977,96 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		}
 	}
 }
+
+// TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucketsPaginationExecutionDate
+// covers the farmwise cohort cell grain. The same management stage on two farms must stay two
+// cells (never merge), pending and verified must be disjoint per cell, and the animal count must
+// not multiply by the number of vaccines attached to the cohort.
+func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucketsPaginationExecutionDate(t *testing.T) {
+	t.Log("ScopeHierarchy OneToMany StatusBuckets Pagination ExecutionDate: cohort cells are farmwise; pending and verified are disjoint; animal count does not fan out per vaccine")
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedCommandBoardProjection(t, ctx, pool)
+	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	// goat1+goat2 sit in shed1 (park 1); goat3 sits in shed2 (park 2). All share stage K1, so a
+	// non-farmwise grain would merge them into one cell.
+	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat1",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000b000001', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat2 accepted",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000b000002', $1, $2, $3, 'shed', $4, $5, 'completed', $6::timestamptz)`,
+		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET, asOf)
+	// A second vaccine on goat1 — the animal count must stay 1 for this cohort, not 2.
+	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat1 second vaccine",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000b000003', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR, asOf)
+	execProjectionSQL(t, ctx, pool, "cohort farm obligation park2 goat3",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000b000004', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
+
+	// goat2's ET dose is verifier-accepted, so it must land in verified and NOT in pending.
+	execProjectionSQL(t, ctx, pool, "cohort farm accepted completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at)
+		 VALUES ('70000000-0000-4000-8000-00000c000001', $1, '70000000-0000-4000-8000-00000b000002', $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
+		cmdBoardTestTenant, cmdBoardGoat2, asOf)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+		TenantID: cmdBoardTestTenant,
+		AsOf:     asOf,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	type cellKey struct{ park, stage, vaccine string }
+	cells := map[cellKey]domain.CommandBoardCohortCell{}
+	for _, cell := range resp.CohortMatrix {
+		key := cellKey{cell.Cohort.ParkName, cell.Cohort.ManagementStage, cell.VaccineLabel}
+		if _, dup := cells[key]; dup {
+			t.Fatalf("Pagination: duplicate cohort cell for %+v — cells must be unique per farm/stage/vaccine", key)
+		}
+		cells[key] = cell
+	}
+
+	// ScopeHierarchy: same stage + same vaccine on two farms stays two distinct cells.
+	park1ET, ok1 := cells[cellKey{"Park A", "K1", "ET+TT"}]
+	park2ET, ok2 := cells[cellKey{"Park B", "K1", "ET+TT"}]
+	if !ok1 || !ok2 {
+		t.Fatalf("ScopeHierarchy: expected one ET+TT cell per farm, got cells=%+v", cells)
+	}
+
+	// StatusBuckets: pending and verified are disjoint. Park A has goat1 scheduled (pending) and
+	// goat2 accepted (verified) — one each, never both counting the same obligation.
+	if park1ET.PendingCount != 1 {
+		t.Fatalf("StatusBuckets: Park A ET pending = %d, want 1", park1ET.PendingCount)
+	}
+	if park1ET.VerifiedCount != 1 {
+		t.Fatalf("StatusBuckets: Park A ET verified = %d, want 1", park1ET.VerifiedCount)
+	}
+	if park2ET.VerifiedCount != 0 {
+		t.Fatalf("StatusBuckets: Park B ET verified = %d, want 0 — no accepted completion on that farm", park2ET.VerifiedCount)
+	}
+
+	// OneToMany / ExecutionDate: goat1 carries ET and PPR on the same business day, so the cohort
+	// head count must stay at the DISTINCT animals in the cohort, not one per vaccine.
+	park1PPR, okPPR := cells[cellKey{"Park A", "K1", "PPR"}]
+	if !okPPR {
+		t.Fatalf("expected a PPR cell on Park A, got cells=%+v", cells)
+	}
+	if park1ET.Cohort.AnimalCount != park1PPR.Cohort.AnimalCount {
+		t.Fatalf("OneToMany: animal count differs per vaccine (ET=%d PPR=%d) — head count must not fan out",
+			park1ET.Cohort.AnimalCount, park1PPR.Cohort.AnimalCount)
+	}
+	if park1PPR.Cohort.AnimalCount != 1 {
+		t.Fatalf("OneToMany: Park A PPR animal count = %d, want 1 (only goat1 carries PPR)", park1PPR.Cohort.AnimalCount)
+	}
+}

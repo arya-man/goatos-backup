@@ -788,6 +788,10 @@ type CommandBoardKPI struct {
 }
 
 type CommandBoardCohort struct {
+	// ParkID/ParkName carry the farm this cohort sits on. The matrix is read farmwise, so the
+	// same cohort on two farms stays two cells.
+	ParkID          string `json:"parkId"`
+	ParkName        string `json:"parkName"`
 	ManagementStage string `json:"managementStage"`
 	Sex             string `json:"sex"`
 	AnimalCount     int    `json:"animalCount"`
@@ -797,6 +801,10 @@ type CommandBoardCohortCell struct {
 	Cohort       CommandBoardCohort `json:"cohort"`
 	VaccineLabel string             `json:"vaccineLabel"`
 	PendingCount int                `json:"pendingCount"`
+	// VerifiedCount is DISJOINT from PendingCount: an accepted obligation is neither
+	// still-scheduled nor recorded-but-unverified, so the two can be shown side by side
+	// without double counting.
+	VerifiedCount int `json:"verifiedCount"`
 }
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination.
