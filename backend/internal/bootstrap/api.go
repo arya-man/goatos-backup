@@ -442,6 +442,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
 		// now reads verified rows from here, and the enqueue seam is wired below.
 		WithPackingStore(feedDirectionRepo).
+		WithTransportStore(feedDirectionRepo).
 		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
@@ -519,6 +520,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	feedDirectionService.WithPackingVerificationEnqueuer(
 		feeddirectionverificationbridge.NewPacking(verificationService))
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
+		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	feedDirectionService.WithTransportVerificationEnqueuer(feeddirectionverificationbridge.NewTransport(verificationService))
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as

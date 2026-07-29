@@ -128,6 +128,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		contributions: []moduleNavContribution{
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead}, //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},    //nav-composition:ignore: registry entry
+			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -485,6 +486,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.awaiting_rfid":  "Awaiting RFID",
 		"nav.feed_direction": "Feed Direction",
 		"nav.feed_packing":   "Feed Packing",
+		"nav.feed_transport": "Feed Transport",
 		"nav.videos":         "Videos",
 		"nav.you":            "You",
 
@@ -510,6 +512,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.awaiting_rfid":  "RFID प्रतीक्षा में",
 		"nav.feed_direction": "फ़ीड दिशा",
 		"nav.feed_packing":   "फ़ीड पैकिंग",
+		"nav.feed_transport": "फ़ीड परिवहन",
 		"nav.videos":         "वीडियो",
 		"nav.you":            "आप",
 
@@ -535,6 +538,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.awaiting_rfid":  "RFID ಬಾಕಿ ಇದೆ",
 		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
+		"nav.feed_transport": "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.videos":         "ವೀಡಿಯೊಗಳು",
 		"nav.you":            "ನೀವು",
 
@@ -560,6 +564,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.awaiting_rfid":  "RFID కోసం వేచి ఉంది",
 		"nav.feed_direction": "ఫీడ్ దిశ",
 		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",
+		"nav.feed_transport": "ఫీడ్ రవాణా",
 		"nav.videos":         "వీడియోలు",
 		"nav.you":            "మీరు",
 

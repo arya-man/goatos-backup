@@ -53,4 +53,5 @@
     <string name="verify_status_approved">ఆమోదించబడింది</string>
     <string name="verify_status_rejected">తిరస్కరించబడింది</string>
     <string name="verify_category_all">అన్నీ</string>
+    <string name="verify_module_transport">రవాణా</string>
 </resources>

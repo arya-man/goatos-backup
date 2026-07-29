@@ -288,6 +288,24 @@ data class FeedDirectionCompleteResponseDto(
     @SerialName("applied") val applied: Boolean = false,
 )
 
+@Serializable
+data class FeedTransportTaskDto(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("park_id") val parkId: String,
+    @SerialName("park_label") val parkLabel: String,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("shed_label") val shedLabel: String,
+    @SerialName("business_date") val businessDate: String,
+    @SerialName("status") val status: String,
+    @SerialName("operator_id") val operatorId: String? = null,
+    @SerialName("rework_reason") val reworkReason: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+)
+
+@Serializable data class FeedTransportTaskPageDto(@SerialName("items") val items: List<FeedTransportTaskDto> = emptyList(), @SerialName("next_cursor") val nextCursor: String? = null)
+@Serializable data class FeedTransportSubmitRequestDto(@SerialName("proof_ref") val proofRef: String)
+@Serializable data class FeedTransportSubmitResponseDto(@SerialName("attempt_id") val attemptId: String, @SerialName("status") val status: String, @SerialName("attempt_no") val attemptNo: Int, @SerialName("newly_pending") val newlyPending: Boolean)
+
 // ---------------------------------------------------------------------------
 // WRITE — POST /feed-direction/distribution/complete (verifier-gated)
 // ---------------------------------------------------------------------------

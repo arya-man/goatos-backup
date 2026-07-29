@@ -53,4 +53,5 @@
     <string name="verify_status_approved">स्वीकृत</string>
     <string name="verify_status_rejected">अस्वीकृत</string>
     <string name="verify_category_all">सभी</string>
+    <string name="verify_module_transport">परिवहन</string>
 </resources>

@@ -21,13 +21,13 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 // stays pending_verification. Because all three binaries now call this one function, asserting the
 // function subscribes all three appliers (to BOTH the approved and rework verdicts) is enough to catch
 // a dropped applier. nil stores are fine here: nothing is published, so no handler method runs.
-func TestRegisterVerificationAppliersRegistersAllThree(t *testing.T) {
+func TestRegisterVerificationAppliersRegistersAllFour(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
 	RegisterVerificationAppliers(bus, nil, nil, nil)
 
 	// shifting + feed-distribution + feed-packing = 3 appliers, each subscribing to both verdict types.
-	const wantAppliers = 3
+	const wantAppliers = 4
 	for _, eventType := range []string{
 		"verification.verdict.approved",
 		"verification.verdict.rework",

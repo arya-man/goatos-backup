@@ -292,7 +292,7 @@
     },
     {
       "eventType": "verification.item.pending",
-      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, and death_evidence; shifting_move carries one video for low priority or all three shifting/feed-packing/feed-given videos together for high priority; embedded packing proof remains shifting-scoped and emits no feed completion event)",
+      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, feed_transport, and death_evidence; feed_transport is one immutable attempt with one live-camera video)",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -341,6 +341,11 @@
           "notes": "FeedPackingVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_packing_completion (distinct from the distribution handler, which shares module=feed but uses ref_type=feed_distribution_completion) and calls PackingCompletionStore.ApplyVerifiedPacking, which flips the feed_packing_completions row 'pending_verification' -> 'completed' and emits feed.packing.completed. Maintainer-2026-07-26 gate (SUPERSEDING the earlier 'packing stays instant' rule): a feed PACKING session is completed only when a verifier approves the operator's ONE mandatory packing video. Separate NEW table."
         },
         {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_transport_verification_handler.go",
+          "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; approval marks the immutable attempt approved and its daily shed task completed."
+        },
+        {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
@@ -353,6 +358,7 @@
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/eventwiring/appliers_test.go",
         "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
@@ -389,6 +395,11 @@
           "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-records the video + water proof and re-submits."
         },
         {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_transport_verification_handler.go",
+          "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; rejection preserves the rejected attempt/proof and returns the daily task to rework for the same operator and a fresh attempt."
+        },
+        {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
@@ -400,6 +411,7 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [

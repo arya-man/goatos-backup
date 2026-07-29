@@ -115,6 +115,12 @@ func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids
 	return f.err
 }
 
+func (f *fakeProofValidator) ValidateLiveCameraVideo(_ context.Context, _, proofID, _ string) error {
+	f.calls++
+	f.lastIDs = []string{proofID}
+	return f.err
+}
+
 func validCompleteInput() CompleteSessionInput {
 	return CompleteSessionInput{
 		TenantID:       testTenant,

@@ -88,6 +88,9 @@ type Service struct {
 	// CompletePacking fails closed rather than stranding a pending_verification row with nothing for a
 	// verifier to act on.
 	packingEnqueuer FeedPackingVerificationEnqueuer
+	// transports owns the daily, non-session Feed Transport shed task and append-only proof attempts.
+	transports        ports.TransportStore
+	transportEnqueuer FeedTransportVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
 }
@@ -190,6 +193,16 @@ func (s *Service) WithPackingStore(store ports.PackingCompletionStore) *Service 
 // queue item.
 func (s *Service) WithPackingVerificationEnqueuer(enqueuer FeedPackingVerificationEnqueuer) *Service {
 	s.packingEnqueuer = enqueuer
+	return s
+}
+
+func (s *Service) WithTransportStore(store ports.TransportStore) *Service {
+	s.transports = store
+	return s
+}
+
+func (s *Service) WithTransportVerificationEnqueuer(enqueuer FeedTransportVerificationEnqueuer) *Service {
+	s.transportEnqueuer = enqueuer
 	return s
 }
 

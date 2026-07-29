@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">पानी वितरण का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_feed_packing_title">चारा पैकिंग रिकॉर्ड करें</string>
     <string name="proof_camera_feed_packing_instruction">चारा पैकिंग का काम साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_feed_transport_title">चारा परिवहन वीडियो</string>
+    <string name="proof_camera_feed_transport_instruction">इस शेड तक चारा पहुँचाते हुए वास्तविक समय में रिकॉर्ड करें</string>
     <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
     <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
     <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>

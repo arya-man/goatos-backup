@@ -166,6 +166,7 @@ func run(ctx context.Context, args []string) error {
 		// so the interval/4 default is ample.
 		supervisor.RegisterCadence("operational", 5*time.Minute,
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
+			kernelstages.NewFeedTransportStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),

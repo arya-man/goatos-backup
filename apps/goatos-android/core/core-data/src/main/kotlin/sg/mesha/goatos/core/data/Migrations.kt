@@ -514,6 +514,14 @@ val MIGRATION_19_20: Migration = object : Migration(19, 20) {
     }
 }
 
+val MIGRATION_20_21: Migration = object : Migration(20,21){
+    override fun migrate(db:SupportSQLiteDatabase){
+        db.execSQL("CREATE TABLE IF NOT EXISTS `feed_transport_items` (`taskId` TEXT NOT NULL, `businessDate` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`taskId`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_items_businessDate_sortIndex` ON `feed_transport_items` (`businessDate`,`sortIndex`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `feed_transport_remote_keys` (`businessDate` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`businessDate`))")
+    }
+}
+
 /**
  * v18 -> v19: the "Awaiting RFID" list pair — the Counts promote flow's offline-first read model. One
  * Room row per temporary-tagged goat ([AwaitingRfidItemEntity]) plus its keyset remote key

@@ -741,9 +741,10 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}
 }
 
-// TestFeedModuleRoleMatrix pins who sees the mobile Feed module and which of its two tabs. The
+// TestFeedModuleRoleMatrix pins who sees the mobile Feed module and which of its tabs. The
 // module is the Feed vertical on the phone: Feed Direction (the generated sheet, gated ProtocolRead)
-// and Feed Packing (the bag worklist, gated FeedPackingRead). The two tabs gate on DIFFERENT
+// Feed Packing (the bag worklist, gated FeedPackingRead), and Feed Transport (the daily shed proof,
+// gated FeedDirectionComplete). The tabs gate on DIFFERENT
 // authorities on purpose, so the matrix is not "all or nothing":
 //
 //   - CEO/park head hold both authorities, so they get both tabs (via the drawer — they default to
@@ -759,12 +760,12 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the feed module, nil => module absent
 	}{
-		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing"}},
-		{permissions.RoleParkHead, []string{"feed_direction", "feed_packing"}},
+		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleParkHead, []string{"feed_direction", "feed_packing", "feed_transport"}},
 		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
-		{permissions.RoleOperator, []string{"feed_direction", "feed_packing"}},
+		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
 		{permissions.RoleVerifier, nil},
 	}
 	for _, tc := range tests {

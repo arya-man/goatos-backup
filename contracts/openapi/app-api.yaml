@@ -2631,6 +2631,52 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-transport/tasks:
+    get:
+      tags: [Feed Direction]
+      operationId: listFeedTransportTasks
+      summary: List today's daily shed-grain Feed Transport tasks.
+      parameters:
+        - in: query
+          name: business_date
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: One bounded page of daily tasks; grain is tenant + business_date + active shed, never session.
+          content: { application/json: { schema: { $ref: "#/components/schemas/FeedTransportTaskPage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /feed-transport/tasks/{task_id}/submit:
+    post:
+      tags: [Feed Direction]
+      operationId: submitFeedTransportTask
+      summary: Submit a fresh live-camera Feed Transport video for verification.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/FeedTransportSubmitRequest" } } }
+      responses:
+        "200":
+          description: A new immutable attempt was submitted and the task is verification_due.
+          content: { application/json: { schema: { $ref: "#/components/schemas/FeedTransportSubmitResponse" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { description: Camera video proof is missing, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } } }
   /feed-config/ration-rates:
     get:
       tags:
@@ -6810,6 +6856,43 @@ components:
             True when this call flipped the session into pending_verification and enqueued a
             verification item. False on an idempotent replay or an already-pending/already-completed
             no-op.
+    FeedTransportTask:
+      type: object
+      additionalProperties: false
+      required: [task_id, park_id, park_label, shed_id, shed_label, business_date, status, scheduled_at]
+      properties:
+        task_id: { type: string, format: uuid }
+        park_id: { type: string, format: uuid }
+        park_label: { type: string }
+        shed_id: { type: string, format: uuid }
+        shed_label: { type: string }
+        business_date: { type: string, format: date }
+        status: { type: string, enum: [due, verification_due, rework, completed] }
+        operator_id: { type: string, format: uuid }
+        rework_reason: { type: string }
+        scheduled_at: { type: string, format: date-time }
+    FeedTransportTaskPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/FeedTransportTask" } }
+        next_cursor: { type: string }
+    FeedTransportSubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [proof_ref]
+      properties:
+        proof_ref: { type: string, minLength: 1, description: Server-minted proof id for one fresh in-app camera video. }
+    FeedTransportSubmitResponse:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, status, attempt_no, newly_pending]
+      properties:
+        attempt_id: { type: string, format: uuid }
+        status: { type: string, enum: [verification_due] }
+        attempt_no: { type: integer, minimum: 1 }
+        newly_pending: { type: boolean }
     FeedPackingWorklistSummary:
       type: object
       additionalProperties: false

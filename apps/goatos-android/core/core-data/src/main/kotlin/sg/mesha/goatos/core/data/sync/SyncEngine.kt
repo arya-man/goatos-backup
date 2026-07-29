@@ -16,6 +16,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -234,6 +235,7 @@ class SyncEngine(
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
         OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
     }
@@ -556,6 +558,8 @@ class SyncEngine(
         )
         return syncJson.encodeToString(response)
     }
+
+    private suspend fun dispatchFeedTransportSubmit(item:OutboxEntity):String{val payload=syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson);return syncJson.encodeToString(api.submitFeedTransport(payload.taskId,item.idempotencyKey,FeedTransportSubmitRequestDto(resolveUploadedProofRef(payload.proofOutboxItemId))))}
 
     /**
      * Resolves an uploaded proof_id from a coupled PROOF_UPLOAD outbox row (same-group ordering means

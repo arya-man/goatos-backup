@@ -59,4 +59,5 @@
     <string name="verify_status_approved">Approved</string>
     <string name="verify_status_rejected">Rejected</string>
     <string name="verify_category_all">All</string>
+    <string name="verify_module_transport">Transport</string>
 </resources>

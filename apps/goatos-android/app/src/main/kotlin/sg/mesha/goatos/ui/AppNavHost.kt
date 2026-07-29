@@ -57,6 +57,10 @@ import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
+import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
+import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
+import sg.mesha.goatos.feature.feed.FeedTransportEvent
+import sg.mesha.goatos.feature.feed.FeedTransportScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
@@ -108,6 +112,8 @@ import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
+import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
+import sg.mesha.goatos.viewmodel.FeedTransportViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
@@ -208,6 +214,9 @@ object Routes {
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
+    const val FEED_TRANSPORT = "/feed/transport"
+    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}"
+    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}"
 
     // L2 feed-direction completion detail, reached by tapping a shed-session row on either feed
     // screen. Path args are the completion grain; labels are query args (URL-encoded, may contain
@@ -1225,6 +1234,10 @@ fun AppNavHost(
             )
         }
 
+        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open)navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel))else vm.onEvent(event)}}
+
+        composable(route=Routes.FEED_TRANSPORT_CAPTURE,arguments=listOf(navArgument(FeedTransportCaptureViewModel.ARG_TASK_ID){type=NavType.StringType},navArgument(FeedTransportCaptureViewModel.ARG_SHED_ID){type=NavType.StringType},navArgument(FeedTransportCaptureViewModel.ARG_SHED_LABEL){type=NavType.StringType;defaultValue=""})){val vm:FeedTransportCaptureViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();CaptureAccessGate{BindVideoCaptureSource(rememberDelegatingProofCaptureSource());FeedTransportCaptureScreen(state){e->if(e==FeedTransportCaptureEvent.Back)navController.popBackStack() else vm.onEvent(e)}}}
+
         // L2 feed-direction completion detail: optional video + Mark done. Camera bound only while
         // composed (operator capture role gated), releasing on leave.
         composable(
@@ -1564,6 +1577,7 @@ private val supportedRootDestinations = setOf(
     Routes.TIMETABLE,
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,
+    Routes.FEED_TRANSPORT,
     // Counts roots: a Counts-only principal's default landing is the first page they may
     // open (/counts census for CEO/admin, /counts/birth-death for a capture operator).
     // These are registered top-level composables, so cold start must accept them instead

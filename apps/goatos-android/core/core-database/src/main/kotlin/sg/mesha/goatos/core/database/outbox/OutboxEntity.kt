@@ -116,6 +116,7 @@ enum class OutboxOpType {
      * two completions of the same shed-session drain strictly oldest-first.
      */
     FEED_PACKING_COMPLETE,
+    FEED_TRANSPORT_SUBMIT,
 
     /**
      * Birth/Death follow-up workflow action writes (docs/decisions/birth-death-workflows.md):

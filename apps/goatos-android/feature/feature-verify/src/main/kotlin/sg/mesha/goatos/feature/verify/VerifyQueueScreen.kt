@@ -95,7 +95,7 @@ data class VerifyCategoryOption(val value: String?, val label: String?)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
-enum class VerifyModuleTab { BIRTH, DEATH, VACCINATION, SHIFTING, PACKING, FEED_DIRECTION }
+enum class VerifyModuleTab { BIRTH, DEATH, VACCINATION, SHIFTING, PACKING, FEED_DIRECTION, TRANSPORT }
 
 @Immutable
 data class VerifyQueueUiState(
@@ -337,6 +337,7 @@ private fun ModuleTabs(
         VerifyModuleTab.SHIFTING to stringResource(R.string.verify_module_shifting),
         VerifyModuleTab.PACKING to stringResource(R.string.verify_module_packing),
         VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
+        VerifyModuleTab.TRANSPORT to stringResource(R.string.verify_module_transport),
     )
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),

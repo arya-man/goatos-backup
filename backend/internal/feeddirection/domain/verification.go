@@ -30,6 +30,15 @@ const (
 	DistributionStatusRework = "rework"
 )
 
+const (
+	VerificationCategoryTransport  = "feed_transport"
+	VerificationRefTypeTransport   = "feed_transport_attempt"
+	TransportStatusDue             = "due"
+	TransportStatusVerificationDue = "verification_due"
+	TransportStatusRework          = "rework"
+	TransportStatusCompleted       = "completed"
+)
+
 // Feed PACKING verification gate coordinates (maintainer decision, 2026-07-26, SUPERSEDING the
 // "packing stays instant, no verifier" rule). A feed PACKING shed-session now passes through the
 // generic Verification module too: the operator completes with ONE MANDATORY packing video, which
