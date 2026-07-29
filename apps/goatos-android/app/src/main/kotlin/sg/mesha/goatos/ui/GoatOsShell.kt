@@ -159,9 +159,6 @@ fun GoatOsShell(navState: NavState) {
     val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
-    LaunchedEffect(syncStatus.failedCount, syncStatus.deadLetterCount) {
-        if (syncStatus.failedCount > 0 || syncStatus.deadLetterCount > 0) showSyncSheet = true
-    }
 
     // Drawer identity + settings actions (mock `ovl-drawer`). ProfileViewModel already resolves
     // name/role/initials from the bootstrap cache and owns sign-out + language persistence.

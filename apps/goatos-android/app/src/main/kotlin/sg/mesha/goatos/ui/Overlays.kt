@@ -306,6 +306,7 @@ fun SyncSheet(
     val syncing = syncingCount
     val pending = queuedCount
     val summary = when {
+        failedCount > 0 -> stringResource(DesignSystemR.string.sync_summary_failed_fmt, failedCount)
         syncing > 0 -> stringResource(DesignSystemR.string.sync_summary_syncing_fmt, syncing)
         pending > 0 -> stringResource(DesignSystemR.string.sync_summary_queued_fmt, pending)
         else -> stringResource(DesignSystemR.string.sync_summary_all_synced)

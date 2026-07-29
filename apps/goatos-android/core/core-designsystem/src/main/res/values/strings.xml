@@ -48,6 +48,7 @@
     <string name="sync_online">Online</string>
     <string name="sync_offline">Offline</string>
     <string name="sync_summary_all_synced">All synced</string>
+    <string name="sync_summary_failed_fmt">%1$d failed</string>
     <string name="sync_summary_syncing_fmt">Syncing %1$d…</string>
     <string name="sync_summary_queued_fmt">%1$d queued</string>
     <string name="sync_retry_all">Retry all</string>
