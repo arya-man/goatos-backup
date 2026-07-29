@@ -3700,9 +3700,9 @@ WHERE oi.tenant_id = $1::uuid
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
 `
-	parkID := ""
-	if q.ParkID != nil {
-		parkID = *q.ParkID
+	var parkID *string
+	if q.ParkID != nil && strings.TrimSpace(*q.ParkID) != "" {
+		parkID = q.ParkID
 	}
 	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead); err != nil {
@@ -3892,6 +3892,7 @@ JOIN obligation_instances oi ON vc.obligation_id = oi.obligation_id AND vc.tenan
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 WHERE vc.tenant_id = $1::uuid
   AND vc.administered_at IS NOT NULL
+  AND vc.administered_at <= $2::timestamptz
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
@@ -3945,6 +3946,7 @@ JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_i
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
+  AND $2::timestamptz IS NOT NULL
   AND oi.scope_type = 'shed'
   AND EXISTS (
     SELECT 1 FROM vaccination_completions vc2
