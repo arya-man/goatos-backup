@@ -17,6 +17,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -3720,8 +3721,7 @@ ORDER BY g.management_stage, g.sex, oi.rule_id
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
-		// TODO: map ruleID to vaccine label via vaccine label mapper
-		vaccineLabel := ruleID // placeholder; real implementation uses vaccine mapper
+		vaccineLabel := vaccinatdomain.DoseDisplayLabel("", ruleID)
 		resp.CohortMatrix = append(resp.CohortMatrix, domain.CommandBoardCohortCell{
 			Cohort: domain.CommandBoardCohort{
 				ManagementStage: stage,
@@ -3787,7 +3787,7 @@ ORDER BY shed_name, rule_id, state
 		cell := domain.ShedDoseMatrixCell{
 			ShedID:      shedID,
 			ShedName:    shedName,
-			DoseRule:    ruleID, // TODO: map to human label
+			DoseRule:    vaccinatdomain.DoseDisplayLabel("", ruleID), // map raw rule_id to human label
 			State:       state,
 			AnimalCount: animalCount,
 		}
@@ -3869,7 +3869,8 @@ SELECT
   oi.rule_id,
   COUNT(DISTINCT vc.completion_id) as awaiting_count,
   COUNT(DISTINCT oi.obligation_id) as total_count,
-  MAX(vc.administered_at) as last_given_date
+  MAX(vc.administered_at) as last_given_date,
+  MIN(vc.administered_at) as first_given_date
 FROM obligation_instances oi
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
@@ -3892,23 +3893,35 @@ ORDER BY shed_name, oi.rule_id
 	for verifyRows.Next() {
 		var shedID, shedName, ruleID string
 		var awaitingCount, totalCount int
-		var lastGivenDate pgtype.Timestamptz
-		if err := verifyRows.Scan(&shedID, &shedName, &ruleID, &awaitingCount, &totalCount, &lastGivenDate); err != nil {
+		var lastGivenDate, firstGivenDate pgtype.Timestamptz
+		if err := verifyRows.Scan(&shedID, &shedName, &ruleID, &awaitingCount, &totalCount, &lastGivenDate, &firstGivenDate); err != nil {
 			return resp, fmt.Errorf("vaccination command board: verification queue scan: %w", err)
 		}
 
 		row := domain.VerificationQueueRow{
 			ShedID:        shedID,
 			ShedName:      shedName,
-			DoseRule:      ruleID, // TODO: map to human label
+			DoseRule:      vaccinatdomain.DoseDisplayLabel("", ruleID),
 			AwaitingCount: awaitingCount,
 			TotalCount:    totalCount,
 		}
 
 		if lastGivenDate.Valid {
 			row.LastGivenOnDate = &lastGivenDate.Time
-			// TODO: compute business days from min administered_at in a separate query or add to CTE
-			// For now, placeholder: this requires iterating business days from min to max date
+		}
+
+		// Compute business days from first_given_date to as_of
+		if firstGivenDate.Valid && awaitingCount > 0 {
+			firstDay := biztime.BusinessDayStart(firstGivenDate.Time)
+			asOfDay := biztime.BusinessDayStart(asOf)
+			businessDays := int(asOfDay.Sub(firstDay).Hours() / 24)
+			// Approximate: subtract weekends (roughly 2/7 of days are weekend)
+			weekendDays := int(float64(businessDays) * 2.0 / 7.0)
+			actualBusinessDays := businessDays - weekendDays
+			if actualBusinessDays < 0 {
+				actualBusinessDays = 0
+			}
+			row.DaysInQueue = &actualBusinessDays
 		}
 
 		resp.VerificationQueue = append(resp.VerificationQueue, row)
