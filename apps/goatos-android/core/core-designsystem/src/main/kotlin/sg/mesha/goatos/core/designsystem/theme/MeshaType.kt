@@ -17,7 +17,7 @@ object MeshaType {
     val eyebrow = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.W700, letterSpacing = 1.6.sp)
 
     /** Big screen title ("Calendar", "You", "Alerts"). */
-    val screenTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.5).sp)
+    val screenTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.W700)
 
     /** `.vhead h3` — compact in-header title. */
     val headerTitle = TextStyle(fontSize = 16.5.sp, fontWeight = FontWeight.W700, letterSpacing = (-0.3).sp)
