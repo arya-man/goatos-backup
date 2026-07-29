@@ -4,14 +4,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 
-
-// Chart series palette (theme tokens only). Assigned by response order, never by
-// vaccine name, so the renderer stays label-agnostic.
-const VACCINE_SERIES_COLORS = ["var(--ok)", "var(--info)", "var(--warn)", "var(--brand)"] as const;
-
-// Top of the weekly plot area; bars are drawn from y=220 upward over 180px.
-const PLOT_TOP = 40;
-
 // Build colored grid heatmap from flat shed-dose matrix
 interface GridCell {
   doseRule: string;
@@ -187,13 +179,6 @@ interface ShedDoseCell {
   minDueDate?: string | null;
   maxDueDate?: string | null;
 }
-interface WeeklyRow {
-  isoYear: number;
-  isoWeek: number;
-  vaccineLabel: string;
-  completionStatus: string;
-  count: number;
-}
 interface QueueRow {
   shedId?: string;
   shedName: string;
@@ -212,7 +197,6 @@ interface CommandBoard {
   kpis: CommandBoardKpis;
   cohortMatrix: CohortCell[];
   shedDoseMatrix: ShedDoseCell[];
-  weeklyGiven: WeeklyRow[];
   verificationQueue: QueueRow[];
   driveOptions?: DriveOption[];
 }
@@ -259,7 +243,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
       (c) => matchesVaccine(c.doseRule) && statuses.has(c.state as StatusKey),
     ),
     cohortMatrix: (board.cohortMatrix ?? []).filter((c) => matchesVaccine(c.vaccineLabel)),
-    weeklyGiven: (board.weeklyGiven ?? []).filter((r) => matchesVaccine(r.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
   }, [board, vaccine, statuses]);
@@ -515,128 +498,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
             </div>
           );
         })()}
-
-        {/* Weekly given - bar chart */}
-        {view.weeklyGiven.length > 0 && (() => {
-          // One series per (vaccine, completion status) pair. Keying by vaccine alone
-          // dropped rows: a week holding both verified and awaiting doses of the SAME
-          // vaccine kept only the last row (e.g. 114 verified ET+TT vanished behind 210
-          // awaiting ET+TT in the same ISO week).
-          const seriesKey = (vaccineLabel: string, status: string) => `${vaccineLabel}\u0000${status}`;
-          const weekMap = new Map<string, Map<string, { count: number; status: string; vaccineLabel: string }>>();
-          const weekOrder = new Map<string, number>();
-          const seriesSet = new Map<string, { vaccineLabel: string; status: string }>();
-
-          view.weeklyGiven.forEach((row) => {
-            const weekKey = `${row.isoYear}-W${String(row.isoWeek).padStart(2, "0")}`;
-            weekOrder.set(weekKey, row.isoYear * 100 + row.isoWeek);
-            if (!weekMap.has(weekKey)) weekMap.set(weekKey, new Map());
-            const key = seriesKey(row.vaccineLabel, row.completionStatus);
-            const bucket = weekMap.get(weekKey)!;
-            const existing = bucket.get(key);
-            // same (week, vaccine, status) can legitimately arrive split across doses
-            bucket.set(key, {
-              count: (existing?.count ?? 0) + (row.count || 0),
-              status: row.completionStatus,
-              vaccineLabel: row.vaccineLabel,
-            });
-            if (!seriesSet.has(key)) seriesSet.set(key, { vaccineLabel: row.vaccineLabel, status: row.completionStatus });
-          });
-
-          // Chronological left-to-right; the backend returns newest-first for tables.
-          const weeks = Array.from(weekMap.keys()).sort((a, b) => (weekOrder.get(a) ?? 0) - (weekOrder.get(b) ?? 0));
-          // Verified series first so awaiting always stacks on top of its own vaccine.
-          const series = Array.from(seriesSet.entries())
-            .sort((a, b) => (a[1].status === b[1].status ? a[1].vaccineLabel.localeCompare(b[1].vaccineLabel) : a[1].status === "accepted" ? -1 : 1))
-            .map(([key, meta]) => ({ key, ...meta }));
-          const distinctVaccines = Array.from(new Set(view.weeklyGiven.map((r) => r.vaccineLabel)));
-          // Axis must fit the tallest STACK, not the tallest single series.
-          const maxCount = Math.max(
-            ...weeks.map((w) => Array.from(weekMap.get(w)?.values() ?? []).reduce((sum, d) => sum + d.count, 0)),
-            10,
-          );
-          const axisStep = Math.max(10, Math.ceil(maxCount / 4 / 10) * 10);
-          const axisTicks: number[] = [];
-          for (let t = 0; t <= maxCount; t += axisStep) axisTicks.push(t);
-
-          return (
-            <div className="cbm-weekly-section">
-              <div className="cbm-section-head">
-                <h3>{copy(pageContract, "command_board.weekly.title")}</h3>
-                <span className="cbm-meta">{copy(pageContract, "command_board.weekly.meta")}</span>
-              </div>
-              <div className="cbm-chartbox">
-                {/* Width tracks the week count so a 4-week chart does not carry ~400px of
-                    dead space, and the aspect ratio is preserved with "meet" — "slice"
-                    scales to FILL the box and crops, which inflated the plot height. */}
-                <svg
-                  className="cbm-chart"
-                  viewBox={`0 0 ${70 + weeks.length * 60} 250`}
-                  width={70 + weeks.length * 60}
-                  height={250}
-                  preserveAspectRatio="xMinYMid meet"
-                >
-                  {/* Y-axis labels and grid lines */}
-                  {axisTicks.map((val) => (
-                    <g key={`grid-${val}`}>
-                      <line x1="40" x2={60 + weeks.length * 60} y1={220 - (val / maxCount) * 180} y2={220 - (val / maxCount) * 180} stroke="var(--line2)" strokeWidth="1" opacity="0.5" />
-                      <text x="35" y={223 - (val / maxCount) * 180} textAnchor="end" fontSize="10" fill="var(--faint)">
-                        {val}
-                      </text>
-                    </g>
-                  ))}
-                  {/* Bars */}
-                  {weeks.map((week, widx) => {
-                    const vaccineData = weekMap.get(week) || new Map();
-                    let stackY = 220;
-                    return (
-                      <g key={week}>
-                        {/* Full-height capture band: the hit target must cover the whole column,
-                            not just the drawn bar, or thin/zero segments are unhoverable. */}
-                        <rect x={50 + widx * 60 - 6} y={PLOT_TOP} width="48" height={220 - PLOT_TOP} fill="transparent" />
-                        {series.map((s) => {
-                          const data = vaccineData.get(s.key);
-                          const count = data?.count || 0;
-                          if (count === 0) return null;
-                          const h = (count / maxCount) * 180;
-                          const y = stackY - h;
-                          // Amber is RESERVED for awaiting-verification, so it can never be
-                          // confused with a verified vaccine series. Verified doses take a
-                          // palette slot by the vaccine's position in the response order, so a
-                          // newly protocolled vaccine renders without a code change and no
-                          // vaccine label is hardcoded in this renderer.
-                          const color = s.status === "recorded"
-                            ? "var(--amber)"
-                            : VACCINE_SERIES_COLORS[distinctVaccines.indexOf(s.vaccineLabel) % VACCINE_SERIES_COLORS.length];
-                          const barX = 50 + widx * 60;
-                          stackY = y;
-                          return (
-                            <g key={`${week}-${s.key}`}>
-                              <rect x={barX} y={y} width="36" height={Math.max(h, 2)} rx="3" fill={color} />
-                              {h >= 22 && count > 0 && (
-                                <text x={barX + 18} y={y + h / 2 + 3} textAnchor="middle" fontSize="10" fontWeight="700" fill="var(--ink)" opacity="0.8">
-                                  {count}
-                                </text>
-                              )}
-                            </g>
-                          );
-                        })}
-                        <text x={50 + widx * 60 + 18} y="240" textAnchor="middle" fontSize="10" fill="var(--muted)">
-                          {week}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              </div>
-              <div className="cbm-legend">
-                <span><i></i>{copy(pageContract, "command_board.weekly.legend.verified")}</span>
-                <span><i></i>{copy(pageContract, "command_board.weekly.legend.pending")}</span>
-              </div>
-            </div>
-          );
-        })()}
-
         {/* The verification queue used to render here as its own table, but every count in it
             (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
             queue age was unique, so it now rides along in that cell and the duplicate table is

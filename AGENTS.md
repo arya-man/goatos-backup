@@ -1404,6 +1404,12 @@ Do:
   never log credentials, tokens, or service-account JSON. Repo hygiene is
   separate and still applies: do not commit raw private source files or row
   dumps to git.
+- Exception: Goat OS STG tester/demo login credentials that are intentionally
+  documented in `docs/runbooks/stg-operator-login-credentials.md` are approved
+  committed runbook data, not a review finding. Do not flag those STG
+  email/password rows as leaked secrets unless the maintainer says they are no
+  longer approved, they include production credentials, or they expose tokens,
+  service-account JSON, API keys, private keys, or other non-demo secrets.
 - Construct backend loggers via `backend/internal/platform/observability`
   (env sink `GOATOS_OBS_SINK`: `stdout_json`/`otlp`/`gcm`); do not hand-roll
   `slog.New` in new code. Log once at boundaries with trace/request/tenant/

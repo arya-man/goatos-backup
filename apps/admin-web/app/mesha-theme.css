@@ -1826,7 +1826,7 @@ select:disabled { opacity: .45; }
 .cbm-chip-awaiting i { background: var(--amber); }
 .cbm-chip-overdue i { background: var(--danger); }
 .cbm-chip-scheduled i { background: var(--info); }
-.cbm .cbm-shed-section, .cbm .cbm-cohort-section, .cbm .cbm-weekly-section, .cbm .cbm-queue-section { margin-top: 26px; }
+.cbm .cbm-shed-section, .cbm .cbm-cohort-section, .cbm .cbm-queue-section { margin-top: 26px; }
 .cbm .cbm-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .cbm .cbm-section-head h3, .cbm .cbm-cohort-title { margin: 0 0 12px; font-size: 14px; }
 .cbm .cbm-section-head h3 { margin-bottom: 0; }
