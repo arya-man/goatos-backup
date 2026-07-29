@@ -212,6 +212,7 @@ class WeighingViewModel @Inject constructor(
             viewModelScope.launch {
                 proofCaptureRepository.observeProofs(scopeKey).collect { proofs ->
                     observedProofs.value = proofs
+                    val shedProofIds = syncedShedProofIds(proofs)
                     proofs.forEach { proof ->
                         val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
                         when (proof.fieldKey) {
@@ -221,7 +222,12 @@ class WeighingViewModel @Inject constructor(
                                     ?: return@forEach
                                 repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
                             }
-                            SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(scopeKey, proof.id, serverProofId)
+                            SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(
+                                scopeKey,
+                                proof.id,
+                                serverProofId,
+                                shedProofIds,
+                            )
                         }
                     }
                 }
@@ -601,6 +607,7 @@ class WeighingViewModel @Inject constructor(
             .filter { it.subjectId == expectedLocationId }
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .minByOrNull { it.capturedAtMs }
+        val syncedProofIds = syncedShedProofIds(observedProofs.value)
         if (syncedProof == null) {
             message.value = "Capture and sync at least one group video before submitting."
             return
@@ -635,10 +642,11 @@ class WeighingViewModel @Inject constructor(
                         expectedLocationId = expectedLocationId,
                         expectedLocationLabel = expectedLocationLabel.ifBlank { routeTitle },
                         resultJson = resultJson,
+                        proofArtifactIds = syncedProofIds,
                     ),
                 )) {
                     is AppResult.Ok -> {
-                        repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId)
+                        repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId, syncedProofIds)
                         lumpSumDrafts.remove(lumpSumDraftKey(key))
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
@@ -658,6 +666,18 @@ class WeighingViewModel @Inject constructor(
             }
         }
     }
+
+    private fun syncedShedProofIds(proofs: List<ProofCaptureRow>): List<String> =
+        proofs
+            .asSequence()
+            .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
+            .filter { it.subjectId == expectedLocationId }
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
+            .sortedBy { it.capturedAtMs }
+            .mapNotNull { it.serverProofId?.takeIf(String::isNotBlank) }
+            .distinct()
+            .take(5)
+            .toList()
 
     fun captureShedVideo() = captureShedVideo(replacingProofId = null)
 

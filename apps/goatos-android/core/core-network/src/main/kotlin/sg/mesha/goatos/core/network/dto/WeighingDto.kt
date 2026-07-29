@@ -175,6 +175,7 @@ data class WeighingShedObservationRequestDto(
     @SerialName("animal_count") val animalCount: Int = 1,
     @SerialName("average_weight_kg") val averageWeightKg: Double = weightKg,
     @SerialName("proof_artifact_id") val proofArtifactId: String,
+    @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
 )
 
 @Serializable

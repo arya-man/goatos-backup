@@ -172,6 +172,7 @@ data class ShedPartitionWeighingCapture(
     val expectedLocationId: String,
     val expectedLocationLabel: String,
     val resultJson: String,
+    val proofArtifactIds: List<String> = emptyList(),
     val capturedAtMs: Long? = null,
 )
 
@@ -188,7 +189,12 @@ interface WeighingRepository {
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
     suspend fun attachIndividualProof(scopeKey: String, animalId: String, proofCaptureId: String, serverProofId: String?)
     suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft>
-    suspend fun attachShedPartitionProof(scopeKey: String, proofCaptureId: String, serverProofId: String?)
+    suspend fun attachShedPartitionProof(
+        scopeKey: String,
+        proofCaptureId: String,
+        serverProofId: String?,
+        serverProofIds: List<String> = emptyList(),
+    )
     suspend fun discardEditableIndividual(scopeKey: String, animalId: String)
     suspend fun submitIndividualScope(
         campaignId: String,
@@ -573,6 +579,25 @@ class DefaultWeighingRepository(
                 lastError = null,
             )
             shedObservationDao.insert(entity)
+            val proofBundle = normalizedProofArtifactIds(null, capture.proofArtifactIds)
+            if (proofBundle.isNotEmpty()) {
+                val result = weighingShedResultValues(capture.resultJson)
+                if (result != null) {
+                    syncRepository?.enqueueWeighingShedObservation(
+                        campaignId = capture.campaignId,
+                        groupKey = scopeKey,
+                        idempotencyKey = idempotencyKey,
+                        request = WeighingShedObservationRequestDto(
+                            campaignShedId = capture.campaignShedId,
+                            weightKg = result.totalWeightKg,
+                            animalCount = result.animalCount,
+                            averageWeightKg = result.averageWeightKg,
+                            proofArtifactId = proofBundle.first(),
+                            proofArtifactIds = proofBundle,
+                        ),
+                    )
+                }
+            }
             AppResult.Ok(entity.toDraft())
         }
 
@@ -580,8 +605,10 @@ class DefaultWeighingRepository(
         scopeKey: String,
         proofCaptureId: String,
         serverProofId: String?,
+        serverProofIds: List<String>,
     ) = withContext(Dispatchers.IO) {
         val existing = shedObservationDao.findByScope(scopeKey) ?: return@withContext
+        val proofBundle = normalizedProofArtifactIds(serverProofId, serverProofIds)
         if (
             existing.syncStatus == WeighingSyncStatus.ACCEPTED.name &&
             existing.proofCaptureId == proofCaptureId &&
@@ -600,7 +627,8 @@ class DefaultWeighingRepository(
             },
         )
         val result = weighingShedResultValues(existing.resultJson)
-        if (!serverProofId.isNullOrBlank() && result != null) {
+        if (proofBundle.isNotEmpty() && result != null) {
+            cancelCancellableOutbox(existing.idempotencyKey)
             syncRepository?.enqueueWeighingShedObservation(
                 campaignId = existing.campaignId,
                 groupKey = existing.scopeKey,
@@ -610,7 +638,8 @@ class DefaultWeighingRepository(
                     weightKg = result.totalWeightKg,
                     animalCount = result.animalCount,
                     averageWeightKg = result.averageWeightKg,
-                    proofArtifactId = serverProofId,
+                    proofArtifactId = proofBundle.first(),
+                    proofArtifactIds = proofBundle,
                 ),
             )
         }
@@ -875,3 +904,13 @@ private fun weighingShedResultValues(resultJson: String): WeighingShedResultValu
         if (total <= 0 || count <= 0) return@runCatching null
         WeighingShedResultValues(total, count, total / count)
     }.getOrNull()
+
+private fun normalizedProofArtifactIds(primary: String?, ids: List<String>): List<String> =
+    buildList {
+        fun addProofId(id: String?) {
+            val normalized = id?.trim().orEmpty()
+            if (normalized.isNotEmpty() && normalized !in this) add(normalized)
+        }
+        addProofId(primary)
+        ids.forEach(::addProofId)
+    }.take(5)

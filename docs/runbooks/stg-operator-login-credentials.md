@@ -1,11 +1,11 @@
 # STG Operator Login Credentials
 
 > **Canonical STG personnel rule:** `docs/runbooks/stg-login-seed-contract.md`.
-> This file only carries the field/verifier credential detail; the full 10-person
-> contract (5 SSO leadership + 4 field + 1 verifier) lives in the canonical
-> runbook.
+> This file carries the field/verifier credential detail plus live STG weighing
+> access additions. The original 10-person contract (5 SSO leadership + 4 field
+> + 1 verifier) lives in the canonical runbook.
 
-## Canonical STG Personnel Rule (10 people total)
+## Canonical STG Personnel Rule + Weighing Addendum
 
 10 STG people total: **5 Mesha leadership (Google SSO **and** Firebase email/
 password, `ceo_internal`, NO vaccination capacity)** + **4 field users (Firebase
@@ -28,17 +28,23 @@ Leadership passwords (in addition to SSO):
 
 Field roles and vaccination capacity:
 
-| Person | Firebase password | Role | Adds vaccination capacity? |
-|---|---|---|---|
-| Amit Kumar | `Amit@2026` | operator | **yes** |
-| Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | **yes** |
-| Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | **yes** |
-| Chandrakant | `Chandrakant@2026` | **director** | **no** |
-| Jyothi | `Jyothi@2026` | **verifier** | **no** |
+| Person | Firebase password | Role | Department | Modules visible in STG | Adds vaccination capacity? |
+|---|---|---|---|---|---|
+| Amit Kumar | `Amit@2026` | operator | Preventive Care | Vaccination, Weighing | **yes** |
+| Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
+| Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
+| Chandrakant | `Chandrakant@2026` | **director** | Preventive Care | Vaccination, Weighing | **no** |
+| Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
+| Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
+| Dinakar | `Dinakar@2026` | operator app role; business title Breeding and Growth Director | Breeding & Growth | Weighing only | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
+- Pramod and Dinakar are weighing-only STG users. Dinakar's business title is
+  Breeding and Growth Director, but his current app role is `operator` so the
+  deployed module gate shows only Weighing, not Vaccination or Counts.
+- Counts is temporarily inactive for operator module grants in STG.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
   context must pass — for the 4 field users AND the 5 leadership users (leadership
@@ -69,6 +75,8 @@ Canonical current STG credentials:
 | Sagar | sagarmahoor143@gmail.com | `Sagar@2026` |
 | Chandrakant | chandrakanth119527@gmail.com | `Chandrakant@2026` |
 | Jyothi | jyothipvg12345@gmail.com | `Jyothi@2026` |
+| Pramod | pramodsahu616285@gmail.com | `Pramod@2026` |
+| Dinakar | babureddy315@gmail.com | `Dinakar@2026` |
 
 Do not invent random passwords for these STG accounts.
 Do not use a shared password.

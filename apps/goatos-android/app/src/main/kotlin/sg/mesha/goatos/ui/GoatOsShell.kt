@@ -217,7 +217,9 @@ fun GoatOsShell(navState: NavState) {
     }
 
     val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)
-    val visibleNavState = navState.withLeadershipWeighingNavigation(leadershipWeighing)
+    val visibleNavState = navState
+        .withLeadershipWeighingNavigation(leadershipWeighing)
+        .withVerifierVideoNavigation()
 
     GoatOsShellChrome(
         navState = visibleNavState,
@@ -279,6 +281,28 @@ internal fun NavState.withLeadershipWeighingNavigation(enabled: Boolean): NavSta
         modules = modules.map { module ->
             if (module.key.equals("weighing", ignoreCase = true)) {
                 module.copy(href = Routes.WEIGHING, navItems = leadershipItems)
+            } else {
+                module
+            }
+        },
+    )
+}
+
+internal fun NavState.withVerifierVideoNavigation(): NavState {
+    val verificationModule = modules.firstOrNull { it.key.equals("verification", ignoreCase = true) } ?: return this
+    val isAction = verificationModule.href == Routes.VERIFY_ACTION ||
+        verificationModule.navItems.any { it.href == Routes.VERIFY_ACTION }
+    val vaccinationHref = if (isAction) Routes.VERIFY_ACTION_VACCINATION else Routes.VERIFY_VACCINATION
+    val weighingHref = if (isAction) Routes.VERIFY_ACTION_WEIGHING else Routes.VERIFY_WEIGHING
+    val verifierItems = listOf(
+        NavItem(key = "vaccination", label = "Vaccination", href = vaccinationHref),
+        NavItem(key = "weighing", label = "Weighing", href = weighingHref),
+    )
+    return copy(
+        items = if (items == verificationModule.navItems) verifierItems else items,
+        modules = modules.map { module ->
+            if (module.key.equals("verification", ignoreCase = true)) {
+                module.copy(href = vaccinationHref, navItems = verifierItems)
             } else {
                 module
             }

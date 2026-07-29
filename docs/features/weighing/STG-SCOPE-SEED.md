@@ -17,22 +17,19 @@ database target, tenant, and operator.
 The seed must upsert both park records. CBE may not exist in staging yet and
 must be added before its weighing scopes.
 
-| Park | Scope range | Expanded count |
-| --- | --- | ---: |
-| CBE | Castro 1 through Castro 3 | 3 |
-| CBE | Godel 1 Part 1 through Godel 1 Part 8 | 8 |
-| CBE | Godel 2 Part 1 through Godel 2 Part 8 | 8 |
-| CBE | Yashoda 1 through Yashoda 10 | 10 |
-| CPT | Castro 1 through Castro 2 | 2 |
-| CPT | Godel 2 Part 1 through Godel 2 Part 4 | 4 |
-| CPT | Mandela 1 Part 1 through Mandela 1 Part 4 | 4 |
-| CPT | Yashoda 1 through Yashoda 4 | 4 |
+| Park | Weighing mode | Scope range | Expanded count |
+| --- | --- | --- | ---: |
+| CBE | Lump-sum | Castro 1 through Castro 3 | 3 |
+| CPT | Lump-sum | Castro 1 through Castro 2 | 2 |
+| CPT | Lump-sum | Godel 2 Part 1 through Godel 2 Part 2 | 2 |
+| CPT | Individual | Mandela 1 Part 1 through Mandela 1 Part 10 | 10 |
+| CPT | Individual | Mandela 2 Part 1 through Mandela 2 Part 10 | 10 |
 
-Expected total: **43 weighing scopes**: 29 in CBE and 14 in CPT.
+Expected total: **27 active weighing scopes**: 3 in CBE and 24 in CPT.
 
-The machine-readable source is
-`fixtures/weighing-stg-scopes/weighing-scope-seed.json`. Range expansion is
-inclusive.
+This is the corrected WhatsApp scope for the 2026-07-29 STG trial. Older
+expanded lists that included Godel 1, full Godel 2, and Yashoda ranges are not
+part of the active STG weighing picker for this trial.
 
 ## Isolation contract
 
@@ -63,35 +60,36 @@ videos. It does not create individual animal observations.
 
 ## Staging people and access
 
-The same staging append must ensure the following people can sign in and see
-both Vaccination and Weighing, restricted to their assigned park and sheds.
-It must not grant Counts. Counts is temporarily hidden in Android for every
-role.
+The same staging append must ensure the following people can sign in with the
+documented STG password convention and see only the modules listed below.
+It must not grant Counts. Counts is temporarily inactive for operator module
+grants.
 
-| Park | Person | Role | Login |
-| --- | --- | --- | --- |
-| CPT | Amit Kumar | Operator | `amit797069@gmail.com` |
-| CPT | Darshan Talwar | Operator | `darshantalawar033@gmail.com` |
-| CPT | Sagar Mahoor | Operator | `sagarmahoor143@gmail.com` |
-| CBE | Pramod | Operator | `pramodsahu616285@gmail.com` |
-| CBE | Sharath | Operator | Firebase UID/email must be confirmed before seeding |
-| Assigned parks | Dinakar | Director | `babureddy315@gmail.com` |
+| Park | Person | App role | Business title / department | Login | Modules |
+| --- | --- | --- | --- | --- | --- |
+| CPT | Amit Kumar | Operator | Preventive Care | `amit797069@gmail.com` | Vaccination, Weighing |
+| CPT | Darshan Talwar | Operator | Preventive Care | `darshantalawar033@gmail.com` | Vaccination, Weighing |
+| CPT | Sagar Mahoor | Operator | Preventive Care | `sagarmahoor143@gmail.com` | Vaccination, Weighing |
+| CBE | Pramod | Operator | Weighing Operations | `pramodsahu616285@gmail.com` | Weighing only |
+| CBE | Dinakar | Operator | Breeding and Growth Director | `babureddy315@gmail.com` | Weighing only |
 
-Eshwar is intentionally excluded.
+Eshwar and Sharath are intentionally excluded from this STG weighing grant until
+their exact email/Firebase UID/access requirement is confirmed.
 
 The seed must:
 
 1. Preserve existing Firebase identities and workforce rows.
 2. Match by permanent Firebase UID, not mutable display name.
 3. Append or reactivate the required operator/director scope grants.
-4. Grant only `vaccination` and `weighing` department modules.
+4. Grant `vaccination` and `weighing` to Preventive Care, and `weighing` only
+   to Weighing Operations and Breeding & Growth.
 5. Bind operator access to the listed park and its assigned sheds.
-6. Bind Director access only to the parks/sheds explicitly assigned to
-   Dinakar in the seed input.
+6. Keep Dinakar weighing-only in the app until a dedicated weighing-director
+   role exists; using `pc_director` would also expose Preventive Care modules.
 7. Leave all unrelated users, roles, departments, parks, sheds, and grants
    unchanged.
-8. Fail before writing if Pramod, Sharath, or Dinakar lacks a confirmed
-   Firebase UID or if a requested park/shed cannot be resolved uniquely.
+8. Fail before writing if Pramod or Dinakar lacks a confirmed Firebase UID or
+   if a requested park/shed cannot be resolved uniquely.
 
 ## Staging verification
 
@@ -101,16 +99,14 @@ the Goat OS staging database.
 
 After seeding, verify:
 
-1. CBE has 29 weighing scopes and CPT has 14.
-2. All 43 scopes appear in the weighing planner.
+1. CBE has 3 active weighing scopes and CPT has 24.
+2. All 27 scopes appear in the weighing planner.
 3. None appear because of vaccination or expected-animal roster membership.
 4. Capturing an unknown RFID succeeds without a `goats` or
    `goat_identifiers` row.
 5. Capturing the same RFID in two different weighing scopes succeeds in both.
 6. No non-weighing tables change during either capture.
 7. Counts is absent from Android for operators, directors, and leadership.
-8. Each listed operator sees Vaccination and Weighing only for their assigned
-   park/sheds.
-9. Dinakar sees Vaccination and Weighing for only his explicitly assigned
-   director scope.
-10. Eshwar receives no grant from this seed.
+8. Amit, Darshan, and Sagar see Vaccination and Weighing.
+9. Pramod and Dinakar see Weighing only.
+10. Eshwar and Sharath receive no grant from this seed.
