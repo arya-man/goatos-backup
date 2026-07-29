@@ -1,19 +1,20 @@
-"use server";
-
 import { Suspense } from "react";
 import { getVaccinationCommandBoard } from "@/lib/api/server";
-import type { VaccinationCommandBoardResponse } from "@/lib/api/vaccination-command-board";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy } from "@/lib/admin-ui-contract";
 
-export function VaccinationCommandBoardSkeleton() {
+interface VaccinationCommandBoardSkeletonProps {
+  pageContract: AdminUiPageContract;
+}
+
+export function VaccinationCommandBoardSkeleton({ pageContract }: VaccinationCommandBoardSkeletonProps) {
   return (
     <section className="card cbm">
       <div className="hd">
-        <h2>Command Board</h2>
+        <h2>{copy(pageContract, "section.command_board.title")}</h2>
       </div>
       <div className="bd">
-        <div className="cbm-loading">Loading...</div>
+        <div className="cbm-loading">{copy(pageContract, "section.command_board.loading")}</div>
       </div>
     </section>
   );
@@ -137,7 +138,7 @@ async function VaccinationCommandBoardContent({ pageContract }: VaccinationComma
 
 export function VaccinationCommandBoard({ pageContract }: VaccinationCommandBoardProps) {
   return (
-    <Suspense fallback={<VaccinationCommandBoardSkeleton />}>
+    <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
       <VaccinationCommandBoardContent pageContract={pageContract} />
     </Suspense>
   );

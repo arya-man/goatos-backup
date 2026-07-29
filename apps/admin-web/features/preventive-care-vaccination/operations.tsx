@@ -54,7 +54,7 @@ export function VaccinationOperationsPage({
       ) : (
         <>
       {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
-      <Suspense fallback={<VaccinationCommandBoardSkeleton />}>
+      <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
         <VaccinationCommandBoard pageContract={pageContract} />
       </Suspense>
 
