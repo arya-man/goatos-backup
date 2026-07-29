@@ -138,7 +138,7 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 		"scan capture table":        "FROM sop_task_scan_captures scan",
 		"scan capture task scope":   "scan.task_id = st.task_id",
 		"scan capture roster field": "scan.field_key IN ('goat_ids', '__scan_roster__')",
-		"scan capture goat grain":   "COUNT(DISTINCT located.animal_id) FILTER (WHERE located.scanned)::bigint AS scanned_count",
+		"scan capture goat grain":   "COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count",
 	}
 	for name, fragment := range requiredFragments {
 		if !strings.Contains(vaccinationExecutionSQL, fragment) {
@@ -855,6 +855,53 @@ func TestListVaccinationExecutionCurrentDriveCountsDistinctAnimalsNotObligations
 	}
 	if rows[0].ObligationCount != 1 || rows[0].CompletionRecorded != 1 {
 		t.Fatalf("counts obligation/recorded = %d/%d, want 1/1; mobile overview must count current-drive animals, not obligation rows", rows[0].ObligationCount, rows[0].CompletionRecorded)
+	}
+}
+
+func TestListVaccinationExecutionAnimalAcceptedOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixRequiresAllDriveObligationsAccepted(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	secondObligation := "70000000-0000-4000-8000-0000000000a2"
+	secondCompletion := "70000000-0000-4000-8000-0000000000a3"
+	execProjectionSQL(t, ctx, pool, "base obligation accepted",
+		`UPDATE obligation_instances
+		    SET status = 'completed', completed_at = TIMESTAMPTZ '2026-06-24 09:10:00+00'
+		  WHERE tenant_id = $1 AND obligation_id = $2`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "base completion accepted",
+		`UPDATE vaccination_completions
+		    SET status = 'accepted', verified_at = TIMESTAMPTZ '2026-06-24 09:20:00+00'
+		  WHERE tenant_id = $1 AND completion_id = $2`,
+		testTenant, testComplete)
+	execProjectionSQL(t, ctx, pool, "second recorded obligation for same drive animal",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'vaccexec-proj-same-goat-recorded', 2)`,
+		secondObligation, testTenant, testVersion, testRule, testBatch, testGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "second recorded completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
+		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-24 09:30:00+00', 'recorded', 'vaccexec-comp-same-goat-recorded', $6)`,
+		secondCompletion, testTenant, secondObligation, testBatch, testGoat, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v, want one current-drive shed row", rows)
+	}
+	if rows[0].ObligationCount != 1 || rows[0].CompletionAccepted != 0 || rows[0].CompletionRecorded != 1 {
+		t.Fatalf("animal counts = target %d accepted %d recorded %d, want 1/0/1; partial accepted obligations must not mark the animal accepted", rows[0].ObligationCount, rows[0].CompletionAccepted, rows[0].CompletionRecorded)
 	}
 }
 
