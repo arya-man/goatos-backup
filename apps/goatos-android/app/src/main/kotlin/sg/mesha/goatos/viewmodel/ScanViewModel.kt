@@ -563,6 +563,7 @@ class ScanViewModel @Inject constructor(
                         _duplicateNotice.value = null
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "proof_rescan", capturedAtMs)
+                        recordRosterScan(row, tag, capturedAtMs)
                         requestGoatProof(row)
                     } else {
                         _proofReplacementGoatId.value = null

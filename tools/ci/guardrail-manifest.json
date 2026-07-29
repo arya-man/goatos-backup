@@ -111,6 +111,17 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
+      "id": "android-vaccination-submit-gate",
+      "script": "tools/agent-hooks/check-android-vaccination-submit-gate.mjs",
+      "makeTarget": "android-vaccination-submit-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-android-vaccination-submit-gate.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-vaccination-submit-gate.mjs --self-test",
+      "owningDoc": "docs/runbooks/vaccination-role-e2e-audit-2026-07-20.md",
+      "requiredInCI": true,
+      "ciStep": "android-vaccination-submit-gate-guard",
+      "notes": "Blocks the Android proof_rescan regression where a proof-missing DONE goat can upload proof without repairing the durable scan capture. Submit summary counts sop_task_scan_captures, so accepted proof_rescan must call recordRosterScan before requestGoatProof."
+    },
+    {
       "id": "domain-event-architecture",
       "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
       "makeTarget": "domain-event-architecture-guard",
