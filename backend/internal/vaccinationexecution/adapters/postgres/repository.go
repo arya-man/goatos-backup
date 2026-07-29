@@ -3695,45 +3695,59 @@ WHERE oi.tenant_id = $1::uuid
 SELECT
   g.management_stage,
   g.sex,
-  oi.rule_id,
+  pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN oi.status IN ('scheduled', 'due') OR (oi.status = 'completed' AND vc.status = 'recorded' AND vc.verified_at IS NULL) THEN oi.obligation_id END) as pending_count
+  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND oi.due_at <= $3::timestamptz) OR (vc.status = 'recorded' AND vc.verified_at IS NULL) THEN oi.obligation_id END) as pending_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
+JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id
 WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
   AND g.lifecycle_status != 'terminated'
-GROUP BY g.management_stage, g.sex, oi.rule_id
-ORDER BY g.management_stage, g.sex, oi.rule_id
+GROUP BY g.management_stage, g.sex, pr.dose_code
+ORDER BY g.management_stage, g.sex, pr.dose_code
 `
-	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, q.DriveBatchID)
+	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, q.DriveBatchID, asOf)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort query: %w", err)
 	}
 	defer cohortRows.Close()
 
-	// Build cohort matrix cells
+	// Build cohort matrix cells. SQL rows arrive per dose_code; the board cell grain is
+	// cohort (stage × sex) × VACCINE, so fold dose rows into their vaccine label here
+	// (pending counts sum across doses; animal count is per-cohort and identical per row).
+	type cohortKey struct{ stage, sex, vaccine string }
+	cohortAgg := map[cohortKey]*domain.CommandBoardCohortCell{}
+	cohortOrder := []cohortKey{}
 	for cohortRows.Next() {
-		var stage, sex, ruleID string
+		var stage, sex, doseCode string
 		var animalCount, pendingCount int
-		if err := cohortRows.Scan(&stage, &sex, &ruleID, &animalCount, &pendingCount); err != nil {
+		if err := cohortRows.Scan(&stage, &sex, &doseCode, &animalCount, &pendingCount); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
-		vaccineLabel := vaccinatdomain.DoseDisplayLabel("", ruleID)
-		resp.CohortMatrix = append(resp.CohortMatrix, domain.CommandBoardCohortCell{
-			Cohort: domain.CommandBoardCohort{
-				ManagementStage: stage,
-				Sex:             sex,
-				AnimalCount:     animalCount,
-			},
-			VaccineLabel: vaccineLabel,
-			PendingCount: pendingCount,
-		})
+		key := cohortKey{stage, sex, vaccinatdomain.DoseDisplayLabel("", doseCode)}
+		cell, ok := cohortAgg[key]
+		if !ok {
+			cell = &domain.CommandBoardCohortCell{
+				Cohort: domain.CommandBoardCohort{
+					ManagementStage: stage,
+					Sex:             sex,
+					AnimalCount:     animalCount,
+				},
+				VaccineLabel: key.vaccine,
+			}
+			cohortAgg[key] = cell
+			cohortOrder = append(cohortOrder, key)
+		}
+		cell.PendingCount += pendingCount
 	}
 	if err := cohortRows.Err(); err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort rows: %w", err)
+	}
+	for _, key := range cohortOrder {
+		resp.CohortMatrix = append(resp.CohortMatrix, *cohortAgg[key])
 	}
 
 	// 3. Shed dose matrix query
@@ -3744,7 +3758,7 @@ WITH shed_dose_states AS (
   SELECT
     oi.scope_id as shed_id,
     loc.name as shed_name,
-    oi.rule_id,
+    pr.dose_code,
     CASE
       WHEN vc.status = 'accepted' THEN 'verified'
       WHEN vc.status = 'recorded' AND vc.verified_at IS NULL THEN 'awaiting'
@@ -3758,17 +3772,18 @@ WITH shed_dose_states AS (
     MIN(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as min_due_at,
     MAX(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as max_due_at
   FROM obligation_instances oi
+  JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
-  GROUP BY oi.scope_id, loc.name, oi.rule_id, state
+  GROUP BY oi.scope_id, loc.name, pr.dose_code, state
 )
-SELECT shed_id, shed_name, rule_id, state, animal_count, min_administered_at, max_administered_at, min_due_at, max_due_at
+SELECT shed_id, shed_name, dose_code, state, animal_count, min_administered_at, max_administered_at, min_due_at, max_due_at
 FROM shed_dose_states
 WHERE state != 'other'
-ORDER BY shed_name, rule_id, state
+ORDER BY shed_name, dose_code, state
 `
 	shedDoseRows, err := r.pool.Query(ctx, shedDoseSQL, q.TenantID, asOf, q.DriveBatchID)
 	if err != nil {
@@ -3777,17 +3792,17 @@ ORDER BY shed_name, rule_id, state
 	defer shedDoseRows.Close()
 
 	for shedDoseRows.Next() {
-		var shedID, shedName, ruleID, state string
+		var shedID, shedName, doseCode, state string
 		var animalCount int
 		var minAdministeredAt, maxAdministeredAt, minDueAt, maxDueAt pgtype.Timestamptz
-		if err := shedDoseRows.Scan(&shedID, &shedName, &ruleID, &state, &animalCount, &minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
+		if err := shedDoseRows.Scan(&shedID, &shedName, &doseCode, &state, &animalCount, &minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: shed dose scan: %w", err)
 		}
 
 		cell := domain.ShedDoseMatrixCell{
 			ShedID:      shedID,
 			ShedName:    shedName,
-			DoseRule:    vaccinatdomain.DoseDisplayLabel("", ruleID), // map raw rule_id to human label
+			DoseRule:    vaccinatdomain.DoseDisplayLabel("", doseCode),
 			State:       state,
 			AnimalCount: animalCount,
 		}
@@ -3818,7 +3833,7 @@ ORDER BY shed_name, rule_id, state
 SELECT
   EXTRACT(YEAR FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_year,
   EXTRACT(WEEK FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_week,
-  pr.vaccine_labels[1] as vaccine_label,
+  pr.dose_code as dose_code,
   vc.status,
   COUNT(*) as count,
   MIN(vc.administered_at) as min_administered_at,
@@ -3829,8 +3844,8 @@ JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_i
 WHERE vc.tenant_id = $1::uuid
   AND vc.administered_at IS NOT NULL
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
-GROUP BY iso_year, iso_week, vaccine_label, vc.status
-ORDER BY iso_year DESC, iso_week DESC, vaccine_label, vc.status
+GROUP BY iso_year, iso_week, pr.dose_code, vc.status
+ORDER BY iso_year DESC, iso_week DESC, pr.dose_code, vc.status
 `
 	weeklyRows, err := r.pool.Query(ctx, weeklySQL, q.TenantID, q.DriveBatchID)
 	if err != nil {
@@ -3840,11 +3855,12 @@ ORDER BY iso_year DESC, iso_week DESC, vaccine_label, vc.status
 
 	for weeklyRows.Next() {
 		var isoYear, isoWeek, count int
-		var vaccineLabel, status string
+		var doseCode, status string
 		var minAt, maxAt time.Time
-		if err := weeklyRows.Scan(&isoYear, &isoWeek, &vaccineLabel, &status, &count, &minAt, &maxAt); err != nil {
+		if err := weeklyRows.Scan(&isoYear, &isoWeek, &doseCode, &status, &count, &minAt, &maxAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: weekly scan: %w", err)
 		}
+		vaccineLabel := vaccinatdomain.DoseDisplayLabel("", doseCode)
 		resp.WeeklyGiven = append(resp.WeeklyGiven, domain.WeeklyGivenRow{
 			ISOYear:           isoYear,
 			ISOWeek:           isoWeek,
@@ -3866,12 +3882,13 @@ ORDER BY iso_year DESC, iso_week DESC, vaccine_label, vc.status
 SELECT
   oi.scope_id as shed_id,
   loc.name as shed_name,
-  oi.rule_id,
+  pr.dose_code,
   COUNT(DISTINCT vc.completion_id) as awaiting_count,
   COUNT(DISTINCT oi.obligation_id) as total_count,
   MAX(vc.administered_at) as last_given_date,
   MIN(vc.administered_at) as first_given_date
 FROM obligation_instances oi
+JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
@@ -3881,8 +3898,8 @@ WHERE oi.tenant_id = $1::uuid
     WHERE vc2.obligation_id = oi.obligation_id AND vc2.status = 'recorded' AND vc2.verified_at IS NULL
   )
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
-GROUP BY oi.scope_id, loc.name, oi.rule_id
-ORDER BY shed_name, oi.rule_id
+GROUP BY oi.scope_id, loc.name, pr.dose_code
+ORDER BY shed_name, pr.dose_code
 `
 	verifyRows, err := r.pool.Query(ctx, verifyQueueSQL, q.TenantID, q.DriveBatchID)
 	if err != nil {
@@ -3891,17 +3908,17 @@ ORDER BY shed_name, oi.rule_id
 	defer verifyRows.Close()
 
 	for verifyRows.Next() {
-		var shedID, shedName, ruleID string
+		var shedID, shedName, doseCode string
 		var awaitingCount, totalCount int
 		var lastGivenDate, firstGivenDate pgtype.Timestamptz
-		if err := verifyRows.Scan(&shedID, &shedName, &ruleID, &awaitingCount, &totalCount, &lastGivenDate, &firstGivenDate); err != nil {
+		if err := verifyRows.Scan(&shedID, &shedName, &doseCode, &awaitingCount, &totalCount, &lastGivenDate, &firstGivenDate); err != nil {
 			return resp, fmt.Errorf("vaccination command board: verification queue scan: %w", err)
 		}
 
 		row := domain.VerificationQueueRow{
 			ShedID:        shedID,
 			ShedName:      shedName,
-			DoseRule:      vaccinatdomain.DoseDisplayLabel("", ruleID),
+			DoseRule:      vaccinatdomain.DoseDisplayLabel("", doseCode),
 			AwaitingCount: awaitingCount,
 			TotalCount:    totalCount,
 		}
@@ -3912,16 +3929,15 @@ ORDER BY shed_name, oi.rule_id
 
 		// Compute business days from first_given_date to as_of
 		if firstGivenDate.Valid && awaitingCount > 0 {
+			// Farm operations run 7 days a week: queue age is whole business-day
+			// difference in Asia/Kolkata, no weekend subtraction.
 			firstDay := biztime.BusinessDayStart(firstGivenDate.Time)
 			asOfDay := biztime.BusinessDayStart(asOf)
-			businessDays := int(asOfDay.Sub(firstDay).Hours() / 24)
-			// Approximate: subtract weekends (roughly 2/7 of days are weekend)
-			weekendDays := int(float64(businessDays) * 2.0 / 7.0)
-			actualBusinessDays := businessDays - weekendDays
-			if actualBusinessDays < 0 {
-				actualBusinessDays = 0
+			days := int(asOfDay.Sub(firstDay).Hours() / 24)
+			if days < 0 {
+				days = 0
 			}
-			row.DaysInQueue = &actualBusinessDays
+			row.DaysInQueue = &days
 		}
 
 		resp.VerificationQueue = append(resp.VerificationQueue, row)
