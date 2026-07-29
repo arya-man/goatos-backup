@@ -2,9 +2,12 @@ import "server-only";
 
 import {
   getWeighingCampaigns,
+  getWeighingPlannerCatalog,
   type ApiResult,
   type WeighingCampaign as ApiWeighingCampaign,
   type WeighingCampaignShed as ApiWeighingCampaignShed,
+  type WeighingPlannerCatalogResponse,
+  type WeighingPlannerPark as ApiWeighingPlannerPark,
 } from "@/lib/api/server";
 
 export type WeighingRole = "leadership" | "director" | "operator";
@@ -151,14 +154,19 @@ export function roleFromSearchParam(value: string | undefined): WeighingRole {
 
 export async function getWeighingPageData(
   role: WeighingRole,
+  selectedWeek?: string,
 ): Promise<ApiResult<WeighingPageData>> {
-  const result = await getWeighingCampaigns();
+  const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
+  const selectedItem = selectCampaign(result.data.items, selectedWeek);
   const campaign =
-    result.data.items.length > 0
-      ? campaignFromApi(result.data.items[0], role)
+    selectedItem
+      ? campaignFromApi(selectedItem, role)
       : emptyCampaign(role);
-  const planner = defaultPlanner(campaign);
+  const plannerWeek = selectedWeek || campaign.weekStart || currentWeekStart();
+  const catalogResult = await getWeighingPlannerCatalog(plannerWeek);
+  if (!catalogResult.ok) return catalogResult;
+  const planner = plannerFromCatalog(catalogResult.data, plannerWeek, selectedItem, campaign);
   const weeks = weeksFromCampaigns(result.data.items, campaign);
   return {
     ok: true,
@@ -169,6 +177,27 @@ export async function getWeighingPageData(
       weeks,
     },
   };
+}
+
+async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighingCampaign[] }>> {
+  const items: ApiWeighingCampaign[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page += 1) {
+    const result = await getWeighingCampaigns({ cursor, limit: 100 });
+    if (!result.ok) return result;
+    items.push(...result.data.items);
+    cursor = result.data.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  return { ok: true, data: { items } };
+}
+
+function selectCampaign(items: ApiWeighingCampaign[], selectedWeek?: string): ApiWeighingCampaign | undefined {
+  if (selectedWeek) {
+    const byWeek = items.find((item) => item.period_start_date === selectedWeek);
+    if (byWeek) return byWeek;
+  }
+  return items[0];
 }
 
 function weeksFromCampaigns(
@@ -208,48 +237,101 @@ function parseYmd(value: string): Date | null {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function defaultPlanner(campaign?: WeighingCampaign): WeighingPlanner {
-  const sheds: WeighingPlannerShed[] = [
-    { id: "11111111-1111-4111-8111-000000000101", locationType: "shed", label: "Castro 1", subtitle: "kid shed", kidCount: 80, selected: true, category: "per_shed_partition" },
-    { id: "11111111-1111-4111-8111-000000000102", locationType: "shed", label: "Castro 2", subtitle: "kid shed", kidCount: 64, selected: true, category: "per_shed_partition" },
-    { id: "11111111-1111-4111-8111-000000000103", locationType: "shed", label: "Godel 2 · Part 1", subtitle: "kid shed", kidCount: 92, selected: false, category: "individual_animal" },
-    { id: "11111111-1111-4111-8111-000000000104", locationType: "shed", label: "Godel 2 · Part 2", subtitle: "kid shed", kidCount: 88, selected: false, category: "individual_animal" },
-    { id: "11111111-1111-4111-8111-000000000105", locationType: "shed", label: "Gandhi 1", subtitle: "kid shed", kidCount: 78, selected: true, category: "individual_animal" },
-    { id: "11111111-1111-4111-8111-000000000106", locationType: "shed", label: "Gandhi 2", subtitle: "kid shed", kidCount: 64, selected: false, category: "individual_animal" },
-    { id: "11111111-1111-4111-8111-000000000107", locationType: "shed", label: "Godel 1 · Part 3", subtitle: "kid shed", kidCount: 50, selected: false, category: "individual_animal" },
-  ];
+function plannerFromCatalog(
+  catalog: WeighingPlannerCatalogResponse,
+  periodStartDate: string,
+  selectedItem: ApiWeighingCampaign | undefined,
+  campaign: WeighingCampaign,
+): WeighingPlanner {
+  const selectedPark = selectPlannerPark(catalog.parks, selectedItem);
+  const selectedShedIds = new Set((selectedItem?.sheds ?? []).map((shed) => shed.location_id));
+  const selectedOperatorId = selectedItem?.operator_user_id || catalog.operators[0]?.user_id || "";
+  const sheds: WeighingPlannerShed[] = (selectedPark?.sheds ?? []).map((shed) => {
+    const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
+    return {
+      id: shed.location_id,
+      locationType: campaignShed?.location_type ?? "shed",
+      label: shed.name,
+      subtitle: "kid shed",
+      kidCount: shed.kid_count,
+      selected: selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true,
+      category: campaignShed?.weighing_category ?? "individual_animal",
+    };
+  });
   const selected = sheds.filter((shed) => shed.selected);
   const individual = selected.filter((shed) => shed.category === "individual_animal");
   const lumpsum = selected.filter((shed) => shed.category === "per_shed_partition");
+  const existing = selectedPark?.existing_campaign;
+  const periodEndDate = selectedItem?.period_end_date ?? addDays(periodStartDate, 6);
   return {
-    weekLabel: "Week 31 · 27 Jul - 2 Aug",
-    periodStartDate: "2026-07-27",
-    periodEndDate: "2026-08-02",
-    startBusinessDate: "2026-07-29",
-    plannedCapPerDay: 100,
+    weekLabel: weekRangeLabel(periodStartDate, periodEndDate),
+    periodStartDate,
+    periodEndDate,
+    startBusinessDate: selectedItem?.start_business_date ?? periodStartDate,
+    plannedCapPerDay: selectedItem?.planned_cap_per_day ?? 100,
     lane: "weekly_kids",
-    existingCampaignId: campaign && campaign.id !== "empty" ? campaign.id : undefined,
-    existingCampaignState: campaign && campaign.id !== "empty" ? campaign.state : undefined,
-    existingCampaignWeekLabel: campaign && campaign.id !== "empty" ? campaign.weekLabel : undefined,
-    existingCampaignOperatorName: campaign && campaign.id !== "empty" ? campaign.operatorName : undefined,
-    existingCampaignShedCount: campaign && campaign.id !== "empty" ? campaign.selectedScopes : undefined,
-    duplicateBlocked: Boolean(campaign && campaign.id !== "empty"),
-    selectedParkId: "11111111-1111-4111-8111-000000000001",
-    selectedOperatorId: "30303030-3030-4303-8303-303030303030",
-    parks: [
-      { id: "11111111-1111-4111-8111-000000000001", label: "CPT · Channapatna", subtitle: "Castro, Gandhi, Godel", kidCount: 516, selected: true },
-      { id: "11111111-1111-4111-8111-000000000002", label: "CBE · Coimbatore", subtitle: "Castro 1 / 2 / 3", kidCount: 286, selected: false },
-    ],
+    existingCampaignId: existing?.campaign_id ?? (campaign.id !== "empty" ? campaign.id : undefined),
+    existingCampaignState: existing ? campaignState(existing.status) : (campaign.id !== "empty" ? campaign.state : undefined),
+    existingCampaignWeekLabel: existing ? weekRangeLabel(existing.period_start_date, existing.period_end_date) : (campaign.id !== "empty" ? campaign.weekLabel : undefined),
+    existingCampaignOperatorName: operatorName(catalog, existing?.operator_user_id ?? selectedItem?.operator_user_id),
+    existingCampaignShedCount: existing?.shed_count ?? (campaign.id !== "empty" ? campaign.selectedScopes : undefined),
+    duplicateBlocked: Boolean(existing || campaign.id !== "empty"),
+    selectedParkId: selectedPark?.park_id ?? "",
+    selectedOperatorId,
+    parks: catalog.parks.map((park) => ({
+      id: park.park_id,
+      label: park.name,
+      subtitle: park.sheds.map((shed) => shed.name).join(", "),
+      kidCount: park.kid_count,
+      selected: park.park_id === selectedPark?.park_id,
+    })),
     sheds,
-    operators: [
-      { id: "30303030-3030-4303-8303-303030303030", name: "Amit Kumar", capabilityLabel: "weighing.execute", selected: true },
-      { id: "20202020-2020-4202-8202-202020202020", name: "Dinakar", capabilityLabel: "planner / monitor only", selected: false, disabled: true },
-    ],
+    operators: catalog.operators.map((operator) => ({
+      id: operator.user_id,
+      name: operator.display_name,
+      capabilityLabel: operator.display_code,
+      selected: operator.user_id === selectedOperatorId,
+    })),
     individualShedCount: individual.length,
     individualKidCount: individual.reduce((sum, shed) => sum + shed.kidCount, 0),
     lumpsumShedCount: lumpsum.length,
     lumpsumKidCount: lumpsum.reduce((sum, shed) => sum + shed.kidCount, 0),
   };
+}
+
+function selectPlannerPark(
+  parks: ApiWeighingPlannerPark[],
+  selectedItem: ApiWeighingCampaign | undefined,
+): ApiWeighingPlannerPark | undefined {
+  if (selectedItem) {
+    return parks.find((park) => park.park_id === selectedItem.park_id) ?? parks[0];
+  }
+  return parks.find((park) => park.existing_campaign) ?? parks[0];
+}
+
+function operatorName(catalog: WeighingPlannerCatalogResponse, operatorId?: string): string | undefined {
+  if (!operatorId) return undefined;
+  return catalog.operators.find((operator) => operator.user_id === operatorId)?.display_name;
+}
+
+function campaignState(status: ApiWeighingCampaign["status"]): WeighingCampaignState {
+  return status === "canceled" ? "delayed" : status;
+}
+
+function currentWeekStart(): string {
+  const now = new Date();
+  const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number): string {
+  const date = parseYmd(value);
+  if (!date) return value;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function campaignFromApi(

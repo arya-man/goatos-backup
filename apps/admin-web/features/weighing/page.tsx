@@ -158,7 +158,7 @@ function CapabilityButton({
 
 export async function WeighingPage({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const role = roleFromSearchParam(one(searchParams ?? {}, "role"));
-  const result = await getWeighingPageData(role);
+  const result = await getWeighingPageData(role, one(searchParams ?? {}, "week"));
   if (!result.ok) {
     return (
       <div className="screen on weighing-page">
@@ -557,7 +557,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             ) : (
               <>
                 <div className="weighing-action-note" aria-live="polite">
-                  Publish opens Amit&apos;s work queue. Save draft keeps it invisible to operators.
+                  Publish opens the selected operator&apos;s work queue. Save draft keeps it invisible to operators.
                 </div>
                 <button className="btn ghost" type="submit" name="publish" value="false">Save draft</button>
                 <button className="btn primary" type="submit" name="publish" value="true"><Send className="ic" aria-hidden="true" /> Publish</button>

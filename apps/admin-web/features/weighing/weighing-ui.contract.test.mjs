@@ -66,10 +66,14 @@ test("weighing leadership planner covers park-week task creation and duplicate e
 
   assert.match(data, /duplicateBlocked/);
   assert.match(data, /existingCampaignId/);
-  assert.match(data, /CPT · Channapatna/);
-  assert.match(data, /Castro 1/);
-  assert.match(data, /Gandhi 1/);
-  assert.match(data, /Amit Kumar/);
+  assert.match(data, /getWeighingPlannerCatalog/);
+  assert.match(data, /plannerFromCatalog/);
+  assert.match(data, /selectedPark\?\.sheds/);
+  assert.match(data, /operator\.display_name/);
+  assert.doesNotMatch(data, /CPT · Channapatna/);
+  assert.doesNotMatch(data, /Castro 1/);
+  assert.doesNotMatch(data, /Gandhi 1/);
+  assert.doesNotMatch(data, /Amit Kumar/);
   assert.match(page, /Create weekly kids weighing task/);
   assert.match(page, /Edit weekly kids weighing task/);
   assert.match(page, /Step 2 · Park/);
@@ -89,6 +93,7 @@ test("weighing leadership planner covers park-week task creation and duplicate e
 test("weighing week strip is derived from campaign response", () => {
   const data = source("data.ts");
 
+  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek\)/);
   assert.match(data, /weeksFromCampaigns\(result\.data\.items, campaign\)/);
   assert.match(data, /sort\(\(a, b\) => a\.period_start_date\.localeCompare\(b\.period_start_date\)\)/);
   assert.match(data, /weekRangeLabel\(item\.period_start_date, item\.period_end_date\)/);

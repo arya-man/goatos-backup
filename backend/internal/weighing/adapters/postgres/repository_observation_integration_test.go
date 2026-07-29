@@ -49,6 +49,7 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID:         repoTenant,
 		CampaignID:       repoCampaign,
+		CampaignShedID:   repoAnimalScope,
 		AnimalID:         repoAnimal,
 		WeightKg:         12.4,
 		ProofArtifactID:  repoAnimalProof,
@@ -72,21 +73,21 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	}
 
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.5,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.5,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:wrong-op", RecordedBy: repoOtherOp,
 	})
 	if !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("wrong operator err=%v, want forbidden", err)
 	}
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.6,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.6,
 		ProofArtifactID: repoPendingProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:pending-proof", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("pending proof err=%v, want invalid argument", err)
 	}
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.65,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.65,
 		ProofArtifactID: repoAnimalShedProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:shed-scoped-proof", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrInvalidArgument) {
@@ -95,7 +96,7 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 
 	setCampaignStatus(t, ctx, pool, domain.StatusDraft)
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.7,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.7,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:draft", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
@@ -147,6 +148,98 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 	}
 	assertWeighingAuditAction(t, ctx, pool, updated.ObservationID, "weighing.observation_updated")
 	assertWeighingAuditChange(t, ctx, pool, updated.ObservationID, repoShedProofTwo, repoShedProofThree, 11.0, 12.0)
+
+	replayedFirst, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          scannedTag,
+		ScannedIdentifier: scannedTag,
+		WeightKg:          11.0,
+		ProofArtifactID:   repoShedProofTwo,
+		IdempotencyKey:    "animal:free-flow-first",
+		RecordedBy:        repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("replay first free-flow observation: %v", err)
+	}
+	if replayedFirst.ObservationID != first.ObservationID || replayedFirst.WeightKg != first.WeightKg || replayedFirst.ProofArtifactID != first.ProofArtifactID {
+		t.Fatalf("first replay=%+v, want original %+v", replayedFirst, first)
+	}
+	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          scannedTag,
+		ScannedIdentifier: scannedTag,
+		WeightKg:          13.0,
+		ProofArtifactID:   repoShedProofTwo,
+		IdempotencyKey:    "animal:free-flow-first",
+		RecordedBy:        repoOperator,
+	})
+	if !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same key different free-flow payload err=%v, want idempotency conflict", err)
+	}
+}
+
+func TestRecordAnimalObservationRejectsSiblingCampaignShedScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   repoShedScope,
+		AnimalID:         repoAnimal,
+		WeightKg:         12.4,
+		ProofArtifactID:  repoAnimalProof,
+		ActualLocationID: repoExpectedShed,
+		IdempotencyKey:   "animal:sibling-scope",
+		RecordedBy:       repoOperator,
+	})
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("sibling scope err=%v, want not found", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	assertScopeStatus(t, ctx, pool, repoShedScope, "pending")
+}
+
+func TestAnimalObservationRejectsSameKeyDifferentPayload(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:        repoTenant,
+		CampaignID:      repoCampaign,
+		CampaignShedID:  repoAnimalScope,
+		AnimalID:        repoAnimal,
+		WeightKg:        12.4,
+		ProofArtifactID: repoAnimalProof,
+		IdempotencyKey:  "animal:fingerprint-conflict",
+		RecordedBy:      repoOperator,
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:        repoTenant,
+		CampaignID:      repoCampaign,
+		CampaignShedID:  repoAnimalScope,
+		AnimalID:        repoAnimal,
+		WeightKg:        12.5,
+		ProofArtifactID: repoAnimalProof,
+		IdempotencyKey:  "animal:fingerprint-conflict",
+		RecordedBy:      repoOperator,
+	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same key different animal payload err=%v, want idempotency conflict", err)
+	}
 }
 
 func TestRecordShedObservationEnforcesStatusOperatorProofAndCategory(t *testing.T) {
@@ -287,7 +380,7 @@ func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.4,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:delayed", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record delayed animal observation: %v", err)
@@ -350,7 +443,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.4,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:complete-scope", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record animal observation: %v", err)
@@ -369,7 +462,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
 
 	_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, AnimalID: repoAnimal, WeightKg: 12.5,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.5,
 		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:after-complete", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
@@ -399,6 +492,45 @@ func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("duplicate park/week create err=%v, want immutable conflict", err)
+	}
+}
+
+func TestCreateCampaignRejectsSameKeyDifferentPayload(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	base := domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2026-08-03",
+		PeriodEndDate:     "2026-08-09",
+		StartBusinessDate: "2026-08-03",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "create:fingerprint-conflict",
+		Sheds:             []domain.CreateCampaignShed{{LocationID: repoExpectedShed, LocationType: "shed", DisplayName: "Gandhi 1 - Part 1", WeighingCategory: domain.CategoryIndividualAnimal}},
+	}
+	first, err := repo.CreateCampaign(ctx, base)
+	if err != nil {
+		t.Fatalf("create campaign: %v", err)
+	}
+	replay, err := repo.CreateCampaign(ctx, base)
+	if err != nil {
+		t.Fatalf("replay campaign: %v", err)
+	}
+	if replay.CampaignID != first.CampaignID {
+		t.Fatalf("replay campaign id=%s, want %s", replay.CampaignID, first.CampaignID)
+	}
+	changed := base
+	changed.PlannedCapPerDay = 125
+	_, err = repo.CreateCampaign(ctx, changed)
+	if !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same key different campaign payload err=%v, want idempotency conflict", err)
 	}
 }
 

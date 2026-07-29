@@ -5375,6 +5375,7 @@ export interface components {
         };
         WeighingCampaignListResponse: {
             items: components["schemas"]["WeighingCampaign"][];
+            next_cursor?: string;
             trace_id?: string;
         };
         WeighingCampaignResponse: {
@@ -5471,7 +5472,10 @@ export interface components {
         };
         RecordWeighingAnimalObservationRequest: {
             /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
             animal_id: string;
+            scanned_identifier?: string;
             weight_kg: number;
             /** Format: uuid */
             proof_artifact_id: string;
@@ -5482,8 +5486,11 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             weight_kg: number;
+            average_weight_kg?: number;
+            animal_count: number;
             /** Format: uuid */
-            proof_artifact_id: string;
+            proof_artifact_id?: string;
+            proof_artifact_ids?: string[];
         };
         WeighingObservation: {
             /** Format: uuid */
@@ -6753,7 +6760,10 @@ export interface operations {
     };
     listWeighingCampaigns: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6871,7 +6881,10 @@ export interface operations {
     };
     appListWeighingCampaigns: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
