@@ -87,6 +87,7 @@ data class WeighingUiState(
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
+    val expectedAnimalIds: List<String> = emptyList(),
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
     val shedDrafts: List<WeighingDraftUiRow> = emptyList(),
     val selectedAnimalId: String? = null,
@@ -104,8 +105,14 @@ data class WeighingUiState(
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
     val individualSubmitReady: Boolean get() =
-        totalExpected > 0 &&
-            individualDrafts.count { it.readyToSubmit && it.syncedToBackend } >= totalExpected
+        expectedAnimalIds.isNotEmpty() &&
+            expectedAnimalIds.all { expectedAnimalId ->
+                individualDrafts.any { draft ->
+                    draft.animalId == expectedAnimalId &&
+                        draft.readyToSubmit &&
+                        draft.syncedToBackend
+                }
+            }
     val individualResolved: Int get() = maxOf(
         individualCompleted,
         visibleRows.count { it.isResolved },

@@ -473,17 +473,13 @@ class WeighingViewModel @Inject constructor(
     fun submitIndividualScope(onSubmitted: () -> Unit) {
         if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         val drafts = scopeState.value?.individualDrafts.orEmpty()
-        val expectedCount = scopeState.value?.totalExpected ?: 0
+        val expectedAnimalIds = scopeState.value?.expectedAnimalIds.orEmpty()
         val syncedDrafts = drafts
             .filter { it.syncedToBackend }
-        val capturedAnimalIds = syncedDrafts
-            .map { draft -> draft.scannedIdentifier.ifBlank { draft.animalId } }
-            .distinct()
-        val everyCaptureComplete = capturedAnimalIds.isNotEmpty() &&
-            expectedCount > 0 &&
-            capturedAnimalIds.size >= expectedCount &&
-            syncedDrafts.all { draft ->
-                draft.syncedToBackend &&
+        val everyCaptureComplete = expectedAnimalIds.isNotEmpty() &&
+            expectedAnimalIds.all { expectedAnimalId ->
+                val draft = syncedDrafts.firstOrNull { it.animalId == expectedAnimalId }
+                draft != null &&
                     (
                         proofForAnimal(draft.animalId)?.let {
                         it.syncStatus == CaptureSyncStatus.SYNCED &&
@@ -499,11 +495,17 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         viewModelScope.launch {
             try {
+                val submittedIdentifiers = expectedAnimalIds.map { expectedAnimalId ->
+                    syncedDrafts
+                        .first { it.animalId == expectedAnimalId }
+                        .scannedIdentifier
+                        .ifBlank { expectedAnimalId }
+                }
                 when (
                     repository.submitIndividualScope(
                         campaignId,
                         campaignShedId,
-                        capturedAnimalIds,
+                        submittedIdentifiers,
                     )
                 ) {
                     is AppResult.Ok -> onSubmitted()
@@ -1104,6 +1106,7 @@ class WeighingViewModel @Inject constructor(
                 .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
             totalExpected = scope.totalExpected,
+            expectedAnimalIds = scope.expectedAnimalIds,
             selectedAnimalId = selected?.animalId,
             selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
             scanInput = scan,

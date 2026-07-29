@@ -1059,6 +1059,28 @@ WHERE cs.tenant_id=$1::uuid
       AND observation.scanned_identifier=captured.scanned_identifier
       AND observation.weight_kg > 0
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM weighing_expected_animals expected
+    WHERE expected.tenant_id=cs.tenant_id
+      AND expected.campaign_id=cs.campaign_id
+      AND expected.campaign_shed_id=cs.campaign_shed_id
+      AND expected.status NOT IN ('weighed', 'unavailable', 'canceled')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM weighing_observations observation
+        JOIN proof_artifacts proof
+          ON proof.tenant_id=observation.tenant_id
+         AND proof.proof_id=observation.proof_artifact_id
+         AND proof.upload_state='completed'
+         AND proof.proof_type='video'
+        WHERE observation.tenant_id=expected.tenant_id
+          AND observation.campaign_id=expected.campaign_id
+          AND observation.campaign_shed_id=expected.campaign_shed_id
+          AND observation.animal_id=expected.animal_id
+          AND observation.weight_kg > 0
+      )
   )`, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
 	if err != nil {
 		return err
@@ -1070,7 +1092,7 @@ WHERE cs.tenant_id=$1::uuid
 UPDATE weighing_expected_animals
 SET status='closed_by_override', updated_at=now()
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
-  AND status <> 'weighed'`, tenantID, campaignID, campaignShedID); err != nil {
+  AND status NOT IN ('weighed', 'unavailable', 'canceled')`, tenantID, campaignID, campaignShedID); err != nil {
 		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {

@@ -23,11 +23,13 @@ const (
 	repoAnimalScope     = "00000000-0000-4000-8000-000000009101"
 	repoShedScope       = "00000000-0000-4000-8000-000000009102"
 	repoAnimal          = "00000000-0000-4000-8000-000000009201"
+	repoAnimalTwo       = "00000000-0000-4000-8000-000000009202"
 	repoAnimalProof     = "00000000-0000-4000-8000-000000009301"
 	repoPendingProof    = "00000000-0000-4000-8000-000000009302"
 	repoShedProof       = "00000000-0000-4000-8000-000000009303"
 	repoPhotoProof      = "00000000-0000-4000-8000-000000009304"
 	repoAnimalShedProof = "00000000-0000-4000-8000-000000009305"
+	repoAnimalTwoProof  = "00000000-0000-4000-8000-000000009311"
 	repoShedProofTwo    = "00000000-0000-4000-8000-000000009306"
 	repoShedProofThree  = "00000000-0000-4000-8000-000000009307"
 	repoShedProofFour   = "00000000-0000-4000-8000-000000009308"
@@ -467,6 +469,55 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("completed campaign animal err=%v, want immutable", err)
+	}
+}
+
+func TestSubmitIndividualScopeRejectsExtraObservationWhenExpectedAnimalMissing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990002', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET current_location_id=EXCLUDED.current_location_id, shed_id=EXCLUDED.shed_id`,
+		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid)
+ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availability_status='expected_shed'`,
+		repoCampaign, repoTenant, repoAnimalTwo, repoExpectedShed, repoAnimalScope)
+	insertProof(t, ctx, pool, repoAnimalTwoProof, "video", "completed", "goat", repoAnimalTwo, "goat", repoAnimalTwo)
+
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
+		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:only-first-expected", RecordedBy: repoOperator,
+	}); err != nil {
+		t.Fatalf("record first expected animal: %v", err)
+	}
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'extra-rfid', 13.1, $4::uuid, $5::uuid, 'animal:extra-rfid')`,
+		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator)
+
+	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:missing-expected-with-extra", []string{"", "extra-rfid"})
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("submit err=%v, want not found while expected animal is missing", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	var missingStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM weighing_expected_animals
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
+		repoTenant, repoCampaign, repoAnimalTwo).Scan(&missingStatus); err != nil {
+		t.Fatalf("read missing expected animal: %v", err)
+	}
+	if missingStatus != "pending" {
+		t.Fatalf("missing expected animal status=%s, want pending", missingStatus)
 	}
 }
 

@@ -127,6 +127,9 @@ interface WeighingRosterDao {
     @Query("SELECT COUNT(*) FROM weighing_roster_row WHERE scopeKey = :scopeKey")
     fun observeScopeTotal(scopeKey: String): Flow<Int>
 
+    @Query("SELECT animalId FROM weighing_roster_row WHERE scopeKey = :scopeKey ORDER BY seq ASC, id ASC")
+    fun observeExpectedAnimalIds(scopeKey: String): Flow<List<String>>
+
     @Query(
         "SELECT * FROM weighing_roster_row WHERE scopeKey = :scopeKey AND " +
             "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) LIMIT 1",
