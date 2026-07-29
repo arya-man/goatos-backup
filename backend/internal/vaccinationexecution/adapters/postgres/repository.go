@@ -1334,7 +1334,7 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'accepted') AS has_accepted_completion,
     BOOL_OR(located.completion_status = 'rejected') AS has_rejected_completion,
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
-    BOOL_AND(located.completion_status = 'accepted') AS all_completions_accepted,
+    BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned) AS has_scan,
     BOOL_OR(located.shed_proof_submitted) AS has_shed_proof
   FROM located

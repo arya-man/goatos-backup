@@ -903,6 +903,26 @@ func TestListVaccinationExecutionAnimalAcceptedOneToManyPageBoundaryExecutionDat
 	if rows[0].ObligationCount != 1 || rows[0].CompletionAccepted != 0 || rows[0].CompletionRecorded != 1 {
 		t.Fatalf("animal counts = target %d accepted %d recorded %d, want 1/0/1; partial accepted obligations must not mark the animal accepted", rows[0].ObligationCount, rows[0].CompletionAccepted, rows[0].CompletionRecorded)
 	}
+
+	execProjectionSQL(t, ctx, pool, "remove recorded completion to leave open obligation",
+		`DELETE FROM vaccination_completions
+		  WHERE tenant_id = $1 AND completion_id = $2`,
+		testTenant, secondCompletion)
+	rows, err = projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution after open obligation: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("after open obligation rows = %#v, want one current-drive shed row", rows)
+	}
+	if rows[0].ObligationCount != 1 || rows[0].CompletionAccepted != 0 {
+		t.Fatalf("open animal counts = target %d accepted %d, want 1/0; accepted plus open obligation must not mark the animal accepted", rows[0].ObligationCount, rows[0].CompletionAccepted)
+	}
 }
 
 func TestDriveAssignmentsSeededDoneOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixUsesCompletedObligations(t *testing.T) {
