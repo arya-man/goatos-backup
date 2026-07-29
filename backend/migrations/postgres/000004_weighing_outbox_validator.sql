@@ -1,7 +1,16 @@
 -- +goose Up
-CREATE UNIQUE INDEX IF NOT EXISTS weighing_campaigns_one_active_week_per_park_idx
-  ON public.weighing_campaigns (tenant_id, park_id, period_type, cadence_type, period_start_date)
-  WHERE status <> 'canceled';
+-- Existing environments may already have weighing_campaigns when this validator is applied.
+-- Clean-slate installs create the table later in 000010, which owns this index.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF to_regclass('public.weighing_campaigns') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS weighing_campaigns_one_active_week_per_park_idx
+      ON public.weighing_campaigns (tenant_id, park_id, period_type, cadence_type, period_start_date)
+      WHERE status <> 'canceled';
+  END IF;
+END $$;
+-- +goose StatementEnd
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger

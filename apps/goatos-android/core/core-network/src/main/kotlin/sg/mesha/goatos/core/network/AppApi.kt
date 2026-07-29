@@ -406,6 +406,7 @@ interface AppApi {
     suspend fun submitWeighingScope(
         campaignId: String,
         campaignShedId: String,
+        idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
     )
 
@@ -1075,6 +1076,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun submitWeighingScope(
         campaignId: String,
         campaignShedId: String,
+        idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
     ) = Unit
 

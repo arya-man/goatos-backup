@@ -13,6 +13,7 @@ import (
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -21,6 +22,8 @@ import (
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
+	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
 
 // BuildDomainBus builds the production in-process domain event bus and registers
@@ -42,6 +45,8 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	sopService := sopapp.NewService(soppg.NewRepository(pool, queryTimeout))
 	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+	workforceRepo := workforcepg.NewRepository(pool, queryTimeout)
+	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -50,6 +55,8 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

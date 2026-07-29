@@ -182,6 +182,8 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
 
     override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) = Unit
 
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = Unit
+
     override suspend fun tagsForTask(taskId: String): List<String> = emptyList()
 
     override suspend fun clearForTask(taskId: String) = Unit

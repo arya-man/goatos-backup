@@ -21,4 +21,3 @@ test("vaccination schedule workload labels tolerate stale backend page contracts
   assert.equal(copy(page, "label.overdue"), "overdue");
   assert.equal(copy(page, "label.done"), "done");
 });
-

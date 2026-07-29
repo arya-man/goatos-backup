@@ -1115,6 +1115,25 @@ export async function createWeighingCampaign(
   );
 }
 
+export async function updateWeighingCampaign(
+  campaignId: string,
+  body: CreateWeighingCampaignRequest,
+  idempotencyKey = `weighing-campaign-update-${campaignId}-${randomUUID()}`,
+): Promise<ApiResult<WeighingCampaignResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/weighing/campaigns/${campaignId}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<WeighingCampaignResponse>(path, {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function publishWeighingCampaign(
   campaignId: string,
   idempotencyKey = `weighing-campaign-publish-${campaignId}-${randomUUID()}`,

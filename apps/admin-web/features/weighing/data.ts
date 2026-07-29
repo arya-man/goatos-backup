@@ -135,6 +135,7 @@ export type WeighingPlanner = {
   existingCampaignWeekLabel?: string;
   existingCampaignOperatorName?: string;
   existingCampaignShedCount?: number;
+  editingCampaignId?: string;
   duplicateBlocked: boolean;
   parks: WeighingPlannerPark[];
   sheds: WeighingPlannerShed[];
@@ -155,10 +156,11 @@ export function roleFromSearchParam(value: string | undefined): WeighingRole {
 export async function getWeighingPageData(
   role: WeighingRole,
   selectedWeek?: string,
+  selectedCampaignId?: string,
 ): Promise<ApiResult<WeighingPageData>> {
   const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
-  const selectedItem = selectCampaign(result.data.items, selectedWeek);
+  const selectedItem = selectCampaign(result.data.items, selectedWeek, selectedCampaignId);
   const campaign =
     selectedItem
       ? campaignFromApi(selectedItem, role)
@@ -166,7 +168,7 @@ export async function getWeighingPageData(
   const plannerWeek = selectedWeek || campaign.weekStart || currentWeekStart();
   const catalogResult = await getWeighingPlannerCatalog(plannerWeek);
   if (!catalogResult.ok) return catalogResult;
-  const planner = plannerFromCatalog(catalogResult.data, plannerWeek, selectedItem, campaign);
+  const planner = plannerFromCatalog(catalogResult.data, plannerWeek, selectedItem, campaign, selectedCampaignId);
   const weeks = weeksFromCampaigns(result.data.items, campaign);
   return {
     ok: true,
@@ -192,7 +194,15 @@ async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighing
   return { ok: true, data: { items } };
 }
 
-function selectCampaign(items: ApiWeighingCampaign[], selectedWeek?: string): ApiWeighingCampaign | undefined {
+function selectCampaign(
+  items: ApiWeighingCampaign[],
+  selectedWeek?: string,
+  selectedCampaignId?: string,
+): ApiWeighingCampaign | undefined {
+  if (selectedCampaignId) {
+    const byCampaign = items.find((item) => item.campaign_id === selectedCampaignId);
+    if (byCampaign) return byCampaign;
+  }
   if (selectedWeek) {
     const byWeek = items.find((item) => item.period_start_date === selectedWeek);
     if (byWeek) return byWeek;
@@ -242,6 +252,7 @@ function plannerFromCatalog(
   periodStartDate: string,
   selectedItem: ApiWeighingCampaign | undefined,
   campaign: WeighingCampaign,
+  selectedCampaignId?: string,
 ): WeighingPlanner {
   const selectedPark = selectPlannerPark(catalog.parks, selectedItem);
   const selectedShedIds = new Set((selectedItem?.sheds ?? []).map((shed) => shed.location_id));
@@ -262,6 +273,9 @@ function plannerFromCatalog(
   const individual = selected.filter((shed) => shed.category === "individual_animal");
   const lumpsum = selected.filter((shed) => shed.category === "per_shed_partition");
   const existing = selectedPark?.existing_campaign;
+  const editingCampaignId = selectedCampaignId && selectedItem?.campaign_id === selectedCampaignId
+    ? selectedCampaignId
+    : undefined;
   const periodEndDate = selectedItem?.period_end_date ?? addDays(periodStartDate, 6);
   return {
     weekLabel: weekRangeLabel(periodStartDate, periodEndDate),
@@ -275,7 +289,8 @@ function plannerFromCatalog(
     existingCampaignWeekLabel: existing ? weekRangeLabel(existing.period_start_date, existing.period_end_date) : (campaign.id !== "empty" ? campaign.weekLabel : undefined),
     existingCampaignOperatorName: operatorName(catalog, existing?.operator_user_id ?? selectedItem?.operator_user_id),
     existingCampaignShedCount: existing?.shed_count ?? (campaign.id !== "empty" ? campaign.selectedScopes : undefined),
-    duplicateBlocked: Boolean(existing || campaign.id !== "empty"),
+    editingCampaignId,
+    duplicateBlocked: !editingCampaignId && Boolean(existing || campaign.id !== "empty"),
     selectedParkId: selectedPark?.park_id ?? "",
     selectedOperatorId,
     parks: catalog.parks.map((park) => ({

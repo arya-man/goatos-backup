@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -66,22 +68,31 @@ func TestCompletedWeighingShedEnqueuesSubmissionEventInSameTransaction(t *testin
 
 			var count int
 			var campaignShedID, tenantID string
+			var payload []byte
 			if err := pool.QueryRow(ctx, `
 SELECT count(*)::int,
-       COALESCE(max(payload->>'campaign_shed_id'), ''),
-       COALESCE(max(payload->>'tenant_id'), '')
+       COALESCE(max(payload->'payload'->>'campaign_shed_id'), ''),
+       COALESCE(max(payload->'payload'->>'tenant_id'), ''),
+       max(payload)::text
 FROM outbox_messages
 WHERE tenant_id=$1::uuid
   AND event_type=$2
   AND aggregate_id=$3::uuid
-  AND payload->>'campaign_shed_id'=$4`,
+  AND payload->'payload'->>'campaign_shed_id'=$4`,
 				repoTenant, eventWeighingShedSubmissionCompleted, repoCampaign, tt.campaignShedID).
-				Scan(&count, &campaignShedID, &tenantID); err != nil {
+				Scan(&count, &campaignShedID, &tenantID, &payload); err != nil {
 				t.Fatalf("read shed completion outbox event: %v", err)
 			}
 			if count != 1 || campaignShedID != tt.campaignShedID || tenantID != repoTenant {
 				t.Fatalf("completion outbox = count %d tenant %q scope %q, want one event for tenant %q scope %q",
 					count, tenantID, campaignShedID, repoTenant, tt.campaignShedID)
+			}
+			validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
+			if err != nil {
+				t.Fatalf("load domain envelope validator: %v", err)
+			}
+			if err := validator.Validate(payload); err != nil {
+				t.Fatalf("weighing completion outbox payload is not a valid domain-event envelope: %v\npayload: %s", err, payload)
 			}
 		})
 	}

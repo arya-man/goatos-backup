@@ -292,6 +292,7 @@ interface AppApiService {
     suspend fun submitWeighingScope(
         @Path("campaign_id") campaignId: String,
         @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: WeighingScopeSubmitRequestDto,
     )
 
@@ -776,8 +777,9 @@ class RetrofitAppApi(
     override suspend fun submitWeighingScope(
         campaignId: String,
         campaignShedId: String,
+        idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
-    ) = service.submitWeighingScope(campaignId, campaignShedId, request)
+    ) = service.submitWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
 
     override suspend fun verifyAppTask(
         taskId: String,
