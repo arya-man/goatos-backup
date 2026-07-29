@@ -843,6 +843,8 @@ fun AppNavHost(
                         vm.recordShedPartition { navController.popBackStack() }
                     },
                     onCaptureShedVideo = vm::captureShedVideo,
+                    onReplaceShedVideo = vm::replaceShedVideo,
+                    onRemoveShedVideo = vm::removeShedVideo,
                     onReconnectReader = { navController.navigate(Routes.RFID) { launchSingleTop = true } },
                     onRefresh = vm::refresh,
                     onBack = { navController.popBackStack() },
