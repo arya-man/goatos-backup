@@ -93,6 +93,14 @@ export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
+// CEO vaccination command board read model.
+export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
+export type VaccinationCommandBoardKPI = AppApiComponents["schemas"]["VaccinationCommandBoardKPI"];
+export type VaccinationCommandBoardCohortCell = AppApiComponents["schemas"]["VaccinationCommandBoardCohortCell"];
+export type ShedDoseMatrixCell = AppApiComponents["schemas"]["ShedDoseMatrixCell"];
+export type WeeklyGivenRow = AppApiComponents["schemas"]["WeeklyGivenRow"];
+export type VerificationQueueRow = AppApiComponents["schemas"]["VerificationQueueRow"];
+
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
 export type AdminGoatBulkPreviewRequest = AdminApiComponents["schemas"]["AdminGoatBulkPreviewRequest"];
@@ -1176,6 +1184,25 @@ export async function getVaccinationOperatorAssignmentConfig(parkId?: string): P
       method: "GET",
       query: parkId ? { park_id: parkId } : {},
       cache: "no-store",
+    }),
+  );
+}
+
+// CEO vaccination command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue.
+export async function getVaccinationCommandBoard(params: {
+  driveBatchId?: string;
+  asOf?: string;
+} = {}): Promise<ApiResult<VaccinationCommandBoardResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCommandBoardResponse>("/vaccination/command", {
+      cache: "no-store",
+      query: compactQuery({
+        drive_batch_id: params.driveBatchId,
+        as_of: params.asOf,
+      }),
     }),
   );
 }

@@ -77,4 +77,9 @@ type Repository interface {
 	// across a date range. Aggregated FULL-DAY (not paginated). Date range is inclusive: from q.AsOf to q.DueBefore.
 	// Returns VaccineCarryLine rows keyed by (date, vaccine_label).
 	VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error)
+
+	// VaccinationCommandBoard returns the CEO closure view: KPIs (drive-scoped or all-history),
+	// cohort×vaccine pending matrix, shed×dose state matrix, weekly given chart, and verification queue.
+	// All aggregations are served from canonical indexed SQL (5k-50k envelope); no projection tables.
+	VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error)
 }

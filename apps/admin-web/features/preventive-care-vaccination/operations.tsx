@@ -5,6 +5,7 @@ import { parseScope } from "@/lib/scope";
 import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/vaccination-sheds";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { VaccinationFullSchedule, VaccinationFullScheduleSkeleton, vaccinationScheduleYear } from "./full-vaccine-schedule";
+import { VaccinationCommandBoard, VaccinationCommandBoardSkeleton } from "./command-board";
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -52,6 +53,11 @@ export function VaccinationOperationsPage({
         </Suspense>
       ) : (
         <>
+      {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
+      <Suspense fallback={<VaccinationCommandBoardSkeleton />}>
+        <VaccinationCommandBoard pageContract={pageContract} />
+      </Suspense>
+
       {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="bd">

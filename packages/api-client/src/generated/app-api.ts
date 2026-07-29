@@ -595,6 +595,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** CEO closure view — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */
+        get: operations["getVaccinationCommandBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/operations": {
         parameters: {
             query?: never;
@@ -4417,6 +4434,123 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
+        VaccinationCommandBoardKPI: {
+            /** @description Total planning count (all obligations for drive or all-history). */
+            targets: number;
+            /** @description Accepted vaccination completions. */
+            dosesVerified: number;
+            /** @description Recorded completions awaiting verification (status=recorded, verified_at=null). */
+            awaitingVerification: number;
+            /** @description Obligations due before now with no completion. */
+            overdueNotGiven: number;
+            /** @description Obligations due after now. */
+            scheduledAhead: number;
+        };
+        VaccinationCommandBoardCohort: {
+            /** @description Management stage from goat classification (e.g., Buck, Non-Pregnant Female). */
+            managementStage: string;
+            /** @enum {string} */
+            sex: "male" | "female";
+            animalCount: number;
+        };
+        VaccinationCommandBoardCohortCell: {
+            cohort: components["schemas"]["VaccinationCommandBoardCohort"];
+            /** @description Human-readable vaccine label (e.g., ET+TT, PPR · Booster). */
+            vaccineLabel: string;
+            /** @description Count of animals in this cohort with pending obligations for this vaccine (scheduled, due, or recorded-unverified). */
+            pendingCount: number;
+        };
+        ShedDoseMatrixCell: {
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
+            doseRule: string;
+            /**
+             * @description State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
+             * @enum {string}
+             */
+            state: "verified" | "awaiting" | "overdue" | "scheduled";
+            /** @description Number of unique animals with this state in this shed for this dose. */
+            animalCount: number;
+            /**
+             * Format: date-time
+             * @description Earliest administered_at date for verified/awaiting completions.
+             */
+            minAdministeredDate?: string;
+            /**
+             * Format: date-time
+             * @description Latest administered_at date for verified/awaiting completions.
+             */
+            maxAdministeredDate?: string;
+            /**
+             * Format: date-time
+             * @description Earliest due_at date for scheduled obligations.
+             */
+            minDueDate?: string;
+            /**
+             * Format: date-time
+             * @description Latest due_at date for scheduled obligations.
+             */
+            maxDueDate?: string;
+        };
+        WeeklyGivenRow: {
+            /** @description ISO 8601 week year. */
+            isoYear: number;
+            /** @description ISO 8601 week number (1-53). */
+            isoWeek: number;
+            /** @description Human-readable vaccine label. */
+            vaccineLabel: string;
+            /**
+             * @description Completion status (accepted=verified, recorded=recorded-unverified).
+             * @enum {string}
+             */
+            completionStatus: "accepted" | "recorded";
+            /** @description Number of completions this week for this vaccine and status. */
+            count: number;
+            /**
+             * Format: date-time
+             * @description Earliest administered_at this week.
+             */
+            minAdministeredAt: string;
+            /**
+             * Format: date-time
+             * @description Latest administered_at this week.
+             */
+            maxAdministeredAt: string;
+        };
+        VerificationQueueRow: {
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            /** @description Dose rule identifier or human label. */
+            doseRule: string;
+            /** @description Count of completions awaiting verification (status=recorded, verified_at=null). */
+            awaitingCount: number;
+            /** @description Total count of obligations for this shed × dose. */
+            totalCount: number;
+            /**
+             * Format: date-time
+             * @description Latest administered_at date for awaiting completions.
+             */
+            lastGivenOnDate?: string;
+            /** @description Business days since earliest administered_at. */
+            daysInQueue?: number;
+        };
+        VaccinationCommandBoardResponse: {
+            /** @enum {string} */
+            source: "api";
+            kpis: components["schemas"]["VaccinationCommandBoardKPI"];
+            /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
+            cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
+            /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
+            shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
+            /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */
+            weeklyGiven: components["schemas"]["WeeklyGivenRow"][];
+            /** @description Per-shed × dose rows awaiting verification. Includes animal count, last-given date, and days in queue. */
+            verificationQueue: components["schemas"]["VerificationQueueRow"][];
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+        };
         VaccinationExecutionDriveSummary: {
             driveId?: string;
             driveName?: string;
@@ -7197,6 +7331,35 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationCommandBoard: {
+        parameters: {
+            query?: {
+                /** @description Optional: narrow KPIs to this drive batch. When absent, KPIs aggregate all-history. */
+                drive_batch_id?: string;
+                /** @description Scope instant (defaults to now in business timezone). Past values are supported for historical closure review; future values clamp to now. */
+                as_of?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CEO vaccination command board — KPIs, matrices, charts, and queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationCommandBoardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
