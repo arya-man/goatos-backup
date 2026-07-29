@@ -166,8 +166,9 @@ Amit's work, but the evidence/completion rule depends on the selected category:
 | Per-shed/partition weighing (field label: lumpsum) | Operator records the shed/partition weighing result for the selected scope and attaches the required shed/partition proof video. This does not create individual animal weights. |
 
 For individual animal weighing, the selected shed/partition tells the operator
-where to work and which expected animals belong in that assignment. It never
-substitutes for animal-wise RFID, weight, and video.
+which empty Weighing bucket they are filling. It does not define an expected
+animal roster, expected count, or wrong-shed rule for submit. It never
+substitutes for the captured RFID/tag, weight, and video pair.
 
 For per-shed/partition weighing, the selected shed/partition itself is the
 measurement scope. The app must label it separately from individual animal

@@ -1089,10 +1089,8 @@ private fun RosterPeekCard(
     }
 }
 
-private fun rosterPeekSummary(total: Int, visible: Int, wrongShed: Int): String {
-    val base = if (total > 0) "$visible visible of $total kids" else "$visible visible rows"
-    return if (wrongShed > 0) "$base - $wrongShed wrong shed" else base
-}
+private fun rosterPeekSummary(@Suppress("UNUSED_PARAMETER") total: Int, visible: Int, @Suppress("UNUSED_PARAMETER") wrongShed: Int): String =
+    "$visible captured ${if (visible == 1) "row" else "rows"}"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1199,8 +1197,8 @@ private fun WeighingRosterSheetContent(
     }
 }
 
-private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
-    if (totalExpected > 0) "$visibleCount rows visible of $totalExpected kids" else "$visibleCount rows visible"
+private fun rosterSheetSubtitle(visibleCount: Int, @Suppress("UNUSED_PARAMETER") totalExpected: Int): String =
+    "$visibleCount captured ${if (visibleCount == 1) "row" else "rows"}"
 
 @Composable
 private fun WeighingExecutionScanScreen(
@@ -1999,7 +1997,7 @@ private fun ActionButton(
 @Composable
 private fun CaptureProgressTiles(state: WeighingUiState) {
     val done = if (state.isShedPartition) state.shedCompleted else state.individualResolved
-    val total = if (state.isShedPartition) 1 else state.totalExpected
+    val total = if (state.isShedPartition) 1 else state.visibleRows.size
     val pending = (total - done).coerceAtLeast(0)
     val proofReady = state.individualDrafts.count { it.proofReady } + state.shedDrafts.count { it.proofReady }
     Row(
