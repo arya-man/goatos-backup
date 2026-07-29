@@ -74,14 +74,10 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor 
 	if limit > 100 {
 		limit = 100
 	}
-	page, err := s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
-	if err != nil {
-		return domain.CampaignPage{}, err
-	}
 	if canExecute && !canMonitor {
-		page.Items = filterCampaignsForShedOperator(page.Items, actor.UserID)
+		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, strings.TrimSpace(cursor), limit)
 	}
-	return page, nil
+	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
 }
 
 func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error) {
@@ -109,7 +105,11 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	if limit > 100 {
 		limit = 100
 	}
-	return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
+	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	if canMonitor {
+		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
+	}
+	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), limit)
 }
 
 func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
@@ -236,26 +236,4 @@ func validateCreate(cmd domain.CreateCampaign) error {
 		}
 	}
 	return nil
-}
-
-func filterCampaignsForShedOperator(campaigns []domain.Campaign, operatorID string) []domain.Campaign {
-	operatorID = strings.TrimSpace(operatorID)
-	if operatorID == "" {
-		return nil
-	}
-	filtered := make([]domain.Campaign, 0, len(campaigns))
-	for _, campaign := range campaigns {
-		sheds := campaign.Sheds[:0]
-		for _, shed := range campaign.Sheds {
-			if shed.OperatorUserID == operatorID {
-				sheds = append(sheds, shed)
-			}
-		}
-		if len(sheds) == 0 {
-			continue
-		}
-		campaign.Sheds = append([]domain.CampaignShed(nil), sheds...)
-		filtered = append(filtered, campaign)
-	}
-	return filtered
 }

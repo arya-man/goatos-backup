@@ -168,7 +168,7 @@ WHERE tenant_id=$1::uuid
 	for _, shed := range cmd.Sheds {
 		var campaignShedID string
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
-		// projection-review: membership=selected free-flow Weighing bucket definitions, with legacy herd counts persisted as planner hints only; group_key=(tenant_id,campaign_id,campaign_shed_id) plus optional imported weighing_expected_animals for old admin/review surfaces; join_cardinality=the selected shed row is upserted once and any herd-register rows are copied into the compatibility table without driving mobile submit completion; pagination=campaign edit is one bounded planner write, not a paged aggregate; scope=explicit campaign_shed_id/location_id bucket so duplicate scanned identifiers may appear in different buckets.
+		// projection-review: membership=selected free-flow Weighing bucket definitions for one campaign edit, with legacy herd counts persisted as planner hints only; group_key=(tenant_id,campaign_id,campaign_shed_id) plus optional imported weighing_expected_animals for old admin/review surfaces; join_cardinality=the selected shed row is upserted once and any herd-register rows are copied into the compatibility table without driving mobile submit completion; pagination=campaign edit is one bounded planner write, not a paged aggregate; scope=explicit campaign_shed_id/location_id bucket so duplicate scanned identifiers may appear in different buckets.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
 WITH upserted AS (
@@ -262,6 +262,14 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 }
 
 func (r *Repository) ListCampaigns(ctx context.Context, tenantID string, cursor string, limit int) (domain.CampaignPage, error) {
+	return r.listCampaigns(ctx, tenantID, "", cursor, limit)
+}
+
+func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID string, cursor string, limit int) (domain.CampaignPage, error) {
+	return r.listCampaigns(ctx, tenantID, operatorUserID, cursor, limit)
+}
+
+func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID string, cursor string, limit int) (domain.CampaignPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -274,6 +282,7 @@ func (r *Repository) ListCampaigns(ctx context.Context, tenantID string, cursor 
 	if err != nil {
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
+	operatorFilter := strings.TrimSpace(operatorUserID)
 	rows, err := r.pool.Query(ctx, `
 SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text,
   start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text,
@@ -281,11 +290,22 @@ SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::tex
 FROM weighing_campaigns
 WHERE tenant_id=$1::uuid
   AND (
+    $6::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM weighing_campaign_sheds scope
+      WHERE scope.tenant_id=weighing_campaigns.tenant_id
+        AND scope.campaign_id=weighing_campaigns.campaign_id
+        AND scope.operator_user_id=$6::uuid
+        AND scope.status <> 'canceled'
+    )
+  )
+  AND (
     $2::date IS NULL
     OR (period_start_date, created_at, campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
   )
 ORDER BY period_start_date DESC, created_at DESC, campaign_id DESC
-LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1)
+LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter))
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -310,7 +330,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 		out = out[:limit]
 		ids = ids[:limit]
 	}
-	if err := r.hydrateCampaigns(ctx, tenantID, ids, out); err != nil {
+	if err := r.hydrateCampaigns(ctx, tenantID, ids, out, operatorFilter); err != nil {
 		return domain.CampaignPage{}, err
 	}
 	return domain.CampaignPage{Items: out, NextCursor: nextCursor}, nil
@@ -454,6 +474,14 @@ ORDER BY display_name, display_code, user_id`, tenantID)
 }
 
 func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, limit)
+}
+
+func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, limit)
+}
+
+func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -466,6 +494,7 @@ func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, 
 	if err != nil {
 		return domain.RosterPage{}, ports.ErrInvalidArgument
 	}
+	operatorFilter := strings.TrimSpace(operatorUserID)
 	rows, err := r.pool.Query(ctx, `
 WITH scoped AS (
   SELECT
@@ -483,6 +512,12 @@ WITH scoped AS (
     ea.created_at,
     row_number() OVER (ORDER BY ea.created_at, ea.animal_id) AS seq
   FROM weighing_expected_animals ea
+  JOIN weighing_campaign_sheds cs
+    ON cs.tenant_id=ea.tenant_id
+   AND cs.campaign_id=ea.campaign_id
+   AND cs.campaign_shed_id=ea.campaign_shed_id
+   AND ($7::uuid IS NULL OR cs.operator_user_id=$7::uuid)
+   AND cs.status <> 'canceled'
   JOIN goats g ON g.tenant_id=ea.tenant_id AND g.goat_id=ea.animal_id
   WHERE ea.tenant_id=$1::uuid
     AND ea.campaign_id=$2::uuid
@@ -531,7 +566,7 @@ LEFT JOIN LATERAL (
   ORDER BY gi.is_primary_for_goat DESC, gi.created_at DESC, gi.identifier_id
   LIMIT 1
 ) secondary_id ON true
-ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShedID, nullableTime(cur.CreatedAt), nullableString(cur.AnimalID), limit+1)
+ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShedID, nullableTime(cur.CreatedAt), nullableString(cur.AnimalID), limit+1, nullableString(operatorFilter))
 	if err != nil {
 		return domain.RosterPage{}, err
 	}
@@ -1340,7 +1375,7 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	return c, rows.Err()
 }
 
-func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids []string, campaigns []domain.Campaign) error {
+func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids []string, campaigns []domain.Campaign, operatorUserID string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -1348,11 +1383,14 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	for i := range campaigns {
 		byID[campaigns[i].CampaignID] = i
 	}
+	operatorFilter := strings.TrimSpace(operatorUserID)
 	rows, err := r.pool.Query(ctx, `
 SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status
 FROM weighing_campaign_sheds
-WHERE tenant_id=$1::uuid AND campaign_id = ANY($2::uuid[])
-ORDER BY campaign_id, display_name`, tenantID, ids)
+WHERE tenant_id=$1::uuid
+  AND campaign_id = ANY($2::uuid[])
+  AND ($3::uuid IS NULL OR operator_user_id=$3::uuid)
+ORDER BY campaign_id, display_name`, tenantID, ids, nullableString(operatorFilter))
 	if err != nil {
 		return err
 	}
