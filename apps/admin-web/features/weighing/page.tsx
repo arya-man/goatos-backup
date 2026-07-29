@@ -17,7 +17,7 @@ async function createWeighingCampaignAction(formData: FormData) {
     redirect("/weighing?notice=duplicate-blocked");
   }
   const selectedParkId = String(formData.get("park_id") || "");
-  const selectedShedIds = formData.getAll("shed_id").map(String);
+  const selectedShedIds = formData.getAll(`shed_id_${selectedParkId}`).map(String);
   const labelByShed = new Map(formData.getAll("shed_label").map((value) => {
     const [id, label] = String(value).split(":", 2);
     return [id, label];
@@ -27,7 +27,7 @@ async function createWeighingCampaignAction(formData: FormData) {
     return [id, parkId];
   }));
   const validSelectedShedIds = selectedShedIds.filter((id) => parkByShed.get(id) === selectedParkId);
-  if (validSelectedShedIds.length !== selectedShedIds.length) {
+  if (validSelectedShedIds.length !== selectedShedIds.length || validSelectedShedIds.length === 0) {
     revalidatePath("/weighing");
     redirect("/weighing?notice=create-failed");
   }
@@ -514,7 +514,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               </div>
               {planner.sheds.map((shed) => (
                 <div className={`weighing-shed-choice${shed.selected ? " on" : ""}`} key={shed.id}>
-                  <input type="checkbox" name="shed_id" value={shed.id} defaultChecked={shed.selected} />
+                  <input type="checkbox" name={`shed_id_${shed.parkId}`} value={shed.id} defaultChecked={shed.selected} />
                   <span className="weighing-check">{shed.selected ? "✓" : ""}</span>
                   <div className="weighing-shed-main">
                     <b>{shed.label}</b>

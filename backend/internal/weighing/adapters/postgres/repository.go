@@ -177,6 +177,7 @@ WITH upserted AS (
     display_name=EXCLUDED.display_name,
     weighing_category=EXCLUDED.weighing_category,
     expected_animal_count=EXCLUDED.expected_animal_count,
+    status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
     updated_at=now()
   WHERE weighing_campaign_sheds.status <> 'completed'
   RETURNING campaign_shed_id
