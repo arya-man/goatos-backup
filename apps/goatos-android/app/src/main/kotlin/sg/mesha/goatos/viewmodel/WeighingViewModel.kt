@@ -1116,7 +1116,7 @@ class WeighingViewModel @Inject constructor(
                 )
             }
         )
-            .distinctBy { it.animalId }
+            .distinctBy { it.id }
             .sortedWith(
                 compareByDescending<WeighingRosterRowEntity> { it.updatedAt }
                     .thenByDescending { it.animalId },
@@ -1128,7 +1128,6 @@ class WeighingViewModel @Inject constructor(
                 .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
             totalExpected = scope.totalExpected,
-            expectedAnimalIds = scope.expectedAnimalIds,
             selectedAnimalId = selected?.animalId,
             selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
             scanInput = scan,

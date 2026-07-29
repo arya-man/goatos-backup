@@ -89,7 +89,6 @@ data class WeighingUiState(
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
-    val expectedAnimalIds: List<String> = emptyList(),
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
     val shedDrafts: List<WeighingDraftUiRow> = emptyList(),
     val selectedAnimalId: String? = null,
