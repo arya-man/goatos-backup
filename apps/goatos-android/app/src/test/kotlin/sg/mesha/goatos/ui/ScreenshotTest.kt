@@ -338,17 +338,17 @@ class ScreenshotTest {
     }
 
     @Test
-    fun shifting_verifier_queue() = shot("shifting_verifier_queue") {
+    fun weighing_verifier_queue() = shot("weighing_verifier_queue") {
         VerifyQueueScreen(
             state = VerifyQueueUiState(
-                selectedModule = VerifyModuleTab.SHIFTING,
+                selectedModule = VerifyModuleTab.WEIGHING,
                 rows = listOf(
                     VerificationQueueRow(
-                        id = "shift-1",
-                        category = "shifting_move",
-                        categoryLabel = "Shifting move",
-                        title = "Shed move · 12 animals",
-                        subtitle = "Gandhi 1 → Gandhi 2 · Darshan",
+                        id = "weighing-1",
+                        category = "weighing_proof",
+                        categoryLabel = "Weighing",
+                        title = "Kid Shed B · 5 animal videos",
+                        subtitle = "Coimbatore · Pramod",
                         statusTone = VerifyTone.PENDING,
                     ),
                     VerificationQueueRow(

@@ -126,7 +126,7 @@ data class VerifyDetailUiState(
 
 enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
 
-enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR }
+enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR, FULLSCREEN_OPENED }
 
 sealed interface VerifyDetailEvent {
     data object Close : VerifyDetailEvent
