@@ -237,9 +237,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
   const driveOptions = board.driveOptions ?? [];
 
   const selectDrive = (next: string) => {
+    if (!next) return;
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    if (next) params.set("cb_drive", next);
-    else params.delete("cb_drive");
+    params.set("cb_drive", next);
     const query = params.toString();
     router.push(query ? `?${query}` : "?", { scroll: false });
   };
@@ -297,7 +297,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           aria-disabled={driveOptions.length === 0}
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
-          <option value="">{copy(pageContract, "command_board.filter.all_drives")}</option>
           {driveOptions.map((d) => (
             <option key={d.driveBatchId} value={d.driveBatchId}>{d.label}</option>
           ))}

@@ -3697,10 +3697,11 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	// projection-review:
 	// (a) producer: obligation_id, status, due_at, batch_id | consumer: obligation_id GROUP BY none
 	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1
-	// (c) doses_verified numerator: bool_or(status='accepted'), denominator: all obligations;
-	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted), denominator: all obligations;
+	// (c) all KPI numerators count distinct animals, not obligation/dose fan-out.
+	//     doses_verified numerator: bool_or(status='accepted');
+	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted);
 	//     overdue_not_given numerator: scheduled AND (due_at's IST business date)<(asOf's IST business
-	//     date) AND no completions, denominator: all obligations; scheduled_ahead numerator: scheduled
+	//     date) AND no completions; scheduled_ahead numerator: scheduled
 	//     AND (due_at's IST business date)>=(asOf's IST business date), denominator: all obligations.
 	//     Vaccination time grain is the IST business DAY, never an instant — a dose due today at
 	//     00:00 IST must never read overdue merely because as_of is later the same day.
@@ -3715,11 +3716,11 @@ WITH comp AS (
   GROUP BY obligation_id
 )
 SELECT
-  COUNT(DISTINCT oi.obligation_id) as targets,
-  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as doses_verified,
-  COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.obligation_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.obligation_id END) as overdue_not_given,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.obligation_id END) as scheduled_ahead
+  COUNT(DISTINCT oi.target_id) as targets,
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.target_id END) as doses_verified,
+  COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.target_id END) as awaiting_verification,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.target_id END) as scheduled_ahead
 FROM obligation_instances oi
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid

@@ -47,6 +47,8 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "calendar.drive.rows_label": "rows",
   },
   vaccination: {
+    "command_board.kpi.targets": "Animals",
+    "command_board.kpi.targets_dl": "Distinct animals in program",
     "command_board.cohort_matrix.meta": "Per farm · per dose: pending / verified · red when pending",
     "command_board.cohort_matrix.empty": "No cohort obligations in this scope",
     "command_board.cohort_matrix.no_farm": "Farm not set",
@@ -56,7 +58,6 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "command_board.filter.vaccine": "Vaccine",
     "command_board.filter.all_vaccines": "All vaccines",
     "command_board.filter.drive": "Drive",
-    "command_board.filter.all_drives": "All drives",
     "command_board.filter.no_drives": "No drives planned in this park scope yet",
     "command_board.shed_matrix.waiting_suffix": "d waiting",
     "label.done": "done",
