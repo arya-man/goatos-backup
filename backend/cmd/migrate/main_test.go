@@ -65,6 +65,41 @@ func TestAllowedHistoricalChecksumOnlyAcceptsKnownBaselineDrift(t *testing.T) {
 	}
 }
 
+func TestAllowedHistoricalChecksumsAcceptOnlyAuditedGoatosDBPairs(t *testing.T) {
+	cases := []struct {
+		version string
+		current string
+		applied string
+	}{
+		{"000035_death_upload_before_approval", "sha256:cf443ab9807a012553d04ad764577f1885ea990e0fd4b370b58bd9f8f1a95efb", "sha256:daca76c460dba159de9d9dff35c1694638e093e91ae7773ce13a6a9b1d6a15f5"},
+		{"000036_death_two_operator_actions", "sha256:306c83248d800baba7d47b39681e8133a4f3d4fe989402f6ebf74461b4a0752a", "sha256:fa64a6e997e28a0a0222271ad7862f9afd522192e42b002cc3ac21f3feb91abd"},
+		{"000038_counts_submitter_pending_index", "sha256:99fa47f84cc38475acc609ee20926cbb5a1f7f3cf8f43a8fae436dbd2377e6bd", "sha256:7ec8991c8283f36c55fc87025512f671d1378e93df7b021bf353b46056dc4c3c"},
+		{"000041_birth_mother_video_medicine", "sha256:764c18b63e8dcb6cdacfbfad22f91aed7f718b0b43aa56466385620d6b7c56b6", "sha256:b1350ee397b966168b3b27e188530de94d50d2e89114b76dfe98842b4b79751b"},
+		{"000042_birth_litter_video_contract", "sha256:064fae166174f4397d8baedfc318a5adf9e94ff01df69db3bae174ae639e7ae6", "sha256:3bfea97c8be106a3b2a2acaa155c39f569b989cdcd497ce7f5dd4e5aadfcbd2e"},
+		{"000044_birth_ors_second_round_gate", "sha256:36ba3dbc1043da7f2aa99d92bd0b558007469f321ecc3e1f47765e29f20d859b", "sha256:e069f6eb6a7bcd1db8c57cb0d50e4b34e5a439cee2a4122723b2319bba35e59a"},
+		{"000045_birth_ors_reopened_card_sync", "sha256:e97e70e0a86531a451f21ae3cc65f9ff774404c2b4b8a9873f8aeba7061d0464", "sha256:dce6a89bff449645c04e0de43ff1bcdb60fe52aba1eb9658b3d7ef4b30658fc5"},
+		{"000046_birth_weight_and_colostrum_repair", "sha256:0f0873a5149c5582ccfd96d830674669cd343fbf1efb29a4168c96b5eb0a8d06", "ef8eb3e8f4ab306b9270831d79aaaa910b646a08ecc70d3988ac5ac073d5e0d7"},
+		{"000047_birth_colostrum_card_counts", "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf", "15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274"},
+		{"000052_shifting_management_stage_selection", "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662", "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			migration := migrationFile{Version: tc.version, Filename: tc.version + ".sql", Checksum: tc.current}
+			if !isAllowedHistoricalChecksum(migration, tc.applied) {
+				t.Fatal("audited historical checksum pair was rejected")
+			}
+			if isAllowedHistoricalChecksum(migration, "sha256:unexpected") {
+				t.Fatal("unexpected applied checksum was accepted")
+			}
+			migration.Checksum = "sha256:unexpected-current"
+			if isAllowedHistoricalChecksum(migration, tc.applied) {
+				t.Fatal("historical checksum was accepted for unexpected current migration content")
+			}
+		})
+	}
+}
+
 func TestApplyMigrationsRollsBackOrdinaryMigrationOnFailure(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

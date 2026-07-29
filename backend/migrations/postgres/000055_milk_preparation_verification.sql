@@ -51,7 +51,10 @@ CREATE TABLE public.milk_preparation_proof_attempts (
   CONSTRAINT milk_preparation_proof_attempts_idempotency_uq UNIQUE (tenant_id, idempotency_key),
   CONSTRAINT milk_preparation_proof_attempts_attempt_check CHECK (attempt_no >= 1),
   CONSTRAINT milk_preparation_proof_attempts_proofs_check
-    CHECK (jsonb_typeof(proof_refs) = 'object' AND jsonb_object_length(proof_refs) IN (2, 5)),
+    CHECK (
+      jsonb_typeof(proof_refs) = 'object'
+      AND jsonb_array_length(jsonb_path_query_array(proof_refs, '$.keyvalue()')) IN (2, 5)
+    ),
   CONSTRAINT milk_preparation_proof_attempts_completion_fk
     FOREIGN KEY (tenant_id, completion_id)
     REFERENCES public.milk_preparation_completions(tenant_id, completion_id)
