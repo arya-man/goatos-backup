@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/ports"
 )
@@ -1935,7 +1936,7 @@ func shedScopeIDs(refs []domain.ProofReference, idempotencyKey string) []string 
 func shedScopeFromSubmissionKey(key string) string {
 	parts := strings.Split(key, ":")
 	for i := 0; i+1 < len(parts); i++ {
-		if parts[i] == "scope" {
+		if parts[i] == "scope" && uuidutil.IsUUIDString(parts[i+1]) {
 			return strings.TrimSpace(parts[i+1])
 		}
 	}
