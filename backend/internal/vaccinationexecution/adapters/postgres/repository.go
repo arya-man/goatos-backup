@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -4022,5 +4023,104 @@ ORDER BY shed_name, pr.dose_code
 		return resp, fmt.Errorf("vaccination command board: verification queue rows: %w", err)
 	}
 
+	// 6. Drive options — the drives the board can be narrowed to. Deliberately NOT filtered by
+	// the selected drive (the select must still offer the others), but it IS park-scoped so the
+	// list matches the top bar's park.
+	//
+	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, status, window_start, window_end); join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by array_agg(DISTINCT pr.dose_code) rather than joined 1:1, and protocol_rules is 1:1 per obligation on rule_id; pagination=bounded to one row per batch ordered newest window first with a hard LIMIT 50 and no count or ratio is derived so page size cannot alter a total; scope=tenant plus optional park resolved from canonical locations.parent_location_id
+	//
+	// Producer unique columns: obligation_batches(batch_id). Consumer match/group columns:
+	// (batch_id, status, window_start, window_end). Row multiplicity: obligation_instances N:1 to
+	// batch (pre-aggregated), protocol_rules 1:1 to obligation, locations 1:1 to obligation scope.
+	// No ratio or cap check is computed, so there is no numerator/denominator key set to compare.
+	driveOptionsSQL := `
+SELECT
+  b.batch_id,
+  b.status,
+  b.window_start,
+  b.window_end,
+  array_agg(DISTINCT pr.dose_code) AS dose_codes
+FROM obligation_batches b
+JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
+JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+WHERE b.tenant_id = $1::uuid
+  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
+GROUP BY b.batch_id, b.status, b.window_start, b.window_end
+ORDER BY b.window_start DESC NULLS LAST, b.batch_id
+LIMIT 50
+`
+	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: drive options query: %w", err)
+	}
+	defer driveRows.Close()
+
+	for driveRows.Next() {
+		var batchID, status string
+		var windowStart, windowEnd pgtype.Timestamptz
+		var doseCodes []string
+		if err := driveRows.Scan(&batchID, &status, &windowStart, &windowEnd, &doseCodes); err != nil {
+			return resp, fmt.Errorf("vaccination command board: drive options scan: %w", err)
+		}
+
+		option := domain.CommandBoardDriveOption{
+			DriveBatchID: batchID,
+			Status:       status,
+			Label:        commandBoardDriveLabel(doseCodes, windowStart, windowEnd, status),
+		}
+		if windowStart.Valid {
+			option.WindowStart = &windowStart.Time
+		}
+		if windowEnd.Valid {
+			option.WindowEnd = &windowEnd.Time
+		}
+		resp.DriveOptions = append(resp.DriveOptions, option)
+	}
+	if err := driveRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: drive options rows: %w", err)
+	}
+
 	return resp, nil
+}
+
+// commandBoardDriveLabel renders a drive as an operator would name it: the vaccines it covers,
+// the business-day window it runs over, and its status. Raw config tokens such as
+// et_tt_adult_w2 never reach this label — they go through the display mapper first.
+func commandBoardDriveLabel(doseCodes []string, windowStart, windowEnd pgtype.Timestamptz, status string) string {
+	labels := make([]string, 0, len(doseCodes))
+	seen := map[string]bool{}
+	for _, code := range doseCodes {
+		label := vaccinatdomain.DoseQualifiedDisplayLabel("", code)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	name := strings.Join(labels, " + ")
+	if name == "" {
+		name = "Drive"
+	}
+
+	// The window is a span of business DAYS in Asia/Kolkata, never an instant.
+	if windowStart.Valid {
+		from := biztime.BusinessDate(windowStart.Time)
+		if windowEnd.Valid {
+			to := biztime.BusinessDate(windowEnd.Time)
+			if from == to {
+				name = fmt.Sprintf("%s — %s", name, from)
+			} else {
+				name = fmt.Sprintf("%s — %s to %s", name, from, to)
+			}
+		} else {
+			name = fmt.Sprintf("%s — from %s", name, from)
+		}
+	}
+	if status != "" {
+		name = fmt.Sprintf("%s (%s)", name, status)
+	}
+	return name
 }

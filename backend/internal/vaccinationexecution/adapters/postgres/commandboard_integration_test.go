@@ -843,3 +843,137 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 		}
 	})
 }
+
+// TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDate
+// is the adversarial cover for the drive-options aggregate: the obligation_instances join is the
+// many side, so a batch holding several obligations across several vaccines and several sheds must
+// still yield exactly ONE option. It also pins park scope, bounded output, the status passthrough,
+// and newest-window-first ordering.
+func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDate(t *testing.T) {
+	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations per batch collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedCommandBoardProjection(t, ctx, pool)
+	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	const (
+		obBatchEarly = "70000000-0000-4000-8000-000009000001"
+		obBatchLate  = "70000000-0000-4000-8000-000009000002"
+		obBatchPark2 = "70000000-0000-4000-8000-000009000003"
+	)
+
+	// Two park-1 batches with distinct windows, plus one park-2 batch that park scope must exclude.
+	for _, b := range []struct {
+		id          string
+		scopeID     string
+		status      string
+		windowStart string
+		windowEnd   string
+	}{
+		{obBatchEarly, cmdBoardShed1, "planned", "2026-07-20", "2026-07-27"},
+		{obBatchLate, cmdBoardShed1, "in_progress", "2026-08-10", "2026-08-17"},
+		{obBatchPark2, cmdBoardShed2, "planned", "2026-07-22", "2026-07-29"},
+	} {
+		execProjectionSQL(t, ctx, pool, "obligation batch "+b.id,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, window_start, window_end)
+			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::timestamptz, $6::timestamptz)`,
+			b.id, cmdBoardTestTenant, b.scopeID, b.status, b.windowStart, b.windowEnd)
+	}
+
+	// The early park-1 batch carries FOUR obligations: two vaccines × two goats. If the
+	// obligation join were not collapsed, this batch would appear up to four times.
+	obligationID := 0
+	for _, rule := range []string{cmdBoardRuleET, cmdBoardRulePPR} {
+		for _, goat := range []string{cmdBoardGoat1, cmdBoardGoat2} {
+			obligationID++
+			execProjectionSQL(t, ctx, pool, fmt.Sprintf("drive-option obligation %d", obligationID),
+				`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+				 VALUES ($1, $2, $3, $4, 'shed', $5, $6, 'scheduled', $7::timestamptz)`,
+				fmt.Sprintf("70000000-0000-4000-8000-00000a00000%d", obligationID),
+				cmdBoardTestTenant, obBatchEarly, goat, cmdBoardShed1, rule, asOf)
+		}
+	}
+	execProjectionSQL(t, ctx, pool, "drive-option obligation late",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000a000010', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, obBatchLate, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+	execProjectionSQL(t, ctx, pool, "drive-option obligation park2",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000a000011', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, obBatchPark2, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Park 1 scope: the park-2 batch must not appear, and the four-obligation batch appears once.
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+		TenantID: cmdBoardTestTenant,
+		AsOf:     asOf,
+		ParkID:   stringPtr(cmdBoardPark1),
+	})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard(park1) error = %v", err)
+	}
+
+	seen := map[string]int{}
+	for _, option := range resp.DriveOptions {
+		seen[option.DriveBatchID]++
+	}
+	if seen[obBatchEarly] != 1 {
+		t.Fatalf("OneToMany: batch with 4 obligations appeared %d times, want exactly 1 (options=%+v)", seen[obBatchEarly], resp.DriveOptions)
+	}
+	if seen[obBatchLate] != 1 {
+		t.Fatalf("batch with 1 obligation appeared %d times, want exactly 1", seen[obBatchLate])
+	}
+	if seen[obBatchPark2] != 0 {
+		t.Fatalf("ParkScope: park-2 batch leaked into park-1 scope (%d occurrences)", seen[obBatchPark2])
+	}
+
+	// Pagination: bounded by construction, never an unbounded batch list.
+	if len(resp.DriveOptions) > 50 {
+		t.Fatalf("Pagination: drive options length = %d, want <= 50", len(resp.DriveOptions))
+	}
+
+	// ScheduledDate: newest window first, so the August batch precedes the July one.
+	firstIdx, lateIdx := -1, -1
+	for i, option := range resp.DriveOptions {
+		if option.DriveBatchID == obBatchEarly {
+			firstIdx = i
+		}
+		if option.DriveBatchID == obBatchLate {
+			lateIdx = i
+		}
+	}
+	if lateIdx == -1 || firstIdx == -1 || lateIdx > firstIdx {
+		t.Fatalf("ScheduledDate: newest window must sort first, got late=%d early=%d", lateIdx, firstIdx)
+	}
+
+	// StatusBuckets: each option's own status is carried through, not flattened to one value.
+	statusByBatch := map[string]string{}
+	for _, option := range resp.DriveOptions {
+		statusByBatch[option.DriveBatchID] = option.Status
+	}
+	if statusByBatch[obBatchEarly] != "planned" {
+		t.Fatalf("StatusBuckets: early batch status = %q, want planned", statusByBatch[obBatchEarly])
+	}
+	if statusByBatch[obBatchLate] != "in_progress" {
+		t.Fatalf("StatusBuckets: late batch status = %q, want in_progress", statusByBatch[obBatchLate])
+	}
+
+	// Park 2 scope sees only its own batch — scope narrows both ways.
+	park2Resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+		TenantID: cmdBoardTestTenant,
+		AsOf:     asOf,
+		ParkID:   stringPtr(cmdBoardPark2),
+	})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard(park2) error = %v", err)
+	}
+	for _, option := range park2Resp.DriveOptions {
+		if option.DriveBatchID != obBatchPark2 {
+			t.Fatalf("ParkScope: park-2 scope returned foreign batch %s", option.DriveBatchID)
+		}
+	}
+}
