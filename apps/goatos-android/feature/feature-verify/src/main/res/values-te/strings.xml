@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
-    <string name="verify_detail_recorded_answer">సమాధానం: %1$s</string>
-    <string name="verify_detail_death_video">మరణ వీడియో</string>
-    <string name="verify_detail_post_mortem_video">పోస్ట్‌మార్టం వీడియో</string>
+    <string name="verify_module_vaccination">టీకా</string>
+    <string name="verify_module_weighing">బరువు</string>
     <string name="verify_module_birth">జననం</string>
     <string name="verify_module_death">మరణం</string>
-    <string name="verify_module_vaccination">టీకా</string>
+    <string name="verify_module_counts">లెక్కింపు</string>
     <string name="verify_module_shifting">తరలింపు</string>
     <string name="verify_module_packing">ప్యాకింగ్</string>
     <string name="verify_module_feed_direction">ఫీడ్ దిశ</string>
+    <string name="verify_module_transport">రవాణా</string>
+    <string name="verify_module_under_construction">నిర్మాణంలో ఉంది</string>
+    <string name="verify_module_under_construction_subtitle">దీని వర్క్‌ఫ్లో సిద్ధమైనప్పుడు ఈ ధృవీకరణ క్యూ ఇక్కడ కనిపిస్తుంది.</string>
     <string name="verify_queue_title">వీడియో ధృవీకరణ</string>
     <string name="verify_action_queue_title">టీకా వీడియోలు</string>
     <string name="verify_queue_refresh">రిఫ్రెష్ చేయండి</string>
@@ -19,6 +21,10 @@
     <string name="verify_action_queue_empty_subtitle">సమర్పించిన టీకా వీడియోలు డైరెక్టర్ సమీక్ష కోసం ఇక్కడ కనిపిస్తాయి</string>
     <string name="verify_queue_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="verify_queue_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
+    <string name="verify_scope_all">అన్నీ</string>
+    <string name="verify_scope_individual">వ్యక్తిగతం (%1$d)</string>
+    <string name="verify_scope_lumpsum">మొత్తం బరువు (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d వరుసలు · %2$d వీడియోలు</string>
 
     <string name="verify_detail_close">మూయి</string>
     <string name="verify_detail_fullscreen">వీడియోను ఫుల్‌స్క్రీన్‌లో తెరవండి</string>
@@ -28,6 +34,7 @@
     <string name="verify_detail_park_label">పార్క్</string>
     <string name="verify_detail_operator_label">ఆపరేటర్</string>
     <string name="verify_detail_captured_label">క్యాప్చర్ చేయబడింది</string>
+    <string name="verify_detail_recorded_answer">రికార్డ్ చేయబడింది: %1$s</string>
     <string name="verify_detail_no_media">ఈ అంశానికి వీడియో జోడించబడలేదు</string>
     <string name="verify_detail_approve">ఆమోదించండి</string>
     <string name="verify_detail_reject">తిరస్కరించండి</string>
@@ -53,5 +60,4 @@
     <string name="verify_status_approved">ఆమోదించబడింది</string>
     <string name="verify_status_rejected">తిరస్కరించబడింది</string>
     <string name="verify_category_all">అన్నీ</string>
-    <string name="verify_module_transport">రవాణా</string>
 </resources>

@@ -534,6 +534,11 @@ Status: Implemented; grain and bucket definitions below.
   Adherence.
 - Stop mobile shed/day summaries from computing whole-day or adherence totals
   from only the currently fetched page.
+- Lock mobile Vaccination Overview to current-drive animal counts only:
+  total animals in the visible drive, animals vaccinated/submitted, and animals
+  left. This card must not display obligation history, CEO Protocol Adherence,
+  shift carry-forward, dose count, or rule-dimension fan-out. Multi-dimension
+  vaccine rules such as ET+TT must still count distinct drive animals once.
 - Stop frontend drawers from parsing `detail` strings for scope/proof meaning.
 - Ensure shed-grain proof/submit state is read from shed-grain facts, not a
   shared parent task state.

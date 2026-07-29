@@ -11,6 +11,13 @@
     <string name="scan_search_empty">సరిపోయే జంతువులు లేవు</string>
     <string name="scan_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="scan_loading_more">లోడ్ అవుతోంది…</string>
+    <string name="scan_scanned_goats_title">స్కాన్ చేసిన మేకలు</string>
+    <string name="scan_scanned_goats_help">ప్రతి మేక వరుసలో ప్రూఫ్ రికార్డ్ చేయండి. ఒక స్పష్టమైన కెమెరా క్లిప్ ఆ మేకకు ఇచ్చిన అన్ని వ్యాక్సిన్లను కవర్ చేస్తుంది.</string>
+    <string name="scan_one_animal_needs_proof">1 జంతువుకు ప్రూఫ్ కావాలి. సబ్మిట్ చేసే ముందు వీడియో రికార్డ్ చేయడానికి దాన్ని మళ్లీ స్కాన్ చేయండి.</string>
+    <string name="scan_many_animals_need_proof">%1$d జంతువులకు ప్రూఫ్ కావాలి. సబ్మిట్ చేసే ముందు వీడియో రికార్డ్ చేయడానికి వాటిని మళ్లీ స్కాన్ చేయండి.</string>
+    <string name="scan_proof_retry_action">మళ్లీ ప్రయత్నించండి</string>
+    <string name="scan_proof_replace_action">మార్చండి</string>
+    <string name="scan_proof_replace_armed">ప్రూఫ్ మార్చడానికి ఇదే ట్యాగ్‌ను మళ్లీ స్కాన్ చేయండి</string>
     <string name="scan_add_clip">కెమెరా క్లిప్ జోడించండి</string>
     <string name="scan_proof_needed">కెమెరా ప్రూఫ్ అవసరం</string>
     <string name="scan_proof_uploading">ప్రూఫ్ అప్‌లోడ్ అవుతోంది…</string>
@@ -24,4 +31,20 @@
     </plurals>
     <string name="scan_proof_retry">అప్‌లోడ్ విఫలమైంది · మళ్లీ ప్రయత్నించడానికి ట్యాప్ చేయండి</string>
     <string name="scan_submit_default">షెడ్ పూర్తి చేయండి</string>
+    <string name="scan_switch_shed_title">షెడ్ మార్చండి</string>
+    <string name="scan_switch_shed_subtitle">సింక్ అయిన పురోగతిని కోల్పోకుండా ఏ షెడ్‌కైనా తిరిగి వెళ్లవచ్చు.</string>
+    <string name="scan_switch_shed_loading">డ్రైవ్ షెడ్లు లోడ్ అవుతున్నాయి…</string>
+    <string name="scan_switch_shed_empty">ఈ డ్రైవ్‌లో ఇతర షెడ్లు అందుబాటులో లేవు.</string>
+    <string name="scan_switch_shed_current">ప్రస్తుత</string>
+    <string name="scan_switch_shed_progress_fmt">%1$d/%2$d స్కాన్ · %3$d క్లిప్‌లు · %4$d సింక్</string>
+    <string name="scan_switch_shed_synced">డ్రాఫ్ట్ సింక్ అయింది</string>
+    <string name="scan_switch_shed_not_started">ప్రారంభం కాలేదు</string>
+    <plurals name="scan_switch_shed_attention">
+        <item quantity="one">%1$d ఐటెంకి శ్రద్ధ అవసరం</item>
+        <item quantity="other">%1$d ఐటెంకి శ్రద్ధ అవసరం</item>
+    </plurals>
+    <plurals name="scan_switch_shed_syncing">
+        <item quantity="one">%1$d ఐటెం సింక్ అవుతోంది</item>
+        <item quantity="other">%1$d ఐటెంలు సింక్ అవుతున్నాయి</item>
+    </plurals>
 </resources>

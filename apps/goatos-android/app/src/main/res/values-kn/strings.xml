@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">ಲಸಿಕೆ ಪುರಾವೆಯನ್ನು ದಾಖಲಿಸಿ</string>
-    <string name="proof_camera_instruction">ಮೇಕೆ ಮತ್ತು ಲಸಿಕೆ ನೀಡುವ ಪ್ರಕ್ರಿಯೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_title">ವೀಡಿಯೊ ಪುರಾವೆಯನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_instruction">ವಿಷಯ ಮತ್ತು ಕೆಲಸ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_birth_title">ಜನನದ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_birth_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಹೆರಿಗೆ ನಂತರದ ಆರೈಕೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_death_title">ಸಾವಿನ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
@@ -22,16 +22,32 @@
     <string name="proof_camera_milk_preparation_instruction">ಈ ತಯಾರಿ ಹಂತ ಮತ್ತು ಅದರ ಅಳತೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_feed_transport_title">ಮೇವು ಸಾಗಣೆ ವಿಡಿಯೋ</string>
     <string name="proof_camera_feed_transport_instruction">ಈ ಶೆಡ್‌ಗೆ ಮೇವು ಸಾಗಿಸುವುದನ್ನು ನೈಜ ಸಮಯದಲ್ಲಿ ದಾಖಲಿಸಿ</string>
-    <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$d ಸೆಕೆಂಡು</string>
+    <string name="proof_camera_recording_title">ಪುರಾವೆ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_auto_opened">ಲೈವ್ ಪುರಾವೆಗಾಗಿ ಕ್ಯಾಮೆರಾ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ತೆರೆದಿದೆ</string>
+    <string name="proof_camera_live_proof">ಲೈವ್ ಪುರಾವೆ</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲಿಸಿ</string>
+    <string name="proof_camera_start_label">ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಿ</string>
+    <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$s</string>
     <string name="proof_camera_unavailable">ಕ್ಯಾಮೆರಾ ಲಭ್ಯವಿಲ್ಲ. ರದ್ದುಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="proof_camera_cancel">ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ರದ್ದುಮಾಡಿ</string>
     <string name="proof_camera_start_recording">ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ಪ್ರಾರಂಭಿಸಿ</string>
     <string name="proof_camera_stop_recording">ನಿಲ್ಲಿಸಿ ಮತ್ತು ಪುರಾವೆ ರೆಕಾರ್ಡಿಂಗ್ ಉಳಿಸಿ</string>
     <string name="proof_camera_state_ready">ರೆಕಾರ್ಡ್ ಮಾಡಲು ಸಿದ್ಧ</string>
     <string name="proof_camera_state_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="proof_camera_upload_background">ಪುರಾವೆ ಅಪ್‌ಲೋಡ್‌ಗಳು ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಮುಂದುವರಿಯುತ್ತವೆ</string>
     <string name="proof_photo_title">ನೀರಿನ ಪುರಾವೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_instruction">ನೀರಿನ ವಿತರಣೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_photo_take">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_cancel">ಫೋಟೋ ಕ್ಯಾಪ್ಚರ್ ರದ್ದುಮಾಡಿ</string>
     <string name="submit_shed_success_toast">ಶೆಡ್ ಪುರಾವೆ ಪರಿಶೀಲನೆಗೆ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_refresh">ತೂಕದ ಕೆಲಸವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="weighing_alerts">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="weighing_category_lumpsum">ಒಟ್ಟು ತೂಕ</string>
+    <string name="weighing_category_individual">ಪ್ರತ್ಯೇಕ</string>
+    <string name="weighing_assignment_summary_lumpsum">%1$d ಮಕ್ಕಳು ವ್ಯಾಪ್ತಿಯಲ್ಲಿ · ಒಂದು ಶೆಡ್ ವೀಡಿಯೊ</string>
+    <string name="weighing_assignment_summary_individual">%1$d ಮಕ್ಕಳು ವ್ಯಾಪ್ತಿಯಲ್ಲಿ · ಪ್ರಾಣಿ ವೀಡಿಯೊಗಳು</string>
+    <string name="weighing_action_view_result">ಫಲಿತಾಂಶ ನೋಡಿ →</string>
+    <string name="weighing_action_record_shed">ಶೆಡ್ ಫಲಿತಾಂಶ ದಾಖಲಿಸಿ →</string>
+    <string name="weighing_action_scan_animals">ಪ್ರಾಣಿಗಳನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ →</string>
 </resources>

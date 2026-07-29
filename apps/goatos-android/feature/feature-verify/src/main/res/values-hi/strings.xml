@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
-    <string name="verify_detail_recorded_answer">उत्तर: %1$s</string>
-    <string name="verify_detail_death_video">मृत्यु वीडियो</string>
-    <string name="verify_detail_post_mortem_video">पोस्टमार्टम वीडियो</string>
+    <string name="verify_module_vaccination">टीकाकरण</string>
+    <string name="verify_module_weighing">वज़न</string>
     <string name="verify_module_birth">जन्म</string>
     <string name="verify_module_death">मृत्यु</string>
-    <string name="verify_module_vaccination">टीकाकरण</string>
+    <string name="verify_module_counts">गणना</string>
     <string name="verify_module_shifting">स्थानांतरण</string>
     <string name="verify_module_packing">पैकिंग</string>
     <string name="verify_module_feed_direction">फ़ीड दिशा</string>
+    <string name="verify_module_transport">परिवहन</string>
+    <string name="verify_module_under_construction">निर्माणाधीन</string>
+    <string name="verify_module_under_construction_subtitle">इसकी कार्यप्रणाली तैयार होने पर यह सत्यापन कतार यहाँ दिखाई देगी।</string>
     <string name="verify_queue_title">वीडियो सत्यापन</string>
     <string name="verify_action_queue_title">टीकाकरण वीडियो</string>
     <string name="verify_queue_refresh">रीफ़्रेश करें</string>
@@ -19,6 +21,10 @@
     <string name="verify_action_queue_empty_subtitle">सबमिट किए गए टीकाकरण वीडियो निदेशक समीक्षा के लिए यहाँ दिखेंगे</string>
     <string name="verify_queue_load_more">और लोड करें</string>
     <string name="verify_queue_loading_more">और लोड हो रहे हैं…</string>
+    <string name="verify_scope_all">सभी</string>
+    <string name="verify_scope_individual">व्यक्तिगत (%1$d)</string>
+    <string name="verify_scope_lumpsum">कुल वजन (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d पंक्तियाँ · %2$d वीडियो</string>
 
     <string name="verify_detail_close">बंद करें</string>
     <string name="verify_detail_fullscreen">वीडियो फुलस्क्रीन खोलें</string>
@@ -28,6 +34,7 @@
     <string name="verify_detail_park_label">पार्क</string>
     <string name="verify_detail_operator_label">ऑपरेटर</string>
     <string name="verify_detail_captured_label">कैप्चर किया गया</string>
+    <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>
@@ -53,5 +60,4 @@
     <string name="verify_status_approved">स्वीकृत</string>
     <string name="verify_status_rejected">अस्वीकृत</string>
     <string name="verify_category_all">सभी</string>
-    <string name="verify_module_transport">परिवहन</string>
 </resources>

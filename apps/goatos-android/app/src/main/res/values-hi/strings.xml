@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">टीकाकरण प्रमाण रिकॉर्ड करें</string>
-    <string name="proof_camera_instruction">बकरी और टीका लगाने की प्रक्रिया साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_title">वीडियो प्रमाण रिकॉर्ड करें</string>
+    <string name="proof_camera_instruction">विषय और काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_birth_title">जन्म का वीडियो रिकॉर्ड करें</string>
     <string name="proof_camera_birth_instruction">पशु और जन्म के बाद की देखभाल साफ़ दिखाई देनी चाहिए</string>
     <string name="proof_camera_death_title">मृत्यु का वीडियो रिकॉर्ड करें</string>
@@ -22,16 +22,32 @@
     <string name="proof_camera_milk_preparation_instruction">इस तैयारी चरण और उसके माप को साफ़ दिखाई देने दें</string>
     <string name="proof_camera_feed_transport_title">चारा परिवहन वीडियो</string>
     <string name="proof_camera_feed_transport_instruction">इस शेड तक चारा पहुँचाते हुए वास्तविक समय में रिकॉर्ड करें</string>
-    <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
+    <string name="proof_camera_recording_title">प्रमाण वीडियो रिकॉर्ड करें</string>
+    <string name="proof_camera_auto_opened">लाइव प्रमाण के लिए कैमरा अपने आप खुला</string>
+    <string name="proof_camera_live_proof">लाइव प्रमाण</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">रिकॉर्डिंग रोकें</string>
+    <string name="proof_camera_start_label">रिकॉर्डिंग शुरू करें</string>
+    <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$s</string>
     <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
     <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>
     <string name="proof_camera_start_recording">प्रमाण रिकॉर्डिंग शुरू करें</string>
     <string name="proof_camera_stop_recording">रोकें और प्रमाण रिकॉर्डिंग सहेजें</string>
     <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
     <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
+    <string name="proof_camera_upload_background">प्रमाण अपलोड पृष्ठभूमि में जारी हैं</string>
     <string name="proof_photo_title">पानी प्रमाण फ़ोटो लें</string>
     <string name="proof_photo_instruction">पानी वितरण को स्पष्ट रूप से दिखाई देने दें</string>
     <string name="proof_photo_take">फ़ोटो लें</string>
     <string name="proof_photo_cancel">फ़ोटो कैप्चर रद्द करें</string>
     <string name="submit_shed_success_toast">शेड प्रमाण समीक्षा के लिए जमा हुआ</string>
+    <string name="weighing_refresh">वज़न का काम रीफ़्रेश करें</string>
+    <string name="weighing_alerts">अलर्ट</string>
+    <string name="weighing_category_lumpsum">कुल वज़न</string>
+    <string name="weighing_category_individual">व्यक्तिगत</string>
+    <string name="weighing_assignment_summary_lumpsum">%1$d बच्चे दायरे में · एक शेड वीडियो</string>
+    <string name="weighing_assignment_summary_individual">%1$d बच्चे दायरे में · पशु वीडियो</string>
+    <string name="weighing_action_view_result">नतीजा देखें →</string>
+    <string name="weighing_action_record_shed">शेड नतीजा रिकॉर्ड करें →</string>
+    <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>
 </resources>

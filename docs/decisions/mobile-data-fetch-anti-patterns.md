@@ -252,3 +252,30 @@ against `origin/main`; a genuinely-bounded case appends
 Rule of thumb: **the key is the unique identity of the RENDERED ROW, not of the
 domain object it happens to show.** When a list can hold more than one row per
 entity, the entity id is not a valid key.
+
+## Android row-action scope (machine: `make android-row-action-scope-guard`)
+
+Repeated mobile cards must not share a screen-wide in-flight gate for row-level
+actions. If the UI renders one card per animal, shed, obligation, proof, or
+assignment, that row's Save/Update/Retry action must be blocked only by state
+scoped to that row identity. A global `actionInFlight`, `busy`, or screen submit
+flag is reserved for screen-wide operations such as final submit, navigation,
+or a modal transaction that truly locks the whole surface.
+
+Field failure class: individual weighing free-flow saved the previous animal
+card successfully, then the next card randomly could not save because animal A's
+pending save/update held the global `actionInFlight` gate. That is invalid for
+free-flow row saves. The row action must track `updatingAnimalIds` or equivalent
+row-keyed state, and row `canSave*` must not read the global busy flag.
+
+Required proof for this class:
+
+- A regression test starts saving animal A and keeps that save pending.
+- The UI/view-model state still allows animal B's Save while animal A is pending.
+- Submitting animal B records a second capture without waiting for animal A.
+
+The static guard `tools/agent-hooks/check-android-row-action-scope.mjs` enforces
+the current weighing path: `recordIndividual(animalId, rawWeight)` must call
+`recordIndividualRow(..., useGlobalBusyGate = false)`, per-row duplicate saves
+must use `updatingWeightAnimalIds`, and row `canSaveWeight` must not depend on
+global `busy`/`actionInFlight`.

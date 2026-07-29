@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">Record vaccination proof</string>
-    <string name="proof_camera_instruction">Keep the shed and vaccination work clearly visible</string>
+    <string name="proof_camera_title">Record video proof</string>
+    <string name="proof_camera_instruction">Keep the subject and work clearly visible</string>
     <string name="proof_camera_birth_title">Record birth video</string>
     <string name="proof_camera_birth_instruction">Keep the animal and birth-care work clearly visible</string>
     <string name="proof_camera_death_title">Record death video</string>
@@ -20,7 +20,14 @@
     <string name="proof_camera_feed_packing_instruction">Keep the feed packing work clearly visible</string>
     <string name="proof_camera_milk_preparation_title">Record milk preparation step</string>
     <string name="proof_camera_milk_preparation_instruction">Keep this preparation step and its measurement clearly visible</string>
-    <string name="proof_camera_recording_time">Recording · %1$d s</string>
+    <string name="proof_camera_recording_title">Record proof video</string>
+    <string name="proof_camera_auto_opened">Camera opened automatically for live proof</string>
+    <string name="proof_camera_live_proof">Live proof</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">Stop recording</string>
+    <string name="proof_camera_start_label">Start recording</string>
+    <string name="proof_camera_recording_time">Recording · %1$s</string>
+    <string name="proof_camera_upload_background">Proof uploads in background</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>
     <string name="proof_camera_start_recording">Start proof recording</string>
@@ -34,4 +41,13 @@
     <string name="submit_shed_success_toast">Shed proof submitted for review</string>
     <string name="proof_camera_feed_transport_title">Feed transport video</string>
     <string name="proof_camera_feed_transport_instruction">Record the feed being transported to this shed in real time.</string>
+    <string name="weighing_refresh">Refresh weighing work</string>
+    <string name="weighing_alerts">Alerts</string>
+    <string name="weighing_category_lumpsum">Lumpsum</string>
+    <string name="weighing_category_individual">Individual</string>
+    <string name="weighing_assignment_summary_lumpsum">%1$d kids in scope · one shed video</string>
+    <string name="weighing_assignment_summary_individual">%1$d kids in scope · animal videos</string>
+    <string name="weighing_action_view_result">View result →</string>
+    <string name="weighing_action_record_shed">Record shed result →</string>
+    <string name="weighing_action_scan_animals">Scan animals →</string>
 </resources>

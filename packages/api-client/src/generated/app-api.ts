@@ -75,6 +75,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List leadership-visible Weighing campaigns. */
+        get: operations["listWeighingCampaigns"];
+        put?: never;
+        /** Create a weekly kids Weighing campaign draft. */
+        post: operations["createWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit an existing weekly kids Weighing campaign without creating a duplicate park/week task. */
+        put: operations["updateWeighingCampaign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/campaigns/{campaign_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a Weighing campaign to operator-visible work. */
+        post: operations["publishWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List operator-visible Weighing campaigns. */
+        get: operations["appListWeighingCampaigns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/planner/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards. */
+        get: operations["appWeighingPlannerCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a bounded operator-visible RFID roster for one Weighing scope. */
+        get: operations["appGetWeighingScopeRoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/animal-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one proof-backed individual animal Weighing observation. */
+        post: operations["recordWeighingAnimalObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/shed-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record one proof-backed shed/partition Weighing observation. */
+        post: operations["recordWeighingShedObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get leadership-visible proof videos for one Weighing scope. */
+        get: operations["appGetWeighingShedVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently close one individual-animal Weighing scope after proof-backed capture. */
+        post: operations["submitWeighingIndividualScope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/devices/register": {
         parameters: {
             query?: never;
@@ -4429,12 +4600,16 @@ export interface components {
             /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
             partition?: string;
             animalStage: string;
-            /** @description Number of targeted animal obligations represented by this aggregated execution row. */
+            /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
             targetCount: number;
-            /** @description Targeted animal obligations still requiring field execution. */
+            /** @description Distinct current-drive animals still requiring field execution. */
             openCount: number;
-            /** @description Targeted animal obligations with completion evidence recorded. */
+            /** @description Distinct current-drive animals with completion evidence recorded. */
             doneCount: number;
+            /** @description Distinct current-drive animals accepted by verification inside this row. */
+            acceptedCount: number;
+            /** @description Distinct current-drive animals with recorded/rejected completion evidence not accepted inside this row. */
+            reviewCount: number;
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
@@ -4557,6 +4732,10 @@ export interface components {
             scheduledAhead: number;
         };
         VaccinationCommandBoardCohort: {
+            /** @description Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on two farms stays two cells. Empty when the obligation's shed has no resolvable parent. */
+            parkId: string;
+            /** @description Farm display name, from canonical locations. */
+            parkName: string;
             /** @description Management stage from goat classification (e.g., Buck, Non-Pregnant Female). */
             managementStage: string;
             /** @enum {string} */
@@ -4569,6 +4748,8 @@ export interface components {
             vaccineLabel: string;
             /** @description Count of animals in this cohort with pending obligations for this vaccine (scheduled, due, or recorded-unverified). */
             pendingCount: number;
+            /** @description Count of animals in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor recorded-but-unverified — so the two may be displayed side by side. */
+            verifiedCount: number;
         };
         ShedDoseMatrixCell: {
             /** Format: uuid */
@@ -4647,10 +4828,26 @@ export interface components {
             /** @description Business days since earliest administered_at. */
             daysInQueue?: number;
         };
+        VaccinationCommandBoardDriveOption: {
+            /**
+             * Format: uuid
+             * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
+             */
+            driveBatchId: string;
+            /** @description Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata, and its status. Never a raw config token such as et_tt_adult_w2. */
+            label: string;
+            status: string;
+            /** Format: date-time */
+            windowStart?: string;
+            /** Format: date-time */
+            windowEnd?: string;
+        };
         VaccinationCommandBoardResponse: {
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
+            /** @description Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50. Not filtered by the currently selected drive, so the selector can still offer the others. */
+            driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
@@ -5265,6 +5462,247 @@ export interface components {
             /** @enum {string} */
             source: "api";
             rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
+        };
+        /** @enum {string} */
+        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "canceled";
+        /** @enum {string} */
+        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "canceled";
+        /** @enum {string} */
+        WeighingCategory: "individual_animal" | "per_shed_partition";
+        /** @enum {string} */
+        WeighingAvailabilityStatus: "expected_shed" | "moved_other_shed" | "icu" | "quarantine" | "dead" | "culled" | "sold_transferred" | "exited" | "unknown_review";
+        WeighingProgress: {
+            individual_expected_count: number;
+            individual_completed_count: number;
+            per_scope_expected_count: number;
+            per_scope_completed_count: number;
+            wrong_shed_count: number;
+            missing_count: number;
+            remaining_count: number;
+        };
+        WeighingCampaignShed: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            location_id: string;
+            /** @enum {string} */
+            location_type: "shed" | "cohort" | "pen";
+            display_name: string;
+            expected_animal_count: number;
+            weighing_category: components["schemas"]["WeighingCategory"];
+            /** Format: uuid */
+            operator_user_id: string;
+            status: components["schemas"]["WeighingCampaignShedStatus"];
+        };
+        WeighingCampaign: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            status: components["schemas"]["WeighingCampaignStatus"];
+            planned_cap_per_day: number;
+            /** Format: uuid */
+            operator_user_id: string;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+            sheds?: components["schemas"]["WeighingCampaignShed"][];
+            progress: components["schemas"]["WeighingProgress"];
+        };
+        WeighingCampaignListResponse: {
+            items: components["schemas"]["WeighingCampaign"][];
+            next_cursor?: string;
+            trace_id?: string;
+        };
+        WeighingCampaignResponse: {
+            campaign: components["schemas"]["WeighingCampaign"];
+            trace_id?: string;
+        };
+        WeighingPlannerCampaignSummary: {
+            /** Format: uuid */
+            campaign_id: string;
+            status: components["schemas"]["WeighingCampaignStatus"];
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            /** Format: uuid */
+            operator_user_id: string;
+            shed_count: number;
+        };
+        WeighingPlannerShed: {
+            /** Format: uuid */
+            location_id: string;
+            name: string;
+            kid_count: number;
+        };
+        WeighingPlannerPark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+            kid_count: number;
+            sheds: components["schemas"]["WeighingPlannerShed"][];
+            existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
+        };
+        WeighingPlannerOperator: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            display_code: string;
+        };
+        WeighingPlannerCatalogResponse: {
+            parks: components["schemas"]["WeighingPlannerPark"][];
+            operators: components["schemas"]["WeighingPlannerOperator"][];
+            trace_id?: string;
+        };
+        WeighingRosterRow: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
+            animal_id: string;
+            display_animal_id: string;
+            primary_identifier?: string;
+            secondary_identifier?: string;
+            /** Format: uuid */
+            expected_location_id: string;
+            expected_location_label: string;
+            /** @enum {string} */
+            status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
+            /** @enum {string} */
+            availability_status: "expected_shed" | "moved_other_shed" | "icu" | "quarantine" | "dead" | "culled" | "sold_transferred" | "exited" | "unknown_review";
+            /** Format: uuid */
+            current_location_id?: string;
+            current_location_label?: string;
+            current_lifecycle_status?: string;
+            seq: number;
+        };
+        WeighingRosterResponse: {
+            items: components["schemas"]["WeighingRosterRow"][];
+            observations?: components["schemas"]["WeighingObservation"][];
+            next_cursor?: string;
+            trace_id?: string;
+        };
+        CreateWeighingCampaignShed: {
+            /** Format: uuid */
+            location_id: string;
+            /** @enum {string} */
+            location_type: "shed" | "cohort" | "pen";
+            display_name: string;
+            weighing_category: components["schemas"]["WeighingCategory"];
+            /** Format: uuid */
+            operator_user_id?: string;
+        };
+        CreateWeighingCampaignRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            period_start_date: string;
+            /** Format: date */
+            period_end_date: string;
+            /** Format: date */
+            start_business_date: string;
+            planned_cap_per_day: number;
+            /** Format: uuid */
+            operator_user_id: string;
+            sheds: components["schemas"]["CreateWeighingCampaignShed"][];
+        };
+        RecordWeighingAnimalObservationRequest: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            /** Format: uuid */
+            animal_id: string;
+            scanned_identifier?: string;
+            weight_kg: number;
+            /** Format: uuid */
+            proof_artifact_id: string;
+            /** Format: uuid */
+            actual_location_id: string;
+        };
+        RecordWeighingShedObservationRequest: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            weight_kg: number;
+            average_weight_kg?: number;
+            animal_count: number;
+            /** Format: uuid */
+            proof_artifact_id?: string;
+            proof_artifact_ids?: string[];
+        };
+        WeighingObservation: {
+            /** Format: uuid */
+            observation_id: string;
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id?: string;
+            /** Format: uuid */
+            animal_id?: string;
+            weight_kg: number;
+            average_weight_kg?: number;
+            animal_count?: number;
+            /** Format: uuid */
+            proof_artifact_id: string;
+            proof_artifact_ids?: string[];
+            media?: components["schemas"]["WeighingProofMedia"][];
+            /** Format: uuid */
+            expected_location_id?: string;
+            /** Format: uuid */
+            actual_location_id?: string;
+            actual_location_label?: string;
+            /** Format: date-time */
+            accepted_at: string;
+        };
+        WeighingProofMedia: {
+            /** Format: uuid */
+            proof_id: string;
+            /** Format: uri */
+            download_url: string;
+            mime_type?: string;
+        };
+        WeighingShedVideos: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            shed_name: string;
+            weighing_category: components["schemas"]["WeighingCategory"];
+            status: string;
+            individual: components["schemas"]["WeighingObservation"][];
+            lump_sum?: components["schemas"]["WeighingObservation"];
+        };
+        WeighingShedVideosResponse: {
+            shed: components["schemas"]["WeighingShedVideos"];
+            trace_id?: string;
+        };
+        SubmitWeighingIndividualScopeRequest: {
+            scanned_identifiers: string[];
+        };
+        WeighingSubmitResponse: {
+            /** @enum {string} */
+            status: "completed";
+            trace_id?: string;
+        };
+        WeighingObservationResponse: {
+            observation: components["schemas"]["WeighingObservation"];
+            trace_id?: string;
         };
         VaccinationShedVaccineRow: {
             protocolId: string;
@@ -6633,6 +7071,7 @@ export interface components {
         CalendarEventId: string;
         ProofId: string;
         ObligationId: string;
+        WeighingCampaignId: string;
     };
     requestBodies: never;
     headers: never;
@@ -6739,6 +7178,341 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listWeighingCampaigns: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing campaigns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWeighingCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Weighing campaign created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWeighingCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Weighing campaign updated or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    publishWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing campaign published or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingCampaigns: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator Weighing campaigns. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appWeighingPlannerCatalog: {
+        parameters: {
+            query: {
+                period_start_date: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded Weighing planner catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingPlannerCatalogResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingScopeRoster: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Opaque roster cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing scope roster rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingRosterResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordWeighingAnimalObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordWeighingAnimalObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Animal observation accepted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingObservationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordWeighingShedObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordWeighingShedObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Shed/partition observation accepted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingObservationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingShedVideos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shed proof media and observations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingShedVideosResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitWeighingIndividualScope: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitWeighingIndividualScopeRequest"];
+            };
+        };
+        responses: {
+            /** @description Scope completed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
         };
     };
     registerAppDevice: {

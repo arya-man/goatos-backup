@@ -24,6 +24,35 @@ When the user says "my local DB" or "local frontend/backend", treat that as:
 Chrome -> 127.0.0.1:3300 -> 127.0.0.1:8080 -> 127.0.0.1:5433/goatos
 ```
 
+## Fast Lane for Tiny Fixes
+
+When the maintainer asks to make a small, low-risk fix and land it on `main`,
+optimize for elapsed time. Do not run the full local CI matrix, mobile install,
+cloud deploy, browser proof suite, or graph/document maintenance unless the
+change actually touches that surface or the maintainer explicitly asks for it.
+
+Default verification should be the narrowest command that proves the touched
+surface still works. Examples:
+
+- Android Kotlin-only UI or view-model edit: run the targeted Gradle compile or
+  targeted unit test; install to a physical device only when device behavior is
+  the thing being verified.
+- Admin-web component/style edit: run the relevant typecheck/test/lint slice or
+  a focused browser check, not the whole product suite.
+- Docs/copy/config-only edit: inspect the diff and run format/schema validation
+  only if that file type has one.
+
+Before pushing, verify repo, remote, active identity, branch/head, and dirty
+state. Avoid detached-HEAD limbo for ordinary work: use the current branch when
+it is safe, or push the verified commit explicitly with `git push origin
+HEAD:main` when the maintainer asked to land directly on `main`. Never include
+unrelated proof files, screenshots, temp folders, or local artifacts in the
+commit.
+
+Report the verification boundary honestly and briefly. If only a narrow check
+was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
+change.
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
@@ -1068,6 +1097,21 @@ Do:
   marker and add a test asserting the surfaces resolve to the same source/grain.
   Full rule + the 200-vs-400 incident:
   `docs/decisions/scale-anti-patterns.md` -> "Cross-surface count parity".
+- Mobile Vaccination Overview current-drive count lock (maintainer decision
+  2026-07-29): the mobile Vaccination Overview top summary is NOT a CEO
+  adherence KPI, NOT an obligation-history rollup, NOT a shift/carry-forward
+  number, and NOT a dose-administration count. It must answer only: for the
+  current visible vaccination drive, how many distinct animals are in the drive,
+  how many have been vaccinated/submitted, and how many are left. The denominator
+  must be the real current drive animal membership
+  (`count(DISTINCT target_id)` over the drive assignment/membership grain; for
+  the current STG ET+TT example this is 324 animals, never 1296). Do not join
+  protocol dimensions/rule rows/dose rows in a way that fans out animals. Do not
+  include completed history from older drive dates unless those animals are part
+  of the current visible drive membership. Any mobile change touching this card
+  must include a regression test for a multi-dimension ET+TT rule where the
+  display remains 324 total animals and shows vaccinated vs left from the same
+  drive grain.
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The
@@ -1375,6 +1419,12 @@ Do:
   never log credentials, tokens, or service-account JSON. Repo hygiene is
   separate and still applies: do not commit raw private source files or row
   dumps to git.
+- Exception: Goat OS STG tester/demo login credentials that are intentionally
+  documented in `docs/runbooks/stg-operator-login-credentials.md` are approved
+  committed runbook data, not a review finding. Do not flag those STG
+  email/password rows as leaked secrets unless the maintainer says they are no
+  longer approved, they include production credentials, or they expose tokens,
+  service-account JSON, API keys, private keys, or other non-demo secrets.
 - Construct backend loggers via `backend/internal/platform/observability`
   (env sink `GOATOS_OBS_SINK`: `stdout_json`/`otlp`/`gcm`); do not hand-roll
   `slog.New` in new code. Log once at boundaries with trace/request/tenant/

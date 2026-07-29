@@ -122,7 +122,8 @@ func (h *Handler) SubmitMilkFeeding(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "feeding_date must be YYYY-MM-DD"}, nil)
 		return
 	}
-	result, err := h.service.SubmitMilkFeeding(r.Context(), domain.MilkFeedingSubmission{TenantID: tenantID, TaskID: strings.TrimSpace(r.PathValue("task_id")), ParkID: strings.TrimSpace(body.ParkID), FeedingDate: day, SessionNo: body.SessionNo, Answers: body.Answers, Proofs: body.Proofs, SubmittedBy: actorID, SubmittedAt: time.Now().UTC(), IdempotencyKey: key, TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	submittedAt := time.Now().UTC() // india-date-guard:ignore: owner=goatos issue=GH-india-date scope=submission-absolute-instant-storage expiry=2026-12-31
+	result, err := h.service.SubmitMilkFeeding(r.Context(), domain.MilkFeedingSubmission{TenantID: tenantID, TaskID: strings.TrimSpace(r.PathValue("task_id")), ParkID: strings.TrimSpace(body.ParkID), FeedingDate: day, SessionNo: body.SessionNo, Answers: body.Answers, Proofs: body.Proofs, SubmittedBy: actorID, SubmittedAt: submittedAt, IdempotencyKey: key, TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
 	if err != nil {
 		status := http.StatusUnprocessableEntity
 		code := "invalid_milk_feeding"
@@ -184,10 +185,11 @@ func (h *Handler) SubmitMilkPreparation(w http.ResponseWriter, r *http.Request) 
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_scope", "message": "park_id and preparation_date (YYYY-MM-DD) are required"}, nil)
 		return
 	}
+	submittedAt := time.Now().UTC() // india-date-guard:ignore: owner=goatos issue=GH-india-date scope=submission-absolute-instant-storage expiry=2026-12-31
 	result, err := h.service.SubmitMilkPreparation(r.Context(), domain.MilkPreparationSubmission{
 		TenantID: tenantID, ParkID: strings.TrimSpace(body.ParkID), PreparationDate: preparationDate,
 		GoatMilkUsed: body.GoatMilkUsed, Answers: *body.Answers, Proofs: body.Proofs, SubmittedBy: actorID,
-		SubmittedAt: time.Now().UTC(), IdempotencyKey: key,
+		SubmittedAt: submittedAt, IdempotencyKey: key,
 		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 	})
 	if err != nil {

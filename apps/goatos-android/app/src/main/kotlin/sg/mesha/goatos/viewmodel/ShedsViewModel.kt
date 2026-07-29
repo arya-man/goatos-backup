@@ -247,7 +247,7 @@ class ShedsViewModel @Inject constructor(
         val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
-            val status = shedStatusFor(group)
+            val status = shedStatusForRows(group)
             val counts = executionCounts(group)
             val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
                 .filterKeys { it.isNotBlank() }
@@ -367,20 +367,6 @@ class ShedsViewModel @Inject constructor(
             ?: selectedDay
     }
 
-    private fun shedStatusFor(rows: List<VaccinationExecutionRowDto>): ShedStatus {
-        val anyDelayed = rows.any { row ->
-            val work = row.workState.lowercase()
-            work.contains("overdue") ||
-                work.contains("missed") ||
-                work.contains("blocked") ||
-                row.severity.equals("critical", ignoreCase = true)
-        }
-        if (anyDelayed) return ShedStatus.DELAYED
-        val counts = executionCounts(rows)
-        val allDone = counts.target > 0 && counts.done >= counts.target
-        return if (allDone) ShedStatus.DONE else ShedStatus.PENDING
-    }
-
     private fun VaccinationExecutionRowDto.isDone(): Boolean {
         val work = workState.lowercase()
         return work.contains("completed") || work.contains("done")
@@ -410,9 +396,7 @@ internal fun protocolAdherenceSummary(
     counts: ExecutionCounts = executionCounts(rows),
 ): ProtocolAdherenceSummary? {
     if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
-    val accepted = rows.sumOf { row ->
-        if (row.isAcceptedForProtocolSummary()) row.doneCount.coerceAtLeast(0) else 0
-    }
+    val accepted = rows.sumOf { row -> row.acceptedAnimalCount() }
     val review = rows.count { it.isVerificationPending() }
     return ProtocolAdherenceSummary(
         expectedCount = counts.target,
@@ -423,6 +407,19 @@ internal fun protocolAdherenceSummary(
         deferredCount = 0,
         acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
     )
+}
+
+internal fun shedStatusForRows(rows: List<VaccinationExecutionRowDto>): ShedStatus {
+    val anyDelayed = rows.any { row ->
+        val work = row.workState.lowercase()
+        work.contains("overdue") ||
+            work.contains("missed") ||
+            work.contains("blocked") ||
+            row.severity.equals("critical", ignoreCase = true)
+    }
+    if (anyDelayed) return ShedStatus.DELAYED
+    val allFinalClosed = rows.isNotEmpty() && rows.all { it.isFinalClosed() }
+    return if (allFinalClosed) ShedStatus.DONE else ShedStatus.PENDING
 }
 
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
@@ -565,6 +562,10 @@ private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =
         workState.equals("closed", ignoreCase = true) ||
         workState.equals("completed", ignoreCase = true)
 
+private fun VaccinationExecutionRowDto.acceptedAnimalCount(): Int =
+    acceptedCount?.coerceAtLeast(0)
+        ?: if (isAcceptedForProtocolSummary()) doneCount.coerceAtLeast(0) else 0
+
 private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
     "accepted", "closed", "completed" -> true
     else -> workState.equals("accepted", ignoreCase = true) ||
@@ -573,7 +574,15 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
 }
 
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
-    isNotEmpty() && all { row -> row.sopStatus.isSubmissionTerminalStatus() }
+    isNotEmpty() && all { row -> row.hasSubmittedRecord() }
+
+private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
+    sopStatus.isSubmissionTerminalStatus() ||
+        verificationStatus.equals("pending", ignoreCase = true) ||
+        verificationStatus.equals("accepted", ignoreCase = true) ||
+        verificationStatus.equals("verified", ignoreCase = true) ||
+        proofStatus.equals("uploaded", ignoreCase = true) ||
+        workState.equals("verification_pending", ignoreCase = true)
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

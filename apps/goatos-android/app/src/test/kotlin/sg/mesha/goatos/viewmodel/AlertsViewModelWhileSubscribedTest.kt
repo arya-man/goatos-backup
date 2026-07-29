@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -69,11 +70,40 @@ class AlertsViewModelWhileSubscribedTest {
         job2.cancel()
     }
 
+    @Test
+    fun `empty alerts response shows no alerts instead of loading forever`() = runTest(dispatcher) {
+        val repo = FakeControlTowerRepository()
+        repo.emit(ControlTowerResponseDto(alerts = emptyList()))
+        val viewModel = AlertsViewModel(repo)
+
+        val state = viewModel.state.first { it.emptyLabel == "No alerts" }
+
+        assertEquals("No alerts", state.emptyLabel)
+        assertEquals(emptyList<Any>(), state.rows)
+    }
+
+    @Test
+    fun `refresh failure with no cache shows no alerts instead of loading forever`() = runTest(dispatcher) {
+        val repo = FakeControlTowerRepository(refreshResult = Result.failure(IllegalStateException("403")))
+        val viewModel = AlertsViewModel(repo)
+
+        val state = viewModel.state.first { it.isOffline }
+
+        assertEquals("No alerts", state.emptyLabel)
+        assertEquals(emptyList<Any>(), state.rows)
+    }
+
     /** Fake repo whose observe flow tracks how many collectors are currently active. */
-    private class FakeControlTowerRepository : ControlTowerRepository {
+    private class FakeControlTowerRepository(
+        private val refreshResult: Result<Unit> = Result.success(Unit),
+    ) : ControlTowerRepository {
         private val upstream = MutableStateFlow(Resource<ControlTowerResponseDto>(data = null))
         var activeSummaryCollectors = 0
             private set
+
+        fun emit(dto: ControlTowerResponseDto?) {
+            upstream.value = Resource(data = dto)
+        }
 
         override suspend fun summary(
             parkId: String?,
@@ -116,6 +146,6 @@ class AlertsViewModelWhileSubscribedTest {
             asOf: String?,
             cursor: String?,
             limit: Int?,
-        ): Result<Unit> = Result.success(Unit)
+        ): Result<Unit> = refreshResult
     }
 }

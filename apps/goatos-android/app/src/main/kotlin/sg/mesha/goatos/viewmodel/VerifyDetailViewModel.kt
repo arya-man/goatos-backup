@@ -213,6 +213,7 @@ class VerifyDetailViewModel @Inject constructor(
                 runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
+            VideoPlaybackAction.FULLSCREEN_OPENED -> Unit
         }
     }
 

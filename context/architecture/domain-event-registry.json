@@ -30,9 +30,106 @@
     "feed.packing.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
-    "vaccination.leave.changed"
+    "vaccination.leave.changed",
+    "weighing.campaign_created",
+    "weighing.campaign_published",
+    "weighing.observation_accepted",
+    "weighing.shed_observation_accepted",
+    "weighing.shed_submission.completed"
   ],
   "events": [
+    {
+      "eventType": "weighing.campaign_created",
+      "producer": "weighing campaign create transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign_published",
+      "producer": "weighing campaign publish transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation_accepted",
+      "producer": "individual animal weighing observation accept transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed_observation_accepted",
+      "producer": "per-shed/partition weighing observation accept transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed_submission.completed",
+      "producer": "weighing campaign shed completion transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event.go",
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event_integration_test.go",
+        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
     {
       "eventType": "goat.created",
       "producer": "identity admin goat create / procurement accepted-intake PC handoff",
@@ -798,6 +895,11 @@
       "path": "backend/cmd/seed-vaccination-real/main.go",
       "owner": "seed",
       "reason": "idempotent local/source seed; closeout must include HRMS, stages, generation, and sweeper"
+    },
+    {
+      "path": "backend/cmd/seed-vaccination-per-goat-qa/main.go",
+      "owner": "seed",
+      "reason": "idempotent local QA seed for per-goat proof testing; not a production herd mutation writer"
     }
   ],
   "futureFeatureContracts": [

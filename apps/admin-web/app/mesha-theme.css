@@ -624,8 +624,18 @@
   .cbm-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
   .cbm-legend span{display:inline-flex;align-items:center;gap:6px}
   .cbm-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
-  .cbm-chartbox{position:relative}
-  .cbm-chart{width:100%;height:auto}
+  .cbm-chartbox{position:relative;overflow-x:auto}
+  /* The svg carries intrinsic width/height attributes so it renders at its natural
+     size instead of stretching to the card; a CSS height with width:auto collapses
+     an svg to zero. max-width keeps it responsive on narrow viewports. */
+  .cbm-chart{max-width:100%;height:auto;display:block}
+  /* Cohort matrix reuses the heatmap grid: pending>0 reads red, cleared reads green. */
+  .cbm-cohort-heat .cbm-cell{min-width:74px;height:34px;font-size:13px;font-weight:600}
+  /* Live stages nested under a ladder rung: same grid, quieter and indented. */
+  .cbm-cohort-sub .cbm-cell{height:28px;font-size:11.5px;font-weight:500;opacity:.9}
+  .cbm-rowh-sub{padding-left:20px !important;font-size:11.5px !important;color:var(--faint) !important}
+  .cbm-cell.cbm-pending{background:#5b2320;color:#ffd9d6}
+  .cbm-cell.cbm-clear{background:#22633c;color:#d6f1e0}
   .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
   .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
@@ -1444,6 +1454,98 @@
   .cond-note{max-width:340px;text-align:right}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
   .btn.ghost:hover{background:var(--brand-soft)}
+
+  .weighing-page{display:grid;gap:16px}
+  .weighing-role-switch{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .weighing-hero .ic,.weighing-page .ic{width:16px;height:16px;flex:0 0 auto}
+  .weighing-hero-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.75fr);gap:16px;align-items:stretch}
+  .weighing-hero-grid>*{min-width:0}
+  .weighing-week-row{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px}
+  .weighing-week{display:flex;align-items:center;gap:9px;min-width:138px;border:1px solid var(--line);background:var(--panel-2);border-radius:12px;padding:10px 12px;text-decoration:none;color:var(--ink);font-size:12.5px;font-weight:700}
+  .weighing-week.on{border-color:color-mix(in srgb,var(--brand) 62%,var(--line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .weighing-week .tag{margin-left:auto}
+  .weighing-meta{margin-top:2px}
+  .weighing-command-panel{border:1px solid var(--line2);background:var(--bg);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .weighing-command-title{display:flex;align-items:center;gap:8px;font-weight:750;font-size:14px}
+  .weighing-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+  .weighing-actions .btn{justify-content:center}
+  .weighing-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .weighing-metric .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:750}
+  .weighing-metric .v{font-size:28px;font-weight:820;letter-spacing:-.9px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .weighing-metric .v span{font-size:13px;color:var(--muted);font-weight:650;margin-left:2px}
+  .weighing-bar{height:8px;border-radius:999px;background:var(--panel-2);margin:11px 0 9px;overflow:hidden}
+  .weighing-bar i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+  .weighing-bar.pur i{background:#a98bf5}
+  .weighing-attention{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+  .main table.weighing-table{min-width:980px}
+  .main table.weighing-table.compact{min-width:620px}
+  .main table.weighing-table th,.main table.weighing-table td{vertical-align:middle}
+  .main table.weighing-table .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .blockish{display:block;margin-top:3px;line-height:1.35}
+  .weighing-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .weighing-integration{border-style:dashed}
+  .weighing-planner>.bd{padding:16px}
+  .weighing-plan-form{display:grid;gap:16px}
+  .weighing-wizard-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:16px;align-items:end}
+  .weighing-wizard-head h2{margin:4px 0 7px;font-size:28px;letter-spacing:-.7px}
+  .weighing-step-bars{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .weighing-step-bars i{height:5px;border-radius:999px;background:var(--brand)}
+  .weighing-builder-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+  .weighing-builder-grid.muted{opacity:.42}
+  .weighing-builder-step{border:1px solid var(--line);background:var(--bg);border-radius:16px;padding:16px;display:grid;gap:12px;min-width:0}
+  .weighing-duplicate-grid{display:grid;gap:14px;max-width:680px}
+  .weighing-duplicate-card{border:1px solid color-mix(in srgb,var(--warn) 42%,var(--line));background:color-mix(in srgb,var(--warn) 6%,var(--panel));border-radius:16px;padding:18px}
+  .weighing-duplicate-card h3{margin:16px 0 8px;font-size:22px;letter-spacing:-.45px}
+  .weighing-duplicate-card p{margin:0;color:var(--muted);font-size:14px;line-height:1.6}
+  .weighing-existing-task{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+  .weighing-existing-task span,.weighing-existing-task b{padding:15px 18px;border-bottom:1px solid var(--line2);display:flex;align-items:center}
+  .weighing-existing-task span:nth-last-child(-n+2),.weighing-existing-task b:nth-last-child(-n+2){border-bottom:0}
+  .weighing-existing-task span{color:var(--muted);font-weight:650}
+  .weighing-existing-task b{justify-content:flex-end;font-size:15px;text-align:right}
+  .weighing-duplicate-note{border:1px solid color-mix(in srgb,var(--warn) 42%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--warn) 5%,var(--panel));color:var(--muted);padding:16px 18px;line-height:1.65}
+  .weighing-shed-step{grid-row:span 2}
+  .weighing-step-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--brand-d);font-weight:850}
+  .weighing-builder-step h3{margin:0;font-size:22px;letter-spacing:-.45px}
+  .weighing-choice,.weighing-shed-choice{display:flex;align-items:center;gap:13px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;min-width:0}
+  .weighing-choice.on,.weighing-shed-choice.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--panel));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .weighing-choice.disabled{opacity:.38}
+  .weighing-choice b,.weighing-shed-choice b{display:block;font-size:15px;line-height:1.25}
+  .weighing-choice small,.weighing-shed-choice small{display:block;color:var(--muted);font-size:12.5px;margin-top:4px}
+  .weighing-choice strong,.weighing-shed-choice strong{margin-left:auto;color:var(--brand-d);font-size:18px;font-variant-numeric:tabular-nums}
+  .weighing-radio{width:20px;height:20px;border-radius:999px;border:2px solid var(--line);box-shadow:inset 0 0 0 5px var(--panel);flex:0 0 auto}
+  .weighing-choice.on .weighing-radio{border-color:var(--brand);background:var(--brand)}
+  .weighing-check{width:28px;height:28px;border-radius:9px;border:2px solid var(--line);display:grid;place-items:center;color:#08130B;background:transparent;font-weight:900;flex:0 0 auto}
+  .weighing-shed-choice.on .weighing-check{background:var(--brand);border-color:var(--brand)}
+  .weighing-shed-main{min-width:0;flex:1}
+  .weighing-segment{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:12px;padding:4px;margin-top:12px;background:var(--bg);gap:4px}
+  .weighing-segment span{border-radius:9px;text-align:center;padding:8px;color:var(--muted);font-size:12.5px;font-weight:800}
+  .weighing-segment span.on.individual{background:color-mix(in srgb,var(--info) 18%,var(--panel));color:#79b7ff}
+  .weighing-segment span.on.lumpsum{background:color-mix(in srgb,var(--purple) 22%,var(--panel));color:#c6b4ff}
+  .weighing-total-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:end;background:var(--panel-2);border-radius:14px;padding:16px;margin-top:2px}
+  .weighing-total-card span{color:var(--muted);font-size:13px;font-weight:750}
+  .weighing-total-card b{font-size:28px;letter-spacing:-.7px}
+  .weighing-total-card small{grid-column:2;color:var(--muted);font-size:12.5px;font-weight:750}
+  .weighing-assign-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .weighing-assign-summary span,.weighing-assign-summary b{padding:12px 14px;border-bottom:1px solid var(--line2)}
+  .weighing-assign-summary span:nth-last-child(-n+2),.weighing-assign-summary b:nth-last-child(-n+2){border-bottom:0}
+  .weighing-assign-summary span{color:var(--muted)}
+  .weighing-planner-actions{display:flex;gap:12px;justify-content:flex-end}
+  .weighing-planner-actions .btn{min-width:140px;justify-content:center}
+
+  @media(max-width:1040px){
+    .weighing-hero-grid,.weighing-metrics,.weighing-review-grid,.weighing-wizard-head,.weighing-builder-grid{grid-template-columns:1fr}
+    .weighing-role-switch{justify-content:flex-start}
+  }
+
+  @media(max-width:640px){
+    .weighing-week{min-width:128px}
+    .weighing-hero>.bd{overflow-x:visible}
+    .weighing-command-panel{padding:12px}
+    .weighing-actions .btn{flex:1 1 92px;padding-inline:9px}
+    .weighing-builder-step{padding:14px}
+    .weighing-planner-actions{flex-direction:column}
+    .weighing-planner-actions .btn{width:100%}
+  }
   .warn-note{border-color:var(--danger)}
   /* operator preview (right column) */
   .pvform{display:flex;flex-direction:column;gap:11px}
@@ -1707,3 +1809,38 @@ select:disabled { opacity: .45; }
 .cbm-queue-table td:nth-child(5) { text-align: right; }
 .cbm-queue-awaiting { color: var(--warn); text-align: right; }
 .cbm-queue-number { text-align: right; }
+
+/* Vaccination command board — filter bar + section rhythm */
+.cbm-filters { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 18px; }
+.cbm-filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.cbm-filter-label { font-size: 12px; color: var(--muted); }
+.cbm-select { background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 18px; padding: 7px 12px; font-size: 12.5px; height: 34px; cursor: pointer; }
+.cbm-select:hover { border-color: var(--line2); }
+/* Drive labels carry vaccine + window + status, so they need more room than a vaccine name. */
+.cbm-select-wide { max-width: 320px; }
+.cbm-select:disabled { opacity: .55; cursor: not-allowed; }
+.cbm-chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 18px; border: 1px solid transparent; background: var(--panel); color: var(--muted); font-size: 12.5px; cursor: pointer; opacity: .5; }
+.cbm-chip.cbm-chip-on { opacity: 1; color: var(--ink); border-color: var(--line); }
+.cbm-chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--faint); }
+.cbm-chip-verified i { background: var(--ok); }
+.cbm-chip-awaiting i { background: var(--amber); }
+.cbm-chip-overdue i { background: var(--danger); }
+.cbm-chip-scheduled i { background: var(--info); }
+.cbm .cbm-shed-section, .cbm .cbm-cohort-section, .cbm .cbm-queue-section { margin-top: 26px; }
+.cbm .cbm-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.cbm .cbm-section-head h3, .cbm .cbm-cohort-title { margin: 0 0 12px; font-size: 14px; }
+.cbm .cbm-section-head h3 { margin-bottom: 0; }
+.cbm .cbm-section-head .cbm-meta { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.cbm .cbm-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 11.5px; color: var(--muted); align-items: center; }
+.cbm .cbm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cbm .cbm-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; background: var(--faint); }
+.cbm .cbm-legend span:nth-child(1) i { background: var(--ok); }
+.cbm .cbm-legend span:nth-child(2) i { background: var(--amber); }
+.cbm .cbm-legend span:nth-child(3) i { background: var(--danger); }
+.cbm .cbm-legend span:nth-child(4) i { background: var(--info); }
+.cbm .cbm-kpi-row { margin-bottom: 4px; }
+
+/* Farmwise cohort matrix: one block per farm so two farms never merge into one row set. */
+.cbm-farm-block { margin-top: 14px; }
+.cbm-farm-name { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; }
+.cbm-cohort-heat .cbm-cell small { display: block; font-size: 9.5px; font-weight: 500; opacity: .8; }

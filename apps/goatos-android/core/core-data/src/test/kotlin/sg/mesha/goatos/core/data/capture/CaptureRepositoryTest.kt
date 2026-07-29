@@ -118,6 +118,7 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.ACCEPTED,
                 tagRole = RfidScanTagRole.PRIMARY,
                 reason = null,
+                capturedAtMs = 10_001L,
             )
             repo.recordAttempt(
                 taskId = "task-1",
@@ -128,14 +129,18 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.DUPLICATE,
                 tagRole = RfidScanTagRole.SECONDARY,
                 reason = "goat_already_scanned",
+                capturedAtMs = 10_002L,
             )
 
             val attempts = repo.attemptsForTask("task-1")
             assertEquals(listOf("901007000504418", "901007000504419"), attempts.map { it.tag })
             assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), attempts.map { it.outcome })
+            assertEquals(listOf(10_001L, 10_002L), attempts.map { it.capturedAtMs })
             assertEquals(2, sync.attemptCalls.size)
             assertEquals("scan-attempt:task-1:attempt-0", sync.attemptCalls[0].idempotencyKey)
             assertEquals("scan-attempt:task-1:attempt-1", sync.attemptCalls[1].idempotencyKey)
+            assertEquals(10_001L, sync.attemptCalls[0].request.capturedAtMs)
+            assertEquals(10_002L, sync.attemptCalls[1].request.capturedAtMs)
             assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
             assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {
@@ -144,7 +149,7 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `goat proof is written to Room first and the 5-clip per-goat cap is enforced`() = runTest {
+    fun `goat proof replacement is written even after historical proof cap`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -175,7 +180,8 @@ class CaptureRepositoryTest {
             }
             assertEquals(5, repo.observeProofs("task-9").first().size)
 
-            // 6th capture — over the cap — must be rejected, WITHOUT a Room write.
+            // Goat proof replacement must not be blocked by historical audit rows. The scan and
+            // submit surfaces select the latest synced proof as the active one for the goat.
             val sixth = repo.capture(
                 taskId = "task-9",
                 fieldKey = "vaccination_goat_proof",
@@ -183,18 +189,18 @@ class CaptureRepositoryTest {
                 subjectId = "goat-9",
                 localUri = "file://video-6.mp4",
                 mimeType = "video/mp4",
-                caption = "one too many",
+                caption = "replacement",
                 scopeType = "task",
                 scopeId = "task-9",
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
             )
-            assertTrue(sixth is AppResult.Err)
-            assertEquals(5, repo.observeProofs("task-9").first().size)
+            assertTrue(sixth is AppResult.Ok)
+            assertEquals(6, repo.observeProofs("task-9").first().size)
 
             // Every capture queued a registration write through the SAME durable outbox path.
-            assertEquals(5, sync.enqueueCalls.size)
+            assertEquals(6, sync.enqueueCalls.size)
         } finally {
             db.close()
         }

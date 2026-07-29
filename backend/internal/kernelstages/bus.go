@@ -70,6 +70,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring

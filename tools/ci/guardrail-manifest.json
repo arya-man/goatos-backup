@@ -111,6 +111,17 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
+      "id": "android-vaccination-submit-gate",
+      "script": "tools/agent-hooks/check-android-vaccination-submit-gate.mjs",
+      "makeTarget": "android-vaccination-submit-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-android-vaccination-submit-gate.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-vaccination-submit-gate.mjs --self-test",
+      "owningDoc": "docs/runbooks/vaccination-role-e2e-audit-2026-07-20.md",
+      "requiredInCI": true,
+      "ciStep": "android-vaccination-submit-gate-guard",
+      "notes": "Blocks the Android proof_rescan regression where a proof-missing DONE goat can upload proof without repairing the durable scan capture. Submit summary counts sop_task_scan_captures, so accepted proof_rescan must call recordRosterScan before requestGoatProof."
+    },
+    {
       "id": "domain-event-architecture",
       "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
       "makeTarget": "domain-event-architecture-guard",
@@ -426,6 +437,17 @@
       "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "android-compose-lists-guard"
+    },
+    {
+      "id": "android-row-action-scope",
+      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
+      "makeTarget": "android-row-action-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-row-action-scope-guard",
+      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
     },
     {
       "id": "calendar-endpoint-grain",

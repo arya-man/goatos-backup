@@ -18,16 +18,15 @@ func moduleKeySet(modules []domain.BootstrapModule) map[string]string {
 
 // TestLeadershipDrawerCompositionPerRole locks the role -> drawer matrix
 // (maintainer decision 2026-07-25, docs/decisions/role-module-nav-composition.md):
-//   - CEO/CXO: Vaccination + Counts + Feed + Breeding(soon), never the
+//   - CEO/CXO: Vaccination + Weighing + Counts + Feed + Breeding(soon), never the
 //     removed synthetic leadership module or Verification. Expanded drawer.
-//   - Park Head: Vaccination + Feed (park operations include feed), NO Counts.
-//     Expanded chrome. PC Director: Vaccination ONLY (preventive-care specialty),
-//     minimal chrome (single module).
+//   - Park Head: Vaccination + Weighing, NO Counts/Feed/Breeding.
+//   - PC Director: Vaccination + Weighing, no Counts/Feed/Breeding.
 //   - Verifier: Verification only. Operator: department modules, never leadership.
 func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 	const en = localization.DefaultTag
 
-	t.Run("ceo sees vaccination+counts+soon, no synthetic leadership module, no verification", func(t *testing.T) {
+	t.Run("ceo sees vaccination+weighing+counts+soon, no synthetic leadership module, no verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
 		modules := modulesFor(grants, nil, en)
 		keys := moduleKeySet(modules)
@@ -35,11 +34,14 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if keys["vaccination"] != moduleStatusAvailable {
 			t.Fatalf("CEO must have the Vaccination module; got %v", keys)
 		}
+		if keys["weighing"] != moduleStatusAvailable {
+			t.Fatalf("CEO must have the Weighing module; got %v", keys)
+		}
 		if keys["counts"] != moduleStatusAvailable {
 			t.Fatalf("CEO must see Counts as available; got %v", keys)
 		}
 		if keys["feed_direction"] != moduleStatusAvailable {
-			t.Fatalf("CEO must see Feed as available (built module); got %v", keys)
+			t.Fatalf("CEO must see Feed as available; got %v", keys)
 		}
 		if keys["breeding"] != moduleStatusSoon {
 			t.Fatalf("CEO must see Breeding as soon; got %v", keys)
@@ -70,8 +72,8 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 					t.Fatalf("CEO vaccination bar=%+v want %+v", m.NavItems, wantItems)
 				}
 				for _, it := range m.NavItems {
-					if it.Key == "vaccination" || it.Href == "/leadership" {
-						t.Fatalf("CEO vaccination bar must not contain operator Drives or /leadership; got %+v", m.NavItems)
+					if it.Key == "vaccination" || it.Key == "weighing" || it.Href == "/leadership" {
+						t.Fatalf("CEO vaccination bar must not contain operator Drives, Weighing, or /leadership; got %+v", m.NavItems)
 					}
 				}
 				for i := range wantItems {
@@ -86,49 +88,51 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		}
 	})
 
-	t.Run("pc-leader pc_director sees vaccination only", func(t *testing.T) {
+	t.Run("pc-leader pc_director sees vaccination and weighing only", func(t *testing.T) {
 		role := permissions.RolePCDirector
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		// Even with a department vaccination+counts grant, the PC Director's
-		// drawer is the vaccination home only (preventive-care specialty).
-		modules := modulesFor(grants, []string{"vaccination", "counts"}, en)
+		// drawer is preventive-care only.
+		modules := modulesFor(grants, []string{"vaccination", "weighing", "counts"}, en)
 		keys := moduleKeySet(modules)
 
 		if _, ok := keys["vaccination"]; !ok {
 			t.Fatalf("%s must have the Vaccination module; got %v", role, keys)
+		}
+		if _, ok := keys["weighing"]; !ok {
+			t.Fatalf("%s must have the Weighing module; got %v", role, keys)
 		}
 		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
 			if _, ok := keys[banned]; ok {
 				t.Fatalf("%s must NOT see %q; got %v", role, banned, keys)
 			}
 		}
-		if got := navChromeFor(grants, modules); got != domain.NavChromeMinimal {
-			t.Fatalf("%s chrome = %q, want minimal (single module)", role, got)
+		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {
+			t.Fatalf("%s chrome = %q, want expanded", role, got)
 		}
 	})
 
-	// Park Head runs park operations, which include Feed, so unlike the PC Director
-	// they get the Feed module alongside Vaccination (maintainer decision 2026-07-25).
-	// Counts remains excluded — a park head does not run the capture/approval surfaces.
-	t.Run("park_head sees vaccination + feed, not counts", func(t *testing.T) {
+	// Park Head is preventive-care scoped. Feed is still roadmap/soon and not part
+	// of the park-head drawer until it becomes a built park-ops surface.
+	t.Run("park_head sees vaccination + weighing only", func(t *testing.T) {
 		role := permissions.RoleParkHead
 		grants := []domain.GrantSummary{grantWithRole(role)}
-		modules := modulesFor(grants, []string{"vaccination", "counts", "feed_direction"}, en)
+		modules := modulesFor(grants, []string{"vaccination", "weighing", "counts", "feed_direction"}, en)
 		keys := moduleKeySet(modules)
 
 		if keys["vaccination"] != moduleStatusAvailable {
 			t.Fatalf("park_head must have the Vaccination module; got %v", keys)
 		}
-		if keys["feed_direction"] != moduleStatusAvailable {
-			t.Fatalf("park_head must have the Feed module; got %v", keys)
+		if keys["weighing"] != moduleStatusAvailable {
+			t.Fatalf("park_head must have the Weighing module; got %v", keys)
 		}
-		for _, banned := range []string{"counts", "breeding", "leadership", "verification"} {
+		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
 			if _, ok := keys[banned]; ok {
 				t.Fatalf("park_head must NOT see %q; got %v", banned, keys)
 			}
 		}
 		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {
-			t.Fatalf("park_head chrome = %q, want expanded (vaccination + feed)", got)
+			t.Fatalf("park_head chrome = %q, want expanded", got)
 		}
 	})
 
@@ -162,10 +166,13 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 			grantWithRole(permissions.RolePCDirector),
 			grantWithRole(permissions.RoleVerifier),
 		}
-		modules := modulesFor(grants, []string{"vaccination"}, en)
+		modules := modulesFor(grants, []string{"vaccination", "weighing"}, en)
 		keys := moduleKeySet(modules)
 		if _, ok := keys["vaccination"]; !ok {
 			t.Fatalf("hybrid director must keep Vaccination; got %v", keys)
+		}
+		if _, ok := keys["weighing"]; !ok {
+			t.Fatalf("hybrid director must keep Weighing; got %v", keys)
 		}
 		if _, ok := keys["verification"]; ok {
 			t.Fatalf("hybrid director must NOT collapse into verifier-only module; got %v", keys)
@@ -174,9 +181,12 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 
 	t.Run("operator keeps department modules, never leadership", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
-		keys := moduleKeySet(modulesFor(grants, []string{"vaccination", "counts"}, en))
+		keys := moduleKeySet(modulesFor(grants, []string{"vaccination", "weighing", "counts"}, en))
 		if _, ok := keys["vaccination"]; !ok {
 			t.Fatalf("operator must keep the vaccination module; got %v", keys)
+		}
+		if _, ok := keys["weighing"]; !ok {
+			t.Fatalf("operator must keep the weighing module; got %v", keys)
 		}
 		if _, ok := keys["leadership"]; ok {
 			t.Fatalf("operator must NOT get the leadership module; got %v", keys)

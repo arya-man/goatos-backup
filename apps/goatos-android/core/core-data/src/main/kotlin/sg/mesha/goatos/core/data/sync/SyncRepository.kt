@@ -29,6 +29,8 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -232,6 +234,20 @@ interface SyncRepository {
         reason: String?,
         idempotencyKey: String,
     ): AppResult<String> = AppResult.Err("counts approval sync is not configured")
+
+    suspend fun enqueueWeighingAnimalObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing animal observation sync is not configured")
+
+    suspend fun enqueueWeighingShedObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing shed observation sync is not configured")
 
     /**
      * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
@@ -730,6 +746,30 @@ class DefaultSyncRepository(
                 request = CountsApprovalDecisionRequestDto(reason = reason?.trim()?.ifBlank { null }),
             ),
         ),
+    )
+
+    override suspend fun enqueueWeighingAnimalObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_ANIMAL_OBSERVATION,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(WeighingAnimalObservationPayload(campaignId = campaignId, request = request)),
+    )
+
+    override suspend fun enqueueWeighingShedObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_SHED_OBSERVATION,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(WeighingShedObservationPayload(campaignId = campaignId, request = request)),
     )
 
     override suspend fun enqueueShiftingComplete(

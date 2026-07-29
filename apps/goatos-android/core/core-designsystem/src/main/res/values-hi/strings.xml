@@ -31,6 +31,7 @@
     <string name="sync_online">ऑनलाइन</string>
     <string name="sync_offline">ऑफ़लाइन</string>
     <string name="sync_summary_all_synced">सब सिंक हो गया</string>
+    <string name="sync_summary_failed_fmt">%1$d विफल</string>
     <string name="sync_summary_syncing_fmt">%1$d सिंक हो रहे…</string>
     <string name="sync_summary_queued_fmt">%1$d कतार में</string>
     <string name="sync_retry_all">सभी पुनः प्रयास</string>

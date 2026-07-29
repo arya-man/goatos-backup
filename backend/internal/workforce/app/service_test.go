@@ -45,6 +45,24 @@ func TestBootstrapDeniesRevokedDevice(t *testing.T) {
 	assertAppCode(t, err, "device_revoked")
 }
 
+func TestBootstrapAllowsFreshUnregisteredDevice(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile:   profile("active"),
+		grants:    []domain.GrantSummary{grant()},
+		deviceErr: ports.ErrNotFound,
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	if got.DeviceState.Device == nil {
+		t.Fatalf("device state missing device: %#v", got.DeviceState)
+	}
+	if got.DeviceState.Status != "not_registered" || got.DeviceState.Device.Status != "not_registered" {
+		t.Fatalf("device state=%#v, want not_registered", got.DeviceState)
+	}
+}
+
 func TestBootstrapAllowsActiveProfileGrantCapabilityDevice(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -162,7 +180,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		}
 	}
 	if got.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + feed)", got.NavChrome, domain.NavChromeExpanded)
+		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + weighing + feed)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -401,15 +419,15 @@ func TestNavChromeFor(t *testing.T) {
 			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:           "pc director single module stays minimal",
+			name:           "pc director with preventive care verticals expands",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
-			grantedModules: []string{"vaccination", "counts"},
-			want:           domain.NavChromeMinimal,
+			grantedModules: []string{"vaccination", "weighing", "counts"},
+			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:           "park head with vaccination + feed gets expanded",
+			name:           "park head with vaccination + weighing + feed gets expanded",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
-			grantedModules: []string{"vaccination", "counts", "feed_direction"},
+			grantedModules: []string{"vaccination", "weighing", "counts", "feed_direction"},
 			want:           domain.NavChromeExpanded,
 		},
 		{
@@ -434,6 +452,12 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
+			name:           "operator with vaccination + weighing expands",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination", "weighing"},
+			want:           domain.NavChromeExpanded,
+		},
+		{
 			name:   "verifier minimal",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			want:   domain.NavChromeMinimal,
@@ -453,7 +477,7 @@ func TestNavChromeFor(t *testing.T) {
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
 // 2. Operator drawer chrome expands once the operator holds >=2 modules (rollout enabled)
-// 3. Leadership principals use the shared Vaccination module after Overview removal
+// 3. Leadership principals get separate module bars after Overview removal
 // 4. Nav items are deduplicated by shared_key
 func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
@@ -466,7 +490,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
+	t.Run("operator vaccination module gets only vaccination tabs", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
 		if len(nav) != 3 {
 			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
@@ -474,34 +498,67 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
 		}
-		for _, item := range nav {
-			if item.Key == "calendar" || item.Href == "/calendar" {
-				t.Fatalf("operator vaccination nav must not include Calendar/week/month/history; got %#v", nav)
-			}
+		if nav[1].Key != "alerts" || nav[1].Href != "/alerts" {
+			t.Fatalf("second nav item=%#v want alerts inside the Vaccination module bar", nav[1])
 		}
-		// "You" is a BACKEND contribution now, not client-static chrome the shell appends.
-		// The client renders the composed bar verbatim, so if this item stops being emitted the
-		// profile/settings surface silently disappears from the bottom bar.
 		if nav[2].Key != "you" || nav[2].Href != "/you" {
 			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[2])
 		}
-		// Verify shared nav items are not duplicated (dedupe by shared_key)
-		seen := make(map[string]int)
 		for _, item := range nav {
-			seen[item.Key]++
-			if seen[item.Key] > 1 {
-				t.Fatalf("nav item %q appears %d times (should be deduplicated)", item.Key, seen[item.Key])
+			if item.Key == "calendar" || item.Href == "/calendar" || item.Key == "weighing" || item.Href == "/weighing" {
+				t.Fatalf("operator vaccination nav must not include Calendar or Weighing; got %#v", nav)
 			}
 		}
 	})
 
-	t.Run("preventive care leader keeps field vaccination bar", func(t *testing.T) {
+	t.Run("operator weighing module gets weighing tabs and expanded sidebar", func(t *testing.T) {
+		modules := modulesFor(operatorGrants, []string{"vaccination", "weighing"}, "")
+		if chrome := navChromeFor(operatorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(operator vaccination+weighing)=%q want expanded", chrome)
+		}
+		var weighing *domain.BootstrapModule
+		for i := range modules {
+			if modules[i].Key == "weighing" {
+				weighing = &modules[i]
+			}
+		}
+		if weighing == nil {
+			t.Fatalf("operator must receive separate weighing module; modules=%#v", modules)
+		}
+		want := []domain.BootstrapNavigationItem{
+			{Key: "weighing", Label: "Weighing", Href: "/weighing"},
+			{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(weighing.NavItems) != len(want) {
+			t.Fatalf("weighing nav=%#v want %#v", weighing.NavItems, want)
+		}
+		for i := range want {
+			if weighing.NavItems[i] != want[i] {
+				t.Fatalf("weighing nav[%d]=%#v want %#v", i, weighing.NavItems[i], want[i])
+			}
+		}
+	})
+
+	t.Run("preventive care leader keeps field vaccination bar without weighing tab", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
 		if len(nav) != 4 {
 			t.Fatalf("pc leader nav length=%d want 4 (calendar + videos + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "calendar" || nav[1].Key != "videos" || nav[2].Key != "alerts" || nav[3].Key != "you" {
 			t.Fatalf("pc leader nav should have calendar, videos, alerts, you; got %v", []string{nav[0].Key, nav[1].Key, nav[2].Key, nav[3].Key})
+		}
+	})
+
+	t.Run("pc director gets separate weighing module", func(t *testing.T) {
+		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)}
+		modules := modulesFor(directorGrants, nil, "")
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("pc director chrome=%q want expanded", chrome)
+		}
+		keys := moduleKeySet(modules)
+		if keys["vaccination"] != moduleStatusAvailable || keys["weighing"] != moduleStatusAvailable {
+			t.Fatalf("pc director must get vaccination and weighing modules; got %v", keys)
 		}
 	})
 
@@ -513,8 +570,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("park head (vaccination + feed) gets expanded nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "counts", "feed_direction"}, ""))
+	t.Run("park head with weighing and feed gets expanded nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "weighing", "counts", "feed_direction"}, ""))
 		if chrome != domain.NavChromeExpanded {
 			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeExpanded)
 		}
@@ -674,10 +731,10 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // The Counts module exposes capture pages on the phone; who sees which is decided by permission
 // (counts.read / counts.write), never by a per-role nav template.
 //
-// The mobile Counts bar no longer carries an approval tab for anyone: an Operator gets
-// [birth, death, shifting], and Admin/CEO additionally get the census page. Permanent RFID
+// The mobile Counts bar carries capture tabs; an Operator gets
+// [birth_death, shifting], and Admin/CEO additionally get census and approval. Permanent RFID
 // assignment is the final action inside each kid's Birth workflow, not a separate Counts page.
-// Birth and Death split into two work-list modules 2026-07-27
+// Birth and Death were recombined into one work-list tab
 // (docs/decisions/birth-death-workflows.md).
 //
 // Whether the Counts MODULE appears in the drawer at all is decided upstream by the
@@ -685,12 +742,12 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // leadership tier, and preventive-care leaders (PC Director, Park Head) do NOT —
 // their drawer is the vaccination home only (maintainer decision 2026-07-24).
 //
-//	role          | census | birth | death | shifting | module in drawer
-//	operator      |   -    |   x   |   x   |    x     | yes
-//	park_head     |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
-//	ceo_internal  |   x    |   x   |   x   |    x     | yes
-//	pc_director   |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
-//	verifier      |   -    |   -   |   -   |    -     | NO
+//	role          | census | birth/death | shifting | approval | module in drawer
+//	operator      |   -    |      x      |    x     |    -     | yes
+//	park_head     |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
+//	ceo_internal  |   x    |      x      |    x     |    x     | yes
+//	pc_director   |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
+//	verifier      |   -    |      -      |    -     |    -     | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
@@ -743,27 +800,15 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}
 }
 
-// TestFeedModuleRoleMatrix pins who sees the mobile Feed module and which of its tabs. The
-// module is the Feed vertical on the phone: Feed Direction (the generated sheet, gated ProtocolRead)
-// Feed Packing (the bag worklist, gated FeedPackingRead), and Feed Transport (the daily shed proof,
-// gated FeedDirectionComplete). The tabs gate on DIFFERENT
-// authorities on purpose, so the matrix is not "all or nothing":
-//
-//   - CEO/park head hold both authorities, so they get both tabs (via the drawer — they default to
-//     the leadership bar and switch to Feed).
-//   - an org Head/Director tier holds ProtocolRead but not FeedPackingRead, so they get Feed
-//     Direction only — they may read the sheet but not draw the bags.
-//   - an operator now holds BOTH feed reads (maintainer decision 2026-07-22), so they see the full
-//     Feed module — Direction (dispatch sheet) and Packing (the bag worklist).
-//
-// The Android shell renders this composed bar verbatim; this is the backend authority for it.
+// TestFeedModuleRoleMatrix pins who sees the built mobile Feed module and which tabs
+// each job may execute. The backend composes these items from permissions.
 func TestFeedModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
-		wantItems []string // nav item keys inside the feed module, nil => module absent
+		wantItems []string // nil => module absent
 	}{
 		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleParkHead, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleParkHead, nil},
 		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
@@ -790,6 +835,9 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 			if feed == nil {
 				t.Fatalf("%s must see the feed module; modules=%#v", tc.role, modules)
 			}
+			if feed.Status != moduleStatusAvailable {
+				t.Fatalf("%s feed status=%q want available", tc.role, feed.Status)
+			}
 			got := make([]string, 0, len(feed.NavItems))
 			for _, item := range feed.NavItems {
 				got = append(got, item.Key)
@@ -802,7 +850,6 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 					t.Fatalf("feed nav items=%v want %v", got, tc.wantItems)
 				}
 			}
-			// Landing must be a page this principal can actually open.
 			if !navItemsContainHref(feed.NavItems, feed.Href) {
 				t.Fatalf("%s feed landing href=%q is not among its permitted items %v", tc.role, feed.Href, got)
 			}
@@ -811,13 +858,11 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 }
 
 // TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab pins that the mobile Counts module contributes
-// only capture tabs and no trailing action tab. The Approval queue was REMOVED from mobile
-// (maintainer decision 2026-07-21) — approve/reject is admin-web only — and Counts never
-// contributed the global "You" tab that vaccination and leadership do.
+// only capture/decision tabs and no trailing global action tab. Counts never
+// contributes the global "You" tab that vaccination and leadership do.
 //
 // This is the backend authority for how many tabs an operator sees: the Android shell renders the
-// composed bar verbatim. If "approval" ever re-appeared here, the phone would show a queue that no
-// longer has a mobile route; if "you" leaked in, Counts would grow a tab it does not own.
+// composed bar verbatim. If "you" leaked in, Counts would grow a tab it does not own.
 func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	countsBar := func(role string) []string {
 		grants := []domain.GrantSummary{grantWithRole(role)}
@@ -850,13 +895,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 		t.Fatalf("park_head counts bar=%v want [birth death shifting milk_preparation milk_feeding] (no approval on mobile)", got)
 	}
 
-	// No role gets an "approval" or a "You" tab from Counts on mobile.
+	// No role gets a global "You" tab from Counts on mobile.
 	for _, role := range []string{
 		permissions.RoleOperator, permissions.RoleParkHead,
 		permissions.RoleCEOInternal, permissions.RoleCEOInternal,
 	} {
 		for _, key := range countsBar(role) {
-			if key == "you" || key == "approval" {
+			if key == "you" {
 				t.Fatalf("%s counts bar contains a %q tab; Counts is capture-only on mobile", role, key)
 			}
 		}

@@ -31,6 +31,7 @@
     <string name="sync_online">ఆన్‌లైన్</string>
     <string name="sync_offline">ఆఫ్‌లైన్</string>
     <string name="sync_summary_all_synced">అన్నీ సింక్ అయ్యాయి</string>
+    <string name="sync_summary_failed_fmt">%1$d విఫలమైంది</string>
     <string name="sync_summary_syncing_fmt">%1$d సింక్ అవుతోంది…</string>
     <string name="sync_summary_queued_fmt">%1$d వరుసలో</string>
     <string name="sync_retry_all">అన్నీ మళ్లీ ప్రయత్నించు</string>

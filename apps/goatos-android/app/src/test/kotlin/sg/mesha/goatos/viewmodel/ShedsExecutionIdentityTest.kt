@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -127,6 +128,29 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `overview adherence uses explicit accepted animals for mixed review shed rows`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 70,
+                openCount = 0,
+                doneCount = 70,
+                acceptedCount = 50,
+                reviewCount = 20,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(rows)
+
+        assertEquals(70, summary?.expectedCount)
+        assertEquals(70, summary?.submittedCount)
+        assertEquals(50, summary?.acceptedCount)
+        assertEquals(1, summary?.reviewItemCount)
+        assertEquals(71, summary?.acceptedPercent)
+    }
+
+    @Test
     fun `all animals done but draft shed proof still opens execution`() {
         val godelOne = listOf(
             VaccinationExecutionRowDto(
@@ -143,6 +167,37 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `all animals scanned but unsubmitted shed is not green done`() {
+        val scannedButDraft = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "in_progress",
+                primaryActionKey = "submit",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(scannedButDraft))
+    }
+
+    @Test
+    fun `accepted shed is green done`() {
+        val accepted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "closed",
+                sopStatus = "accepted",
+            ),
+        )
+
+        assertEquals(ShedStatus.DONE, shedStatusForRows(accepted))
+    }
+
+    @Test
     fun `submitted shed opens record only`() {
         val submitted = listOf(
             VaccinationExecutionRowDto(
@@ -155,6 +210,24 @@ class ShedsExecutionIdentityTest {
         )
 
         assertTrue(submitted.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `verification pending shed is in review and opens record only`() {
+        val inReview = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "in_progress",
+                proofStatus = "uploaded",
+                verificationStatus = "pending",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(inReview))
+        assertTrue(inReview.opensSubmittedRecordOnly())
     }
 
     @Test

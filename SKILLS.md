@@ -76,6 +76,19 @@ contagious-disease isolation, high-risk movement, vaccination defer/reopen,
 weighing availability, or sale/allocation blockers. Interim availability guard:
 `make critical-animal-action-availability-guard`.
 
+Android row-action scope guardrail:
+
+```text
+docs/decisions/mobile-data-fetch-anti-patterns.md
+```
+
+Load the "Android row-action scope" section whenever a change touches repeated
+mobile cards with per-row actions, especially weighing free-flow animal cards.
+An individual animal row Save/Update/Retry must use row/animal-scoped in-flight
+state, never a screen-wide `actionInFlight`/`busy` gate. Machine guard:
+`make android-row-action-scope-guard` (also included in `make mobile-guard` and
+local CI).
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a
@@ -134,6 +147,14 @@ cases before handoff: empty/loading/offline, duplicate/unknown/wrong-shed scans,
 two RFID tags, multiple vaccines, proof missing/uploading/failed/synced, and
 role-specific navigation. Production mobile copy must never leak internal terms
 such as Room, outbox, idempotency, API, local, localhost, debug, or fixture.
+
+When adding a new vertical that reuses Vaccination patterns, treat the latest
+`origin/main` / staging Firebase Vaccination app as the regression baseline.
+Do not change Vaccination day-strip rollover, shed cards, scan feed/list/bottom
+sheets, proof capture/submit behavior, or backend read-model semantics as a
+side effect of the new vertical. If a shared utility must change, prove
+Vaccination parity with focused tests and screenshots before touching the new
+vertical UI.
 
 ## STG Deploy Routing
 

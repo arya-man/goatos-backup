@@ -31,6 +31,7 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
+import sg.mesha.goatos.feature.weighing.WeighingScreen
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -147,6 +148,14 @@ class ScreenshotTest {
 
     @Test
     fun scan() = shot("scan") { ScanScreen(state = sampleScanState()) }
+
+    @Test
+    fun weighing_plan() = shot("weighing_plan") { WeighingScreen(state = sampleWeighingPlanState()) }
+
+    @Test
+    fun weighing_operator_capture() = shot("weighing_operator_capture") {
+        WeighingScreen(state = sampleWeighingOperatorState())
+    }
 
     @Test
     fun vaccination_scan_loading_state() = shot("vaccination_scan_loading_state") {
@@ -420,25 +429,25 @@ class ScreenshotTest {
     }
 
     @Test
-    fun shifting_verifier_queue() = shot("shifting_verifier_queue") {
+    fun weighing_verifier_queue() = shot("weighing_verifier_queue") {
         VerifyQueueScreen(
             state = VerifyQueueUiState(
-                selectedModule = VerifyModuleTab.SHIFTING,
+                selectedModule = VerifyModuleTab.WEIGHING,
                 rows = listOf(
                     VerificationQueueRow(
-                        id = "shift-1",
-                        category = "shifting_move",
-                        categoryLabel = "Shifting move",
-                        title = "Shed move · 12 animals",
-                        subtitle = "Gandhi 1 → Gandhi 2 · Darshan",
+                        id = "weighing-1",
+                        category = "weighing_proof",
+                        categoryLabel = "Weighing",
+                        title = "Kid Shed B · 5 animal videos",
+                        subtitle = "Coimbatore · Pramod",
                         statusTone = VerifyTone.PENDING,
                     ),
                     VerificationQueueRow(
-                        id = "shift-2",
-                        category = "shifting_move",
-                        categoryLabel = "Shifting move",
-                        title = "Shed move · 3 animals",
-                        subtitle = "Godel 1 → Godel 2 · Sagar",
+                        id = "weighing-2",
+                        category = "weighing_proof",
+                        categoryLabel = "Weighing",
+                        title = "Kid Shed C · lump-sum videos",
+                        subtitle = "Coimbatore · Pramod",
                         statusTone = VerifyTone.PENDING,
                     ),
                 ),
