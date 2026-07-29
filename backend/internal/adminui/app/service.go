@@ -3128,6 +3128,20 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				},
 			},
 			{
+				// The cohort rows leadership reads down the side of the command board's
+				// vaccine matrix. Fixed ladder so the matrix keeps a stable shape and a
+				// cohort with no live animals still shows as a row.
+				ID: "command_board_cohort_ladder",
+				Options: []domain.Option{
+					option("K0", "K0", "", ""),
+					option("K1", "K1", "", ""),
+					option("K2", "K2", "", ""),
+					option("K3", "K3", "", ""),
+					option("Fattening", "Fattening", "", ""),
+					option("Adults", "Adults", "", ""),
+				},
+			},
+			{
 				ID: "drive_steps",
 				Options: []domain.Option{
 					option("target", "Target", "Drive target|matching goats by stage · age · park — never random individuals", "ok"),

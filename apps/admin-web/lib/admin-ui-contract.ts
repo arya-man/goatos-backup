@@ -290,6 +290,14 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
   workflows: PROCESS_OPTION_GROUP_FALLBACKS,
   "workflow-drilldown": PROCESS_OPTION_GROUP_FALLBACKS,
   vaccination: {
+    command_board_cohort_ladder: [
+      { key: "K0", label: "K0", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "K1", label: "K1", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "K2", label: "K2", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "K3", label: "K3", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "Fattening", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "Adults", label: "Adults", title: "", tone: "", enabled: true, disabled_reason: "" },
+    ],
     schedule_status_legend: [
       { key: "overdue", label: "Overdue", title: "missed, overdue, or rejected", tone: "dng", enabled: true, disabled_reason: "" },
       { key: "due_soon", label: "Due soon", title: "due, proof, or verification pending", tone: "warn", enabled: true, disabled_reason: "" },

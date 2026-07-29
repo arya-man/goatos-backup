@@ -624,8 +624,15 @@
   .cbm-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
   .cbm-legend span{display:inline-flex;align-items:center;gap:6px}
   .cbm-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
-  .cbm-chartbox{position:relative}
-  .cbm-chart{width:100%;height:auto}
+  .cbm-chartbox{position:relative;overflow-x:auto}
+  /* The svg carries intrinsic width/height attributes so it renders at its natural
+     size instead of stretching to the card; a CSS height with width:auto collapses
+     an svg to zero. max-width keeps it responsive on narrow viewports. */
+  .cbm-chart{max-width:100%;height:auto;display:block}
+  /* Cohort matrix reuses the heatmap grid: pending>0 reads red, cleared reads green. */
+  .cbm-cohort-heat .cbm-cell{min-width:74px;height:34px;font-size:13px;font-weight:600}
+  .cbm-cell.cbm-pending{background:#5b2320;color:#ffd9d6}
+  .cbm-cell.cbm-clear{background:#22633c;color:#d6f1e0}
   .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
   .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
