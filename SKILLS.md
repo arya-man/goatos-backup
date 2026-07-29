@@ -76,6 +76,19 @@ contagious-disease isolation, high-risk movement, vaccination defer/reopen,
 weighing availability, or sale/allocation blockers. Interim availability guard:
 `make critical-animal-action-availability-guard`.
 
+Android row-action scope guardrail:
+
+```text
+docs/decisions/mobile-data-fetch-anti-patterns.md
+```
+
+Load the "Android row-action scope" section whenever a change touches repeated
+mobile cards with per-row actions, especially weighing free-flow animal cards.
+An individual animal row Save/Update/Retry must use row/animal-scoped in-flight
+state, never a screen-wide `actionInFlight`/`busy` gate. Machine guard:
+`make android-row-action-scope-guard` (also included in `make mobile-guard` and
+local CI).
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a

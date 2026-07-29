@@ -16,6 +16,7 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `docs/mobile/rfid-keyboard-reader.md`
+- `docs/decisions/mobile-data-fetch-anti-patterns.md`
 - `docs/preventive-care-vaccination/PRD.md`
 - `docs/preventive-care-vaccination/TRD.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
@@ -30,6 +31,13 @@ row/summary grain, stable scope identity, bucket disjointness/overlap, and
 whole-result summary contract. Do not repair mismatched numbers by adding
 frontend/mobile precedence rules while the backend contract is ambiguous or
 stale. See `docs/architecture/operational-read-model-contract.md`.
+
+Android row-action scope: repeated mobile cards with row-level actions must use
+row/animal-scoped in-flight state. Do not wire a per-row Save/Update/Retry
+through screen-wide `actionInFlight`/`busy` unless the operation truly locks the
+whole screen. For individual weighing free-flow, animal A's pending save must
+not disable or ignore animal B. Required guard: `make
+android-row-action-scope-guard` (also in `make mobile-guard` and local CI).
 
 ## Current Admin-Web Build
 

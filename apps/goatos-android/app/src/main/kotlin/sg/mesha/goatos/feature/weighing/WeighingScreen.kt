@@ -44,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -1364,26 +1363,25 @@ private fun WeighingReaderBanner(
 
 @Composable
 private fun WeighingDuplicateNotice(message: String) {
-    val warning = Color(0xFFF2B84B)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0x24F2B84B))
-            .border(1.dp, warning, RoundedCornerShape(8.dp))
+            .background(MeshaColors.WarnX)
+            .border(1.dp, MeshaColors.Warn, RoundedCornerShape(8.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Icon(
             imageVector = MeshaIcons.Warn,
             contentDescription = null,
-            tint = warning,
+            tint = MeshaColors.Warn,
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             text = message,
-            color = warning,
+            color = MeshaColors.Warn,
             style = MeshaType.bodyStrong,
             modifier = Modifier.weight(1f),
             maxLines = 2,

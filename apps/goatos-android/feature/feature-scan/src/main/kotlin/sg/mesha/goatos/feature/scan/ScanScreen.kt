@@ -275,7 +275,7 @@ private object ScanTokens {
     val brand = MeshaColors.Brand
     val brandD = MeshaColors.BrandD
     val danger = MeshaColors.Danger
-    val warning = Color(0xFFF2B84B)
+    val warning = MeshaColors.Warn
     val muted = MeshaColors.Muted
     val faint = MeshaColors.Faint
     val ink = MeshaColors.Ink
@@ -284,7 +284,7 @@ private object ScanTokens {
     val surf3 = MeshaColors.Surf3
     val okX = MeshaColors.OkX        // ~.16 alpha brand
     val dangerX = MeshaColors.DangerX  // ~.15 alpha danger
-    val warningX = Color(0x24F2B84B)
+    val warningX = MeshaColors.WarnX
     val brandSoft = MeshaColors.BrandTint
     val onPrimary = MeshaColors.OnBrand
 }
