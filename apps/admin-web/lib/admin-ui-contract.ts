@@ -49,6 +49,10 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   vaccination: {
     "command_board.filter.vaccine": "Vaccine",
     "command_board.filter.all_vaccines": "All vaccines",
+    "command_board.filter.drive": "Drive",
+    "command_board.filter.all_drives": "All drives",
+    "command_board.filter.no_drives": "No drives planned in this park scope yet",
+    "command_board.shed_matrix.waiting_suffix": "d waiting",
     "label.done": "done",
     "label.overdue": "overdue",
     "status.scheduled_drive": "Drive scheduled",

@@ -55,7 +55,7 @@ export function VaccinationOperationsPage({
         <>
       {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
       <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
-        <VaccinationCommandBoard pageContract={pageContract} />
+        <VaccinationCommandBoard pageContract={pageContract} driveBatchId={one(sp, "cb_drive")} />
       </Suspense>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,

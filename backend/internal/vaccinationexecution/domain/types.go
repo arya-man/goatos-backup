@@ -836,14 +836,26 @@ type VerificationQueueRow struct {
 
 // CommandBoardResponse is the CEO closure view aggregating KPIs, cohort vaccine matrix,
 // shed dose matrix, weekly given chart, and verification queue.
+// CommandBoardDriveOption identifies one drive the board can be narrowed to. A drive is a
+// batch with a window, so the label carries the vaccine, the window dates, and the status —
+// rule ID alone is not a drive selector when rules recur across dates and parks.
+type CommandBoardDriveOption struct {
+	DriveBatchID string     `json:"driveBatchId"`
+	Label        string     `json:"label"`
+	Status       string     `json:"status"`
+	WindowStart  *time.Time `json:"windowStart,omitempty"`
+	WindowEnd    *time.Time `json:"windowEnd,omitempty"`
+}
+
 type CommandBoardResponse struct {
-	Source            string                   `json:"source"`
-	KPIs              CommandBoardKPI          `json:"kpis"`
-	CohortMatrix      []CommandBoardCohortCell `json:"cohortMatrix"`
-	ShedDoseMatrix    []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
-	WeeklyGiven       []WeeklyGivenRow         `json:"weeklyGiven"`
-	VerificationQueue []VerificationQueueRow   `json:"verificationQueue"`
-	Freshness         *ProjectionFreshness     `json:"freshness,omitempty"`
+	Source            string                    `json:"source"`
+	KPIs              CommandBoardKPI           `json:"kpis"`
+	DriveOptions      []CommandBoardDriveOption `json:"driveOptions"`
+	CohortMatrix      []CommandBoardCohortCell  `json:"cohortMatrix"`
+	ShedDoseMatrix    []ShedDoseMatrixCell      `json:"shedDoseMatrix"`
+	WeeklyGiven       []WeeklyGivenRow          `json:"weeklyGiven"`
+	VerificationQueue []VerificationQueueRow    `json:"verificationQueue"`
+	Freshness         *ProjectionFreshness      `json:"freshness,omitempty"`
 }
 
 type CommandBoardQuery struct {

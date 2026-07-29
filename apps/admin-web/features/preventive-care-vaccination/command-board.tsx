@@ -23,10 +23,13 @@ export function VaccinationCommandBoardSkeleton({ pageContract }: VaccinationCom
 
 interface VaccinationCommandBoardProps {
   pageContract: AdminUiPageContract;
+  // Selected drive, carried in the URL so the narrowed board is a real server read rather
+  // than a client-side slice of a wider payload.
+  driveBatchId?: string;
 }
 
-async function VaccinationCommandBoardContent({ pageContract }: VaccinationCommandBoardProps) {
-  const result = await getVaccinationCommandBoard();
+async function VaccinationCommandBoardContent({ pageContract, driveBatchId }: VaccinationCommandBoardProps) {
+  const result = await getVaccinationCommandBoard({ driveBatchId });
   // telemetry: covered by parent /vaccination page-level Faro tracking
   if (!result.ok) {
     return (
@@ -41,13 +44,16 @@ async function VaccinationCommandBoardContent({ pageContract }: VaccinationComma
     );
   }
 
-  return <CommandBoardView board={result.data} pageContract={pageContract} />;
+  return <CommandBoardView board={result.data} pageContract={pageContract} driveBatchId={driveBatchId} />;
 }
 
-export function VaccinationCommandBoard({ pageContract }: VaccinationCommandBoardProps) {
+export function VaccinationCommandBoard({ pageContract, driveBatchId }: VaccinationCommandBoardProps) {
   return (
-    <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
-      <VaccinationCommandBoardContent pageContract={pageContract} />
+    <Suspense
+      key={driveBatchId ?? ""}
+      fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}
+    >
+      <VaccinationCommandBoardContent pageContract={pageContract} driveBatchId={driveBatchId} />
     </Suspense>
   );
 }

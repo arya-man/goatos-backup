@@ -4537,10 +4537,26 @@ export interface components {
             /** @description Business days since earliest administered_at. */
             daysInQueue?: number;
         };
+        VaccinationCommandBoardDriveOption: {
+            /**
+             * Format: uuid
+             * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
+             */
+            driveBatchId: string;
+            /** @description Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata, and its status. Never a raw config token such as et_tt_adult_w2. */
+            label: string;
+            status: string;
+            /** Format: date-time */
+            windowStart?: string;
+            /** Format: date-time */
+            windowEnd?: string;
+        };
         VaccinationCommandBoardResponse: {
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
+            /** @description Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50. Not filtered by the currently selected drive, so the selector can still offer the others. */
+            driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */

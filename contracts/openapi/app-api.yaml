@@ -12153,6 +12153,31 @@ components:
         daysInQueue:
           type: integer
           description: Business days since earliest administered_at.
+    VaccinationCommandBoardDriveOption:
+      type: object
+      additionalProperties: false
+      required:
+        - driveBatchId
+        - label
+        - status
+      properties:
+        driveBatchId:
+          type: string
+          format: uuid
+          description: Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
+        label:
+          type: string
+          description: >-
+            Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata,
+            and its status. Never a raw config token such as et_tt_adult_w2.
+        status:
+          type: string
+        windowStart:
+          type: string
+          format: date-time
+        windowEnd:
+          type: string
+          format: date-time
     VaccinationCommandBoardResponse:
       type: object
       additionalProperties: false
@@ -12163,6 +12188,7 @@ components:
         - shedDoseMatrix
         - weeklyGiven
         - verificationQueue
+        - driveOptions
       properties:
         source:
           type: string
@@ -12170,6 +12196,13 @@ components:
             - api
         kpis:
           $ref: "#/components/schemas/VaccinationCommandBoardKPI"
+        driveOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardDriveOption"
+          description: >-
+            Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50.
+            Not filtered by the currently selected drive, so the selector can still offer the others.
         cohortMatrix:
           type: array
           items:

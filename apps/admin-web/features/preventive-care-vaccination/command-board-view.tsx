@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 
@@ -39,28 +40,54 @@ interface CohortPivotRow {
   cohort: string;
   animals: number;
   pending: Record<string, number>;
+  // The real management stages that fold into this rung, kept as their own sub-rows so the
+  // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
+  members: Array<{ label: string; animals: number; pending: Record<string, number> }>;
+}
+
+interface CohortCellInput {
+  cohort: { managementStage: string; sex: string; animalCount: number };
+  vaccineLabel: string;
+  pendingCount: number;
 }
 
 function buildCohortPivot(
-  matrix: Array<{ cohort: { managementStage: string; animalCount: number }; vaccineLabel: string; pendingCount: number }>,
+  matrix: CohortCellInput[],
   ladder: string[]
 ): { vaccines: string[]; rows: CohortPivotRow[] } {
   const vaccines = Array.from(new Set(matrix.map((c) => c.vaccineLabel).filter(Boolean))).sort();
   const rows = ladder.map((cohort) => {
     const pending: Record<string, number> = {};
-    // Animals are per (stage, sex) cohort, so summing the DISTINCT stage/sex pairs that
-    // fold into this bucket avoids double counting the same cohort once per vaccine.
-    const countedCohorts = new Set<string>();
+    const members = new Map<string, { label: string; animals: number; pending: Record<string, number> }>();
+    // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
+    // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
+    // the head count by the number of vaccines.
+    const counted = new Set<string>();
     let animals = 0;
     matrix.forEach((cell) => {
       if (cohortBucket(cell.cohort.managementStage, ladder) !== cohort) return;
+      const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
-      if (!countedCohorts.has(cell.cohort.managementStage)) {
-        countedCohorts.add(cell.cohort.managementStage);
+
+      let member = members.get(key);
+      if (!member) {
+        member = { label: `${cell.cohort.managementStage} · ${cell.cohort.sex}`, animals: 0, pending: {} };
+        members.set(key, member);
+      }
+      member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+
+      if (!counted.has(key)) {
+        counted.add(key);
         animals += cell.cohort.animalCount;
+        member.animals = cell.cohort.animalCount;
       }
     });
-    return { cohort, animals, pending };
+    return {
+      cohort,
+      animals,
+      pending,
+      members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
+    };
   });
   return { vaccines, rows };
 }
@@ -140,26 +167,47 @@ interface QueueRow {
   lastGivenOnDate?: string | null;
   daysInQueue?: number | null;
 }
+interface DriveOption {
+  driveBatchId: string;
+  label: string;
+  status: string;
+}
 interface CommandBoard {
   kpis: CommandBoardKpis;
   cohortMatrix: CohortCell[];
   shedDoseMatrix: ShedDoseCell[];
   weeklyGiven: WeeklyRow[];
   verificationQueue: QueueRow[];
+  driveOptions?: DriveOption[];
 }
 
 interface CommandBoardViewProps {
   board: CommandBoard;
   pageContract: AdminUiPageContract;
+  driveBatchId?: string;
 }
 
 const STATUS_KEYS = ["verified", "awaiting", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
-export function CommandBoardView({ board, pageContract }: CommandBoardViewProps) {
+export function CommandBoardView({ board, pageContract, driveBatchId }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload: the board is one bounded
   // read, so narrowing it client-side keeps every card, matrix and chart consistent
-  // without a refetch. Park/date scope stays with the shell top bar.
+  // without a refetch. Drive scope is a server read (the drive selects which obligations
+  // exist at all, which no client-side slice can reproduce). Park/date scope stays with
+  // the shell top bar, which already owns it.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const driveOptions = board.driveOptions ?? [];
+
+  const selectDrive = (next: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next) params.set("cb_drive", next);
+    else params.delete("cb_drive");
+    const query = params.toString();
+    router.push(query ? `?${query}` : "?", { scroll: false });
+  };
+
   const vaccineOptions = useMemo(() => {
     const labels = (board.cohortMatrix ?? []).map((c) => c.vaccineLabel).filter(Boolean);
     return Array.from(new Set(labels)).sort();
@@ -197,6 +245,23 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
           <option value="">{copy(pageContract, "command_board.filter.all_vaccines")}</option>
           {vaccineOptions.map((v) => (
             <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+        <label className="cbm-filter-label" htmlFor="cbm-drive">
+          {copy(pageContract, "command_board.filter.drive")}
+        </label>
+        <select
+          id="cbm-drive"
+          className="cbm-select cbm-select-wide"
+          value={driveBatchId ?? ""}
+          onChange={(e) => selectDrive(e.target.value)}
+          disabled={driveOptions.length === 0}
+          aria-disabled={driveOptions.length === 0}
+          title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
+        >
+          <option value="">{copy(pageContract, "command_board.filter.all_drives")}</option>
+          {driveOptions.map((d) => (
+            <option key={d.driveBatchId} value={d.driveBatchId}>{d.label}</option>
           ))}
         </select>
       </div>
@@ -261,6 +326,14 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
         {/* Vaccine × Shed status - colored grid heatmap */}
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
+          // Queue age keyed by the same (shed, dose) grain the matrix cells use, so the number
+          // lands on the cell it describes rather than being matched by position.
+          const queueAgeDays = new Map<string, number>();
+          (view.verificationQueue ?? []).forEach((q) => {
+            if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
+              queueAgeDays.set(`${q.shedName}|${q.doseRule}`, q.daysInQueue);
+            }
+          });
           return (
             <div className="cbm-shed-section">
               <div className="cbm-section-head">
@@ -288,10 +361,22 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
                           }
                           const dateStr =
                             cell.state === "verified" || cell.state === "awaiting" ? cell.minDueDate || cell.maxDueDate : cell.minDueDate;
+                          // An awaiting cell also carries how long it has been sitting with the
+                          // verifier — the one fact the removed queue table added.
+                          const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${row.shedName}|${dose}`) : undefined;
                           return (
-                            <td key={dose} className={`cbm-cell cbm-${cell.state}`} title={`${row.shedName} · ${cell.animalCount} animals`}>
+                            <td
+                              key={dose}
+                              className={`cbm-cell cbm-${cell.state}`}
+                              title={`${row.shedName} · ${cell.animalCount} animals${
+                                waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
+                              }`}
+                            >
                               {cell.animalCount}
-                              <small>{dateStr ? dateStr.slice(0, 10) : ""}</small>
+                              <small>
+                                {dateStr ? dateStr.slice(0, 10) : ""}
+                                {waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""}
+                              </small>
                             </td>
                           );
                         })}
@@ -331,7 +416,7 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
                     </tr>
                   </thead>
                   <tbody>
-                    {pivot.rows.map((row) => (
+                    {pivot.rows.flatMap((row) => [
                       <tr key={row.cohort}>
                         <th className="cbm-rowh">{row.cohort}</th>
                         {pivot.vaccines.map((v) => {
@@ -350,8 +435,33 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
                           );
                         })}
                         <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
-                      </tr>
-                    ))}
+                      </tr>,
+                      // The live stages inside this rung, so folding onto the ladder never hides
+                      // the detail the herd actually carries.
+                      ...(row.members.length > 1 || (row.members.length === 1 && row.members[0].label !== row.cohort)
+                        ? row.members.map((member) => (
+                            <tr key={`${row.cohort}-${member.label}`} className="cbm-cohort-sub">
+                              <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
+                              {pivot.vaccines.map((v) => {
+                                const pending = member.pending[v];
+                                if (pending === undefined) {
+                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                }
+                                return (
+                                  <td
+                                    key={v}
+                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
+                                    title={`${member.label} · ${v} · ${pending} pending`}
+                                  >
+                                    {pending}
+                                  </td>
+                                );
+                              })}
+                              <td className="cbm-cell cbm-na">{member.animals}</td>
+                            </tr>
+                          ))
+                        : []),
+                    ])}
                   </tbody>
                 </table>
               </div>
@@ -479,43 +589,10 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
           );
         })()}
 
-        {/* Verification Queue - styled table with status pills */}
-        {view.verificationQueue.length > 0 && (
-          <div className="cbm-queue-section">
-            <div className="cbm-section-head">
-              <h3>{copy(pageContract, "command_board.verification_queue.title")}</h3>
-              <span className="cbm-meta">{copy(pageContract, "command_board.verification_queue.meta")}</span>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table className="cbm-queue-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.shed")}</th>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.dose")}</th>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.awaiting")}</th>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.total")}</th>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.status")}</th>
-                    <th>{copy(pageContract, "command_board.verification_queue.column.days")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.verificationQueue.map((row, idx) => (
-                    <tr key={idx}>
-                      <td className="cbm-celllink">{row.shedName}</td>
-                      <td>{row.doseRule}</td>
-                      <td className="cbm-queue-num">{row.awaitingCount}</td>
-                      <td className="cbm-queue-num">{row.totalCount}</td>
-                      <td>
-                        <span className="cbm-pill cbm-pill-warn">{copy(pageContract, "command_board.verification_queue.status.awaiting")}</span>
-                      </td>
-                      <td className={`cbm-queue-num ${row.daysInQueue && row.daysInQueue > 0 ? "cbm-aging" : ""}`}>{row.daysInQueue ?? "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {/* The verification queue used to render here as its own table, but every count in it
+            (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
+            queue age was unique, so it now rides along in that cell and the duplicate table is
+            gone. */}
       </div>
     </section>
   );
