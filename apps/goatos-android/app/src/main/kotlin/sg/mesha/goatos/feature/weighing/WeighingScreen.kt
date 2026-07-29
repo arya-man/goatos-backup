@@ -47,6 +47,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -1594,6 +1595,12 @@ private fun WeighingLumpSumCapture(
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    fun dismissKeyboard() {
+        keyboardController?.hide()
+        focusManager.clearFocus()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1685,14 +1692,20 @@ private fun WeighingLumpSumCapture(
                         text = "Replace",
                         icon = MeshaIcons.Refresh,
                         enabled = !state.actionInFlight,
-                        onClick = { onReplaceShedVideo(proof.id) },
+                        onClick = {
+                            dismissKeyboard()
+                            onReplaceShedVideo(proof.id)
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     ShedVideoAction(
                         text = "Remove",
                         icon = MeshaIcons.Close,
                         enabled = !state.actionInFlight,
-                        onClick = { onRemoveShedVideo(proof.id) },
+                        onClick = {
+                            dismissKeyboard()
+                            onRemoveShedVideo(proof.id)
+                        },
                         modifier = Modifier.weight(1f),
                         danger = true,
                     )
@@ -1701,7 +1714,10 @@ private fun WeighingLumpSumCapture(
                     text = "Retry",
                     icon = MeshaIcons.Refresh,
                     enabled = !state.actionInFlight,
-                    onClick = { onRetryShedVideo(proof.id) },
+                    onClick = {
+                        dismissKeyboard()
+                        onRetryShedVideo(proof.id)
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     danger = true,
                 )
@@ -1712,7 +1728,10 @@ private fun WeighingLumpSumCapture(
         ActionButton(
             text = if (state.shedProofs.isEmpty()) "Capture group video" else "Add another video",
             enabled = !state.actionInFlight && state.shedProofs.size < 5,
-            onClick = onCaptureShedVideo,
+            onClick = {
+                dismissKeyboard()
+                onCaptureShedVideo()
+            },
             modifier = Modifier.fillMaxWidth(),
             primary = false,
         )
