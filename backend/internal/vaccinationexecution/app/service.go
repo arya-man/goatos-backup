@@ -1175,3 +1175,9 @@ const (
 func operatorConfigChangePayload(parkID string) []byte {
 	return []byte(fmt.Sprintf(`{"park_id":%q}`, parkID))
 }
+
+// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+// weekly given, and verification queue.
+func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	return s.repo.VaccinationCommandBoard(ctx, q)
+}
