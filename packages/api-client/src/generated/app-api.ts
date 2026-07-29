@@ -4447,6 +4447,10 @@ export interface components {
             scheduledAhead: number;
         };
         VaccinationCommandBoardCohort: {
+            /** @description Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on two farms stays two cells. Empty when the obligation's shed has no resolvable parent. */
+            parkId: string;
+            /** @description Farm display name, from canonical locations. */
+            parkName: string;
             /** @description Management stage from goat classification (e.g., Buck, Non-Pregnant Female). */
             managementStage: string;
             /** @enum {string} */
@@ -4459,6 +4463,8 @@ export interface components {
             vaccineLabel: string;
             /** @description Count of animals in this cohort with pending obligations for this vaccine (scheduled, due, or recorded-unverified). */
             pendingCount: number;
+            /** @description Count of animals in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor recorded-but-unverified — so the two may be displayed side by side. */
+            verifiedCount: number;
         };
         ShedDoseMatrixCell: {
             /** Format: uuid */

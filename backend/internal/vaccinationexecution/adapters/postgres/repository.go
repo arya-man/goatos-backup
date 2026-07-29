@@ -3720,34 +3720,44 @@ WHERE oi.tenant_id = $1::uuid
 	// (c) pending_count numerator: (scheduled AND (due_at's IST business date)<=(asOf's IST business
 	//     date)) OR (has_recorded_unverified), denominator: all obligations per cohort — due-today
 	//     counts pending (matches CEO pending semantics; IST business-day grain, never an instant);
-	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals
+	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals;
+	//     verified_count numerator: bool_or(status='accepted'), denominator: all obligations per
+	//     cohort. pending_count and verified_count are DISJOINT: an accepted obligation is neither
+	//     still-scheduled nor recorded-unverified, so the two may be read side by side without
+	//     double counting, and pending + verified <= animal-level obligation total per cohort.
 	cohortSQL := `
 WITH comp AS (
   SELECT
     obligation_id,
-    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified,
+    bool_or(status = 'accepted') AS has_accepted
   FROM vaccination_completions
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 )
 SELECT
+  COALESCE(park.location_id::text, '') as park_id,
+  COALESCE(park.name, '') as park_name,
   g.management_stage,
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count
+  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+LEFT JOIN locations shed ON oi.scope_id = shed.location_id AND oi.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
 WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
   AND g.lifecycle_status != 'terminated'
-GROUP BY g.management_stage, g.sex, pr.dose_code
-ORDER BY g.management_stage, g.sex, pr.dose_code
+GROUP BY park.location_id, park.name, g.management_stage, g.sex, pr.dose_code
+ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 `
 	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
@@ -3758,21 +3768,25 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 	// Build cohort matrix cells. SQL rows arrive per dose_code; the board cell grain is
 	// cohort (stage × sex) × VACCINE, so fold dose rows into their vaccine label here
 	// (pending counts sum across doses; animal count is per-cohort and identical per row).
-	type cohortKey struct{ stage, sex, vaccine string }
+	// Farm (park) is part of the cell key: leadership reads this matrix farmwise, so a cohort in
+	// Channapatna must never merge with the same cohort in Coimbatore.
+	type cohortKey struct{ parkID, stage, sex, vaccine string }
 	cohortAgg := map[cohortKey]*domain.CommandBoardCohortCell{}
 	cohortOrder := []cohortKey{}
 	for cohortRows.Next() {
-		var stage, sex, doseCode string
-		var animalCount, pendingCount int
-		if err := cohortRows.Scan(&stage, &sex, &doseCode, &animalCount, &pendingCount); err != nil {
+		var parkID, parkName, stage, sex, doseCode string
+		var animalCount, pendingCount, verifiedCount int
+		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
-		key := cohortKey{stage, sex, vaccinatdomain.DoseDisplayLabel("", doseCode)}
+		key := cohortKey{parkID, stage, sex, vaccinatdomain.DoseDisplayLabel("", doseCode)}
 		cell, ok := cohortAgg[key]
 		if !ok {
 			cell = &domain.CommandBoardCohortCell{
 				Cohort: domain.CommandBoardCohort{
+					ParkID:          parkID,
+					ParkName:        parkName,
 					ManagementStage: stage,
 					Sex:             sex,
 					AnimalCount:     animalCount,
@@ -3783,6 +3797,7 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 			cohortOrder = append(cohortOrder, key)
 		}
 		cell.PendingCount += pendingCount
+		cell.VerifiedCount += verifiedCount
 	}
 	if err := cohortRows.Err(); err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort rows: %w", err)

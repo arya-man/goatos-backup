@@ -40,15 +40,35 @@ interface CohortPivotRow {
   cohort: string;
   animals: number;
   pending: Record<string, number>;
+  verified: Record<string, number>;
   // The real management stages that fold into this rung, kept as their own sub-rows so the
   // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
-  members: Array<{ label: string; animals: number; pending: Record<string, number> }>;
+  members: Array<{ label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }>;
 }
 
 interface CohortCellInput {
-  cohort: { managementStage: string; sex: string; animalCount: number };
+  cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
+  verifiedCount: number;
+}
+
+// One matrix per FARM: leadership reads this farmwise, so Channapatna and Coimbatore never
+// merge into one set of rows. Farms are ordered by name for a stable read.
+function buildCohortFarms(
+  matrix: CohortCellInput[],
+  ladder: string[]
+): Array<{ farm: string; vaccines: string[]; rows: CohortPivotRow[] }> {
+  const byFarm = new Map<string, CohortCellInput[]>();
+  matrix.forEach((cell) => {
+    const farm = cell.cohort.parkName || "";
+    const bucket = byFarm.get(farm);
+    if (bucket) bucket.push(cell);
+    else byFarm.set(farm, [cell]);
+  });
+  return Array.from(byFarm.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([farm, cells]) => ({ farm, ...buildCohortPivot(cells, ladder) }));
 }
 
 function buildCohortPivot(
@@ -58,7 +78,11 @@ function buildCohortPivot(
   const vaccines = Array.from(new Set(matrix.map((c) => c.vaccineLabel).filter(Boolean))).sort();
   const rows = ladder.map((cohort) => {
     const pending: Record<string, number> = {};
-    const members = new Map<string, { label: string; animals: number; pending: Record<string, number> }>();
+    const verified: Record<string, number> = {};
+    const members = new Map<
+      string,
+      { label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }
+    >();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
     // the head count by the number of vaccines.
@@ -68,13 +92,20 @@ function buildCohortPivot(
       if (cohortBucket(cell.cohort.managementStage, ladder) !== cohort) return;
       const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+      verified[cell.vaccineLabel] = (verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
 
       let member = members.get(key);
       if (!member) {
-        member = { label: `${cell.cohort.managementStage} · ${cell.cohort.sex}`, animals: 0, pending: {} };
+        member = {
+          label: `${cell.cohort.managementStage} · ${cell.cohort.sex}`,
+          animals: 0,
+          pending: {},
+          verified: {},
+        };
         members.set(key, member);
       }
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+      member.verified[cell.vaccineLabel] = (member.verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
 
       if (!counted.has(key)) {
         counted.add(key);
@@ -86,6 +117,7 @@ function buildCohortPivot(
       cohort,
       animals,
       pending,
+      verified,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
   });
@@ -136,9 +168,10 @@ interface CommandBoardKpis {
   scheduledAhead: number;
 }
 interface CohortCell {
-  cohort: { managementStage: string; sex: string; animalCount: number };
+  cohort: { parkId: string; parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
+  verifiedCount: number;
 }
 interface ShedDoseCell {
   shedId?: string;
@@ -396,75 +429,88 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           );
         })()}
 
-        {/* Cohort matrix: fixed cohort ladder down the side, vaccines across the top,
-            pending count in the cell, red when > 0. */}
+        {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
+            across the top, pending count in the cell (red when > 0) with the verified count
+            beneath it so closure is readable without subtracting from the head count. */}
         {(() => {
           const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
-          const pivot = buildCohortPivot(view.cohortMatrix, ladder);
+          const farms = buildCohortFarms(view.cohortMatrix, ladder);
           return (
             <div className="cbm-cohort-section">
-              <h3 className="cbm-cohort-title">{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
-              <div className="cbm-hm">
-                <table className="cbm-heat cbm-cohort-heat">
-                  <thead>
-                    <tr>
-                      <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
-                      {pivot.vaccines.map((v) => (
-                        <th key={v}>{v}</th>
-                      ))}
-                      <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pivot.rows.flatMap((row) => [
-                      <tr key={row.cohort}>
-                        <th className="cbm-rowh">{row.cohort}</th>
-                        {pivot.vaccines.map((v) => {
-                          const pending = row.pending[v];
-                          if (row.animals === 0 || pending === undefined) {
-                            return <td key={v} className="cbm-cell cbm-na">—</td>;
-                          }
-                          return (
-                            <td
-                              key={v}
-                              className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
-                              title={`${row.cohort} · ${v} · ${pending} pending`}
-                            >
-                              {pending}
-                            </td>
-                          );
-                        })}
-                        <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
-                      </tr>,
-                      // The live stages inside this rung, so folding onto the ladder never hides
-                      // the detail the herd actually carries.
-                      ...(row.members.length > 1 || (row.members.length === 1 && row.members[0].label !== row.cohort)
-                        ? row.members.map((member) => (
-                            <tr key={`${row.cohort}-${member.label}`} className="cbm-cohort-sub">
-                              <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
-                              {pivot.vaccines.map((v) => {
-                                const pending = member.pending[v];
-                                if (pending === undefined) {
+              <div className="cbm-section-head">
+                <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
+                <span className="cbm-meta">{copy(pageContract, "command_board.cohort_matrix.meta")}</span>
+              </div>
+              {farms.length === 0 ? (
+                <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
+              ) : (
+                farms.map(({ farm, vaccines, rows }) => (
+                  <div key={farm} className="cbm-farm-block">
+                    <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
+                    <div className="cbm-hm">
+                      <table className="cbm-heat cbm-cohort-heat">
+                        <thead>
+                          <tr>
+                            <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
+                            {vaccines.map((v) => (
+                              <th key={v}>{v}</th>
+                            ))}
+                            <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.flatMap((row) => {
+                            const cells = (
+                              pendingOf: Record<string, number>,
+                              verifiedOf: Record<string, number>,
+                              label: string,
+                              present: boolean,
+                            ) =>
+                              vaccines.map((v) => {
+                                const pending = pendingOf[v];
+                                if (!present || pending === undefined) {
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
+                                const done = verifiedOf[v] ?? 0;
                                 return (
                                   <td
                                     key={v}
                                     className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
-                                    title={`${member.label} · ${v} · ${pending} pending`}
+                                    title={`${label} · ${v} · ${pending} ${copy(pageContract, "command_board.cohort_matrix.pending_word")}, ${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`}
                                   >
                                     {pending}
+                                    <small>
+                                      {done} {copy(pageContract, "command_board.cohort_matrix.verified_word")}
+                                    </small>
                                   </td>
                                 );
-                              })}
-                              <td className="cbm-cell cbm-na">{member.animals}</td>
-                            </tr>
-                          ))
-                        : []),
-                    ])}
-                  </tbody>
-                </table>
-              </div>
+                              });
+
+                            return [
+                              <tr key={`${farm}-${row.cohort}`}>
+                                <th className="cbm-rowh">{row.cohort}</th>
+                                {cells(row.pending, row.verified, row.cohort, row.animals > 0)}
+                                <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
+                              </tr>,
+                              // The live stages inside this rung, so folding onto the ladder never
+                              // hides the detail the herd actually carries.
+                              ...(row.members.length > 1 || (row.members.length === 1 && row.members[0].label !== row.cohort)
+                                ? row.members.map((member) => (
+                                    <tr key={`${farm}-${row.cohort}-${member.label}`} className="cbm-cohort-sub">
+                                      <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
+                                      {cells(member.pending, member.verified, member.label, true)}
+                                      <td className="cbm-cell cbm-na">{member.animals}</td>
+                                    </tr>
+                                  ))
+                                : []),
+                            ];
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           );
         })()}

@@ -12007,10 +12007,20 @@ components:
       type: object
       additionalProperties: false
       required:
+        - parkId
+        - parkName
         - managementStage
         - sex
         - animalCount
       properties:
+        parkId:
+          type: string
+          description: >-
+            Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on
+            two farms stays two cells. Empty when the obligation's shed has no resolvable parent.
+        parkName:
+          type: string
+          description: Farm display name, from canonical locations.
         managementStage:
           type: string
           description: Management stage from goat classification (e.g., Buck, Non-Pregnant Female).
@@ -12028,6 +12038,7 @@ components:
         - cohort
         - vaccineLabel
         - pendingCount
+        - verifiedCount
       properties:
         cohort:
           $ref: "#/components/schemas/VaccinationCommandBoardCohort"
@@ -12039,6 +12050,12 @@ components:
           description: >-
             Count of animals in this cohort with pending obligations for this vaccine
             (scheduled, due, or recorded-unverified).
+        verifiedCount:
+          type: integer
+          description: >-
+            Count of animals in this cohort whose dose for this vaccine is verifier-accepted.
+            Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor
+            recorded-but-unverified — so the two may be displayed side by side.
     ShedDoseMatrixCell:
       type: object
       additionalProperties: false

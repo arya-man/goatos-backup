@@ -1747,3 +1747,8 @@ select:disabled { opacity: .45; }
 .cbm .cbm-legend span:nth-child(3) i { background: var(--danger); }
 .cbm .cbm-legend span:nth-child(4) i { background: var(--info); }
 .cbm .cbm-kpi-row { margin-bottom: 4px; }
+
+/* Farmwise cohort matrix: one block per farm so two farms never merge into one row set. */
+.cbm-farm-block { margin-top: 14px; }
+.cbm-farm-name { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; }
+.cbm-cohort-heat .cbm-cell small { display: block; font-size: 9.5px; font-weight: 500; opacity: .8; }
