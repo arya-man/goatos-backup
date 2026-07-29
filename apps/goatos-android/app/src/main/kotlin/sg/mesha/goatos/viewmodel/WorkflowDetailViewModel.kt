@@ -453,6 +453,9 @@ class WorkflowDetailViewModel @Inject constructor(
                 )
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
+            subjectGoatRowVersion = subject.rowVersion,
+            subjectTemporaryIdentifier = subject.tag,
+            subjectLocationDisplay = listOf(parkLabel, shedLabel).filter { it.isNotBlank() }.joinToString(" / "),
             deathDraftCount = drafts.count { draft -> mainActions.any { it.actionId == draft.actionId } },
             deathDraftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING },
             deathUploadFailed = deathUploadFailed,
@@ -494,7 +497,8 @@ class WorkflowDetailViewModel @Inject constructor(
         }
         val actionable = (status == STATUS_PENDING || status == STATUS_REWORK) && !blocked
         val isQuestion = actionType == TYPE_QUESTION || actionType == TYPE_QUESTION_SELECT
-        val opensPromote = actionKey == ACTION_KEY_TAG_THE_KID
+        val opensPromote = actionKey == ACTION_KEY_TAG_THE_KID &&
+            workflowTagNeedsPermanentIdentifier(answerValue)
         return WorkflowActionUi(
             actionId = actionId,
             actionKey = actionKey,
@@ -648,6 +652,9 @@ internal fun workflowPredecessorsReady(
 
 internal fun workflowDisplayOrder(action: WorkflowActionDto): Int =
     if (action.actionKey == WORKFLOW_ACTION_KEY_TAG_THE_KID) Int.MAX_VALUE else action.seq
+
+internal fun workflowTagNeedsPermanentIdentifier(answerValue: String?): Boolean =
+    answerValue.isNullOrBlank()
 
 internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Instant): String? {
     if (blockedReason != "not_yet_due" || due == null || !now.isBefore(due)) return null

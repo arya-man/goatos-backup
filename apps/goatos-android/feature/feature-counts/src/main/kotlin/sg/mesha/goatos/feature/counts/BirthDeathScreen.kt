@@ -288,7 +288,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
         val isTemporary = state.idKind == BIRTH_ID_KIND_TEMPORARY
         FormGroupCard(title = stringResource(R.string.counts_group_identity)) {
             // Permanent RFID vs temporary tag: a kid born before its permanent RFID is available is
-            // recorded with a provisional tag now and promoted to the RFID later (Awaiting RFID).
+            // recorded with a provisional tag now and promoted by the final "Tag the kid" action.
             CountsSegmented(
                 options = listOf(
                     BIRTH_ID_KIND_PERMANENT to stringResource(R.string.counts_id_kind_permanent),

@@ -52,7 +52,8 @@ import sg.mesha.goatos.core.ui.SyncIconButton
  * Internal approval and verification are deliberately absent from this operator screen. Questions
  * answer inline (Yes/No, numeric kilograms, or backend-owned question_select options);
  * `requires_video` actions capture through the shared proof pipeline;
- * `tag_the_kid` opens the existing promote flow and also requires its own tagging video.
+ * `tag_the_kid` opens Birth's RFID assignment until a permanent identifier is recorded, then keeps
+ * only its required tagging-video control.
  *
  * All copy — titles, details, tags, facts, status labels — is backend-owned and rendered verbatim.
  */
@@ -132,6 +133,9 @@ data class WorkflowDetailUiState(
     val isErrorMessage: Boolean = false,
     /** The subject goat id, threaded to the promote route by `tag_the_kid`. */
     val subjectGoatId: String = "",
+    val subjectGoatRowVersion: Int = 0,
+    val subjectTemporaryIdentifier: String = "",
+    val subjectLocationDisplay: String = "",
 ) {
     val showDeathSubmissionButton: Boolean get() = isDeath
     val deathSubmissionLabel: WorkflowDeathSubmissionLabel
@@ -155,8 +159,14 @@ sealed interface WorkflowDetailEvent {
     data class RecordVideo(val actionId: String) : WorkflowDetailEvent
     data object SubmitDeath : WorkflowDetailEvent
 
-    /** `tag_the_kid` — open the existing RFID promote flow for the subject goat. */
-    data class OpenPromote(val goatId: String) : WorkflowDetailEvent
+    /** `tag_the_kid` — open the Birth-owned permanent RFID assignment for this canonical kid. */
+    data class OpenPromote(
+        val goatId: String,
+        val displayId: String,
+        val temporaryIdentifier: String,
+        val locationDisplay: String,
+        val rowVersion: Int,
+    ) : WorkflowDetailEvent
 }
 
 @Composable
@@ -369,8 +379,16 @@ private fun WorkflowActionRow(
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
             .clickable(enabled = hasDetail || action.opensPromote) {
-                if (action.opensPromote && state.subjectGoatId.isNotBlank()) {
-                    onEvent(WorkflowDetailEvent.OpenPromote(state.subjectGoatId))
+                if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
+                    onEvent(
+                        WorkflowDetailEvent.OpenPromote(
+                            goatId = state.subjectGoatId,
+                            displayId = state.displayId,
+                            temporaryIdentifier = state.subjectTemporaryIdentifier,
+                            locationDisplay = state.subjectLocationDisplay,
+                            rowVersion = state.subjectGoatRowVersion,
+                        ),
+                    )
                 }
             }
             .padding(12.dp),

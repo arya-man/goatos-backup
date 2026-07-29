@@ -148,6 +148,34 @@ class RfidPromoteViewModelScanTest {
     }
 
     @Test
+    fun `birth tag route loads without the removed awaiting RFID page cache`() = runTest(dispatcher) {
+        repo.cachedGoat = null
+        savedStateHandle = SavedStateHandle(
+            mapOf(
+                "goat_id" to GOAT_ID,
+                "display_id" to "G-77",
+                "temporary_identifier" to "CPT-00042",
+                "location_display" to "CPT / K0",
+                "row_version" to ROW_VERSION,
+            ),
+        )
+
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.notFound)
+        assertEquals("G-77", vm.state.value.displayId)
+        assertEquals("CPT-00042", vm.state.value.temporaryIdentifier)
+        assertEquals("CPT / K0", vm.state.value.locationDisplay)
+
+        vm.onEvent(RfidPromoteEvent.RfidChanged("982000123456789"))
+        vm.onEvent(RfidPromoteEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(ROW_VERSION, syncRepository.lastRowVersion)
+    }
+
+    @Test
     fun `leaving the screen releases the reader`() = runTest(dispatcher) {
         // Through the real store, so the release runs on the SAME path the nav host takes when the
         // destination is popped — not a hand-called cleanup method.
@@ -179,6 +207,13 @@ class RfidPromoteViewModelScanTest {
 /** Mirrors Room: the tapped awaiting-RFID row is already cached, carrying its own row_version. */
 private class FakeAwaitingRfidRepository : AwaitingRfidRepository {
     var forgotten: String? = null
+    var cachedGoat: TemporaryTaggedGoatDto? = TemporaryTaggedGoatDto(
+        goatId = GOAT_ID,
+        displayId = "G-77",
+        temporaryIdentifier = "TEMP-42",
+        locationDisplay = "North Park / Shed A",
+        rowVersion = ROW_VERSION,
+    )
 
     override fun awaiting(filter: AwaitingRfidFilter): Flow<PagingData<TemporaryTaggedGoatDto>> =
         flowOf(PagingData.empty())
@@ -187,13 +222,12 @@ private class FakeAwaitingRfidRepository : AwaitingRfidRepository {
         forgotten = goatId
     }
 
-    override suspend fun findCached(goatId: String): TemporaryTaggedGoatDto = TemporaryTaggedGoatDto(
-        goatId = goatId,
-        displayId = "G-77",
-        temporaryIdentifier = "TEMP-42",
-        locationDisplay = "North Park / Shed A",
-        rowVersion = 7,
-    )
+    override suspend fun findCached(goatId: String): TemporaryTaggedGoatDto? = cachedGoat
+
+    private companion object {
+        const val GOAT_ID = "44444444-4444-4444-4444-444444444444"
+        const val ROW_VERSION = 7
+    }
 }
 
 /** Captures the enqueued promote so a test can assert the exact wire values. */

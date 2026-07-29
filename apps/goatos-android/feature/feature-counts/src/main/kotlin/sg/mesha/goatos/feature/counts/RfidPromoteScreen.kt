@@ -27,14 +27,12 @@ import androidx.compose.foundation.border
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
- * The promote screen (`/counts/promote/{goat_id}`) — an L2 hosted destination with Up/Back and no
- * root chrome (Android navigation-stack invariant).
+ * Birth's `Tag the kid` RFID screen — a hosted destination with Up/Back and no root chrome.
  *
  * This is where an operator assigns a permanent RFID to a goat that currently carries a temporary
  * tag. **Promote** is the only action that retags the animal: it enqueues the write to the durable
  * outbox, so a press in a dead-signal shed is safe and replays under one stable idempotency key
- * instead of retagging twice. The goat detail is read from the Room-cached awaiting-RFID row
- * (offline-first open): the operator tapped a row already in Room, so no refetch is needed.
+ * instead of retagging twice. The identity context comes from the Room-backed Birth workflow.
  */
 
 /** Which of the two permanent-RFID inputs a Bluetooth scan is being routed into. */
@@ -84,8 +82,8 @@ fun RfidPromoteScreen(
 ) {
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         CountsFormHeader(
-            title = "Promote to RFID",
-            subtitle = "Assign a permanent tag",
+            title = "Tag the kid",
+            subtitle = "Assign the permanent RFID",
             onBack = { onEvent(RfidPromoteEvent.Back) },
         )
         Column(
@@ -98,7 +96,7 @@ fun RfidPromoteScreen(
             when {
                 state.loading -> Text("Loading goat…", color = MeshaColors.Muted, fontSize = 14.sp)
                 state.notFound -> Text(
-                    "This goat is no longer awaiting a permanent RFID. It may have been promoted already.",
+                    "This kid no longer has a temporary identifier. The permanent RFID may already be assigned.",
                     color = MeshaColors.Muted,
                     fontSize = 14.sp,
                 )
@@ -134,7 +132,7 @@ fun RfidPromoteScreen(
                     CountsSubmitButton(
                         label = when (state.result.status) {
                             CountsWriteStatus.QUEUED, CountsWriteStatus.SYNCED -> "Done"
-                            else -> "Promote to permanent RFID"
+                            else -> "Save permanent RFID"
                         },
                         enabled = state.canSubmit,
                         onClick = { onEvent(RfidPromoteEvent.Submit) },
@@ -180,7 +178,7 @@ private fun GoatCard(state: RfidPromoteUiState) {
                     .padding(horizontal = 10.dp, vertical = 3.dp),
             )
             Text(
-                text = "This temporary tag will be retired when you promote.",
+                text = "This temporary tag will be retired when the permanent RFID is saved.",
                 color = MeshaColors.Faint,
                 fontSize = 11.sp,
             )

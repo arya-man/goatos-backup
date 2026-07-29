@@ -41,8 +41,6 @@ import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthScreen
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathScreen
-import sg.mesha.goatos.feature.counts.AwaitingRfidEvent
-import sg.mesha.goatos.feature.counts.AwaitingRfidScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
@@ -99,7 +97,6 @@ import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
 import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
-import sg.mesha.goatos.viewmodel.AwaitingRfidViewModel
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
@@ -201,14 +198,31 @@ object Routes {
     fun shiftingExecuteRoute(shiftingEventId: String): String =
         "/counts/shifting/execute/$shiftingEventId"
 
-    // The "Awaiting RFID" flow: an L1 list of temporary-tagged goats and an L2 promote form for one
-    // goat. Both are distinct hosted destinations with Up/Back and no root chrome (Android
-    // navigation-stack invariant) — reached from the Counts landing, NOT backend `nav_items`, so
-    // neither is a prefix of [COUNTS] reused as a drill target.
-    const val COUNTS_PROMOTE = "/counts/promote"
+    // Birth's final "Tag the kid" destination. It is reachable only from one kid workflow and is
+    // never a Counts root/navigation item.
     const val COUNTS_PROMOTE_GOAT_ARG = "goat_id"
-    const val COUNTS_PROMOTE_GOAT = "/counts/promote/{$COUNTS_PROMOTE_GOAT_ARG}"
-    fun promoteGoatRoute(goatId: String): String = "/counts/promote/$goatId"
+    const val COUNTS_PROMOTE_DISPLAY_ARG = "display_id"
+    const val COUNTS_PROMOTE_TEMP_ARG = "temporary_identifier"
+    const val COUNTS_PROMOTE_LOCATION_ARG = "location_display"
+    const val COUNTS_PROMOTE_ROW_VERSION_ARG = "row_version"
+    const val COUNTS_PROMOTE_GOAT =
+        "/counts/birth/tag/{$COUNTS_PROMOTE_GOAT_ARG}" +
+            "?$COUNTS_PROMOTE_DISPLAY_ARG={$COUNTS_PROMOTE_DISPLAY_ARG}" +
+            "&$COUNTS_PROMOTE_TEMP_ARG={$COUNTS_PROMOTE_TEMP_ARG}" +
+            "&$COUNTS_PROMOTE_LOCATION_ARG={$COUNTS_PROMOTE_LOCATION_ARG}" +
+            "&$COUNTS_PROMOTE_ROW_VERSION_ARG={$COUNTS_PROMOTE_ROW_VERSION_ARG}"
+
+    fun promoteGoatRoute(
+        goatId: String,
+        displayId: String,
+        temporaryIdentifier: String,
+        locationDisplay: String,
+        rowVersion: Int,
+    ): String = "/counts/birth/tag/${Uri.encode(goatId)}" +
+        "?$COUNTS_PROMOTE_DISPLAY_ARG=${Uri.encode(displayId)}" +
+        "&$COUNTS_PROMOTE_TEMP_ARG=${Uri.encode(temporaryIdentifier)}" +
+        "&$COUNTS_PROMOTE_LOCATION_ARG=${Uri.encode(locationDisplay)}" +
+        "&$COUNTS_PROMOTE_ROW_VERSION_ARG=$rowVersion"
 
     // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
@@ -957,7 +971,15 @@ fun AppNavHost(
                         WorkflowDetailEvent.Back -> navController.popBackStack()
                         is WorkflowDetailEvent.OpenPromote -> {
                             vm.onEvent(event)
-                            navController.navigate(Routes.promoteGoatRoute(event.goatId)) { launchSingleTop = true }
+                            navController.navigate(
+                                Routes.promoteGoatRoute(
+                                    goatId = event.goatId,
+                                    displayId = event.displayId,
+                                    temporaryIdentifier = event.temporaryIdentifier,
+                                    locationDisplay = event.locationDisplay,
+                                    rowVersion = event.rowVersion,
+                                ),
+                            ) { launchSingleTop = true }
                         }
                         else -> vm.onEvent(event)
                     }
@@ -1098,45 +1120,16 @@ fun AppNavHost(
             }
         }
 
-        // L1 "Awaiting RFID" list: goats carrying a temporary tag, waiting for a permanent RFID.
-        // Bounded Room-backed Paging window (~20/page keyset). Tapping a row opens the L2 promote form.
-        composable(Routes.COUNTS_PROMOTE) {
-            val vm: AwaitingRfidViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshState = rows.loadState.refresh
-            LaunchedEffect(refreshState) {
-                when (refreshState) {
-                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
-                    is LoadState.NotLoading -> vm.onRowsLoaded()
-                    else -> Unit
-                }
-            }
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
-
-            AwaitingRfidScreen(
-                state = state,
-                rows = rows,
-                onEvent = { event ->
-                    when (event) {
-                        AwaitingRfidEvent.Back -> navController.popBackStack()
-                        is AwaitingRfidEvent.OpenGoat ->
-                            navController.navigate(Routes.promoteGoatRoute(event.goatId)) { launchSingleTop = true }
-                        // Location filter events are ViewModel-owned (they re-fetch the list).
-                        is AwaitingRfidEvent.SelectPark,
-                        is AwaitingRfidEvent.SelectShed,
-                        AwaitingRfidEvent.ClearFilter,
-                        -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        // L2 promote form: assign the permanent RFID to one temporary-tagged goat, Promote.
+        // Birth-owned tag form: assign the permanent RFID to this workflow's canonical kid.
         composable(
             route = Routes.COUNTS_PROMOTE_GOAT,
-            arguments = listOf(navArgument(Routes.COUNTS_PROMOTE_GOAT_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.COUNTS_PROMOTE_GOAT_ARG) { type = NavType.StringType },
+                navArgument(Routes.COUNTS_PROMOTE_DISPLAY_ARG) { type = NavType.StringType; defaultValue = "" },
+                navArgument(Routes.COUNTS_PROMOTE_TEMP_ARG) { type = NavType.StringType; defaultValue = "" },
+                navArgument(Routes.COUNTS_PROMOTE_LOCATION_ARG) { type = NavType.StringType; defaultValue = "" },
+                navArgument(Routes.COUNTS_PROMOTE_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
+            ),
         ) {
             val vm: RfidPromoteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -1587,7 +1580,6 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_BIRTH,
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
-    Routes.COUNTS_PROMOTE,
 )
 
 private fun executionRoutePattern(base: String): String =

@@ -103,9 +103,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
 			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
-			// Awaiting RFID: the list of temporary-tagged goats waiting to be promoted to a permanent
-			// RFID. A capture surface like the two above, so it follows CountsWrite.
-			{key: "awaiting_rfid", labelKey: "nav.awaiting_rfid", href: "/counts/promote", shared_key: "", priority: 5, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
 			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
@@ -126,8 +123,8 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    3,
 		contributions: []moduleNavContribution{
-			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead}, //nav-composition:ignore: registry entry
-			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},    //nav-composition:ignore: registry entry
+			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
+			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
 		},
 	},
@@ -483,7 +480,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":          "Birth",
 		"nav.death":          "Death",
 		"nav.shifting":       "Shifting",
-		"nav.awaiting_rfid":  "Awaiting RFID",
 		"nav.feed_direction": "Feed Direction",
 		"nav.feed_packing":   "Feed Packing",
 		"nav.feed_transport": "Feed Transport",
@@ -509,7 +505,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":          "जन्म",
 		"nav.death":          "मृत्यु",
 		"nav.shifting":       "शिफ्टिंग",
-		"nav.awaiting_rfid":  "RFID प्रतीक्षा में",
 		"nav.feed_direction": "फ़ीड दिशा",
 		"nav.feed_packing":   "फ़ीड पैकिंग",
 		"nav.feed_transport": "फ़ीड परिवहन",
@@ -535,7 +530,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":          "ಜನನ",
 		"nav.death":          "ಮರಣ",
 		"nav.shifting":       "ಸ್ಥಳಾಂತರ",
-		"nav.awaiting_rfid":  "RFID ಬಾಕಿ ಇದೆ",
 		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_transport": "ಆಹಾರ ಸಾಗಣೆ",
@@ -561,7 +555,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth":          "జననం",
 		"nav.death":          "మరణం",
 		"nav.shifting":       "షిఫ్టింగ్",
-		"nav.awaiting_rfid":  "RFID కోసం వేచి ఉంది",
 		"nav.feed_direction": "ఫీడ్ దిశ",
 		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_transport": "ఫీడ్ రవాణా",
