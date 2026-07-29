@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package sg.mesha.goatos.feature.weighing.leadership
 
 import android.net.Uri
@@ -54,6 +56,8 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+
+// telemetry:exempt Weighing leadership evidence gallery is read-only in V1; verifier decisions are tracked in the verification surface.
 
 data class WeighingLeadershipVideosUiState(
     val loading: Boolean = true,

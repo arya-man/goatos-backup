@@ -17,23 +17,23 @@ import (
 const (
 	defaultTenantID = "00000000-0000-4000-8000-000000000001"
 	localActorID    = "90000000-0000-4000-8000-000000000001"
-	qaOperatorID   = "91000000-0000-4000-8000-000000000001"
-	qaFarmID       = "91000000-0000-4000-8000-000000000100"
-	qaParkID       = "91000000-0000-4000-8000-000000000101"
-	qaShed1ID      = "91000000-0000-4000-8000-000000000201"
-	qaShed2ID      = "91000000-0000-4000-8000-000000000202"
-	qaPartyID      = "91000000-0000-4000-8000-000000000301"
-	qaSOPID        = "91000000-0000-4000-8000-000000000401"
-	qaSOPVersionID = "91000000-0000-4000-8000-000000000402"
-	qaProtocolID   = "91000000-0000-4000-8000-000000000501"
-	qaVersionID    = "91000000-0000-4000-8000-000000000502"
-	qaRuleID       = "91000000-0000-4000-8000-000000000503"
-	qaItemID       = "91000000-0000-4000-8000-000000000601"
-	qaStockID      = "91000000-0000-4000-8000-000000000602"
-	qaBatchID      = "91000000-0000-4000-8000-000000000701"
-	qaTaskID       = "91000000-0000-4000-8000-000000000702"
-	qaAssign1ID    = "91000000-0000-4000-8000-000000000801"
-	qaAssign2ID    = "91000000-0000-4000-8000-000000000802"
+	qaOperatorID    = "91000000-0000-4000-8000-000000000001"
+	qaFarmID        = "91000000-0000-4000-8000-000000000100"
+	qaParkID        = "91000000-0000-4000-8000-000000000101"
+	qaShed1ID       = "91000000-0000-4000-8000-000000000201"
+	qaShed2ID       = "91000000-0000-4000-8000-000000000202"
+	qaPartyID       = "91000000-0000-4000-8000-000000000301"
+	qaSOPID         = "91000000-0000-4000-8000-000000000401"
+	qaSOPVersionID  = "91000000-0000-4000-8000-000000000402"
+	qaProtocolID    = "91000000-0000-4000-8000-000000000501"
+	qaVersionID     = "91000000-0000-4000-8000-000000000502"
+	qaRuleID        = "91000000-0000-4000-8000-000000000503"
+	qaItemID        = "91000000-0000-4000-8000-000000000601"
+	qaStockID       = "91000000-0000-4000-8000-000000000602"
+	qaBatchID       = "91000000-0000-4000-8000-000000000701"
+	qaTaskID        = "91000000-0000-4000-8000-000000000702"
+	qaAssign1ID     = "91000000-0000-4000-8000-000000000801"
+	qaAssign2ID     = "91000000-0000-4000-8000-000000000802"
 )
 
 func main() {
@@ -173,7 +173,7 @@ ON CONFLICT (sop_id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.
 INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
 VALUES (
   '` + qaSOPVersionID + `', $1::uuid, '` + qaSOPID + `', 1, 'Per animal video proof', 'published',
-  '{"schema_version":"goatos.sop-form.v1","fields":[{"key":"vaccine_lot_id","label":"Vaccine lot","type":"vaccine_batch_picker","required":true},{"key":"cold_chain_verified","label":"Cold chain","type":"boolean","required":true},{"key":"goat_ids","label":"Goats","type":"goat_scan","required":true,"repeat":true},{"key":"dose_ml_given","label":"Dose","type":"number","required":true},{"key":"administration_video","label":"Video","type":"video_proof","required":true,"subject_scope":"goat"}],"rules":[{"type":"block_submission_if","when":{"field":"cold_chain_verified","operator":"equals","value":false},"message":"cold chain must be verified"},{"type":"proof_required_if","field":"administration_video","when":{"field":"goat_ids","operator":"not_empty"}}]}'::jsonb,
+  '{"schema_version":"goatos.sop-form.v1","fields":[{"key":"goat_ids","label":"Goats","type":"goat_scan","required":true,"repeat":true}],"rules":[]}'::jsonb,
   '` + perGoatProofPolicy + `'::jsonb,
   '{}'::jsonb,
   '{"seed":"vaccination-per-goat-qa"}'::jsonb,
