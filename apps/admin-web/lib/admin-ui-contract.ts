@@ -125,8 +125,6 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "schedule.load.goats_label": "goats",
     "schedule.load.scheduled_short": "sched.",
     "schedule.load.deferred_short": "def.",
-    "label.overdue": "overdue",
-    "label.done": "done",
     "schedule.drawer.title": "Drive sheds",
     "schedule.drawer.open_sheds": "Open shed list",
     "schedule.drawer.more": "more",

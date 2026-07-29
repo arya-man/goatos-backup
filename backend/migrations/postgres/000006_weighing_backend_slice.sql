@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: operational Weighing free-flow tables are written by the Weighing planner/mobile flow; they do not change the Vaccination HRMS seed contract
 CREATE TABLE IF NOT EXISTS public.weighing_campaigns (
   campaign_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenants(tenant_id),

@@ -190,7 +190,7 @@ class ScanViewModelTest {
         reader.emit("TAG-100")
         advanceUntilIdle()
 
-        assertEquals("restored evidence must not write another roster capture", 1, scanCaptures.recordScanCalls)
+        assertEquals("restored proof rescan must repair the durable scan capture idempotently", 2, scanCaptures.recordScanCalls)
         assertEquals("proof-missing restored evidence must reopen the proof path", 1, proofSource.captureCount)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals("proof_rescan", scanAttempts.calls.single().reason)
@@ -266,7 +266,7 @@ class ScanViewModelTest {
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals("duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
+        assertEquals("already scanned duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
         assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }

@@ -82,12 +82,12 @@ func execSeedSQL(ctx context.Context, execer seedExecutor, sql string, tenantID 
 			continue
 		}
 		if strings.Contains(statement, "$1") {
-			if _, err := execer.Exec(ctx, statement, tenantID); err != nil {
+			if _, err := execer.Exec(ctx, statement, tenantID); err != nil { // scale-guard:ignore: local QA seed runner executes a fixed statement bundle, not request-path data fanout
 				return fmt.Errorf("seed statement failed near %q: %w", previewStatement(statement), err)
 			}
 			continue
 		}
-		if _, err := execer.Exec(ctx, statement); err != nil {
+		if _, err := execer.Exec(ctx, statement); err != nil { // scale-guard:ignore: local QA seed runner executes a fixed statement bundle, not request-path data fanout
 			return fmt.Errorf("seed statement failed near %q: %w", previewStatement(statement), err)
 		}
 	}

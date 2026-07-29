@@ -35,6 +35,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -459,6 +460,7 @@ private fun StopRecordingButton(
         shape = RoundedCornerShape(20.dp),
         modifier = modifier
             .fillMaxWidth()
+            .minimumInteractiveComponentSize()
             .height(58.dp)
             .semantics {
                 contentDescription = actionDescription

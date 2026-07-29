@@ -236,7 +236,7 @@ fun GoatOsShell(navState: NavState) {
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
         AppNavHost(
             navController = navController,
-            startDestination = startDestinationFor(visibleNavState),
+            startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
             leadershipWeighing = leadershipWeighing,
         )
