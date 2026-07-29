@@ -9,6 +9,15 @@ internal object RfidReaderDeviceSelector {
             .distinctBy { it.id }
             .sortedWith(compareByDescending<RfidReaderDevice> { it.signalLabel == "Ready" }.thenBy { it.name })
 
-    fun shouldSuppressDisconnectedNameFilter(pairedDevices: List<RfidReaderDevice>): Boolean =
-        pairedDevices.any { it.signalLabel == "Ready" }
+    fun disconnectedNameFilterBypassNames(pairedDevices: List<RfidReaderDevice>): Set<String> {
+        val readyNames = pairedDevices
+            .filter { it.signalLabel == "Ready" }
+            .map { it.name.lowercase() }
+            .toSet()
+        val disconnectedNames = pairedDevices
+            .filter { it.signalLabel == "Disconnected" }
+            .map { it.name.lowercase() }
+            .toSet()
+        return readyNames intersect disconnectedNames
+    }
 }
