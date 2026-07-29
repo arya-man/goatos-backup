@@ -71,10 +71,11 @@ grants.
 | CPT | Darshan Talwar | Operator | Preventive Care | `darshantalawar033@gmail.com` | Vaccination, Weighing |
 | CPT | Sagar Mahoor | Operator | Preventive Care | `sagarmahoor143@gmail.com` | Vaccination, Weighing |
 | CBE | Pramod | Operator | Weighing Operations | `pramodsahu616285@gmail.com` | Weighing only |
+| CBE | Kumar Sharath | Operator | Weighing Operations | `kumarsharath95279@gmail.com` | Weighing only |
 | CBE | Dinakar | Operator | Breeding and Growth Director | `babureddy315@gmail.com` | Weighing only |
 
-Eshwar and Sharath are intentionally excluded from this STG weighing grant until
-their exact email/Firebase UID/access requirement is confirmed.
+Eshwar remains intentionally excluded from this STG weighing grant until his
+exact email/Firebase UID/access requirement is confirmed.
 
 The seed must:
 
@@ -88,8 +89,8 @@ The seed must:
    role exists; using `pc_director` would also expose Preventive Care modules.
 7. Leave all unrelated users, roles, departments, parks, sheds, and grants
    unchanged.
-8. Fail before writing if Pramod or Dinakar lacks a confirmed Firebase UID or
-   if a requested park/shed cannot be resolved uniquely.
+8. Fail before writing if Pramod, Kumar Sharath, or Dinakar lacks a confirmed
+   Firebase UID or if a requested park/shed cannot be resolved uniquely.
 
 ## Staging verification
 
@@ -108,5 +109,5 @@ After seeding, verify:
 6. No non-weighing tables change during either capture.
 7. Counts is absent from Android for operators, directors, and leadership.
 8. Amit, Darshan, and Sagar see Vaccination and Weighing.
-9. Pramod and Dinakar see Weighing only.
-10. Eshwar and Sharath receive no grant from this seed.
+9. Pramod, Kumar Sharath, and Dinakar see Weighing only.
+10. Eshwar receives no grant from this seed.
