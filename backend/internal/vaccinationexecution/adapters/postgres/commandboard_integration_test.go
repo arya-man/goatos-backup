@@ -30,7 +30,7 @@ const (
 func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	// Tenant
 	execProjectionSQL(t, ctx, pool, "tenant",
-		`INSERT INTO tenants (tenant_id, name) VALUES ($1, 'Test Org')`,
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`,
 		cmdBoardTestTenant)
 
 	// Parks
@@ -434,6 +434,110 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 	if verifiedCount+awaitingCount == 0 {
 		t.Logf("Note: shed dose matrix states not populated; check fixture expectations")
 	}
+}
+
+// TestVaccinationCommandBoardStatusBucketsMultiCompletion tests that an obligation with
+// both accepted and recorded-unverified completions counts ONLY in doses_verified, never in
+// awaiting_verification. This is the critical bucket disjointness test.
+func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
+	t.Log("StatusBucketDisjointness: obligation with accepted + recorded-unverified must count ONLY in doses_verified")
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	// Use unique tenant ID for this test
+	testTenantID := "00000000-0000-4000-8000-000000000099"
+	testParkID := "70000000-0000-4000-8000-000001000099"
+	testShedID := "70000000-0000-4000-8000-000002000099"
+	testGoatID := "70000000-0000-4000-8000-000003000099"
+	testBatchID := "70000000-0000-4000-8000-000004000099"
+	testRuleID := "et_tt_adult_w1_99"
+	testProtocolID := "70000000-0000-4000-8000-000006000099"
+
+	// Manually seed minimal data for this test
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`,
+		testTenantID)
+	execProjectionSQL(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park', 'park', NULL, 'active')`,
+		testParkID, testTenantID)
+	execProjectionSQL(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed 1', 'shed', $3, 'active')`,
+		testShedID, testTenantID, testParkID)
+	execProjectionSQL(t, ctx, pool, "management stage",
+		`INSERT INTO management_stages (management_stage_id, tenant_id, code, name)
+		 VALUES ('70000000-0000-4000-8000-000005000099', $1, 'K1', 'K1 kids')`,
+		testTenantID)
+	execProjectionSQL(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
+		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-01')`,
+		testGoatID, testTenantID, testShedID)
+	execProjectionSQL(t, ctx, pool, "protocol",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, rule_dsl, status, published_at)
+		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000000', '{}', 'published', now())`,
+		testProtocolID, testTenantID)
+	execProjectionSQL(t, ctx, pool, "ET rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, vaccine_labels, eligibility_dsl)
+		 VALUES ($1, $2, $3, ARRAY['ET+TT'], '{}')`,
+		testRuleID, testTenantID, testProtocolID)
+	execProjectionSQL(t, ctx, pool, "batch",
+		`INSERT INTO vaccination_drive_batches (batch_id, tenant_id, planned_date, status)
+		 VALUES ($1, $2, '2026-07-25', 'open')`,
+		testBatchID, testTenantID)
+
+	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	// Create one obligation for goat
+	obligationID := "70000000-0000-4000-8000-000010000099"
+	execProjectionSQL(t, ctx, pool, "obligation ET",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ($1, $2, $3, $4, 'shed', $5, $6, 'scheduled', $7::timestamptz)`,
+		obligationID, testTenantID, testBatchID, testGoatID, testShedID, testRuleID,
+		asOf.Add(-1*24*time.Hour))
+
+	// Add TWO completions: one accepted, one recorded-unverified
+	execProjectionSQL(t, ctx, pool, "completion accepted",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
+		 VALUES ('70000000-0000-4000-8000-000011000099', $1, $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
+		testTenantID, obligationID, asOf.Add(-1*24*time.Hour))
+
+	execProjectionSQL(t, ctx, pool, "completion recorded unverified",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
+		 VALUES ('70000000-0000-4000-8000-000011000098', $1, $2, 'recorded', $3::timestamptz, NULL)`,
+		testTenantID, obligationID, asOf.Add(-1*24*time.Hour))
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+		TenantID:     testTenantID,
+		AsOf:         asOf,
+		DriveBatchID: stringPtr(testBatchID),
+	})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	// CRITICAL: The obligation must NOT appear in awaiting_verification when it has an accepted completion
+	if resp.KPIs.AwaitingVerification != 0 {
+		t.Fatalf("awaiting_verification = %d, want 0; obligation with accepted completion should not count as awaiting", resp.KPIs.AwaitingVerification)
+	}
+
+	// The obligation MUST appear in doses_verified
+	if resp.KPIs.DosesVerified != 1 {
+		t.Fatalf("doses_verified = %d, want 1; obligation with accepted completion must count as verified", resp.KPIs.DosesVerified)
+	}
+
+	// The obligation MUST NOT appear in the verification queue
+	// (the queue shows shed×dose with ≥1 unverified completion; a shed×dose with accepted completions is done)
+	for _, queueRow := range resp.VerificationQueue {
+		if queueRow.ShedName == "Shed 1" {
+			t.Fatalf("verification queue should not include Shed 1 when all completions are verified or accepted")
+		}
+	}
+
+	t.Logf("PASS: obligation correctly placed in doses_verified bucket only; awaiting=%d, verified=%d", resp.KPIs.AwaitingVerification, resp.KPIs.DosesVerified)
 }
 
 // Helper function

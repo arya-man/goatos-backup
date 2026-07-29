@@ -849,6 +849,7 @@ type CommandBoardResponse struct {
 type CommandBoardQuery struct {
 	TenantID        string
 	DriveBatchID    *string   // optional: narrow KPIs to this drive batch
+	ParkID          *string   // optional: narrow KPIs to this park
 	AsOf            time.Time // defaults to now in business timezone
 	HistoricalAsOf  bool
 }

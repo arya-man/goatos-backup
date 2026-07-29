@@ -3669,46 +3669,81 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	}
 
 	// 1. KPIs query
-	// projection-review: membership=obligations scoped by tenant + optional batch; grain=obligation status;
-	// join_cardinality=completions pre-grouped; scope=batch optional
+	// projection-review:
+	// (a) producer: obligation_id, status, due_at, batch_id | consumer: obligation_id GROUP BY none
+	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1
+	// (c) doses_verified numerator: bool_or(status='accepted'), denominator: all obligations;
+	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted), denominator: all obligations;
+	//     overdue_not_given numerator: scheduled AND due_at<asOf AND no completions, denominator: all obligations;
+	//     scheduled_ahead numerator: scheduled AND due_at>=asOf, denominator: all obligations
 	kpiSQL := `
+WITH comp AS (
+  SELECT
+    obligation_id,
+    bool_or(status = 'accepted') AS has_accepted,
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+)
 SELECT
   COUNT(DISTINCT oi.obligation_id) as targets,
-  COUNT(DISTINCT CASE WHEN vc.status = 'accepted' THEN oi.obligation_id END) as doses_verified,
-  COUNT(DISTINCT CASE WHEN vc.status = 'recorded' AND vc.verified_at IS NULL THEN oi.obligation_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND oi.due_at < $2::timestamptz AND NOT EXISTS(SELECT 1 FROM vaccination_completions vc2 WHERE vc2.obligation_id = oi.obligation_id) THEN oi.obligation_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as doses_verified,
+  COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.obligation_id END) as awaiting_verification,
+  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND oi.due_at < $2::timestamptz AND comp.obligation_id IS NULL THEN oi.obligation_id END) as overdue_not_given,
   COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND oi.due_at >= $2::timestamptz THEN oi.obligation_id END) as scheduled_ahead
 FROM obligation_instances oi
-LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.tenant_id = oi.tenant_id
+LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+  ))
 `
-	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID)
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
+	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead); err != nil {
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
 	// 2. Cohort matrix query (management_stage × sex × vaccine × pending count)
-	// projection-review: membership=obligations + goat stage/sex lookups; grain=stage×sex×vaccine;
-	// join_cardinality=goat 1:1 on goat_id + tenant; numerator=pending (scheduled or due)
+	// projection-review:
+	// (a) producer: obligation_id, status, due_at, target_id, rule_id, dose_code | consumer: management_stage, sex, dose_code GROUP BY
+	// (b) completions pre-aggregated per obligation (1:1 after CTE), goat lookup 1:1, protocol rule 1:1
+	// (c) pending_count numerator: (scheduled AND due_at<=asOf) OR (has_recorded_unverified), denominator: all obligations per cohort;
+	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals
 	cohortSQL := `
+WITH comp AS (
+  SELECT
+    obligation_id,
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+)
 SELECT
   g.management_stage,
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND oi.due_at <= $3::timestamptz) OR (vc.status = 'recorded' AND vc.verified_at IS NULL) THEN oi.obligation_id END) as pending_count
+  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND oi.due_at <= $2::timestamptz) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
-LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id
+LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
-  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+  ))
   AND g.lifecycle_status != 'terminated'
 GROUP BY g.management_stage, g.sex, pr.dose_code
 ORDER BY g.management_stage, g.sex, pr.dose_code
 `
-	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, q.DriveBatchID, asOf)
+	cohortRows, err := r.pool.Query(ctx, cohortSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort query: %w", err)
 	}
@@ -3751,41 +3786,55 @@ ORDER BY g.management_stage, g.sex, pr.dose_code
 	}
 
 	// 3. Shed dose matrix query
-	// projection-review: membership=obligations + completions scoped by tenant; grain=shed×rule×state;
-	// join_cardinality=shed lookup 1:1, completion dates pre-aggregated per state
+	// projection-review:
+	// (a) producer: obligation_id, status, due_at, scope_id, rule_id, dose_code, target_id | consumer: scope_id, dose_code, state GROUP BY
+	// (b) completions pre-aggregated per obligation (1:1 after CTE), shed lookup 1:1, rule lookup 1:1
+	// (c) state assignment numerator: has_accepted|has_recorded_unverified|scheduled+overdue|scheduled; denominator: all shed×dose obligations
 	shedDoseSQL := `
-WITH shed_dose_states AS (
+WITH comp AS (
+  SELECT
+    obligation_id,
+    bool_or(status = 'accepted') AS has_accepted,
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified,
+    MAX(CASE WHEN administered_at IS NOT NULL THEN administered_at END) as max_administered_at,
+    MIN(CASE WHEN administered_at IS NOT NULL THEN administered_at END) as min_administered_at
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+),
+shed_dose_states AS (
   SELECT
     oi.scope_id as shed_id,
     loc.name as shed_name,
     pr.dose_code,
     CASE
-      WHEN vc.status = 'accepted' THEN 'verified'
-      WHEN vc.status = 'recorded' AND vc.verified_at IS NULL THEN 'awaiting'
+      WHEN comp.has_accepted THEN 'verified'
+      WHEN comp.has_recorded_unverified THEN 'awaiting'
       WHEN oi.status = 'scheduled' AND oi.due_at < $2::timestamptz THEN 'overdue'
       WHEN oi.status = 'scheduled' THEN 'scheduled'
       ELSE 'other'
     END as state,
     COUNT(DISTINCT oi.target_id) as animal_count,
-    MIN(CASE WHEN vc.administered_at IS NOT NULL THEN vc.administered_at END) as min_administered_at,
-    MAX(CASE WHEN vc.administered_at IS NOT NULL THEN vc.administered_at END) as max_administered_at,
+    MIN(comp.min_administered_at) as min_administered_at,
+    MAX(comp.max_administered_at) as max_administered_at,
     MIN(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as min_due_at,
     MAX(CASE WHEN oi.status IN ('scheduled', 'due') THEN oi.due_at END) as max_due_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
-  LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id
+  LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
-  GROUP BY oi.scope_id, loc.name, pr.dose_code, state
+    AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
+  GROUP BY oi.scope_id, loc.name, pr.dose_code, comp.has_accepted, comp.has_recorded_unverified, oi.status, oi.due_at
 )
 SELECT shed_id, shed_name, dose_code, state, animal_count, min_administered_at, max_administered_at, min_due_at, max_due_at
 FROM shed_dose_states
 WHERE state != 'other'
 ORDER BY shed_name, dose_code, state
 `
-	shedDoseRows, err := r.pool.Query(ctx, shedDoseSQL, q.TenantID, asOf, q.DriveBatchID)
+	shedDoseRows, err := r.pool.Query(ctx, shedDoseSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: shed dose query: %w", err)
 	}
@@ -3843,11 +3892,14 @@ JOIN obligation_instances oi ON vc.obligation_id = oi.obligation_id AND vc.tenan
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 WHERE vc.tenant_id = $1::uuid
   AND vc.administered_at IS NOT NULL
-  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+  ))
 GROUP BY iso_year, iso_week, pr.dose_code, vc.status
 ORDER BY iso_year DESC, iso_week DESC, pr.dose_code, vc.status
 `
-	weeklyRows, err := r.pool.Query(ctx, weeklySQL, q.TenantID, q.DriveBatchID)
+	weeklyRows, err := r.pool.Query(ctx, weeklySQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: weekly query: %w", err)
 	}
@@ -3876,8 +3928,9 @@ ORDER BY iso_year DESC, iso_week DESC, pr.dose_code, vc.status
 	}
 
 	// 5. Verification queue query (shed × dose awaiting verification)
-	// projection-review: membership=completions status='recorded' with verified_at null; grain=shed×dose;
-	// join_cardinality=shed 1:1, administered_at aggregates per shed×dose, business days computed server-side
+	// projection-review: rows = shed×dose with ≥1 recorded-unverified completion; grain=shed×dose;
+	// join_cardinality: shed 1:1, exists gate filters obligations with unverified completions only;
+	// row cardinality: one row per shed×dose pair that has ≥1 unverified completion (EXISTS ensures non-empty)
 	verifyQueueSQL := `
 SELECT
   oi.scope_id as shed_id,
@@ -3897,11 +3950,12 @@ WHERE oi.tenant_id = $1::uuid
     SELECT 1 FROM vaccination_completions vc2
     WHERE vc2.obligation_id = oi.obligation_id AND vc2.status = 'recorded' AND vc2.verified_at IS NULL
   )
-  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
 GROUP BY oi.scope_id, loc.name, pr.dose_code
 ORDER BY shed_name, pr.dose_code
 `
-	verifyRows, err := r.pool.Query(ctx, verifyQueueSQL, q.TenantID, q.DriveBatchID)
+	verifyRows, err := r.pool.Query(ctx, verifyQueueSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: verification queue query: %w", err)
 	}
