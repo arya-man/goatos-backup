@@ -133,8 +133,8 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:  cmdBoardTestTenant,
-		AsOf:      asOf,
+		TenantID:     cmdBoardTestTenant,
+		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
 	if err != nil {
@@ -176,7 +176,7 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate(t *testing.T
 	seedCommandBoardProjection(t, ctx, pool)
 
 	// Two obligations: due on different dates than administered
-	dueDateEarlier := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC) // Wednesday
+	dueDateEarlier := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)   // Wednesday
 	adminDateLater := time.Date(2026, 7, 24, 10, 30, 0, 0, time.UTC) // Friday
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
