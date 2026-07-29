@@ -72,7 +72,12 @@ class VerifyQueueViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
-    private val _selectedModule = MutableStateFlow(VerifyModuleTab.VACCINATION)
+    private val _selectedModule = MutableStateFlow(
+        when (savedStateHandle.get<String>("module")?.trim()?.lowercase()) {
+            "weighing" -> VerifyModuleTab.WEIGHING
+            else -> VerifyModuleTab.VACCINATION
+        },
+    )
     private val _selectedParkId = MutableStateFlow<String?>(null)
     private val _selectedShedId = MutableStateFlow<String?>(null)
     private val _isRefreshing = MutableStateFlow(false)

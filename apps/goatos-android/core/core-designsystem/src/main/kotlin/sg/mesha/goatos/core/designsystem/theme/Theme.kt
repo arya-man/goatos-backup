@@ -2,7 +2,9 @@ package sg.mesha.goatos.core.designsystem.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -60,6 +62,24 @@ private val MeshaShapes = Shapes(
     extraLarge = RoundedCornerShape(30.dp),
 )
 
+private val MeshaTypography = Typography(
+    displayLarge = MeshaType.screenTitle,
+    displayMedium = MeshaType.screenTitle,
+    displaySmall = MeshaType.screenTitle,
+    headlineLarge = MeshaType.screenTitle,
+    headlineMedium = MeshaType.screenTitle,
+    headlineSmall = MeshaType.headerTitle,
+    titleLarge = MeshaType.headerTitle,
+    titleMedium = MeshaType.cardTitle,
+    titleSmall = MeshaType.listTitle,
+    bodyLarge = MeshaType.body,
+    bodyMedium = MeshaType.body,
+    bodySmall = MeshaType.cardSubtitle,
+    labelLarge = MeshaType.button,
+    labelMedium = MeshaType.pill,
+    labelSmall = MeshaType.caption,
+)
+
 @Composable
 fun GoatOsTheme(
     // Retained for source compatibility; the app is dark-first to match the mock.
@@ -70,6 +90,8 @@ fun GoatOsTheme(
     MaterialTheme(
         colorScheme = MeshaDarkScheme,
         shapes = MeshaShapes,
-        content = content,
-    )
+        typography = MeshaTypography,
+    ) {
+        ProvideTextStyle(MeshaTypography.bodyMedium, content)
+    }
 }

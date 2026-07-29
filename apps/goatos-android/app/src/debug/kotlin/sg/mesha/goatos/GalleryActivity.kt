@@ -139,25 +139,6 @@ class GalleryActivity : ComponentActivity() {
     }
 }
 
-private data class GalleryCase(val key: String, val label: String, val group: String)
-
-private fun edgeCaseGalleryCases(): List<GalleryCase> = listOf(
-    GalleryCase("login", "Login", "Auth"),
-    GalleryCase("calendar", "Calendar", "Vaccination"),
-    GalleryCase("calendar_coverage", "Calendar coverage", "Vaccination"),
-    GalleryCase("sheds", "Sheds", "Overview"),
-    GalleryCase("scan", "Scan", "Execution"),
-    GalleryCase("submit", "Submit", "Execution"),
-    GalleryCase("record", "Record", "Execution"),
-    GalleryCase("rfid", "RFID", "Device"),
-    GalleryCase("rfid_scan", "RFID scan", "Device"),
-    GalleryCase("rfid_hid", "RFID HID", "Device"),
-    GalleryCase("rfid_mock", "RFID mock", "Device"),
-    GalleryCase("alerts", "Alerts", "Profile"),
-    GalleryCase("you", "You", "Profile"),
-    GalleryCase("timetable", "Timetable", "Schedule"),
-)
-
 @androidx.compose.runtime.Composable
 private fun GalleryIndex(cases: List<GalleryCase>, onOpen: (String) -> Unit) {
     LazyColumn(

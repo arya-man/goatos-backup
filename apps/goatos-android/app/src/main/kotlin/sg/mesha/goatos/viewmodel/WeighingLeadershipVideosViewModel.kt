@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
@@ -61,7 +62,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
                     weight = formatWeight(animal.weightKg),
                     timestamp = formatTimestamp(animal.acceptedAt),
                     videos = animal.videos.mapIndexed { videoIndex, video ->
-                        WeighingLeadershipVideoUi(video.proofId, "Video ${videoIndex + 1}", video.downloadUrl)
+                        WeighingLeadershipVideoUi(video.proofId, "Video ${videoIndex + 1}", video.downloadUrl.toAbsoluteApiUrl())
                     },
                 )
             },
@@ -69,7 +70,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             totalWeight = shed.totalWeightKg?.let(::formatWeight),
             averageWeight = shed.averageWeightKg?.let(::formatWeight),
             videos = shed.videos.mapIndexed { index, video ->
-                WeighingLeadershipVideoUi(video.proofId, "Video ${index + 1}", video.downloadUrl)
+                WeighingLeadershipVideoUi(video.proofId, "Video ${index + 1}", video.downloadUrl.toAbsoluteApiUrl())
             },
         )
 
@@ -78,6 +79,13 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
 
     private fun formatTimestamp(value: String): String =
         runCatching { timestampFormatter.format(Instant.parse(value)) }.getOrDefault(value)
+
+    private fun String.toAbsoluteApiUrl(): String =
+        when {
+            startsWith("http://") || startsWith("https://") -> this
+            startsWith("/") -> BuildConfig.API_BASE_URL.trimEnd('/') + this
+            else -> this
+        }
 
     private companion object {
         val timestampFormatter: DateTimeFormatter =

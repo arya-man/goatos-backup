@@ -34,6 +34,9 @@ object MeshaType {
     /** `.evt .mt` / secondary card text. */
     val cardSubtitle = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.W500)
 
+    /** Dense evidence/feed row title, matching alert/list cards without using full card-title scale. */
+    val listTitle = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+
     /** Default body / input text. */
     val body = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.W400)
     val bodyStrong = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.W700)
