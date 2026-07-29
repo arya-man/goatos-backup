@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,8 +108,22 @@ fun WeighingLeadershipVideosScreen(
     var selectedScope by remember { mutableStateOf(WeighingVideoScope.ALL) }
     var selectedShedId by remember { mutableStateOf<String?>(null) }
     var selectedVideo by remember { mutableStateOf<SelectedLeadershipVideo?>(null) }
-    val filteredSheds = remember(state.sheds, selectedShedId) {
-        selectedShedId?.let { shedId -> state.sheds.filter { it.id == shedId } } ?: state.sheds
+    val selectableSheds = remember(state.sheds, selectedScope) {
+        state.sheds.filter { shed ->
+            when (selectedScope) {
+                WeighingVideoScope.ALL -> shed.videoCountForChip > 0
+                WeighingVideoScope.INDIVIDUAL -> shed.animals.isNotEmpty()
+                WeighingVideoScope.LUMP_SUM -> shed.isLumpSum && shed.videos.isNotEmpty()
+            }
+        }
+    }
+    LaunchedEffect(selectableSheds, selectedShedId) {
+        if (selectedShedId != null && selectableSheds.none { it.id == selectedShedId }) {
+            selectedShedId = null
+        }
+    }
+    val filteredSheds = remember(selectableSheds, selectedShedId) {
+        selectedShedId?.let { shedId -> selectableSheds.filter { it.id == shedId } } ?: selectableSheds
     }
     val individualCount = state.sheds.sumOf { it.animals.size }
     val lumpVideoCount = state.sheds.filter { it.isLumpSum }.sumOf { it.videos.size }
@@ -127,7 +142,7 @@ fun WeighingLeadershipVideosScreen(
                     onScopeSelected = { selectedScope = it },
                     selectedShedId = selectedShedId,
                     onShedSelected = { selectedShedId = it },
-                    sheds = state.sheds,
+                    sheds = selectableSheds,
                     individualCount = individualCount,
                     lumpVideoCount = lumpVideoCount,
                 )
