@@ -88,8 +88,9 @@ class WeighingViewModel @Inject constructor(
         .takeIf { parts -> parts.all { it.isNotBlank() } }
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
     private val scanInput = MutableStateFlow("")
-    private val weightInput = MutableStateFlow("")
-    private val animalCountInput = MutableStateFlow("")
+    private val initialLumpSumDraft = scopeKey?.let { lumpSumDrafts[it] }
+    private val weightInput = MutableStateFlow(initialLumpSumDraft?.weightInput.orEmpty())
+    private val animalCountInput = MutableStateFlow(initialLumpSumDraft?.animalCountInput.orEmpty())
     private val animalWeightInputs = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
     private val scannedRows = MutableStateFlow<List<WeighingRosterRowEntity>>(emptyList())
@@ -416,10 +417,12 @@ class WeighingViewModel @Inject constructor(
 
     fun onWeightInputChange(value: String) {
         weightInput.value = sanitizeWeighingWeightInput(value)
+        saveLumpSumInputDraft()
     }
 
     fun onAnimalCountInputChange(value: String) {
         animalCountInput.value = sanitizeWeighingAnimalCountInput(value)
+        saveLumpSumInputDraft()
     }
 
     fun onAnimalWeightInputChange(animalId: String, value: String) {
@@ -625,6 +628,7 @@ class WeighingViewModel @Inject constructor(
                 )) {
                     is AppResult.Ok -> {
                         repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId)
+                        lumpSumDrafts.remove(key)
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
@@ -644,23 +648,73 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
-    fun captureShedVideo() {
+    fun captureShedVideo() = captureShedVideo(replacingProofId = null)
+
+    fun removeShedVideo(proofId: String) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
-        val existing = observedProofs.value.count { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
-        if (existing >= MAX_SHED_GROUP_VIDEOS) {
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val removed = proofCaptureRepository.remove(key, proofId)) {
+                    is AppResult.Ok -> message.value = "Group video removed."
+                    is AppResult.Err -> message.value = removed.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId)
+
+    private fun saveLumpSumInputDraft() {
+        val key = scopeKey ?: return
+        if (category != PER_SHED_PARTITION_CATEGORY) return
+        val weight = weightInput.value
+        val animalCount = animalCountInput.value
+        if (weight.isBlank() && animalCount.isBlank()) {
+            lumpSumDrafts.remove(key)
+        } else {
+            lumpSumDrafts[key] = LumpSumInputDraft(weight, animalCount)
+        }
+    }
+
+    private fun captureShedVideo(replacingProofId: String?) {
+        val key = scopeKey ?: return
+        if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val shedProofs = observedProofs.value
+            .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY && it.subjectId == expectedLocationId }
+            .sortedBy { it.capturedAtMs }
+        val existing = shedProofs.size
+        val replacingIndex = replacingProofId?.let { id -> shedProofs.indexOfFirst { it.id == id } } ?: -1
+        if (replacingProofId == null && existing >= MAX_SHED_GROUP_VIDEOS) {
             message.value = "Maximum 5 group videos reached."
+            return
+        }
+        if (replacingProofId != null && replacingIndex < 0) {
+            message.value = "Video proof not found."
             return
         }
         actionInFlight.value = true
         viewModelScope.launch {
             try {
+                if (replacingProofId != null) {
+                    when (val removed = proofCaptureRepository.remove(key, replacingProofId)) {
+                        is AppResult.Ok -> Unit
+                        is AppResult.Err -> {
+                            message.value = removed.message
+                            return@launch
+                        }
+                    }
+                }
+                val slotNumber = if (replacingIndex >= 0) replacingIndex + 1 else existing + 1
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
                         title = "Lump-sum weighing proof",
                         primaryTag = expectedLocationLabel.ifBlank { routeTitle },
                         secondaryTag = null,
-                        workLabel = "Group video ${existing + 1} of 5",
+                        workLabel = "Group video $slotNumber of 5",
                     ),
                 ) ?: return@launch
                 val principalId = currentPrincipalId
@@ -676,7 +730,7 @@ class WeighingViewModel @Inject constructor(
                         subjectId = expectedLocationId,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
-                        caption = "Lump-sum group video ${existing + 1}",
+                        caption = "Lump-sum group video $slotNumber",
                         scopeType = "shed",
                         scopeId = expectedLocationId,
                         capturedStartMs = captured.startedAtMs,
@@ -692,7 +746,11 @@ class WeighingViewModel @Inject constructor(
                         ),
                     )
                 ) {
-                    is AppResult.Ok -> message.value = "Group video saved locally."
+                    is AppResult.Ok -> message.value = if (replacingProofId == null) {
+                        "Group video saved locally."
+                    } else {
+                        "Group video replaced."
+                    }
                     is AppResult.Err -> message.value = proof.message
                 }
             } finally {
@@ -1304,6 +1362,13 @@ internal fun parsePositiveWeighingAnimalCount(value: String?): Int? =
 
 private fun normalizeFreeFlowTag(tag: String): String =
     tag.filter { it.isLetterOrDigit() }.lowercase()
+
+private data class LumpSumInputDraft(
+    val weightInput: String,
+    val animalCountInput: String,
+)
+
+private val lumpSumDrafts = mutableMapOf<String, LumpSumInputDraft>()
 
 private data class WeighingWeek(
     val startDate: String,

@@ -237,6 +237,8 @@ fun WeighingScreen(
     onSubmitIndividualScope: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onCaptureShedVideo: () -> Unit = {},
+    onReplaceShedVideo: (String) -> Unit = {},
+    onRemoveShedVideo: (String) -> Unit = {},
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
@@ -275,6 +277,8 @@ fun WeighingScreen(
             onSubmitIndividualScope = onSubmitIndividualScope,
             onRecordShedPartition = onRecordShedPartition,
             onCaptureShedVideo = onCaptureShedVideo,
+            onReplaceShedVideo = onReplaceShedVideo,
+            onRemoveShedVideo = onRemoveShedVideo,
             onReconnectReader = onReconnectReader,
             onRefresh = onRefresh,
             onBack = onBack,
@@ -1201,6 +1205,8 @@ private fun WeighingExecutionScanScreen(
     onSubmitIndividualScope: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onReplaceShedVideo: (String) -> Unit,
+    onRemoveShedVideo: (String) -> Unit,
     onReconnectReader: () -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
@@ -1306,6 +1312,8 @@ private fun WeighingExecutionScanScreen(
                         onAnimalCountChange = onAnimalCountChange,
                         onWeightEntryActive = onWeightEntryActive,
                         onCaptureShedVideo = onCaptureShedVideo,
+                        onReplaceShedVideo = onReplaceShedVideo,
+                        onRemoveShedVideo = onRemoveShedVideo,
                     )
                 }
             }
@@ -1572,6 +1580,8 @@ private fun WeighingLumpSumCapture(
     onAnimalCountChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onReplaceShedVideo: (String) -> Unit,
+    onRemoveShedVideo: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1612,6 +1622,12 @@ private fun WeighingLumpSumCapture(
                 style = MeshaType.bodyStrong,
             )
         }
+        Text(
+            text = "${state.shedProofs.size} / 5 videos uploaded",
+            color = if (state.shedProofs.size >= 5) MeshaColors.Warn else MeshaColors.Muted,
+            style = MeshaType.bodyStrong,
+            modifier = Modifier.fillMaxWidth(),
+        )
         state.shedProofs.forEachIndexed { index, proof ->
             val proofColor = when (proof.status) {
                 ProofUploadStatus.SYNCED -> MeshaColors.Ok
@@ -1649,6 +1665,26 @@ private fun WeighingLumpSumCapture(
                     style = MeshaType.caption,
                 )
             }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ShedVideoAction(
+                    text = "Replace",
+                    icon = MeshaIcons.Refresh,
+                    enabled = !state.actionInFlight,
+                    onClick = { onReplaceShedVideo(proof.id) },
+                    modifier = Modifier.weight(1f),
+                )
+                ShedVideoAction(
+                    text = "Remove",
+                    icon = MeshaIcons.Close,
+                    enabled = !state.actionInFlight,
+                    onClick = { onRemoveShedVideo(proof.id) },
+                    modifier = Modifier.weight(1f),
+                    danger = true,
+                )
+            }
         }
         ActionButton(
             text = if (state.shedProofs.isEmpty()) "Capture group video" else "Add another video",
@@ -1657,6 +1693,42 @@ private fun WeighingLumpSumCapture(
             modifier = Modifier.fillMaxWidth(),
             primary = false,
         )
+    }
+}
+
+@Composable
+private fun ShedVideoAction(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+) {
+    val color = when {
+        !enabled -> MeshaColors.Faint
+        danger -> MeshaColors.Danger
+        else -> MeshaColors.Info
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (danger) MeshaColors.DangerX else MeshaColors.InfoX)
+            .border(1.dp, color, RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(text = text, color = color, style = MeshaType.caption, fontWeight = FontWeight.Bold)
     }
 }
 
