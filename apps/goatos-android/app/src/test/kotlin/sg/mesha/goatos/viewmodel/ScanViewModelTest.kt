@@ -424,7 +424,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `rescan of proof missing goat opens proof path without recording another roster capture`() = runTest(dispatcher) {
+    fun `rescan of proof missing goat repairs durable roster capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
@@ -451,7 +451,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
-        assertEquals("proof rescan must not create a second roster capture", 1, scanCaptures.recordScanCalls)
+        assertEquals("proof rescan must repair the durable scan capture idempotently", 2, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals("proof_rescan", scanAttempts.calls[1].reason)
         assertNull("proof rescan is not a duplicate notice", scanVm.state.value.duplicateNotice)

@@ -123,6 +123,22 @@ The emulator did not submit the record and did not run verifier or leadership cl
 | Local scan/attempt entities can remain `PENDING` after outbox success | **OPEN FOLLOW-UP** | Observed in emulator DB despite corresponding server rows; reconciliation status needs review. |
 | Verifier cannot see route/site/adverse-reaction context | **RESOLVED (removed by design)** | Shed completion is now an acknowledgement, not a manual medical form: route/site/dose/cold-chain/adverse-reaction are not collected. The verifier reviews per-animal scan + proof + the shed-ack summary; adverse events go through the health problem-report path. See ADR [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md). |
 
+## Android submit gate invariant
+
+For per-goat proof vaccination, every accepted RFID path must keep these three
+facts coupled for the same goat:
+
+- durable scan capture in `sop_task_scan_captures`
+- completed goat proof in `proof_artifacts`
+- shed submit summary counts where `handled_count == proof_ready_count == expected_count`
+
+This includes the `proof_rescan` branch. A proof-missing DONE goat is still an
+accepted reader hit, so Android must call `recordRosterScan(...)` before
+`requestGoatProof(...)`. The capture write is idempotent; skipping it can leave
+the submit screen in the broken state `Scanned 2 / Proof ready 3`, disabling
+Submit even though every animal has proof. Local CI enforces this with
+`android-vaccination-submit-gate-guard`.
+
 ## Field provenance: legacy Slack vs Goat OS
 
 A read-only inspection of the actual `slack-automation-scripts` repository found no vaccination form schema, card schema, or source for the labels `cohort`, route/site, administered date, or adverse-reaction notes. The 17-page Slack Modules Training PDF likewise contains no vaccination form and no `vaccin`, route, administered, or adverse terminology. The only vaccination-specific helper found in the repository was `fixVaccinationAccess()`, which grants access to two opaque list IDs.
