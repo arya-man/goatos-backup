@@ -77,7 +77,9 @@ class WeighingViewModel @Inject constructor(
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
     private val workGroupId = savedStateHandle.get<String>(Routes.WEIGHING_WORK_GROUP_ARG).orEmpty()
     private val campaignShedId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_SHED_ARG).orEmpty()
-    private val category = savedStateHandle.get<String>(Routes.WEIGHING_CATEGORY_ARG).orEmpty()
+    private val category = normalizeWeighingCategory(
+        savedStateHandle.get<String>(Routes.WEIGHING_CATEGORY_ARG).orEmpty(),
+    )
     private val tenantId = savedStateHandle.get<String>(Routes.WEIGHING_TENANT_ARG).orEmpty()
     private val expectedLocationId = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_ARG).orEmpty()
     private val expectedLocationLabel = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG).orEmpty()
@@ -1170,6 +1172,13 @@ class WeighingViewModel @Inject constructor(
                 .withZone(ZoneId.of("Asia/Kolkata"))
     }
 }
+
+private fun normalizeWeighingCategory(raw: String): String =
+    when (raw.trim().lowercase(Locale.ROOT)) {
+        "per shed partition", "per-shed-partition", "per_shed_partition" -> "per_shed_partition"
+        "individual animal", "individual-animal", "individual_animal" -> "individual_animal"
+        else -> raw.trim()
+    }
 
 private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
