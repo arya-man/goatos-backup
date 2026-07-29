@@ -472,7 +472,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	}
 }
 
-func TestSubmitIndividualScopeRejectsExtraObservationWhenExpectedAnimalMissing(t *testing.T) {
+func TestSubmitIndividualScopeCompletesSubmittedFreeFlowEvidenceWithoutExpectedRosterGate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -504,10 +504,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'extra-rfid', 13.1, $4::uuid, $5::uu
 		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator)
 
 	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:missing-expected-with-extra", []string{"expected-rfid-1", "extra-rfid"})
-	if !errors.Is(err, ports.ErrNotFound) {
-		t.Fatalf("submit err=%v, want not found while expected animal is missing", err)
+	if err != nil {
+		t.Fatalf("submit free-flow evidence: %v", err)
 	}
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 	var missingStatus string
 	if err := pool.QueryRow(ctx, `
 SELECT status

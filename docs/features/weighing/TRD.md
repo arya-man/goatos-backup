@@ -407,10 +407,10 @@ per_shed_partition_selected_total
 + per_shed_partition_closed_by_leadership
 ```
 
-Additional counters such as `wrong_shed_expected`, `not_in_campaign_scans`,
-`proof_pending`, and `correction_pending` are insight counters. They may overlap
-with operational states only when the API names that explicitly; they must not be
-silently added into either progress denominator.
+Additional counters such as `proof_pending` and `correction_pending` are insight
+counters. V1 must not add Vaccination-style wrong-shed, not-in-campaign, or
+missing-roster counters into submit readiness; the selected shed/partition is a
+Weighing evidence bucket, not a Herd Register membership assertion.
 
 Never use `ORDER BY ... LIMIT 1` to bind an observation to a work group, shed, or
 proof when multiple rows can legitimately exist for the same campaign. Use the
@@ -420,7 +420,8 @@ exact membership/proof key or reject the ambiguity.
 
 Inputs:
 
-- Selected shed/partition rows with expected animal counts.
+- Selected shed/partition rows. Any count is a planning hint only and must not
+  become an individual submit gate.
 - Kids-only cadence lane and animal group filter.
 - `start_business_date`.
 - `planned_cap_per_day`, default 100.
@@ -429,9 +430,10 @@ Inputs:
 Algorithm:
 
 1. Sort selected sheds/partitions by stable operational order.
-2. Resolve expected animals using the campaign filter. V1 includes kids/K/F
-   group animals only; adult goats and adult sheds are excluded even when they
-   share a physical area or appear in source cadence docs.
+2. Resolve the selected kids/K/F shed/partition buckets for planning. V1 does
+   not build an expected animal roster for submit; adult goats and adult sheds
+   are excluded even when they share a physical area or appear in source cadence
+   docs.
 3. Treat each selected shed/partition as an atomic item after filtering.
 4. Build work groups greedily:
    - add the next item if it does not exceed cap;
@@ -666,11 +668,9 @@ Operator screen:
 - Weight input.
 - Mandatory per-animal video capture for individual animal rows.
 - Required shed/partition proof capture for per-shed/partition rows.
-- Same table for all scanned animals, with mismatch highlighting and columns for
-  expected/original shed and actual/current shed.
-- Pending section distinguishes true pending animals from unavailable/moved
-  expected animals: shifted, ICU/quarantine, dead, culled, sold/transferred,
-  exited, or review-needed.
+- Same table for all captured RFID/tag rows in the selected Weighing bucket.
+- Pending state is bucket-local proof/weight/sync readiness only. V1 must not
+  compute missing, unavailable, moved, or expected herd animals during submit.
 - Offline queue and sync status consistent with current Android capture patterns.
 
 Android data contract:
@@ -681,14 +681,14 @@ Android data contract:
   assumptions. Extract reusable scan/proof renderer pieces behind neutral models
   if needed, keep the Vaccination adapter and tests intact, and add a separate
   Weighing adapter/route/viewmodel contract.
-- Work groups, expected animals, observations, proof upload rows, and sync
-  attempts are principal-scoped Room rows and are wiped on sign-out.
+- Work groups, captured Weighing rows, proof upload rows, and sync attempts are
+  principal-scoped Room rows and are wiped on sign-out.
 - L1 work groups and L2 animal rows use keyset paging with a phone-sized page.
 - RFID lookup is O(1) against indexed Room/cache state, not a linear scan of a
   large in-memory list.
 - Physical RFID attempts are append-only audited separately from accepted
-  completion rows, including duplicate, unknown, wrong-category, wrong-shed, and
-  not-in-campaign attempts.
+  completion rows. Duplicate RFID/tag values across different selected buckets
+  are valid Weighing evidence in V1, not wrong-shed or not-in-campaign failures.
 - Accepted scan/result completion uses Room/outbox rows backed by database
   unique constraints and idempotency keys. In-memory guards may improve UX, but
   they are not correctness authority.
@@ -696,10 +696,10 @@ Android data contract:
   only while the Weighing scan route is active. They must never fall through to
   Back, focused buttons, submit actions, navigation, text fields, or unrelated
   form controls.
-- Scanning an RFID for an animal outside the visible page appends/updates the
-  visible scan feed and local observation state from indexed cache/Room without
-  fetching or rendering every expected animal. Summary totals remain
-  page-independent.
+- Scanning an RFID/tag appends or updates the selected bucket's visible scan
+  feed and local observation state from indexed Room/cache state. The app must
+  not fetch or render an expected animal roster to decide whether submit is
+  allowed.
 - UI states distinguish loading, cached/offline, empty, forbidden, backend
   error, sync pending, sync failed, and conflict.
 - Route identity includes campaign id, work group id, selected shed/partition
@@ -978,10 +978,10 @@ Hot query contracts:
   bounded progress buckets.
 - Operator worklist filters by `tenant_id + operator_user_id + effective_business_date/status`
   and keyset cursor. It does not scan all campaign animals.
-- Animal list filters by `tenant_id + campaign_id + work_group_id/status` or
-  `campaign_shed_id/status` and keyset cursor.
-- Observation submit performs one indexed lookup for expected membership and one
-  indexed lookup for proof state. It must not load the whole work group.
+- Captured bucket rows filter by `tenant_id + campaign_id + work_group_id +
+  campaign_shed_id` and keyset cursor.
+- Observation submit performs indexed lookups for captured bucket rows and proof
+  state. It must not load or require expected Herd Register membership.
 - Availability reconciliation uses event-affected animals or campaign pages, not
   tenant-wide current herd scans.
 - Media/proof display preloads proof metadata in one batched query for the page.
@@ -989,9 +989,9 @@ Hot query contracts:
 
 Performance proof expected in implementation:
 
-- EXPLAIN for campaign overview, operator work group list, expected animal list,
-  observation insert lookup, and availability reconciliation at the 50k-animal
-  envelope.
+- EXPLAIN for campaign overview, operator work group list, captured bucket row
+  list, observation insert lookup, and availability reconciliation at the
+  50k-animal envelope.
 - Query-count tests proving no per-animal N+1 proof/media or current-location
   lookups.
 - Page-boundary tests proving totals do not change when page size changes.
@@ -1153,8 +1153,8 @@ Minimum tests before implementation is considered done:
 - Notification tests prove durable request creation, exact replay, retry/DLQ
   behavior, and role-correct recipients.
 - Observability tests or golden log/metric assertions cover key failure paths:
-  idempotency conflict, proof missing, wrong-shed scan, stale availability event,
-  projection retry, and notification failure.
+  idempotency conflict, proof missing, stale availability event, projection
+  retry, and notification failure. Wrong-shed scan is not a V1 Weighing failure.
 
 Implementation guard targets to add:
 
@@ -1173,10 +1173,12 @@ Implementation guard targets to add:
   `goat_id`/`goats` implementation names during this slice.
 - Whether leadership can manually close remaining pending animals/scopes as
   `closed_by_override` in v1 or only cancel the whole campaign.
-- Whether a wrong-shed weighing observation should trigger a suggested movement
-  review item immediately or only appear in weighing mismatch reports.
-- Which lifecycle statuses should automatically remove an expected animal from
-  remaining workload versus require supervisor confirmation.
+- Whether a future reconciliation layer should compare captured RFID/tag values
+  to Herd Register location and suggest movement review. That future analytics
+  layer must not become a V1 submit gate.
+- Whether a future rostered weighing mode should use lifecycle statuses to
+  remove an expected animal from remaining workload versus require supervisor
+  confirmation. V1 does not use expected animal workload.
 - Whether weight values need verifier review before becoming the trusted latest
   weight projection.
 - Whether the daily cap should be tenant-wide, farm-specific, or operator
