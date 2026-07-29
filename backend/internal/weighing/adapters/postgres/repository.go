@@ -614,14 +614,20 @@ SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
        weight_kg::float8, proof_artifact_id::text,
        COALESCE(expected_location_id::text, ''), accepted_at
 FROM weighing_observations
-WHERE tenant_id=$1::uuid
-  AND campaign_id=$2::uuid
-  AND campaign_shed_id=$3::uuid
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=weighing_observations.tenant_id
+ AND cs.campaign_id=weighing_observations.campaign_id
+ AND cs.campaign_shed_id=weighing_observations.campaign_shed_id
+ AND ($5::uuid IS NULL OR cs.operator_user_id=$5::uuid)
+ AND cs.status <> 'canceled'
+WHERE weighing_observations.tenant_id=$1::uuid
+  AND weighing_observations.campaign_id=$2::uuid
+  AND weighing_observations.campaign_shed_id=$3::uuid
   AND (
-    animal_id IS NULL
-    OR animal_id = ANY($4::uuid[])
+    weighing_observations.animal_id IS NULL
+    OR weighing_observations.animal_id = ANY($4::uuid[])
   )
-ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out))
+ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out), nullableString(operatorFilter))
 	if err != nil {
 		return domain.RosterPage{}, err
 	}

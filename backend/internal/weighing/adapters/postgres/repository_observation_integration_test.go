@@ -355,6 +355,20 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
+	const freeFlowTag = "free-flow-unassigned-shed"
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          freeFlowTag,
+		ScannedIdentifier: freeFlowTag,
+		WeightKg:          11.5,
+		ProofArtifactID:   repoAnimalProof,
+		IdempotencyKey:    "animal:unassigned-roster-leak-regression",
+		RecordedBy:        repoOperator,
+	}); err != nil {
+		t.Fatalf("seed free-flow observation: %v", err)
+	}
 
 	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", 50)
 	if err != nil {
@@ -363,12 +377,18 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 	if len(page.Items) != 0 {
 		t.Fatalf("wrong operator roster=%+v, want no animal rows", page.Items)
 	}
+	if len(page.Observations) != 0 {
+		t.Fatalf("wrong operator observations=%+v, want no free-flow observation rows", page.Observations)
+	}
 	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", 50)
 	if err != nil {
 		t.Fatalf("assigned operator roster read: %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].AnimalID != repoAnimal {
 		t.Fatalf("assigned operator roster=%+v, want fixture animal", page.Items)
+	}
+	if len(page.Observations) != 1 || page.Observations[0].AnimalID != freeFlowTag {
+		t.Fatalf("assigned operator observations=%+v, want free-flow observation row", page.Observations)
 	}
 }
 
