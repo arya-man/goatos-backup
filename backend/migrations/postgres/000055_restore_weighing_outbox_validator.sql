@@ -27,6 +27,14 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF NEW.aggregate_type = 'vaccination_batch' THEN
+    IF NOT EXISTS (SELECT 1 FROM obligation_batches WHERE tenant_id = NEW.tenant_id AND batch_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'vaccination batch outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'weighing' THEN
     IF NOT EXISTS (
       SELECT 1 FROM weighing_campaigns
@@ -111,6 +119,22 @@ BEGIN
   IF NEW.aggregate_type = 'correction_request' THEN
     IF NOT EXISTS (SELECT 1 FROM identity_correction_requests WHERE tenant_id = NEW.tenant_id AND correction_request_id = NEW.aggregate_id) THEN
       RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'absence' THEN
+    IF NOT EXISTS (SELECT 1 FROM workforce_absences WHERE tenant_id = NEW.tenant_id AND absence_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'absence outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'park' THEN
+    IF NOT EXISTS (SELECT 1 FROM locations WHERE tenant_id = NEW.tenant_id AND location_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'park outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
     END IF;
     RETURN NEW;
   END IF;
