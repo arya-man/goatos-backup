@@ -136,21 +136,22 @@ class KeyboardWedgeRfidReader(
             .toSet()
         val inputDevices = findReaderInputDevices(
             disconnectedNames = disconnectedNames,
-            suppressDisconnectedNameFilter = RfidReaderDeviceSelector.shouldSuppressDisconnectedNameFilter(pairedDevices),
+            disconnectedNameFilterBypassNames = RfidReaderDeviceSelector.disconnectedNameFilterBypassNames(pairedDevices),
         )
         return RfidReaderDeviceSelector.mergeVisibleDevices(inputDevices, pairedDevices)
     }
 
     private fun findReaderInputDevices(
         disconnectedNames: Set<String>,
-        suppressDisconnectedNameFilter: Boolean,
+        disconnectedNameFilterBypassNames: Set<String>,
     ): List<RfidReaderDevice> {
         val im = context.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return emptyList()
         return im.inputDeviceIds.asSequence().mapNotNull { id ->
             val device = im.getInputDevice(id) ?: return@mapNotNull null
             val isKeyboard = device.sources and InputDevice.SOURCE_KEYBOARD == InputDevice.SOURCE_KEYBOARD
             if (!isKeyboard || device.isVirtual || !matchesHint(device.name)) return@mapNotNull null
-            if (!suppressDisconnectedNameFilter && device.name.lowercase() in disconnectedNames) return@mapNotNull null
+            val deviceName = device.name.lowercase()
+            if (deviceName in disconnectedNames && deviceName !in disconnectedNameFilterBypassNames) return@mapNotNull null
             RfidReaderDevice(
                 id = "input-$id",
                 name = device.name,

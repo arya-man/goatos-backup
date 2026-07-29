@@ -1,7 +1,6 @@
 package sg.mesha.goatos.rfid
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RfidReaderDeviceSelectorTest {
@@ -20,12 +19,28 @@ class RfidReaderDeviceSelectorTest {
     }
 
     @Test
-    fun `same-name disconnected reader does not hide input device when another paired reader is connected`() {
+    fun `same-name disconnected reader bypasses stale input filter when matching paired reader is ready`() {
         val pairedDevices = listOf(
             RfidReaderDevice(id = "bt-00:11", name = "IDT RHLS-3", detail = "Connected Bluetooth keyboard", signalLabel = "Ready"),
             RfidReaderDevice(id = "bt-22:33", name = "IDT RHLS-3", detail = "Paired not connected", signalLabel = "Disconnected"),
         )
 
-        assertTrue(RfidReaderDeviceSelector.shouldSuppressDisconnectedNameFilter(pairedDevices))
+        assertEquals(
+            setOf("idt rhls-3"),
+            RfidReaderDeviceSelector.disconnectedNameFilterBypassNames(pairedDevices),
+        )
+    }
+
+    @Test
+    fun `different-name ready reader does not bypass disconnected stale input filter`() {
+        val pairedDevices = listOf(
+            RfidReaderDevice(id = "bt-00:11", name = "IDT RHLS-3", detail = "Connected Bluetooth keyboard", signalLabel = "Ready"),
+            RfidReaderDevice(id = "bt-22:33", name = "Chainway R3", detail = "Paired not connected", signalLabel = "Disconnected"),
+        )
+
+        assertEquals(
+            emptySet<String>(),
+            RfidReaderDeviceSelector.disconnectedNameFilterBypassNames(pairedDevices),
+        )
     }
 }
