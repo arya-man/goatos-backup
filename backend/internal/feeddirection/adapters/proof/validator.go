@@ -8,6 +8,7 @@ package proof
 
 import (
 	"context"
+	"strings"
 
 	fdports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
@@ -17,6 +18,24 @@ const uploadStateCompleted = "completed"
 
 type Validator struct {
 	repo proofports.Repository
+}
+
+// ValidateLiveCameraVideo enforces the stronger transport contract: a completed video created by
+// the in-app camera for the exact shed addressed by the task. A gallery artifact or a proof for a
+// different shed is not interchangeable evidence.
+func (v *Validator) ValidateLiveCameraVideo(ctx context.Context, tenantID, proofID, shedID string) error {
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, []string{proofID})
+	if err != nil {
+		return err
+	}
+	art, ok := found[proofID]
+	if !ok || art.TenantID != tenantID || art.UploadState != uploadStateCompleted ||
+		art.ProofType != "video" || !strings.HasPrefix(strings.ToLower(art.MimeType), "video/") ||
+		art.SubjectType != "shed" || art.SubjectID == nil || *art.SubjectID != shedID ||
+		art.Metadata["capture_source"] != "in_app_camera" {
+		return fdports.ErrInvalidProof
+	}
+	return nil
 }
 
 func NewValidator(repo proofports.Repository) *Validator {

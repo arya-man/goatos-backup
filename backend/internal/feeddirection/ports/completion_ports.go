@@ -104,4 +104,5 @@ type CompletionStore interface {
 // completion is written.
 type ProofValidator interface {
 	ValidateFeedProofs(ctx context.Context, tenantID string, proofIDs []string) error
+	ValidateLiveCameraVideo(ctx context.Context, tenantID, proofID, shedID string) error
 }

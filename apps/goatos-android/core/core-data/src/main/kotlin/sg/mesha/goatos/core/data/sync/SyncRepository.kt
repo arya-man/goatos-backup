@@ -319,6 +319,8 @@ interface SyncRepository {
         packingProofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
 
+    suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = AppResult.Err("feed transport sync is not configured")
+
     /**
      * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
      * Assigns [permanentIdentifier] to the temporary-tagged goat [groupKey], atomically retiring its
@@ -819,6 +821,8 @@ class DefaultSyncRepository(
             ),
         ),
     )
+
+    override suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = enqueue(opType=OutboxOpType.FEED_TRANSPORT_SUBMIT,groupKey=groupKey,idempotencyKey=idempotencyKey,payloadJson=syncJson.encodeToString(FeedTransportSubmitPayload(taskId,proofOutboxItemId)))
 
     override suspend fun enqueuePromoteIdentifier(
         groupKey: String,

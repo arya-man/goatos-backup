@@ -32,6 +32,7 @@ type ShiftingVerificationRepo interface {
 type FeedCompletionStore interface {
 	feeddirectionports.DistributionCompletionStore
 	feeddirectionports.PackingCompletionStore
+	feeddirectionports.TransportStore
 }
 
 // RegisterVerificationAppliers subscribes the shifting, feed-distribution, and feed-packing appliers to
@@ -43,4 +44,5 @@ func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, sh
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
+	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
 }

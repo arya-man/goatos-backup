@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">నీటి పంపిణీ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_packing_title">మేత ప్యాకింగ్‌ను రికార్డ్ చేయండి</string>
     <string name="proof_camera_feed_packing_instruction">మేత ప్యాకింగ్ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_camera_feed_transport_title">మేత రవాణా వీడియో</string>
+    <string name="proof_camera_feed_transport_instruction">ఈ షెడ్‌కు మేతను తరలించడాన్ని ప్రత్యక్షంగా రికార్డ్ చేయండి</string>
     <string name="proof_camera_recording_time">రికార్డింగ్ · %1$d సెకన్లు</string>
     <string name="proof_camera_unavailable">కెమెరా అందుబాటులో లేదు. రద్దు చేసి మళ్లీ ప్రయత్నించండి.</string>
     <string name="proof_camera_cancel">రుజువు రికార్డింగ్‌ను రద్దు చేయండి</string>

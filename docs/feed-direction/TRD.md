@@ -1,5 +1,7 @@
 # Feed -> Feed Direction - Technical Requirements / Design (TRD)
 
+> Feed Transport override (maintainer decision 2026-07-29): `docs/decisions/feed-transport-verification.md` supersedes any transport session/batch/consolidation wording in this TRD. Transport is one daily task per active physical shed at 15:30 IST, under today's date, with one mandatory live-camera video and append-only verifier/rework attempts.
+
 **Status:** Draft v5, refined against source-first counter-review, read-model review, and dependency-closure audit
 **Date:** 2026-06-30
 **Companion:** [PRD.md](./PRD.md)

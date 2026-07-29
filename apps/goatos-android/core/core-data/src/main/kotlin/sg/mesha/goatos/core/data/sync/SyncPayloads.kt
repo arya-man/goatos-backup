@@ -289,3 +289,5 @@ data class FeedPackingCompletePayload(
     /** Outbox id of the MANDATORY packing VIDEO's PROOF_UPLOAD item. */
     @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
 )
+
+@Serializable data class FeedTransportSubmitPayload(@SerialName("task_id") val taskId:String,@SerialName("proof_outbox_item_id") val proofOutboxItemId:String)

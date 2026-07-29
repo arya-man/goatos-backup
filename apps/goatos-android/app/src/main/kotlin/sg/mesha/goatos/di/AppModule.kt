@@ -49,6 +49,7 @@ import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
 import sg.mesha.goatos.core.data.DefaultFeedRepository
+import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
@@ -365,6 +366,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideFeedCompletionLocalStore(): FeedCompletionLocalStore = FeedCompletionLocalStore()
+
+    @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
 
     @Provides
     @Singleton

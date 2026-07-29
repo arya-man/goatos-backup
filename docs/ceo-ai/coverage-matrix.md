@@ -72,6 +72,8 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /feed-direction/generation-preview | api + view:feed_direction_current | Planned generation + gaps |
 | GET /feed-direction/counts-projection/exceptions | api + view:ops_exception_queue | Blocked feed cells |
 | GET /feed-packing/worklist | api | Packing worklist |
+| GET /feed-transport/tasks | EXCLUDED | Operator-owned, shed-grain today-task execution list; leadership verification backlog remains covered by view:verification_queue_status. |
+| POST /feed-transport/tasks/{task_id}/submit | EXCLUDED | Operator evidence mutation, not a leadership read. Resulting verification state is covered by view:verification_queue_status. |
 | GET /feed-config/ration-rates | api + view:feed_direction_current | Config behind feed cost |
 | GET /feed-config/ration-groups | EXCLUDED | Config taxonomy reference |
 | GET /feed-config/shed-tags | EXCLUDED | Config mapping |
@@ -161,6 +163,8 @@ tracked as gaps below.
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |
+| feed_transport_tasks | EXCLUDED — operator daily shed task state; leadership sees pending evidence through verification_queue_status, not this execution queue |
+| feed_transport_attempts | EXCLUDED — immutable row-level proof-attempt history; leadership sees aggregate verification backlog through verification_queue_status |
 | shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue. High-priority feed proof refs, fingerprint, and requirement snapshot are EXCLUDED evidence/config detail; verification backlog remains covered by verification_queue_status. |
 | goat_births | EXCLUDED — per-child canonical mother relationship and delivery litter size used by the operator birth workflow; leadership birth/mortality reporting remains on governed Counts aggregates |
 | procurement_loads, procurement_load_goats, arrival_intake_reviews, procurement_source_health_checks, procurement_hf_vaccination_evidence | procurement_pipeline, source_entry_health_status |

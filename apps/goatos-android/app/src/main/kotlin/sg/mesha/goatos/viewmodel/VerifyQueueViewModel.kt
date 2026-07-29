@@ -266,6 +266,7 @@ class VerifyQueueViewModel @Inject constructor(
         VerifyModuleTab.SHIFTING -> if (isActionQueue) null else SHIFTING_CATEGORY
         VerifyModuleTab.PACKING -> if (isActionQueue) null else PACKING_CATEGORY
         VerifyModuleTab.FEED_DIRECTION -> if (isActionQueue) null else FEED_DISTRIBUTION_CATEGORY
+        VerifyModuleTab.TRANSPORT -> if (isActionQueue) null else FEED_TRANSPORT_CATEGORY
     }
 
     private fun closeDrive(batchId: String) = viewModelScope.launch {
@@ -377,6 +378,7 @@ private const val SHIFTING_CATEGORY = "shifting_move"
 // VerificationCategoryFeed) — kept apart by category exactly as the backend enqueues them.
 private const val PACKING_CATEGORY = "feed_packing"
 private const val FEED_DISTRIBUTION_CATEGORY = "feed_distribution"
+private const val FEED_TRANSPORT_CATEGORY = "feed_transport"
 
 private fun locationOptions(
     allLabel: String,

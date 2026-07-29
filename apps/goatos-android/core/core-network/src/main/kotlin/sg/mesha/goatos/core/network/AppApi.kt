@@ -17,6 +17,9 @@ import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
@@ -680,6 +683,9 @@ interface AppApi {
         request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto
 
+    suspend fun getFeedTransportTasks(businessDate: String, cursor: String? = null, limit: Int? = null): FeedTransportTaskPageDto
+    suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
+
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
@@ -841,6 +847,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                 navItems = listOf(
                     NavItemDto(key = "feed_direction", label = "Feed Direction", href = "/feed/direction"),
                     NavItemDto(key = "feed_packing", label = "Feed Packing", href = "/feed/packing"),
+                    NavItemDto(key = "feed_transport", label = "Feed Transport", href = "/feed/transport"),
                 ),
             ),
             BootstrapModuleDto(key = "breeding", label = "Breeding", status = "soon"),
@@ -1163,6 +1170,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             status = "pending_verification",
             newlyPending = true,
         )
+
+    override suspend fun getFeedTransportTasks(businessDate: String, cursor: String?, limit: Int?): FeedTransportTaskPageDto = FeedTransportTaskPageDto()
+    override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = FeedTransportSubmitResponseDto("fake-attempt", "verification_due", 1, true)
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

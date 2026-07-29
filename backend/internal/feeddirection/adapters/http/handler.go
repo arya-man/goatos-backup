@@ -38,6 +38,8 @@ type Service interface {
 	// session to pending_verification. Separate from CompleteSession (the old instant path, now inert) and
 	// from CompleteDistribution.
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
+	ListTransportTasks(ctx context.Context, tenantID, actorID, date, cursor string, limit int) ([]ports.FeedTransportTask, string, error)
+	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
 }
 
 type Handler struct {
@@ -59,6 +61,89 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26). Separate route from
 	// both POST /feed-direction/complete (old instant path) and the distribution route.
 	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
+	mux.HandleFunc("GET /feed-transport/tasks", h.GetTransportTasks)
+	mux.HandleFunc("POST /feed-transport/tasks/{task_id}/submit", h.PostTransportSubmit)
+}
+
+type transportTaskDTO struct {
+	TaskID       string    `json:"task_id"`
+	ParkID       string    `json:"park_id"`
+	ParkLabel    string    `json:"park_label"`
+	ShedID       string    `json:"shed_id"`
+	ShedLabel    string    `json:"shed_label"`
+	BusinessDate string    `json:"business_date"`
+	Status       string    `json:"status"`
+	OperatorID   string    `json:"operator_id,omitempty"`
+	ReworkReason string    `json:"rework_reason,omitempty"`
+	ScheduledAt  time.Time `json:"scheduled_at"`
+}
+type transportListResponse struct {
+	Items      []transportTaskDTO `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
+}
+
+func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
+	tenant := httpmiddleware.TenantIDFromContext(r.Context())
+	actor := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenant == "" || actor == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+	limit, err := boundedIntParam(r.URL.Query(), "limit", 20, 1, 100)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	items, next, err := h.service.ListTransportTasks(r.Context(), tenant, actor, r.URL.Query().Get("business_date"), r.URL.Query().Get("cursor"), int(limit))
+	if err != nil {
+		h.writeServiceError(w, r, "list feed transport tasks", err)
+		return
+	}
+	out := make([]transportTaskDTO, 0, len(items))
+	for _, x := range items {
+		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: next})
+}
+
+type transportSubmitRequest struct {
+	ProofRef string `json:"proof_ref"`
+}
+
+type transportSubmitResponse struct {
+	AttemptID   string `json:"attempt_id"`
+	Status      string `json:"status"`
+	AttemptNo   int32  `json:"attempt_no"`
+	NewlyQueued bool   `json:"newly_pending"`
+}
+
+func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
+	tenant := httpmiddleware.TenantIDFromContext(r.Context())
+	actor := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenant == "" || actor == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(key) < 8 || len(key) > 200 {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key must be between 8 and 200 characters", nil)
+		return
+	}
+	var body transportSubmitRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	if strings.TrimSpace(body.ProofRef) == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
+		return
+	}
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	if err != nil {
+		h.writeServiceError(w, r, "submit feed transport", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, transportSubmitResponse{AttemptID: res.AttemptID, Status: res.Status, AttemptNo: res.AttemptNo, NewlyQueued: res.NewlyPending})
 }
 
 // completeSessionRequest is the completion body: which shed-session, on which feed day and workflow,
@@ -511,10 +596,15 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrTransportProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
 		errors.Is(err, app.ErrDistributionEnqueuerNotWired),
 		errors.Is(err, ports.ErrPackingStoreUnavailable),
-		errors.Is(err, app.ErrPackingEnqueuerNotWired):
+		errors.Is(err, app.ErrPackingEnqueuerNotWired),
+		errors.Is(err, app.ErrTransportEnqueuerNotWired):
 		// A wiring/deployment fault, not a client error: 500.
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)
 	default:

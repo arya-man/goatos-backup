@@ -30,4 +30,6 @@
     <string name="proof_photo_take">Take photo</string>
     <string name="proof_photo_cancel">Cancel photo capture</string>
     <string name="submit_shed_success_toast">Shed proof submitted for review</string>
+    <string name="proof_camera_feed_transport_title">Feed transport video</string>
+    <string name="proof_camera_feed_transport_instruction">Record the feed being transported to this shed in real time.</string>
 </resources>

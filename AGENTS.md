@@ -247,6 +247,16 @@ alongside the distribution route, which had been unregistered and would 403).
 Canonical source: `docs/decisions/feed-distribution-verification.md`; migration
 `000033_feed_packing_verification_gate.sql`.
 
+Confirmed Feed Transport daily verification rule (maintainer decision 2026-07-29,
+SUPERSEDING transport session/batch/consolidation wording): at 15:30 IST, create one
+today-task per active physical shed. Feed Transport is never per feed session. The
+operator records one mandatory fresh in-app-camera video; submit moves the task to
+`verification_due`. Verifier APPROVE moves it to `completed`; REJECT moves it to
+`rework` assigned to the same operator. Every rework requires a new video and appends
+a new proof attempt; rejected proof attempts remain immutable history. Canonical source:
+`docs/decisions/feed-transport-verification.md`; migration
+`000054_feed_transport_daily_verification.sql`.
+
 Confirmed feed-direction shifting-projection timing rule (maintainer decision
 2026-07-27, SUPERSEDING the priority-based lead-day rule — normal 2-day /
 high-priority 1-day — that the projection previously applied): the feed sheet's

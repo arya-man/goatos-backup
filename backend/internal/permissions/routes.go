@@ -233,6 +233,8 @@ var protectedRoutes = []Route{
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
+	{OperationID: "listFeedTransportTasks", Method: "GET", Pattern: "/feed-transport/tasks", Permissions: []string{FeedDirectionComplete}},
+	{OperationID: "submitFeedTransportTask", Method: "POST", Pattern: "/feed-transport/tasks/{task_id}/submit", Permissions: []string{FeedDirectionComplete}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//
