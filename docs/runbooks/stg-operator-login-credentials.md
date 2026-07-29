@@ -51,6 +51,10 @@ Field roles and vaccination capacity:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
   context must pass — for the 4 field users AND the 5 leadership users (leadership
   profile via `ensureLeadershipMember`).
+- Mobile STG access also requires Firebase App Distribution tester access.
+  Whenever granting a mobile user, check/create their Firebase Auth user, backend
+  grant/profile, auth allowlist, AND add them to Firebase App Distribution group
+  `goatos-testers`; otherwise they can authenticate but cannot download the app.
 - STG reseed sets the Firebase passwords with
   `make seed-stg-firebase-password-users`; backend grants/profiles are then
   materialized by `make seed-stg-9-person-login`.
@@ -108,3 +112,19 @@ verifier row is seeded through `auth_pending_email_grants` by the CPT roster
 seed; without her Firebase UID committed to `seed-stg-login-grants`, her active
 verifier `user_scope_grants` row is materialized on first verified sign-in by
 `/auth/session-events`.
+
+## Firebase App Distribution Requirement
+
+Mobile users must also be testers in the STG Firebase App Distribution group:
+
+```bash
+firebase appdistribution:testers:add <email> \
+  --group-alias goatos-testers \
+  --project goatos-stg
+
+firebase appdistribution:testers:list --project goatos-stg
+```
+
+Treat a mobile grant as incomplete until the email appears in group
+`goatos-testers`. This is separate from Firebase Auth login and separate from
+the backend grant.
