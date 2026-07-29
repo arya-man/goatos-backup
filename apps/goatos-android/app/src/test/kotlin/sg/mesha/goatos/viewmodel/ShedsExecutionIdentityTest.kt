@@ -128,6 +128,29 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `overview adherence uses explicit accepted animals for mixed review shed rows`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 70,
+                openCount = 0,
+                doneCount = 70,
+                acceptedCount = 50,
+                reviewCount = 20,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(rows)
+
+        assertEquals(70, summary?.expectedCount)
+        assertEquals(70, summary?.submittedCount)
+        assertEquals(50, summary?.acceptedCount)
+        assertEquals(1, summary?.reviewItemCount)
+        assertEquals(71, summary?.acceptedPercent)
+    }
+
+    @Test
     fun `all animals done but draft shed proof still opens execution`() {
         val godelOne = listOf(
             VaccinationExecutionRowDto(

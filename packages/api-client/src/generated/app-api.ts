@@ -4490,12 +4490,16 @@ export interface components {
             /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
             partition?: string;
             animalStage: string;
-            /** @description Number of targeted animal obligations represented by this aggregated execution row. */
+            /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
             targetCount: number;
-            /** @description Targeted animal obligations still requiring field execution. */
+            /** @description Distinct current-drive animals still requiring field execution. */
             openCount: number;
-            /** @description Targeted animal obligations with completion evidence recorded. */
+            /** @description Distinct current-drive animals with completion evidence recorded. */
             doneCount: number;
+            /** @description Distinct current-drive animals accepted by verification inside this row. */
+            acceptedCount: number;
+            /** @description Distinct current-drive animals with recorded/rejected completion evidence not accepted inside this row. */
+            reviewCount: number;
             /** Format: uuid */
             driveId?: string;
             driveName?: string;

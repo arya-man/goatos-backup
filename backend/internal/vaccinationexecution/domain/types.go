@@ -88,6 +88,8 @@ type ExecutionRow struct {
 	TargetCount        int                `json:"targetCount"`
 	OpenCount          int                `json:"openCount"`
 	DoneCount          int                `json:"doneCount"`
+	AcceptedCount      int                `json:"acceptedCount"`
+	ReviewCount        int                `json:"reviewCount"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`
 	DueDate            *string            `json:"dueDate,omitempty"`

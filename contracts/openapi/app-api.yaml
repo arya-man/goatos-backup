@@ -12066,6 +12066,8 @@ components:
         - targetCount
         - openCount
         - doneCount
+        - acceptedCount
+        - reviewCount
         - workState
         - severity
         - sopStatus
@@ -12095,15 +12097,23 @@ components:
         targetCount:
           type: integer
           minimum: 0
-          description: Number of targeted animal obligations represented by this aggregated execution row.
+          description: Number of distinct current-drive animals represented by this aggregated execution row.
         openCount:
           type: integer
           minimum: 0
-          description: Targeted animal obligations still requiring field execution.
+          description: Distinct current-drive animals still requiring field execution.
         doneCount:
           type: integer
           minimum: 0
-          description: Targeted animal obligations with completion evidence recorded.
+          description: Distinct current-drive animals with completion evidence recorded.
+        acceptedCount:
+          type: integer
+          minimum: 0
+          description: Distinct current-drive animals accepted by verification inside this row.
+        reviewCount:
+          type: integer
+          minimum: 0
+          description: Distinct current-drive animals with recorded/rejected completion evidence not accepted inside this row.
         driveId:
           type: string
           format: uuid
