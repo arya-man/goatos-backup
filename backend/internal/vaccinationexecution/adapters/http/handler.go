@@ -1613,9 +1613,21 @@ func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Requ
 		driveBatchIDPtr = &driveBatchID
 	}
 
+	parkID := r.URL.Query().Get("park_id")
+	var parkIDPtr *string
+	if parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+				errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+			return
+		}
+		parkIDPtr = &parkID
+	}
+
 	resp, err := h.reader.VaccinationCommandBoard(r.Context(), vaccexecd.CommandBoardQuery{
 		TenantID:     tenantID,
 		DriveBatchID: driveBatchIDPtr,
+		ParkID:       parkIDPtr,
 		AsOf:         asOf,
 	})
 	if err != nil {
