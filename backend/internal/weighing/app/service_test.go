@@ -72,18 +72,27 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 }
 
-func TestListCampaignsFiltersShedsForExecuteOnlyOperator(t *testing.T) {
-	otherOp := "00000000-0000-4000-8000-000000000302"
-	service := NewService(&campaignListRepo{page: domain.CampaignPage{Items: []domain.Campaign{{
-		CampaignID:     "00000000-0000-4000-8000-000000000501",
-		TenantID:       testTenant,
-		OperatorUserID: testOp,
-		Status:         domain.StatusPublished,
-		Sheds: []domain.CampaignShed{
-			{CampaignShedID: "00000000-0000-4000-8000-000000000801", DisplayName: "Yashoda 1", OperatorUserID: testOp},
-			{CampaignShedID: "00000000-0000-4000-8000-000000000802", DisplayName: "Yashoda 2", OperatorUserID: otherOp},
-		},
-	}}}})
+func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *testing.T) {
+	repo := &campaignListRepo{
+		operatorPage: domain.CampaignPage{Items: []domain.Campaign{{
+			CampaignID: "00000000-0000-4000-8000-000000000501",
+			TenantID:   testTenant,
+			Status:     domain.StatusPublished,
+			Sheds: []domain.CampaignShed{
+				{CampaignShedID: "00000000-0000-4000-8000-000000000801", DisplayName: "Yashoda 1", OperatorUserID: testOp},
+			},
+		}}},
+		monitorPage: domain.CampaignPage{Items: []domain.Campaign{{
+			CampaignID: "00000000-0000-4000-8000-000000000501",
+			TenantID:   testTenant,
+			Status:     domain.StatusPublished,
+			Sheds: []domain.CampaignShed{
+				{CampaignShedID: "00000000-0000-4000-8000-000000000801", DisplayName: "Yashoda 1", OperatorUserID: testOp},
+				{CampaignShedID: "00000000-0000-4000-8000-000000000802", DisplayName: "Yashoda 2", OperatorUserID: "00000000-0000-4000-8000-000000000302"},
+			},
+		}}},
+	}
+	service := NewService(repo)
 
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	page, err := service.ListCampaigns(context.Background(), operator, "", 20)
@@ -93,6 +102,9 @@ func TestListCampaignsFiltersShedsForExecuteOnlyOperator(t *testing.T) {
 	if len(page.Items) != 1 || len(page.Items[0].Sheds) != 1 || page.Items[0].Sheds[0].DisplayName != "Yashoda 1" {
 		t.Fatalf("operator page = %+v, want only assigned shed", page.Items)
 	}
+	if repo.operatorUserID != testOp || repo.operatorCalls != 1 || repo.monitorCalls != 0 {
+		t.Fatalf("repo calls operator=(%q,%d) monitor=%d, want operator-scoped pagination", repo.operatorUserID, repo.operatorCalls, repo.monitorCalls)
+	}
 
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
 	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
@@ -101,6 +113,9 @@ func TestListCampaignsFiltersShedsForExecuteOnlyOperator(t *testing.T) {
 	}
 	if len(page.Items) != 1 || len(page.Items[0].Sheds) != 2 {
 		t.Fatalf("monitor page = %+v, want all sheds", page.Items)
+	}
+	if repo.monitorCalls != 1 {
+		t.Fatalf("repo monitor calls=%d, want normal monitor listing", repo.monitorCalls)
 	}
 }
 
@@ -430,11 +445,22 @@ type fakeRepo struct {
 
 type campaignListRepo struct {
 	fakeRepo
-	page domain.CampaignPage
+	monitorPage    domain.CampaignPage
+	operatorPage   domain.CampaignPage
+	operatorUserID string
+	monitorCalls   int
+	operatorCalls  int
 }
 
 func (r *campaignListRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
-	return r.page, nil
+	r.monitorCalls++
+	return r.monitorPage, nil
+}
+
+func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operatorUserID string, _ string, _ int) (domain.CampaignPage, error) {
+	r.operatorCalls++
+	r.operatorUserID = operatorUserID
+	return r.operatorPage, nil
 }
 
 type shedCaptureRepo struct {
@@ -464,10 +490,16 @@ func (f fakeRepo) PublishCampaign(context.Context, string, string, string, strin
 func (f fakeRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
+func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, int) (domain.CampaignPage, error) {
+	return domain.CampaignPage{}, nil
+}
 func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
 }
 func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+}
+func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
 func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
@@ -596,6 +628,19 @@ func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ do
 func (r *scenarioRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }
+func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, operatorUserID string, _ string, _ int) (domain.CampaignPage, error) {
+	campaign := r.campaign
+	campaign.Sheds = nil
+	for _, shed := range r.campaign.Sheds {
+		if shed.OperatorUserID == operatorUserID {
+			campaign.Sheds = append(campaign.Sheds, shed)
+		}
+	}
+	if len(campaign.Sheds) == 0 {
+		return domain.CampaignPage{}, nil
+	}
+	return domain.CampaignPage{Items: []domain.Campaign{campaign}}, nil
+}
 
 func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
@@ -630,6 +675,17 @@ func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, 
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
 	return domain.RosterPage{Items: out}, nil
+}
+func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
+	for _, shed := range r.campaign.Sheds {
+		if shed.CampaignShedID == campaignShedID {
+			if shed.OperatorUserID != operatorUserID {
+				return domain.RosterPage{}, ports.ErrForbidden
+			}
+			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, limit)
+		}
+	}
+	return domain.RosterPage{}, ports.ErrNotFound
 }
 
 func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {

@@ -317,6 +317,61 @@ WHERE tenant_id=$2::uuid AND campaign_shed_id=$3::uuid`,
 	t.Log("OneToMany PageBoundary ScopeHierarchy StatusMatrix: shed-level operator auth stays on the exact campaign_shed_id bucket and does not leak through the campaign owner, sibling shed rows, paging boundaries, or terminal campaign statuses")
 }
 
+func TestListCampaignsForOperatorPagesOverAssignedShedRowsBeforeLimit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	newerCampaign := "00000000-0000-4000-8000-000000009901"
+	newerShed := "00000000-0000-4000-8000-000000009902"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-08-03', '2026-08-09', '2026-08-03', 'published', 100, $4::uuid, $4::uuid)`,
+		newerCampaign, repoTenant, repoPark, repoOtherOp)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Other Operator Newer Shed', 'individual_animal', $5::uuid, 1)`,
+		newerShed, newerCampaign, repoTenant, repoActualShed, repoOtherOp)
+
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 1)
+	if err != nil {
+		t.Fatalf("list campaigns for operator: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].CampaignID != repoCampaign {
+		t.Fatalf("operator page=%+v, want assigned older campaign despite newer unassigned first page", page.Items)
+	}
+	if len(page.Items[0].Sheds) != 2 {
+		t.Fatalf("operator campaign sheds=%+v, want only assigned fixture sheds", page.Items[0].Sheds)
+	}
+	t.Log("OneToMany ScopeHierarchy StatusMatrix: operator campaign listing pages over matching campaign_shed rows before limit and keeps canceled/status-filtered sibling assignments out of the operator scope")
+}
+
+func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", 50)
+	if err != nil {
+		t.Fatalf("wrong operator roster read returned hard error: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("wrong operator roster=%+v, want no animal rows", page.Items)
+	}
+	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", 50)
+	if err != nil {
+		t.Fatalf("assigned operator roster read: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].AnimalID != repoAnimal {
+		t.Fatalf("assigned operator roster=%+v, want fixture animal", page.Items)
+	}
+}
+
 func TestRecordShedObservationPersistsAverageWeightAndOneToFiveProofs(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
