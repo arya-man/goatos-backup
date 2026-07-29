@@ -24,6 +24,35 @@ When the user says "my local DB" or "local frontend/backend", treat that as:
 Chrome -> 127.0.0.1:3300 -> 127.0.0.1:8080 -> 127.0.0.1:5433/goatos
 ```
 
+## Fast Lane for Tiny Fixes
+
+When the maintainer asks to make a small, low-risk fix and land it on `main`,
+optimize for elapsed time. Do not run the full local CI matrix, mobile install,
+cloud deploy, browser proof suite, or graph/document maintenance unless the
+change actually touches that surface or the maintainer explicitly asks for it.
+
+Default verification should be the narrowest command that proves the touched
+surface still works. Examples:
+
+- Android Kotlin-only UI or view-model edit: run the targeted Gradle compile or
+  targeted unit test; install to a physical device only when device behavior is
+  the thing being verified.
+- Admin-web component/style edit: run the relevant typecheck/test/lint slice or
+  a focused browser check, not the whole product suite.
+- Docs/copy/config-only edit: inspect the diff and run format/schema validation
+  only if that file type has one.
+
+Before pushing, verify repo, remote, active identity, branch/head, and dirty
+state. Avoid detached-HEAD limbo for ordinary work: use the current branch when
+it is safe, or push the verified commit explicitly with `git push origin
+HEAD:main` when the maintainer asked to land directly on `main`. Never include
+unrelated proof files, screenshots, temp folders, or local artifacts in the
+commit.
+
+Report the verification boundary honestly and briefly. If only a narrow check
+was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
+change.
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
