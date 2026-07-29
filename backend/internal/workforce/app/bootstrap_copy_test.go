@@ -18,9 +18,9 @@ func moduleKeySet(modules []domain.BootstrapModule) map[string]string {
 
 // TestLeadershipDrawerCompositionPerRole locks the role -> drawer matrix
 // (maintainer decision 2026-07-25, docs/decisions/role-module-nav-composition.md):
-//   - CEO/CXO: Vaccination + Weighing + Counts + Feed + Breeding(soon), never the
+//   - CEO/CXO: Vaccination + Weighing + Counts + Feed(soon) + Breeding(soon), never the
 //     removed synthetic leadership module or Verification. Expanded drawer.
-//   - Park Head: Vaccination + Weighing + Feed (park operations include feed), NO Counts.
+//   - Park Head: Vaccination + Weighing, NO Counts/Feed/Breeding.
 //   - PC Director: Vaccination + Weighing, no Counts/Feed/Breeding.
 //   - Verifier: Verification only. Operator: department modules, never leadership.
 func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
@@ -40,8 +40,8 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if keys["counts"] != moduleStatusAvailable {
 			t.Fatalf("CEO must see Counts as available; got %v", keys)
 		}
-		if keys["feed_direction"] != moduleStatusAvailable {
-			t.Fatalf("CEO must see Feed as available (built module); got %v", keys)
+		if keys["feed_direction"] != moduleStatusSoon {
+			t.Fatalf("CEO must see Feed as soon; got %v", keys)
 		}
 		if keys["breeding"] != moduleStatusSoon {
 			t.Fatalf("CEO must see Breeding as soon; got %v", keys)
@@ -112,10 +112,9 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		}
 	})
 
-	// Park Head runs park operations, which include Feed, so unlike the PC Director
-	// they get Feed alongside the preventive-care modules.
-	// Counts remains excluded — a park head does not run the capture/approval surfaces.
-	t.Run("park_head sees vaccination + weighing + feed, not counts", func(t *testing.T) {
+	// Park Head is preventive-care scoped. Feed is still roadmap/soon and not part
+	// of the park-head drawer until it becomes a built park-ops surface.
+	t.Run("park_head sees vaccination + weighing only", func(t *testing.T) {
 		role := permissions.RoleParkHead
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		modules := modulesFor(grants, []string{"vaccination", "weighing", "counts", "feed_direction"}, en)
@@ -127,10 +126,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if keys["weighing"] != moduleStatusAvailable {
 			t.Fatalf("park_head must have the Weighing module; got %v", keys)
 		}
-		if keys["feed_direction"] != moduleStatusAvailable {
-			t.Fatalf("park_head must have the Feed module; got %v", keys)
-		}
-		for _, banned := range []string{"counts", "breeding", "leadership", "verification"} {
+		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
 			if _, ok := keys[banned]; ok {
 				t.Fatalf("park_head must NOT see %q; got %v", banned, keys)
 			}

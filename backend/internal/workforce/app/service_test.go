@@ -357,8 +357,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"counts"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "birth", Label: "Birth", Href: "/counts/birth"},
-				{Key: "death", Label: "Death", Href: "/counts/death"},
+				{Key: "birth_death", Label: "Birth/Death", Href: "/counts/birth-death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
 			},
 		},
@@ -729,10 +728,10 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // The Counts module exposes capture pages on the phone; who sees which is decided by permission
 // (counts.read / counts.write), never by a per-role nav template.
 //
-// The mobile Counts bar no longer carries an approval tab for anyone: an Operator gets
-// [birth, death, shifting], and Admin/CEO additionally get the census page. Permanent RFID
+// The mobile Counts bar carries capture tabs; an Operator gets
+// [birth_death, shifting], and Admin/CEO additionally get census and approval. Permanent RFID
 // assignment is the final action inside each kid's Birth workflow, not a separate Counts page.
-// Birth and Death split into two work-list modules 2026-07-27
+// Birth and Death were recombined into one work-list tab
 // (docs/decisions/birth-death-workflows.md).
 //
 // Whether the Counts MODULE appears in the drawer at all is decided upstream by the
@@ -740,20 +739,20 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // leadership tier, and preventive-care leaders (PC Director, Park Head) do NOT —
 // their drawer is the vaccination home only (maintainer decision 2026-07-24).
 //
-//	role          | census | birth | death | shifting | module in drawer
-//	operator      |   -    |   x   |   x   |    x     | yes
-//	park_head     |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
-//	ceo_internal  |   x    |   x   |   x   |    x     | yes
-//	pc_director   |   -    |   -   |   -   |    -     | NO  (preventive-care leader)
-//	verifier      |   -    |   -   |   -   |    -     | NO
+//	role          | census | birth/death | shifting | approval | module in drawer
+//	operator      |   -    |      x      |    x     |    -     | yes
+//	park_head     |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
+//	ceo_internal  |   x    |      x      |    x     |    x     | yes
+//	pc_director   |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
+//	verifier      |   -    |      -      |    -     |    -     | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting"}},
+		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -798,32 +797,23 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}
 }
 
-// TestFeedModuleRoleMatrix pins who sees the mobile Feed module and which of its tabs. The
-// module is the Feed vertical on the phone: Feed Direction (the generated sheet, gated ProtocolRead)
-// Feed Packing (the bag worklist, gated FeedPackingRead), and Feed Transport (the daily shed proof,
-// gated FeedDirectionComplete). The tabs gate on DIFFERENT
-// authorities on purpose, so the matrix is not "all or nothing":
-//
-//   - CEO/park head hold both authorities, so they get both tabs (via the drawer — they default to
-//     the leadership bar and switch to Feed).
-//   - an org Head/Director tier holds ProtocolRead but not FeedPackingRead, so they get Feed
-//     Direction only — they may read the sheet but not draw the bags.
-//   - an operator now holds BOTH feed reads (maintainer decision 2026-07-22), so they see the full
-//     Feed module — Direction (dispatch sheet) and Packing (the bag worklist).
-//
-// The Android shell renders this composed bar verbatim; this is the backend authority for it.
+// TestFeedModuleRoleMatrix pins the current Feed state: feed_direction is a
+// declared roadmap drawer row, not a built mobile Feed module yet. It may appear
+// as disabled "Soon" for principals that are allowed to see roadmap modules, but
+// it contributes no servable bottom-bar items until the Feed surface is built.
 func TestFeedModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
-		role      string
-		wantItems []string // nav item keys inside the feed module, nil => module absent
+		role       string
+		wantStatus string   // empty => module absent
+		wantItems  []string // nav item keys inside the feed module
 	}{
-		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleParkHead, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
-		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
-		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
-		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleVerifier, nil},
+		{permissions.RoleCEOInternal, moduleStatusSoon, []string{}},
+		{permissions.RoleParkHead, "", nil},
+		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), moduleStatusSoon, []string{}},
+		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), moduleStatusSoon, []string{}},
+		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), moduleStatusSoon, []string{}},
+		{permissions.RoleOperator, moduleStatusSoon, []string{}},
+		{permissions.RoleVerifier, "", nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.role, func(t *testing.T) {
@@ -836,7 +826,7 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 					feed = &modules[i]
 				}
 			}
-			if tc.wantItems == nil {
+			if tc.wantStatus == "" {
 				if feed != nil {
 					t.Fatalf("%s must NOT see the feed module; got items %#v", tc.role, feed.NavItems)
 				}
@@ -844,6 +834,9 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 			}
 			if feed == nil {
 				t.Fatalf("%s must see the feed module; modules=%#v", tc.role, modules)
+			}
+			if feed.Status != tc.wantStatus {
+				t.Fatalf("%s feed status=%q want %q", tc.role, feed.Status, tc.wantStatus)
 			}
 			got := make([]string, 0, len(feed.NavItems))
 			for _, item := range feed.NavItems {
@@ -857,8 +850,8 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 					t.Fatalf("feed nav items=%v want %v", got, tc.wantItems)
 				}
 			}
-			// Landing must be a page this principal can actually open.
-			if !navItemsContainHref(feed.NavItems, feed.Href) {
+			// Built modules must land on a page this principal can actually open.
+			if feed.Status == moduleStatusAvailable && !navItemsContainHref(feed.NavItems, feed.Href) {
 				t.Fatalf("%s feed landing href=%q is not among its permitted items %v", tc.role, feed.Href, got)
 			}
 		})
@@ -866,13 +859,11 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 }
 
 // TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab pins that the mobile Counts module contributes
-// only capture tabs and no trailing action tab. The Approval queue was REMOVED from mobile
-// (maintainer decision 2026-07-21) — approve/reject is admin-web only — and Counts never
-// contributed the global "You" tab that vaccination and leadership do.
+// only capture/decision tabs and no trailing global action tab. Counts never
+// contributes the global "You" tab that vaccination and leadership do.
 //
 // This is the backend authority for how many tabs an operator sees: the Android shell renders the
-// composed bar verbatim. If "approval" ever re-appeared here, the phone would show a queue that no
-// longer has a mobile route; if "you" leaked in, Counts would grow a tab it does not own.
+// composed bar verbatim. If "you" leaked in, Counts would grow a tab it does not own.
 func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	countsBar := func(role string) []string {
 		grants := []domain.GrantSummary{grantWithRole(role)}
@@ -896,22 +887,22 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth_death", "shifting"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth_death shifting]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth_death", "shifting"}) {
+		t.Fatalf("park_head counts bar=%v want [birth_death shifting] (no approval on mobile)", got)
 	}
 
-	// No role gets an "approval" or a "You" tab from Counts on mobile.
+	// No role gets a global "You" tab from Counts on mobile.
 	for _, role := range []string{
 		permissions.RoleOperator, permissions.RoleParkHead,
 		permissions.RoleCEOInternal, permissions.RoleCEOInternal,
 	} {
 		for _, key := range countsBar(role) {
-			if key == "you" || key == "approval" {
+			if key == "you" {
 				t.Fatalf("%s counts bar contains a %q tab; Counts is capture-only on mobile", role, key)
 			}
 		}
