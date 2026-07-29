@@ -113,8 +113,8 @@ class AlertsViewModel @Inject constructor(
                 body = alert.detail,
                 timeLabel = "",
                 tone = when (alert.severity.lowercase()) {
-                    "critical", "high" -> AlertTone.CRITICAL
-                    "warn", "warning" -> AlertTone.WARN
+                    "critical", "high", "broken" -> AlertTone.CRITICAL
+                    "warn", "warning", "watch", "at_risk" -> AlertTone.WARN
                     else -> AlertTone.INFO
                 },
                 unread = true,

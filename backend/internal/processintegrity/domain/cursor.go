@@ -93,11 +93,42 @@ func ValidateRowID(rowID string) error {
 		parts[2] == "rule" && isUUIDString(parts[3]) &&
 		parts[4] == "shed" && isUUIDString(parts[5]):
 		return nil
+	case len(parts) == 12 &&
+		parts[0] == "batch" && isUUIDString(parts[1]) &&
+		parts[2] == "rule" && isUUIDString(parts[3]) &&
+		parts[4] == "protocol_version" && isUUIDString(parts[5]) &&
+		parts[6] == "shed" && isUUIDString(parts[7]) &&
+		parts[8] == "partition" && isRowIDSegment(parts[9]) &&
+		parts[10] == "date" && isBusinessDate(parts[11]):
+		return nil
 	case len(parts) == 2 && parts[0] == "feed_projection_exception" && isUUIDString(parts[1]):
 		return nil
 	default:
 		return fmt.Errorf("invalid shape")
 	}
+}
+
+func isRowIDSegment(value string) bool {
+	if value == "" || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func isBusinessDate(value string) bool {
+	if len(value) != len("2006-01-02") {
+		return false
+	}
+	if value[4] != '-' || value[7] != '-' {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", value)
+	return err == nil
 }
 
 func isUUIDString(value string) bool {

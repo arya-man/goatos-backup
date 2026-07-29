@@ -40,6 +40,13 @@ data class ControlTowerAlertDto(
     @SerialName("next_action") val nextAction: String = "",
     @SerialName("evidence_link") val evidenceLink: String? = null,
     @SerialName("obligation_id") val obligationId: String = "",
+    @SerialName("drive_capacity_state") val driveCapacityState: String? = null,
+    @SerialName("drive_animals_required") val driveAnimalsRequired: Int = 0,
+    @SerialName("drive_animals_assigned") val driveAnimalsAssigned: Int = 0,
+    @SerialName("drive_operator_cap") val driveOperatorCap: Int = 0,
+    @SerialName("drive_available_operators") val driveAvailableOperators: Int = 0,
+    @SerialName("drive_latest_safe_date") val driveLatestSafeDate: String? = null,
+    @SerialName("drive_medical_defer_reason") val driveMedicalDeferReason: String? = null,
 )
 
 @Serializable

@@ -32,6 +32,8 @@ const REQUIRED_REFERENCES = [
   "docs/runbooks/local-ci.md",
 ];
 
+const COUNT_BY_WORK_STATE_ALLOWED_FIELDS = new Set(["work_state", "count"]);
+
 function read(root, rel) {
   return readFileSync(resolve(root, rel), "utf8");
 }
@@ -69,8 +71,63 @@ function validate(root) {
       errors.push(`${rel} must reference ${CONTRACT_DOC}`);
     }
   }
+  validateCountByWorkStateContract(root, errors);
 
   return errors;
+}
+
+function schemaBlock(text, schemaName) {
+  const marker = `    ${schemaName}:`;
+  const start = text.indexOf(marker);
+  if (start === -1) return "";
+  const rest = text.slice(start + marker.length);
+  const next = rest.search(/\n    [A-Za-z0-9_]+:\n/);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+function openApiProperties(block) {
+  const propertiesStart = block.indexOf("\n      properties:");
+  if (propertiesStart === -1) return [];
+  const rest = block.slice(propertiesStart + "\n      properties:".length);
+  const nextSection = rest.search(/\n      [A-Za-z0-9_]+:/);
+  const propertiesBlock = nextSection === -1 ? rest : rest.slice(0, nextSection);
+  return [...propertiesBlock.matchAll(/\n        ([A-Za-z0-9_]+):/g)].map((match) => match[1]);
+}
+
+function tsSchemaFields(text, schemaName) {
+  const marker = `        ${schemaName}: {`;
+  const start = text.indexOf(marker);
+  if (start === -1) return [];
+  const rest = text.slice(start + marker.length);
+  const end = rest.indexOf("\n        };");
+  const block = end === -1 ? rest : rest.slice(0, end);
+  return [...block.matchAll(/\n            ([A-Za-z0-9_]+)\??:/g)].map((match) => match[1]);
+}
+
+function validateCountByWorkStateContract(root, errors) {
+  let openApi = "";
+  let generatedTs = "";
+  try {
+    openApi = read(root, "contracts/openapi/app-api.yaml");
+  } catch {
+    errors.push("missing OpenAPI app contract: contracts/openapi/app-api.yaml");
+    return;
+  }
+  try {
+    generatedTs = read(root, "packages/api-client/src/generated/app-api.ts");
+  } catch {
+    errors.push("missing generated app API client: packages/api-client/src/generated/app-api.ts");
+    return;
+  }
+  const openApiFields = openApiProperties(schemaBlock(openApi, "CountByWorkState"));
+  const tsFields = tsSchemaFields(generatedTs, "CountByWorkState");
+  for (const [source, fields] of [["OpenAPI", openApiFields], ["generated TS", tsFields]]) {
+    const extras = fields.filter((field) => !COUNT_BY_WORK_STATE_ALLOWED_FIELDS.has(field));
+    const missing = [...COUNT_BY_WORK_STATE_ALLOWED_FIELDS].filter((field) => !fields.includes(field));
+    if (missing.length > 0 || extras.length > 0) {
+      errors.push(`CountByWorkState ${source} fields must be work_state + count only; missing=[${missing.join(", ")}] extra=[${extras.join(", ")}]`);
+    }
+  }
 }
 
 function selfTest() {
@@ -80,6 +137,30 @@ function selfTest() {
     for (const rel of REQUIRED_REFERENCES) {
       write(root, rel, `see ${CONTRACT_DOC}\n`);
     }
+    write(root, "contracts/openapi/app-api.yaml", `
+components:
+  schemas:
+    CountByWorkState:
+      type: object
+      required:
+        - work_state
+        - count
+      properties:
+        work_state:
+          type: string
+        count:
+          type: integer
+`);
+    write(root, "packages/api-client/src/generated/app-api.ts", `
+export interface components {
+    schemas: {
+        CountByWorkState: {
+            work_state: string;
+            count: number;
+        };
+    };
+}
+`);
     const passing = validate(root);
     if (passing.length > 0) {
       throw new Error(`self-test failed: complete fixture should pass: ${passing.join("; ")}`);
@@ -89,10 +170,25 @@ function selfTest() {
     if (!missingReference.some((error) => error.includes(`AGENTS.md must reference ${CONTRACT_DOC}`))) {
       throw new Error("self-test failed: validate did not detect a missing reference");
     }
+    write(root, "packages/api-client/src/generated/app-api.ts", `
+export interface components {
+    schemas: {
+        CountByWorkState: {
+            work_state: string;
+            count: number;
+            drive_capacity_state?: string;
+        };
+    };
+}
+`);
+    const staleGenerated = validate(root);
+    if (!staleGenerated.some((error) => error.includes("CountByWorkState generated TS fields"))) {
+      throw new Error("self-test failed: validate did not detect stale generated CountByWorkState fields");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-  console.log("check-operational-read-model-contract: self-test passed (discoverability only)");
+  console.log("check-operational-read-model-contract: self-test passed");
 }
 
 if (process.argv.includes("--self-test")) {
@@ -108,4 +204,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Operational read model contract discoverability guard passed. Semantic Go/OpenAPI/TS/Kotlin/UI compliance is covered by targeted tests, not this guard.");
+console.log("Operational read model contract guard passed.");
