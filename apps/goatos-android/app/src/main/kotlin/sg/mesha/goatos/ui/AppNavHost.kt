@@ -43,6 +43,7 @@ import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
+import sg.mesha.goatos.feature.counts.MilkPreparationScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteScreen
@@ -104,6 +105,7 @@ import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
+import sg.mesha.goatos.viewmodel.MilkPreparationViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
@@ -173,6 +175,7 @@ object Routes {
     const val COUNTS_BIRTH = "/counts/birth"
     const val COUNTS_DEATH = "/counts/death"
     const val COUNTS_SHIFTING = "/counts/shifting"
+    const val COUNTS_MILK_PREPARATION = "/counts/milk-preparation"
 
     // L1 drill-ins for one workflow card (distinct hosted destinations with Up/Back and no root
     // chrome — never a prefix reuse of the L0 roots above). Each module keeps its own drill route
@@ -925,6 +928,15 @@ fun AppNavHost(
             )
         }
 
+        composable(Routes.COUNTS_MILK_PREPARATION) {
+            val vm: MilkPreparationViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                MilkPreparationScreen(state = state, onEvent = vm::onEvent)
+            }
+        }
+
         // Birth / Death workflow modules (docs/decisions/birth-death-workflows.md): two L0 work
         // lists, each with its own drill-in and add form. The list composable wires Paging load
         // states into the VM so refresh/offline banners track the real page loads.
@@ -1580,6 +1592,7 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_BIRTH,
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
+    Routes.COUNTS_MILK_PREPARATION,
 )
 
 private fun executionRoutePattern(base: String): String =

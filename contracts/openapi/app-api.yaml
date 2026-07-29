@@ -4180,6 +4180,101 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /counts/milk-preparation:
+    get:
+      tags:
+        - Counts
+      operationId: getMilkPreparation
+      summary: Get today's per-shed milk preparation direction from the canonical live herd.
+      description: >-
+        Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3,
+        plus a whole-scope summary invariant to limit/offset. Quantities are exact integer
+        millilitres. This is a current live-herd direction only: it accepts no historical date and
+        therefore never presents today's animal locations as a past plan. K0 colostrum and ICU or
+        other clinical feeding are excluded until an approved quantity rule exists; they are not
+        represented as zero.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional park scope from the admin top bar.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 5000
+            default: 0
+          description: Offset over the bounded physical shed x milk cohort grain set.
+      responses:
+        "200":
+          description: Current milk preparation direction and whole-scope totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilkPreparationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/counts/milk-preparation/submit:
+    post:
+      tags:
+        - Counts
+      operationId: submitAppCountsMilkPreparation
+      summary: Submit every applicable milk-preparation step video for one verifier verdict.
+      description: >-
+        Creates one pending_verification preparation attempt at park x preparation_date grain.
+        When goat_milk_used is true, five distinct completed in-app-camera videos are required:
+        goat-milk quantity, boiling temperature, cooled temperature, UHT-milk quantity, and
+        citric-acid mixing. When false, the last two videos are required. Each proof is bound to
+        its exact step and park; one proof cannot satisfy two steps. All applicable videos travel
+        on one generic Verification item. This command never completes preparation: one verifier
+        approval completes the whole attempt and rejection returns it to rework with immutable
+        prior attempts preserved.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MilkPreparationSubmissionRequest"
+      responses:
+        "202":
+          description: The full step-video package is pending verifier review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilkPreparationSubmissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /verification/queue:
     get:
       tags:
@@ -14548,6 +14643,247 @@ components:
         projected_at:
           type: string
           format: date-time
+    MilkPreparationSession:
+      type: object
+      additionalProperties: false
+      required:
+        - session_no
+        - active
+        - per_head_ml
+        - required_ml
+      properties:
+        session_no:
+          type: integer
+          minimum: 1
+          maximum: 4
+        active:
+          type: boolean
+          description: False for sessions not used by this cohort, such as K3 sessions 2 and 3.
+        per_head_ml:
+          type: integer
+          minimum: 0
+        required_ml:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Exact head_count x per_head_ml for this active session; zero only when active is false.
+    MilkPreparationRow:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - management_stage
+        - head_count
+        - sessions
+        - daily_required_ml
+        - status
+        - verification_status
+      properties:
+        park_id:
+          type: string
+          description: Canonical park UUID, or empty when source placement is missing.
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          description: Canonical physical shed UUID, or empty when source placement is missing.
+        shed_label:
+          type: string
+        management_stage:
+          type: string
+          enum: [K1, K2, K3]
+        head_count:
+          type: integer
+          minimum: 0
+        sessions:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/MilkPreparationSession"
+        daily_required_ml:
+          type: integer
+          format: int64
+          minimum: 0
+        status:
+          type: string
+          enum: [ready, blocked]
+        blocked_reason:
+          type: string
+          enum: [missing_shed]
+        verification_status:
+          type: string
+          enum: [not_submitted, pending_verification, completed, rework]
+          description: Park-day operational status; completion means the verifier approved all step videos.
+        completion_id:
+          type: string
+          format: uuid
+        attempt_no:
+          type: integer
+          minimum: 1
+        rework_reason:
+          type: string
+    MilkPreparationSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - scope
+        - shed_count
+        - cohort_count
+        - head_count
+        - total_required_ml
+        - citric_acid_grams
+        - blocked_row_count
+        - park_count
+        - not_submitted_park_count
+        - pending_verification_park_count
+        - completed_park_count
+        - rework_park_count
+      properties:
+        scope:
+          type: string
+          enum: [filtered]
+          description: Covers the complete requested park scope, independent of limit/offset.
+        shed_count:
+          type: integer
+          minimum: 0
+        cohort_count:
+          type: integer
+          minimum: 0
+        head_count:
+          type: integer
+          minimum: 0
+        total_required_ml:
+          type: integer
+          format: int64
+          minimum: 0
+        citric_acid_grams:
+          type: number
+          format: double
+          minimum: 0
+          description: Whole-scope milk litres x 5.5 grams, rounded to one decimal place.
+        blocked_row_count:
+          type: integer
+          minimum: 0
+        park_count:
+          type: integer
+          minimum: 0
+        not_submitted_park_count:
+          type: integer
+          minimum: 0
+        pending_verification_park_count:
+          type: integer
+          minimum: 0
+        completed_park_count:
+          type: integer
+          minimum: 0
+        rework_park_count:
+          type: integer
+          minimum: 0
+    MilkPreparationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - preparation_date
+        - feeding_date
+        - generated_at
+        - items
+        - summary
+        - limit
+        - offset
+        - has_more
+      properties:
+        preparation_date:
+          type: string
+          format: date
+          description: Current India business date on which this live direction is prepared.
+        feeding_date:
+          type: string
+          format: date
+          description: India business date immediately after preparation_date.
+        generated_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MilkPreparationRow"
+        summary:
+          $ref: "#/components/schemas/MilkPreparationSummary"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+        offset:
+          type: integer
+          minimum: 0
+        has_more:
+          type: boolean
+    MilkPreparationProofs:
+      type: object
+      additionalProperties: false
+      required:
+        - uht_milk_quantity_proof_ref
+        - citric_acid_mixing_proof_ref
+      properties:
+        goat_milk_quantity_proof_ref:
+          type: string
+          format: uuid
+        boiling_temperature_proof_ref:
+          type: string
+          format: uuid
+        cooled_temperature_proof_ref:
+          type: string
+          format: uuid
+        uht_milk_quantity_proof_ref:
+          type: string
+          format: uuid
+        citric_acid_mixing_proof_ref:
+          type: string
+          format: uuid
+    MilkPreparationSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - preparation_date
+        - goat_milk_used
+        - proofs
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        preparation_date:
+          type: string
+          format: date
+        goat_milk_used:
+          type: boolean
+        proofs:
+          $ref: "#/components/schemas/MilkPreparationProofs"
+    MilkPreparationSubmissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - status
+        - attempt_no
+        - row_version
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_verification]
+        attempt_no:
+          type: integer
+          minimum: 1
+        row_version:
+          type: integer
+          minimum: 1
     VerificationItemStatus:
       type: string
       enum:

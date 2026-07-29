@@ -83,6 +83,12 @@ class RoleChromeScreenshotTest {
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
+    private fun countsFieldNavItems() = listOf(
+        NavItem(key = "birth", label = "Birth", href = Routes.COUNTS_BIRTH),
+        NavItem(key = "death", label = "Death", href = Routes.COUNTS_DEATH),
+        NavItem(key = "shifting", label = "Shifting", href = Routes.COUNTS_SHIFTING),
+    )
+
     /**
      * Backend-composed drawer rows (`/app/bootstrap` `modules`), mirroring bootstrap_copy.go's
      * moduleNavRegistry: two built modules that each own a bar, plus the two roadmap rows the
@@ -225,6 +231,22 @@ class RoleChromeScreenshotTest {
                 items = vaccinationFieldNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
+            onNavigate = { true },
+        ) {
+            ShedsScreen(state = sampleShedsState())
+        }
+    }
+
+    // Counts field lens: explicitly locks the three backend-composed lifecycle icons in the
+    // bottom bar, including distinct arrival/exit glyphs for Birth and Death.
+    @Test
+    fun counts_operator() = shot("counts_operator") {
+        GoatOsShellChrome(
+            navState = NavState(
+                chrome = NavChrome.MINIMAL,
+                items = countsFieldNavItems(),
+            ),
+            currentRoute = Routes.COUNTS_BIRTH,
             onNavigate = { true },
         ) {
             ShedsScreen(state = sampleShedsState())

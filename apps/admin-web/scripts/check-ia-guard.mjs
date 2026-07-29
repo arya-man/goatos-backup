@@ -137,14 +137,15 @@ walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Counts has two real pages in this slice — Herd Register (the per-goat
-// register) and Counts Breakdown (the farm x stage x breed x gender x shed census). Every other broad Counts
+// create new unsupported route trees. Counts has three real pages in this slice — Herd Register (the per-goat
+// register), Counts Breakdown (the farm x stage x breed x gender x shed census), and Milk Preparation
+// (the current K1/K2/K3 preparation worklist). Every other broad Counts
 // label from the mock must still route into one of those or a top-level command lens.
 //
 // SUPPORTED_COUNTS_HREFS is an allowlist on purpose: widening it is a deliberate scope decision recorded in
 // context/frontend/current-admin-web-scope.md, not a routine edit. Tagging & identity, Weights & ADG, and
 // Count reconciliation remain out of scope and must not be added here without that doc changing too.
-const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/action-center"]);
+const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/counts/milk-preparation", "/action-center"]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;

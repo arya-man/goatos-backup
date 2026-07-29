@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">Keep the water distribution work clearly visible</string>
     <string name="proof_camera_feed_packing_title">Record feed packing</string>
     <string name="proof_camera_feed_packing_instruction">Keep the feed packing work clearly visible</string>
+    <string name="proof_camera_milk_preparation_title">Record milk preparation step</string>
+    <string name="proof_camera_milk_preparation_instruction">Keep this preparation step and its measurement clearly visible</string>
     <string name="proof_camera_recording_time">Recording · %1$d s</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>

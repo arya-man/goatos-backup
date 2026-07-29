@@ -321,6 +321,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_feed_transport_title,
         R.string.proof_camera_feed_transport_instruction,
     )
+    ProofCapturePrompt.MILK_PREPARATION -> RecorderCopyResources(
+        R.string.proof_camera_milk_preparation_title,
+        R.string.proof_camera_milk_preparation_instruction,
+    )
 }
 
 @Composable

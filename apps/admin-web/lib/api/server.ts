@@ -19,6 +19,8 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
+export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
+export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
 export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"];
@@ -465,6 +467,22 @@ export async function getCountsBreakdown(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CountsBreakdownResponse>("/counts/breakdown", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getMilkPreparation(params: {
+  park_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<MilkPreparationPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MilkPreparationPage>("/counts/milk-preparation", {
       cache: "no-store",
       query: compactQuery(params),
     }),

@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
@@ -235,6 +237,7 @@ class SyncEngine(
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
         OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.MILK_PREPARATION_SUBMIT -> dispatchMilkPreparationSubmit(item)
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
@@ -554,6 +557,27 @@ class SyncEngine(
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
                 packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchMilkPreparationSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
+        suspend fun proof(step: String): String? = payload.proofOutboxItemIds[step]?.let { resolveUploadedProofRef(it) }
+        val response = api.submitMilkPreparation(
+            item.idempotencyKey,
+            MilkPreparationSubmissionRequestDto(
+                parkId = payload.parkId,
+                preparationDate = payload.preparationDate,
+                goatMilkUsed = payload.goatMilkUsed,
+                proofs = MilkPreparationProofsDto(
+                    goatMilkQuantityProofRef = proof("goat_milk_quantity"),
+                    boilingTemperatureProofRef = proof("boiling_temperature"),
+                    cooledTemperatureProofRef = proof("cooled_temperature"),
+                    uhtMilkQuantityProofRef = proof("uht_milk_quantity") ?: throw NonRetryableSyncException("UHT milk quantity video is missing."),
+                    citricAcidMixingProofRef = proof("citric_acid_mixing") ?: throw NonRetryableSyncException("Citric acid mixing video is missing."),
+                ),
             ),
         )
         return syncJson.encodeToString(response)

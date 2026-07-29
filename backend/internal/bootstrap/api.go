@@ -29,6 +29,7 @@ import (
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsproof "github.com/vgoats/goatos/backend/internal/counts/adapters/proof"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsbridge "github.com/vgoats/goatos/backend/internal/countsbridge"
@@ -377,8 +378,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
-	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
-	herdRegisterService := countsapp.NewHerdRegisterService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	countsService := countsapp.NewService(countsRepo)
+	herdRegisterService := countsapp.NewHerdRegisterService(countsRepo).
+		WithMilkPreparationProofValidator(countsproof.NewValidator(proofRepo))
 	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
 	// App-tier Counts writes (shifting/birth/death) + the lifecycle approval workflow.
 	//
@@ -488,6 +491,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	countsShiftingExecutionService.WithVerificationEnqueuer(
 		countsbridge.NewShiftingVerificationEnqueuer(verificationService))
+	// Milk preparation is a park-day work item. Every applicable step owns a distinct live-camera
+	// video (five with goat milk, two without), and all videos travel on one verifier item so one
+	// verdict completes or reworks the whole preparation attempt.
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      countsdomain.VerificationVerticalMilkPreparation,
+		Module:        countsdomain.VerificationModuleMilkPreparation,
+		Category:      countsdomain.VerificationCategoryMilkPreparation,
+		ExpectedMedia: []string{"video", "video", "video", "video", "video"},
+		SLAHours:      24,
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	herdRegisterService.WithMilkPreparationVerificationEnqueuer(
+		countsbridge.NewMilkPreparationVerificationEnqueuer(verificationService))
 	// Feed distribution verification (maintainer decision, 2026-07-26): a feed-direction session is
 	// completed only after a verifier approves the operator's video + water proof, so feed is a
 	// verification producer just like vaccination and shifting. Register its category and wire the
@@ -652,7 +670,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)

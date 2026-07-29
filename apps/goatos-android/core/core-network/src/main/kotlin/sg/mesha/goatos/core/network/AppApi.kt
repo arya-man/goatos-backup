@@ -14,6 +14,8 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -684,6 +686,12 @@ interface AppApi {
         request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto
 
+    /** All applicable step videos are submitted together; only verifier approval completes it. */
+    suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto
+
     suspend fun getFeedTransportTasks(businessDate: String, cursor: String? = null, limit: Int? = null): FeedTransportTaskPageDto
     suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
 
@@ -1172,6 +1180,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             status = "pending_verification",
             newlyPending = true,
         )
+
+    override suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto = MilkPreparationSubmissionResponseDto(
+        completionId = "fake-milk-preparation", status = "pending_verification", attemptNo = 1, rowVersion = 1,
+    )
 
     override suspend fun getFeedTransportTasks(businessDate: String, cursor: String?, limit: Int?): FeedTransportTaskPageDto = FeedTransportTaskPageDto()
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = FeedTransportSubmitResponseDto("fake-attempt", "verification_due", 1, true)

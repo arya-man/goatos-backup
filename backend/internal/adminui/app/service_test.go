@@ -70,6 +70,41 @@ func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T
 	}
 }
 
+func TestMilkPreparationPageContractAndCountsNavigation(t *testing.T) {
+	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
+	page := pageByRouteID(t, bootstrap.Pages, "milk-preparation")
+	if page.Href != "/counts/milk-preparation" {
+		t.Fatalf("milk preparation path=%q", page.Href)
+	}
+	if page.Title != "Milk Preparation" {
+		t.Fatalf("milk preparation title=%q", page.Title)
+	}
+	for _, key := range []string{
+		"section.preparation.title", "section.preparation.caption", "section.summary.aria",
+		"kpi.sheds.label", "kpi.kids.label", "kpi.milk.label", "kpi.citric.label",
+		"state.preparation_unavailable", "empty.preparation", "label.prepared_for",
+	} {
+		if page.Copy[key] == "" {
+			t.Errorf("milk preparation contract missing copy key %q", key)
+		}
+	}
+
+	found := false
+	for _, group := range bootstrap.Navigation.Groups {
+		if group.ID != "counts" {
+			continue
+		}
+		for _, leaf := range group.Leaves {
+			if leaf.ID == "counts-milk-preparation" && leaf.Href == "/counts/milk-preparation" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("Counts navigation is missing the Milk Preparation leaf")
+	}
+}
+
 func TestActionCenterPublishesDriveCapacityBadgeCopy(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
 	for _, key := range []string{
