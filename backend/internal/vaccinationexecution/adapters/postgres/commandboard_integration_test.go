@@ -673,3 +673,173 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 		}
 	})
 }
+
+// TestVaccinationCommandBoardDueTodayDateShiftNotOverdue is the regression for the
+// maintainer finding that the command board compared due instants instead of IST
+// business DATES: a dose due today at 00:00 IST read OVERDUE by mid-morning purely
+// because the instant $2 (as_of) was later than the instant due_at, even though both
+// fall on the SAME Asia/Kolkata business day. Vaccination time grain is the business
+// day, never an instant (root AGENTS.md "VACCINATION TIME GRAIN IS THE BUSINESS DAY").
+// Fixed business dates only — zero hour-arithmetic in assertions.
+func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("LoadLocation(Asia/Kolkata) error = %v", err)
+	}
+
+	tenantID := "00000000-0000-4000-8000-0000000000ab"
+	parkID := "70000000-0000-4000-8000-0000010000ab"
+	shedID := "70000000-0000-4000-8000-0000020000ab"
+	goatToday := "70000000-0000-4000-8000-0000030000ab"
+	goatYesterday := "70000000-0000-4000-8000-0000030000ac"
+	protocolVersionID := "70000000-0000-4000-8000-0000060000ab"
+	ruleID := "70000000-0000-4000-8000-0000070000ab"
+	oblDueToday := "70000000-0000-4000-8000-0000080000ab"
+	oblDueYesterday := "70000000-0000-4000-8000-0000080000ac"
+
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`, tenantID)
+	execProjectionSQL(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park AB', 'park', NULL, 'active')`, parkID, tenantID)
+	execProjectionSQL(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed AB', 'shed', $3, 'active')`, shedID, tenantID, parkID)
+	custodianPartyID := "70000000-0000-4000-8000-0000090000ab"
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian AB', 'active')`,
+		custodianPartyID)
+	for _, goatID := range []string{goatToday, goatYesterday} {
+		execProjectionSQL(t, ctx, pool, "goat",
+			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+			 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2024-01-01')`, goatID, tenantID, shedID, custodianPartyID)
+	}
+	protocolID := "70000000-0000-4000-8000-0000060000aa"
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination_ab', 'Vaccination AB', 'vaccination', 'active')`,
+		protocolID, tenantID)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`,
+		protocolVersionID, tenantID, protocolID)
+	execProjectionSQL(t, ctx, pool, "rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'et_tt_adult_w2', 'birth_age')`, ruleID, tenantID, protocolVersionID)
+	execProjectionSQL(t, ctx, pool, "publish protocol version",
+		`UPDATE protocol_versions SET status = 'published', published_at = now() WHERE protocol_version_id = $1`,
+		protocolVersionID)
+
+	// Fixed business dates: obligation due today at 00:00 IST, as_of is 10:00 IST the
+	// SAME business day — must never read overdue. A second obligation due YESTERDAY at
+	// 23:30 IST is a genuinely different (earlier) business day — must read overdue.
+	businessToday := time.Date(2026, 7, 28, 0, 0, 0, 0, ist)
+	asOf := time.Date(2026, 7, 28, 10, 0, 0, 0, ist)
+	dueYesterday := time.Date(2026, 7, 27, 23, 30, 0, 0, ist)
+
+	execProjectionSQL(t, ctx, pool, "obligation due today",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'scheduled', $7::timestamptz, $8)`,
+		oblDueToday, tenantID, protocolVersionID, goatToday, shedID, ruleID, businessToday, "due-today-ab")
+	execProjectionSQL(t, ctx, pool, "obligation due yesterday",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'scheduled', $7::timestamptz, $8)`,
+		oblDueYesterday, tenantID, protocolVersionID, goatYesterday, shedID, ruleID, dueYesterday, "due-yesterday-ab")
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	// KPI: the due-today obligation must NOT be counted overdue_not_given, and MUST be
+	// counted scheduled_ahead. The due-yesterday obligation is the true overdue one.
+	if resp.KPIs.OverdueNotGiven != 1 {
+		t.Fatalf("KPI overdue_not_given = %d, want 1 (only the due-yesterday obligation, not due-today)", resp.KPIs.OverdueNotGiven)
+	}
+	if resp.KPIs.ScheduledAhead != 1 {
+		t.Fatalf("KPI scheduled_ahead = %d, want 1 (the due-today obligation stays scheduled)", resp.KPIs.ScheduledAhead)
+	}
+
+	// Shed dose matrix: 'scheduled' state must carry the due-today goat, 'overdue' state
+	// must carry the due-yesterday goat — never the reverse.
+	var scheduledCount, overdueCount int
+	for _, cell := range resp.ShedDoseMatrix {
+		if cell.ShedName != "Shed AB" {
+			continue
+		}
+		switch cell.State {
+		case "scheduled":
+			scheduledCount += cell.AnimalCount
+		case "overdue":
+			overdueCount += cell.AnimalCount
+		}
+	}
+	if scheduledCount != 1 {
+		t.Fatalf("shed dose matrix 'scheduled' animal count = %d, want 1 (due-today dose must stay scheduled)", scheduledCount)
+	}
+	if overdueCount != 1 {
+		t.Fatalf("shed dose matrix 'overdue' animal count = %d, want 1 (only the due-yesterday dose)", overdueCount)
+	}
+
+	t.Run("CardinalityOneToManyOneGoatPerObligation", func(t *testing.T) {
+		// OneToMany MultipleDimensions: each goat carries exactly one obligation here, so KPI
+		// targets must equal 2 obligations — never fan out per completion/comp join row.
+		if resp.KPIs.Targets != 2 {
+			t.Fatalf("KPI targets = %d, want 2 (one obligation per goat, no join fan-out)", resp.KPIs.Targets)
+		}
+	})
+
+	t.Run("StatusMatrixBucketsDisjointAcrossDateShift", func(t *testing.T) {
+		// StatusMatrix EveryStatus StatusBuckets: overdue and scheduled must stay disjoint across
+		// the date-shift boundary — the due-today dose must never also appear as overdue.
+		for _, cell := range resp.ShedDoseMatrix {
+			if cell.ShedName != "Shed AB" {
+				continue
+			}
+			if cell.State != "scheduled" && cell.State != "overdue" {
+				t.Fatalf("unexpected %q cell for Shed AB — only scheduled/overdue expected here", cell.State)
+			}
+		}
+		if resp.KPIs.OverdueNotGiven+resp.KPIs.ScheduledAhead != 2 {
+			t.Fatalf("overdue_not_given + scheduled_ahead = %d, want 2 (disjoint buckets covering both obligations)",
+				resp.KPIs.OverdueNotGiven+resp.KPIs.ScheduledAhead)
+		}
+	})
+
+	t.Run("ParkScopeIsolationExcludesOtherPark", func(t *testing.T) {
+		// ParkScope ScopeHierarchy: filtering to an unrelated park must exclude both obligations.
+		otherPark := "70000000-0000-4000-8000-0000010000ad"
+		scoped, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf, ParkID: &otherPark})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(park) error = %v", err)
+		}
+		if scoped.KPIs.OverdueNotGiven != 0 || scoped.KPIs.ScheduledAhead != 0 {
+			t.Fatalf("park filter leaked Shed AB obligations into another park's board: overdue=%d scheduled_ahead=%d",
+				scoped.KPIs.OverdueNotGiven, scoped.KPIs.ScheduledAhead)
+		}
+	})
+
+	t.Run("PaginationStableOrderingAcrossRepeatedReads", func(t *testing.T) {
+		// Pagination PageBoundary MultiPage: repeated bounded reads of the shed dose matrix must
+		// return the same row count and (shed_name, dose_code, state) ordering.
+		again, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(repeat) error = %v", err)
+		}
+		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
+			t.Fatalf("row count changed across identical reads: %d vs %d", len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
+		}
+		for i := range again.ShedDoseMatrix {
+			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State {
+				t.Fatalf("ordering unstable at row %d: %+v vs %+v", i, a, b)
+			}
+		}
+	})
+}
