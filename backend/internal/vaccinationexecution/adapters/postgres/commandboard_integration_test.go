@@ -23,8 +23,13 @@ const (
 	cmdBoardGoat3      = "70000000-0000-4000-8000-000003000003"
 	cmdBoardBatch1     = "70000000-0000-4000-8000-000004000001"
 	cmdBoardBatch2     = "70000000-0000-4000-8000-000004000002"
-	cmdBoardRuleET     = "et_tt_adult_w1"
-	cmdBoardRulePPR    = "ppr_adult"
+	// protocol_rules.rule_id is a uuid column and dose_code is NOT NULL, so the rule fixtures
+	// carry both. The dose codes are what the display mapper turns into the dose-qualified
+	// labels the board renders.
+	cmdBoardRuleET      = "70000000-0000-4000-8000-000005000001"
+	cmdBoardRulePPR     = "70000000-0000-4000-8000-000005000002"
+	cmdBoardDoseCodeET  = "et_tt_adult_w1"
+	cmdBoardDoseCodePPR = "ppr_adult"
 )
 
 func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -85,15 +90,15 @@ func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool
 
 	// ET rule
 	execProjectionSQL(t, ctx, pool, "ET rule",
-		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, vaccine_labels, eligibility_dsl)
-		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', ARRAY['ET+TT'], '{}')`,
-		cmdBoardRuleET, cmdBoardTestTenant)
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, vaccine_labels, eligibility_dsl)
+		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', $3, ARRAY['ET+TT'], '{}')`,
+		cmdBoardRuleET, cmdBoardTestTenant, cmdBoardDoseCodeET)
 
 	// PPR rule
 	execProjectionSQL(t, ctx, pool, "PPR rule",
-		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, vaccine_labels, eligibility_dsl)
-		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', ARRAY['PPR'], '{}')`,
-		cmdBoardRulePPR, cmdBoardTestTenant)
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, vaccine_labels, eligibility_dsl)
+		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', $3, ARRAY['PPR'], '{}')`,
+		cmdBoardRulePPR, cmdBoardTestTenant, cmdBoardDoseCodePPR)
 
 	// Drive batches
 	execProjectionSQL(t, ctx, pool, "batch 1",
@@ -151,8 +156,8 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 		cohortAnimalCounts[cell.VaccineLabel] += cell.Cohort.AnimalCount
 	}
 
-	if cohortAnimalCounts["ET+TT"] != 1 {
-		t.Fatalf("ET+TT animal count = %d, want 1", cohortAnimalCounts["ET+TT"])
+	if cohortAnimalCounts["ET+TT · Dose 1"] != 1 {
+		t.Fatalf("ET+TT · Dose 1 animal count = %d, want 1", cohortAnimalCounts["ET+TT · Dose 1"])
 	}
 	if cohortAnimalCounts["PPR"] != 1 {
 		t.Fatalf("PPR animal count = %d, want 1", cohortAnimalCounts["PPR"])
@@ -850,7 +855,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 // still yield exactly ONE option. It also pins park scope, bounded output, the status passthrough,
 // and newest-window-first ordering.
 func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDate(t *testing.T) {
-	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations per batch collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
+	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations across vaccines and sheds collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -983,7 +988,7 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 // cells (never merge), pending and verified must be disjoint per cell, and the animal count must
 // not multiply by the number of vaccines attached to the cohort.
 func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucketsPaginationExecutionDate(t *testing.T) {
-	t.Log("ScopeHierarchy OneToMany StatusBuckets Pagination ExecutionDate: cohort cells are farmwise; pending and verified are disjoint; animal count does not fan out per vaccine")
+	t.Log("ScopeHierarchy OneToMany StatusBuckets Pagination ExecutionDate: cohort cells are farmwise and dose-qualified; pending and verified are disjoint; animal count does not fan out per vaccine or per dose")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1038,10 +1043,10 @@ func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucke
 	}
 
 	// ScopeHierarchy: same stage + same vaccine on two farms stays two distinct cells.
-	park1ET, ok1 := cells[cellKey{"Park A", "K1", "ET+TT"}]
-	park2ET, ok2 := cells[cellKey{"Park B", "K1", "ET+TT"}]
+	park1ET, ok1 := cells[cellKey{"Park A", "K1", "ET+TT · Dose 1"}]
+	park2ET, ok2 := cells[cellKey{"Park B", "K1", "ET+TT · Dose 1"}]
 	if !ok1 || !ok2 {
-		t.Fatalf("ScopeHierarchy: expected one ET+TT cell per farm, got cells=%+v", cells)
+		t.Fatalf("ScopeHierarchy: expected one ET+TT · Dose 1 cell per farm, got cells=%+v", cells)
 	}
 
 	// StatusBuckets: pending and verified are disjoint. Park A has goat1 scheduled (pending) and
