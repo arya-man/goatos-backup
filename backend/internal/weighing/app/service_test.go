@@ -72,6 +72,38 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 }
 
+func TestListCampaignsFiltersShedsForExecuteOnlyOperator(t *testing.T) {
+	otherOp := "00000000-0000-4000-8000-000000000302"
+	service := NewService(&campaignListRepo{page: domain.CampaignPage{Items: []domain.Campaign{{
+		CampaignID:     "00000000-0000-4000-8000-000000000501",
+		TenantID:       testTenant,
+		OperatorUserID: testOp,
+		Status:         domain.StatusPublished,
+		Sheds: []domain.CampaignShed{
+			{CampaignShedID: "00000000-0000-4000-8000-000000000801", DisplayName: "Yashoda 1", OperatorUserID: testOp},
+			{CampaignShedID: "00000000-0000-4000-8000-000000000802", DisplayName: "Yashoda 2", OperatorUserID: otherOp},
+		},
+	}}}})
+
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	page, err := service.ListCampaigns(context.Background(), operator, "", 20)
+	if err != nil {
+		t.Fatalf("operator list campaigns: %v", err)
+	}
+	if len(page.Items) != 1 || len(page.Items[0].Sheds) != 1 || page.Items[0].Sheds[0].DisplayName != "Yashoda 1" {
+		t.Fatalf("operator page = %+v, want only assigned shed", page.Items)
+	}
+
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
+	if err != nil {
+		t.Fatalf("monitor list campaigns: %v", err)
+	}
+	if len(page.Items) != 1 || len(page.Items[0].Sheds) != 2 {
+		t.Fatalf("monitor page = %+v, want all sheds", page.Items)
+	}
+}
+
 func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 	repo := &capDefaultRepo{}
 	service := NewService(repo)
@@ -396,6 +428,15 @@ type fakeRepo struct {
 	shedWrites   int
 }
 
+type campaignListRepo struct {
+	fakeRepo
+	page domain.CampaignPage
+}
+
+func (r *campaignListRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+	return r.page, nil
+}
+
 type shedCaptureRepo struct {
 	fakeRepo
 	received domain.RecordShedObservation
@@ -521,7 +562,11 @@ func (r *scenarioRepo) CreateCampaign(_ context.Context, cmd domain.CreateCampai
 			LocationType:     shed.LocationType,
 			DisplayName:      shed.DisplayName,
 			WeighingCategory: shed.WeighingCategory,
+			OperatorUserID:   strings.TrimSpace(shed.OperatorUserID),
 			Status:           "pending",
+		}
+		if campaignShed.OperatorUserID == "" {
+			campaignShed.OperatorUserID = cmd.OperatorUserID
 		}
 		campaignShed.ExpectedAnimalCount = 1
 		r.shedByLocation[shed.LocationID] = campaignShed

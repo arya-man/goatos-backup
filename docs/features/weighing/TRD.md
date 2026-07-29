@@ -21,7 +21,7 @@ This TRD defines the first Weighing implementation slice:
 1. Kids-only weekly weighing campaigns created by CEO/CXO from Android.
 2. Shed/partition selection and count snapshot.
 3. Rolling daily work groups driven by a capacity target.
-4. Amit-only operator execution for v1.
+4. Shed-level operator execution for v1.
 5. Category-aware capture: RFID, weight, and mandatory per-animal video proof
    for `individual_animal`; selected-scope result and mandatory shed/partition
    proof for `per_shed_partition`.
@@ -94,8 +94,8 @@ Canonical grains:
 | Grain | Purpose |
 |---|---|
 | Weighing campaign | One kids-only weekly instance created by CEO/CXO for a farm/park/week/start date. |
-| Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work, carries expected animal membership at planning time, and stores the selected weighing category. |
-| Work group | One suggested operator chunk containing one or more whole selected sheds/partitions. It is an assignment container, not a weighing observation. |
+| Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work, carries expected animal membership at planning time, stores the selected weighing category, and owns the assigned operator. |
+| Work group | One suggested operator chunk containing one or more whole selected sheds/partitions for the same operator. It is an assignment container, not a weighing observation. |
 | Animal weighing observation | One animal's RFID, measured weight, proof video, and expected/actual shed context. |
 | Per-shed/partition weighing observation | One selected shed/partition's weighing result and required shed/partition proof. It is not animal latest-weight truth. |
 | Proof artifact | Mandatory per-animal video linked to an animal observation, or shed/partition proof linked to a per-shed/partition observation. |
@@ -103,14 +103,23 @@ Canonical grains:
 | Correction | Audited replacement/voiding of an incorrect weight or proof after sync. |
 
 Shed/partition is atomic for assignment planning. A work group may contain
-multiple sheds/partitions. A shed/partition must not be split only to satisfy the
-daily cap. If one shed/partition exceeds the daily cap, the group remains the
-whole shed/partition and may span multiple business dates through execution
-progress. For individually marked sheds/partitions, completion remains
+multiple sheds/partitions when those buckets have the same operator. A
+shed/partition must not be split only to satisfy the daily cap. If one
+shed/partition exceeds the daily cap, the group remains the whole
+shed/partition and may span multiple business dates through execution progress.
+For individually marked sheds/partitions, completion remains
 animal-wise: one expected animal is complete only after its RFID/animal identity,
 weight, and per-animal proof video are accepted. For per-shed/partition marked
 scopes, completion is at the selected scope grain and must not update individual
 animal latest-weight projections.
+
+Campaign-level `operator_user_id` is the backwards-compatible default operator.
+`weighing_campaign_sheds.operator_user_id` is the execution owner used for
+operator worklist visibility, animal/free-flow scan authorization, lump-sum
+authorization, and individual shed submit authorization. CEO/director monitor
+reads can see all shed buckets in the campaign; execute-only operators see only
+the buckets where `weighing_campaign_sheds.operator_user_id` equals their user
+id.
 
 Every query, projection, outbox event, notification, Android route, and proof
 lookup must preserve this key set:
@@ -184,7 +193,7 @@ before implementation.
 | `start_business_date date not null` | Day leadership created/scheduled work, e.g. 2026-07-29. |
 | `status text not null` | `draft`, `planned`, `published`, `in_progress`, `delayed`, `completed`, `canceled`. |
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
-| `operator_user_id uuid` | Amit for v1. |
+| `operator_user_id uuid` | Backwards-compatible default operator for old clients and campaign-level display. Shed rows carry the execution owner. |
 | `published_at timestamptz` | Set when operator-visible work is created. |
 | `completed_at timestamptz` | Set only when all selected scopes are complete under their category policy: individual expected animals weighed/unavailable/closed, or per-shed/partition selected scope accepted/closed. |
 | `created_by`, `created_at`, `updated_at`, `row_version` | Audit/optimistic lock. |
@@ -194,6 +203,7 @@ before implementation.
 | Column | Notes |
 |---|---|
 | `campaign_shed_id uuid pk` | Row identity. |
+| `operator_user_id uuid not null` | Field operator who owns this selected shed/partition bucket. |
 | `campaign_id uuid not null` | Parent campaign. |
 | `location_id uuid not null` | Physical shed or partition/cohort scope. |
 | `location_type text not null` | `shed`, `cohort`, or implementation-supported partition grain. |
@@ -425,7 +435,7 @@ Inputs:
 - Kids-only cadence lane and animal group filter.
 - `start_business_date`.
 - `planned_cap_per_day`, default 100.
-- Operator assignment, Amit for v1.
+- Shed-level operator assignment with campaign-level default fallback.
 
 Algorithm:
 
@@ -459,9 +469,10 @@ Planner stability requirements:
   plan/publish response.
 - Same snapshot + same policy version must produce byte-identical work-group
   membership and sequence numbers.
-- Capacity math uses operator-business-date grain. For v1 there is one operator
-  (Amit), but the query/model must not collapse future multi-operator or
-  multi-date capacity into a single campaign-level number.
+- Capacity math uses operator-business-date grain. Multiple operators can work
+  the same campaign only by owning different selected shed/partition buckets;
+  the query/model must not collapse multi-operator or multi-date capacity into a
+  single campaign-level number.
 - Replan only pending groups. Accepted observations, proof, corrections, and
   terminal groups are immutable unless an explicit correction/reopen command
   creates auditable new facts.
@@ -1004,9 +1015,9 @@ V1 notification rules:
 
 | Trigger | Audience | Route | Dedupe key |
 |---|---|---|---|
-| Campaign published | Amit | Open weighing work group | campaign + operator |
-| Day-start open work | Amit | Today/open weighing work | operator + business date |
-| Proof failed or missing after submit | Amit | Proof repair screen | observation/proof artifact |
+| Campaign published | Assigned shed operator | Open weighing work group | campaign + shed + operator |
+| Day-start open work | Assigned shed operator | Today/open weighing work | shed + operator + business date |
+| Proof failed or missing after submit | Assigned shed operator | Proof repair screen | observation/proof artifact |
 | Campaign delayed after week end or expected finish | CEO/CXO + preventive director | Campaign progress | campaign + delayed date |
 | Review-needed availability | Preventive director | Missing/review bucket | campaign + animal/status revision |
 
@@ -1022,8 +1033,8 @@ copy fields, and tap route. Audience resolution must come from active role
 grants/profile truth and assigned operator rows, not hardcoded names. V1
 specifics:
 
-- Amit receives operator assignment, daily open-work, sync-failed/proof-failed
-  nudges.
+- Each assigned shed operator receives assignment, daily open-work,
+  sync-failed/proof-failed nudges only for their shed buckets.
 - CEO/CXO and preventive director receive delayed/open summary notifications
   when a campaign rolls beyond the planned week or has unresolved review-needed
   animals.
@@ -1091,12 +1102,14 @@ Minimum tests before implementation is considered done:
   scope submissions without correction intent, and same-key/different-payload
   replay.
 - Planner allows over-cap single shed/partition.
-- Planner groups `80 + 20` but execution allows `80` today and rolls `20`.
+- Planner may group `80 + 20` under one operator when both whole sheds fit that
+  operator's plan. If a whole shed overruns the daily plan, execution allows the
+  finished rows today and rolls the unfinished rows forward.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
   after 2026-08-01.
 - Dinakar can review/monitor but cannot create, publish, or edit weighing tasks
   and is not counted as operator capacity.
-- Amit can execute.
+- The assigned shed operator can execute only their own shed buckets.
 - Wrong-shed animal scan records in same table with mismatch status.
 - Expected animal shifted to another shed is not shown as an ordinary miss; if
   scanned, observation records original and actual/current shed.

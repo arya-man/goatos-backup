@@ -23,6 +23,7 @@ data class WeighingCampaignShedDto(
     @SerialName("display_name") val displayName: String = "",
     @SerialName("expected_animal_count") val expectedAnimalCount: Int = 0,
     @SerialName("weighing_category") val weighingCategory: String = "",
+    @SerialName("operator_user_id") val operatorUserId: String = "",
     @SerialName("status") val status: String = "",
 )
 
@@ -109,6 +110,7 @@ data class WeighingCreateCampaignShedDto(
     @SerialName("location_type") val locationType: String,
     @SerialName("display_name") val displayName: String,
     @SerialName("weighing_category") val weighingCategory: String,
+    @SerialName("operator_user_id") val operatorUserId: String? = null,
 )
 
 @Serializable

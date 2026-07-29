@@ -64,6 +64,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | GET /weighing/campaigns | api | Leadership planning/monitoring read for weekly kids weighing campaigns; aggregate/status surface only. |
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
+| Weighing shed-level operator assignments (`weighing_campaign_sheds.operator_user_id`) | api | Assistant coverage stays on `GET /weighing/campaigns`: leadership sees the campaign, selected shed buckets, per-shed owner/status, and progress rollups there. Operator-scoped mobile filtering and write authorization are execution behavior, not a separate CEO AI tool, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. |
 | POST /weighing/campaigns, /weighing/campaigns/{campaign_id}/publish | EXCLUDED | Leadership write/publish workflow, not a read metric. Result remains visible through `GET /weighing/campaigns`. |
 | POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations | EXCLUDED | Operator write-flow submissions with mandatory proof; leadership sees progress/review state through `/weighing/campaigns`. |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |

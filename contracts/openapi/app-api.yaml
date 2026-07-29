@@ -14114,6 +14114,7 @@ components:
         - display_name
         - expected_animal_count
         - weighing_category
+        - operator_user_id
         - status
       properties:
         campaign_shed_id:
@@ -14135,6 +14136,9 @@ components:
           minimum: 0
         weighing_category:
           $ref: "#/components/schemas/WeighingCategory"
+        operator_user_id:
+          type: string
+          format: uuid
         status:
           $ref: "#/components/schemas/WeighingCampaignShedStatus"
     WeighingCampaign:
@@ -14415,6 +14419,9 @@ components:
           minLength: 1
         weighing_category:
           $ref: "#/components/schemas/WeighingCategory"
+        operator_user_id:
+          type: string
+          format: uuid
     CreateWeighingCampaignRequest:
       type: object
       additionalProperties: false
