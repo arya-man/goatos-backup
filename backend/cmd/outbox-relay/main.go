@@ -159,6 +159,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// tx writer (approval_repository.go WithIdentityTxWriter), same as bootstrap/api.go.
 		identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
 		countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+		countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -173,7 +174,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, logger)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

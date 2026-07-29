@@ -58,6 +58,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
 	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+	countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
@@ -74,6 +75,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
 	// guard compares this list with cmd/domain-event-consumer so a wrapper cannot hide bus drift.
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
+	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)

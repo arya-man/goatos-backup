@@ -331,6 +331,11 @@
           "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.ApplyVerifiedShiftingEvent (legacy method name), which marks verification_state='verified' only. Under the maintainer-2026-07-28 rule, Park Head approval + operator completion already own relocation/count; verifier approval cannot move or roll back census truth. A pre-000049 authorized+completed row may be lazily applied once for rollout compatibility."
         },
         {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the park-day preparation; the operator's two/five-video submit never completes it."
+        },
+        {
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
           "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate: a feed-direction session is completed only when a verifier approves the operator's video + water proof. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert."
@@ -356,6 +361,8 @@
         "backend/internal/verification/app/service_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
+        "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/countsbridge/shifting_verification_enqueue_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
@@ -390,6 +397,11 @@
           "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.BounceShiftingEventForRework, which sets verification_state='rejected' and clears the proof-submit idempotency pair so the evidence rework appears in Actions. It preserves event_status, goat location, and census truth even when the move is already applied."
         },
         {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. REWORK returns the park-day completion to rework; the next submission creates a fresh immutable complete proof attempt while rejected evidence stays in history."
+        },
+        {
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
           "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-records the video + water proof and re-submits."
@@ -410,6 +422,7 @@
         "backend/internal/vaccination/app/completion_test.go",
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
+        "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"

@@ -10,8 +10,12 @@ android_env_die() {
 
 android_resolve_env() {
   local candidate=""
+  local java_major=""
 
-  if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    java_major="$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+  fi
+  if [ "$java_major" != "21" ]; then
     for candidate in \
       "$(/usr/libexec/java_home -v 21 2>/dev/null || true)" \
       /opt/homebrew/opt/openjdk@21 \
@@ -19,11 +23,12 @@ android_resolve_env() {
       /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home; do
       if [ -n "$candidate" ] && [ -x "$candidate/bin/java" ]; then
         export JAVA_HOME="$candidate"
-        break
+        java_major="$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+        [ "$java_major" = "21" ] && break
       fi
     done
   fi
-  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] || \
+  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] && [ "$java_major" = "21" ] || \
     android_env_die "JDK 21 not found. macOS: brew install openjdk@21"
 
   if [ -z "${ANDROID_HOME:-}" ]; then

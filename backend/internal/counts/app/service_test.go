@@ -25,9 +25,12 @@ type fakeRepo struct {
 	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
 
-	breakdown      domain.CountsBreakdown
-	breakdownQuery domain.CountsBreakdownQuery
-	breakdownErr   error
+	breakdown            domain.CountsBreakdown
+	breakdownQuery       domain.CountsBreakdownQuery
+	breakdownErr         error
+	milkPreparation      domain.MilkPreparationPage
+	milkPreparationQuery domain.MilkPreparationQuery
+	milkPreparationErr   error
 
 	// Live-herd feed projection. feedProjectedQuery captures the NORMALIZED query the service
 	// passed down, so a test can assert the boundary normalization (business-day target date,
@@ -126,6 +129,11 @@ func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSu
 func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	f.breakdownQuery = req
 	return f.breakdown, f.breakdownErr
+}
+
+func (f *fakeRepo) GetMilkPreparation(_ context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error) {
+	f.milkPreparationQuery = req
+	return f.milkPreparation, f.milkPreparationErr
 }
 
 func (f *fakeRepo) ProjectedShedCountsForFeed(_ context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error) {

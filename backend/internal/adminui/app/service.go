@@ -107,6 +107,7 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					navLeaf("counts-milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 				},
 			},
 			// Feed is a VERTICAL (business operating domain), alongside Preventive Care (PC),
@@ -165,6 +166,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
+		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
 		// Most-specific-first: /feed/direction and /feed/packing are exact leaves; /feed/config is
 		// the Feed-owned authority screen (see the navigation() scope note).
 		{Pattern: "/feed/direction", Label: "Feed Direction", Match: "exact"},
@@ -311,6 +313,8 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
 			[]domain.TableContract{tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50})}),
+		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
+			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
 		// ---------------------------------------------------------------------------
 		// Feed vertical — three module surfaces.
 		//
@@ -1829,6 +1833,53 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.breakdown_unavailable": "Breakdown unavailable",
 			"state.stage_unrecorded":      "No stage is recorded against any animal in this scope, so every row groups under a single blank stage. This is a source-data gap, not a display error — stage is imported from the source sheet and has not been populated for this herd.",
 		}
+	case "milk-preparation":
+		return map[string]string{
+			"crumb":                             "Counts",
+			"section.preparation.title":         "Milk preparation worklist",
+			"section.preparation.aria":          "Per-shed milk preparation worklist",
+			"section.preparation.caption":       "Current K1, K2 and K3 head count × approved per-session milk quantity",
+			"section.preparation.note":          "This direction reads the live herd now. K0 colostrum and clinical or ICU feeding are not treated as zero; they remain outside this preparation calculation until their own quantity rules are approved.",
+			"section.summary.aria":              "Milk preparation summary",
+			"section.summary.note":              "Totals cover every K1, K2 and K3 cohort in the selected park, not only the visible page.",
+			"section.verification.label":        "Park-day verification",
+			"kpi.sheds.label":                   "Sheds",
+			"kpi.sheds.sub":                     "Physical sheds with milk-fed cohorts",
+			"kpi.kids.label":                    "Kids",
+			"kpi.kids.sub":                      "K1, K2 and K3 kids in the live herd",
+			"kpi.milk.label":                    "Milk required",
+			"kpi.milk.sub":                      "Total litres for all active sessions",
+			"kpi.citric.label":                  "Citric acid",
+			"kpi.citric.sub":                    "5.5 g per litre of prepared milk",
+			"table.preparation.aria":            "Milk preparation rows",
+			"table.preparation.noun":            "cohort",
+			"filter.bar_aria":                   "Filter milk preparation rows",
+			"filter.park_label":                 "Park",
+			"filter.all_option":                 "All",
+			"filter.clear_all":                  "Clear all",
+			"filter.scope_readonly":             "Park scope is set in the top bar.",
+			"label.prepared_for":                "Prepared {preparation_date} for feeding {feeding_date}",
+			"label.litres":                      "L",
+			"label.grams":                       "g",
+			"label.ready":                       "Ready",
+			"label.blocked":                     "Blocked",
+			"label.not_submitted":               "Not submitted",
+			"label.pending_verification":        "Pending verification",
+			"label.verified":                    "Verified",
+			"label.rework":                      "Rework",
+			"label.missing_shed":                "No physical shed is recorded for this cohort.",
+			"label.unassigned_park":             "No park",
+			"label.unassigned_shed":             "No shed",
+			"label.inactive_session":            "—",
+			"empty.preparation":                 "No K1, K2 or K3 kids are currently present in this scope.",
+			"state.preparation_unavailable":     "Milk preparation direction unavailable",
+			"state.preparation_contract_absent": "Milk preparation page contract unavailable",
+			"state.try_again":                   "Try again. If the problem continues, contact Data Ops.",
+			"pager.page":                        "Page",
+			"pager.rows":                        "Rows",
+			"action.previous":                   "Previous",
+			"action.next":                       "Next",
+		}
 	// -------------------------------------------------------------------------------
 	// Feed vertical copy.
 	//
@@ -3291,6 +3342,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(herdRegisterOptionGroups())
 	case "counts-breakdown":
 		return withGenericOptionGroups(countsBreakdownOptionGroups())
+	case "milk-preparation":
+		return withGenericOptionGroups(nil)
 	case "feed-direction", "feed-packing", "feed-config":
 		return withGenericOptionGroups(feedOptionGroups())
 	case "calendar":

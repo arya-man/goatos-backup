@@ -24,10 +24,10 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 func TestRegisterVerificationAppliersRegistersAllFour(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
-	RegisterVerificationAppliers(bus, nil, nil, nil)
+	RegisterVerificationAppliers(bus, nil, nil, nil, nil)
 
 	// shifting + feed-distribution + feed-packing = 3 appliers, each subscribing to both verdict types.
-	const wantAppliers = 4
+	const wantAppliers = 5
 	for _, eventType := range []string{
 		"verification.verdict.approved",
 		"verification.verdict.rework",

@@ -319,6 +319,15 @@ interface SyncRepository {
         packingProofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
 
+    suspend fun enqueueMilkPreparationSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String,
+        preparationDate: String,
+        goatMilkUsed: Boolean,
+        proofOutboxItemIds: Map<String, String>,
+    ): AppResult<String> = AppResult.Err("milk preparation sync is not configured")
+
     suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = AppResult.Err("feed transport sync is not configured")
 
     /**
@@ -819,6 +828,22 @@ class DefaultSyncRepository(
                 workflow = workflow.trim(),
                 packingProofOutboxItemId = packingProofOutboxItemId,
             ),
+        ),
+    )
+
+    override suspend fun enqueueMilkPreparationSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String,
+        preparationDate: String,
+        goatMilkUsed: Boolean,
+        proofOutboxItemIds: Map<String, String>,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.MILK_PREPARATION_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            MilkPreparationSubmitPayload(parkId.trim(), preparationDate.trim(), goatMilkUsed, proofOutboxItemIds),
         ),
     )
 

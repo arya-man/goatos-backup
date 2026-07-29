@@ -60,6 +60,7 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 			if err != nil {
 				return nil, fmt.Errorf("resolve verification proof %s: %w", id, err)
 			}
+			verificationLabel, _ := proof.Metadata["verification_label"].(string)
 			if actionID, ok := proof.Metadata["action_id"].(string); ok && actionID != "" {
 				actionIDByProof[id] = actionID
 				if _, seen := seenActionIDs[actionID]; !seen {
@@ -67,7 +68,7 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 					actionIDs = append(actionIDs, actionID)
 				}
 			}
-			out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS})
+			out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel})
 			continue
 		}
 		url, err := r.proof.DownloadURL(ctx, tenantID, id)

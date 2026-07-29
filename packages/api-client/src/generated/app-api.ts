@@ -1599,6 +1599,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/counts/milk-preparation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get today's per-shed milk preparation direction from the canonical live herd.
+         * @description Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3, plus a whole-scope summary invariant to limit/offset. Quantities are exact integer millilitres. This is a current live-herd direction only: it accepts no historical date and therefore never presents today's animal locations as a past plan. K0 colostrum and ICU or other clinical feeding are excluded until an approved quantity rule exists; they are not represented as zero.
+         */
+        get: operations["getMilkPreparation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/milk-preparation/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit every applicable milk-preparation step video for one verifier verdict.
+         * @description Creates one pending_verification preparation attempt at park x preparation_date grain. When goat_milk_used is true, five distinct completed in-app-camera videos are required: goat-milk quantity, boiling temperature, cooled temperature, UHT-milk quantity, and citric-acid mixing. When false, the last two videos are required. Each proof is bound to its exact step and park; one proof cannot satisfy two steps. All applicable videos travel on one generic Verification item. This command never completes preparation: one verifier approval completes the whole attempt and rejection returns it to rework with immutable prior attempts preserved.
+         */
+        post: operations["submitAppCountsMilkPreparation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/verification/queue": {
         parameters: {
             query?: never;
@@ -5481,6 +5521,114 @@ export interface components {
             /** Format: date-time */
             projected_at: string;
         };
+        MilkPreparationSession: {
+            session_no: number;
+            /** @description False for sessions not used by this cohort, such as K3 sessions 2 and 3. */
+            active: boolean;
+            per_head_ml: number;
+            /**
+             * Format: int64
+             * @description Exact head_count x per_head_ml for this active session; zero only when active is false.
+             */
+            required_ml: number;
+        };
+        MilkPreparationRow: {
+            /** @description Canonical park UUID, or empty when source placement is missing. */
+            park_id: string;
+            park_label: string;
+            /** @description Canonical physical shed UUID, or empty when source placement is missing. */
+            shed_id: string;
+            shed_label: string;
+            /** @enum {string} */
+            management_stage: "K1" | "K2" | "K3";
+            head_count: number;
+            sessions: components["schemas"]["MilkPreparationSession"][];
+            /** Format: int64 */
+            daily_required_ml: number;
+            /** @enum {string} */
+            status: "ready" | "blocked";
+            /** @enum {string} */
+            blocked_reason?: "missing_shed";
+            /**
+             * @description Park-day operational status; completion means the verifier approved all step videos.
+             * @enum {string}
+             */
+            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
+            /** Format: uuid */
+            completion_id?: string;
+            attempt_no?: number;
+            rework_reason?: string;
+        };
+        MilkPreparationSummary: {
+            /**
+             * @description Covers the complete requested park scope, independent of limit/offset.
+             * @enum {string}
+             */
+            scope: "filtered";
+            shed_count: number;
+            cohort_count: number;
+            head_count: number;
+            /** Format: int64 */
+            total_required_ml: number;
+            /**
+             * Format: double
+             * @description Whole-scope milk litres x 5.5 grams, rounded to one decimal place.
+             */
+            citric_acid_grams: number;
+            blocked_row_count: number;
+            park_count: number;
+            not_submitted_park_count: number;
+            pending_verification_park_count: number;
+            completed_park_count: number;
+            rework_park_count: number;
+        };
+        MilkPreparationPage: {
+            /**
+             * Format: date
+             * @description Current India business date on which this live direction is prepared.
+             */
+            preparation_date: string;
+            /**
+             * Format: date
+             * @description India business date immediately after preparation_date.
+             */
+            feeding_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["MilkPreparationRow"][];
+            summary: components["schemas"]["MilkPreparationSummary"];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        MilkPreparationProofs: {
+            /** Format: uuid */
+            goat_milk_quantity_proof_ref?: string;
+            /** Format: uuid */
+            boiling_temperature_proof_ref?: string;
+            /** Format: uuid */
+            cooled_temperature_proof_ref?: string;
+            /** Format: uuid */
+            uht_milk_quantity_proof_ref: string;
+            /** Format: uuid */
+            citric_acid_mixing_proof_ref: string;
+        };
+        MilkPreparationSubmissionRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            preparation_date: string;
+            goat_milk_used: boolean;
+            proofs: components["schemas"]["MilkPreparationProofs"];
+        };
+        MilkPreparationSubmissionResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /** @enum {string} */
+            status: "pending_verification";
+            attempt_no: number;
+            row_version: number;
+        };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected";
         VerificationSourceRef: {
@@ -9303,6 +9451,68 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMilkPreparation: {
+        parameters: {
+            query?: {
+                /** @description Optional park scope from the admin top bar. */
+                park_id?: string;
+                limit?: number;
+                /** @description Offset over the bounded physical shed x milk cohort grain set. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current milk preparation direction and whole-scope totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkPreparationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitAppCountsMilkPreparation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilkPreparationSubmissionRequest"];
+            };
+        };
+        responses: {
+            /** @description The full step-video package is pending verifier review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkPreparationSubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

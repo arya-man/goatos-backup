@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">ನೀರು ವಿತರಣೆಯ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_feed_packing_title">ಮೇವು ಪ್ಯಾಕಿಂಗ್ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_feed_packing_instruction">ಮೇವು ಪ್ಯಾಕಿಂಗ್ ಕಾರ್ಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_milk_preparation_title">ಹಾಲು ತಯಾರಿ ಹಂತವನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_milk_preparation_instruction">ಈ ತಯಾರಿ ಹಂತ ಮತ್ತು ಅದರ ಅಳತೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_feed_transport_title">ಮೇವು ಸಾಗಣೆ ವಿಡಿಯೋ</string>
     <string name="proof_camera_feed_transport_instruction">ಈ ಶೆಡ್‌ಗೆ ಮೇವು ಸಾಗಿಸುವುದನ್ನು ನೈಜ ಸಮಯದಲ್ಲಿ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_recording_time">ರೆಕಾರ್ಡಿಂಗ್ · %1$d ಸೆಕೆಂಡು</string>

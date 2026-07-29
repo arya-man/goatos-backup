@@ -342,6 +342,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 				{Key: "birth", Label: "Birth", Href: "/counts/birth"},
 				{Key: "death", Label: "Death", Href: "/counts/death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
+				{Key: "milk_preparation", Label: "Milk Prep", Href: "/counts/milk-preparation"},
 			},
 		},
 		{
@@ -694,9 +695,9 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting"}},
+		{permissions.RoleOperator, []string{"birth", "death", "shifting", "milk_preparation"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "milk_preparation"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -839,13 +840,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "milk_preparation"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth death shifting milk_preparation]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "milk_preparation"}) {
+		t.Fatalf("park_head counts bar=%v want [birth death shifting milk_preparation] (no approval on mobile)", got)
 	}
 
 	// No role gets an "approval" or a "You" tab from Counts on mobile.

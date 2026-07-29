@@ -14,6 +14,11 @@ var (
 	ErrLogicalKeyConflict          = errors.New("counts: logical shifting event key reused with different payload")
 	ErrProjectionExceptionNotFound = errors.New("counts: projection exception not found")
 	ErrProjectionExceptionClosed   = errors.New("counts: projection exception already closed")
+	ErrMilkPreparationPending      = errors.New("counts: milk preparation is already pending verification")
+	ErrMilkPreparationCompleted    = errors.New("counts: milk preparation is already completed")
+	ErrMilkPreparationNotFound     = errors.New("counts: milk preparation completion not found")
+	ErrMilkPreparationProofs       = errors.New("counts: every applicable milk preparation step requires its own video")
+	ErrMilkPreparationInvalidProof = errors.New("counts: milk preparation proof must be a completed live-camera video for its step")
 
 	// ErrApprovalRequestNotFound is returned when the addressed approval request does not exist in
 	// the caller's tenant.
@@ -82,6 +87,7 @@ type Repository interface {
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 	GetHerdRegisterSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetCountsBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
+	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 
 	// ProjectedShedCountsForFeed returns what each shed grain will hold on a feed day, computed
 	// from the LIVE herd plus the movements that are approved but not yet executed.
@@ -147,4 +153,13 @@ type Repository interface {
 
 	// ListShiftingEventsPendingExecution returns one keyset page of raised/authorized/evidence-rework Actions.
 	ListShiftingEventsPendingExecution(ctx context.Context, q domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error)
+}
+
+// MilkPreparationCompletionStore owns the park-day preparation verification state. Keeping this
+// write slice separate from Repository means read-only Counts consumers do not gain a mutation
+// dependency merely because milk preparation is visible in the Counts read model.
+type MilkPreparationCompletionStore interface {
+	SubmitMilkPreparation(ctx context.Context, in domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
+	ApplyVerifiedMilkPreparation(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
+	BounceMilkPreparationForRework(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
 }

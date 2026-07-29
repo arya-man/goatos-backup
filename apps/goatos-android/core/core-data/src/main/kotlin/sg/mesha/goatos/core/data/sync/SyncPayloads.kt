@@ -290,4 +290,13 @@ data class FeedPackingCompletePayload(
     @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
 )
 
+@Serializable
+data class MilkPreparationSubmitPayload(
+    @SerialName("park_id") val parkId: String,
+    @SerialName("preparation_date") val preparationDate: String,
+    @SerialName("goat_milk_used") val goatMilkUsed: Boolean,
+    /** Stable step-code -> PROOF_UPLOAD outbox row id. */
+    @SerialName("proof_outbox_item_ids") val proofOutboxItemIds: Map<String, String>,
+)
+
 @Serializable data class FeedTransportSubmitPayload(@SerialName("task_id") val taskId:String,@SerialName("proof_outbox_item_id") val proofOutboxItemId:String)

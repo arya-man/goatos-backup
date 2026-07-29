@@ -26,6 +26,8 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -447,6 +449,12 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto
+
+    @POST("app/counts/milk-preparation/submit")
+    suspend fun submitMilkPreparation(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto
 
     @GET("feed-transport/tasks")
     suspend fun getFeedTransportTasks(@Query("business_date") businessDate: String, @Query("cursor") cursor: String?, @Query("limit") limit: Int?): FeedTransportTaskPageDto
@@ -918,6 +926,11 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto = service.completeFeedPacking(idempotencyKey, request)
+
+    override suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto = service.submitMilkPreparation(idempotencyKey, request)
 
     override suspend fun getFeedTransportTasks(businessDate: String, cursor: String?, limit: Int?): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, cursor, limit)
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = service.submitFeedTransport(taskId, idempotencyKey, request)

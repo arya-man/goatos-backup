@@ -15,6 +15,7 @@ import (
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -40,8 +41,9 @@ type FeedCompletionStore interface {
 // source.module + source.ref_type (counts/shifting_event, feed/feed_distribution_completion,
 // feed/feed_packing_completion), so cross-fire is impossible. This is the ONE place these three are
 // registered; bootstrap/api.go, cmd/outbox-relay, and cmd/domain-event-consumer all call it.
-func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, shifting ShiftingVerificationRepo, log *slog.Logger) {
+func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, shifting ShiftingVerificationRepo, milkPreparation countsports.MilkPreparationCompletionStore, log *slog.Logger) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
+	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)

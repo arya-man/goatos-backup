@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">पानी वितरण का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_feed_packing_title">चारा पैकिंग रिकॉर्ड करें</string>
     <string name="proof_camera_feed_packing_instruction">चारा पैकिंग का काम साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_milk_preparation_title">दूध तैयारी चरण रिकॉर्ड करें</string>
+    <string name="proof_camera_milk_preparation_instruction">इस तैयारी चरण और उसके माप को साफ़ दिखाई देने दें</string>
     <string name="proof_camera_feed_transport_title">चारा परिवहन वीडियो</string>
     <string name="proof_camera_feed_transport_instruction">इस शेड तक चारा पहुँचाते हुए वास्तविक समय में रिकॉर्ड करें</string>
     <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
