@@ -142,6 +142,32 @@ android {
             isMinifyEnabled = false
             manifestPlaceholders["appLabel"] = "Mesha"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Firebase Performance Monitoring instruments bytecode via AGP's Instrumentation
+            // API (com.google.firebase.perf's FirebasePerfExtension, registered as a DSL
+            // extension on this buildType/each productFlavor), and that same transform
+            // (`transform<Variant>UnitTestClassesWithAsm`) also runs over unit-test compile
+            // output because the unitTest host-test component shares this buildType. Its ASM
+            // ClassWriter uses COMPUTE_FRAMES and, for the deeply-nested synthetic classes
+            // Kotlin generates for chained Flow operators in test fakes (e.g.
+            // FakeScanExecutionRepository$observeScanRosterStatusCounts$$inlined$map$1), it
+            // fails to resolve a common superclass and silently drops/corrupts the output class
+            // file — present in compileXxxUnitTestKotlin output, absent from the transformed
+            // test classes dir the test task actually runs against. That produces
+            // java.lang.NoClassDefFoundError at runtime for a class that plainly compiled,
+            // across every ViewModel test whose fakes chain Flow.map/groupingBy (Scan, Submit,
+            // Counts, Record, Coverage banner, Rfid, SyncStatus, VerifyDetail — the full
+            // `testStgReleaseUnitTest` failure set). This is a build-tooling defect, not a
+            // production bug or a wrong test. Skip the transform ONLY for the invocation
+            // actually running a unit-test task (checked once at configuration time against
+            // this build's requested tasks), so `assembleRelease`/`bundleRelease` keep full
+            // network-call instrumentation and only `test*UnitTest` runs are affected.
+            val runningUnitTests = gradle.startParameter.taskNames.any {
+                it.contains("UnitTest", ignoreCase = true)
+            }
+            extensions.configure<com.google.firebase.perf.plugin.FirebasePerfExtension> {
+                setInstrumentationEnabled(!runningUnitTests)
+            }
         }
         create("benchmark") {
             initWith(getByName("release"))
@@ -336,4 +362,10 @@ tasks.withType<Test>().configureEach {
         // Paparazzi looks for variant-specific snapshot resources and fails before comparing UI.
         exclude("sg/mesha/goatos/ui/*ScreenshotTest*")
     }
+}
+
+tasks.matching {
+    it.name.startsWith("transform") && it.name.endsWith("UnitTestClassesWithAsm")
+}.configureEach {
+    outputs.cacheIf { false }
 }
