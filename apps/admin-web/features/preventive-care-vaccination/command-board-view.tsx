@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { copy } from "@/lib/admin-ui-contract";
+import { copy, optionGroup } from "@/lib/admin-ui-contract";
 
 
 // Chart series palette (theme tokens only). Assigned by response order, never by
@@ -20,6 +20,49 @@ interface GridCell {
 interface ShedGridRow {
   shedName: string;
   cells: Record<string, GridCell>;
+}
+
+// The cohort ladder comes from the backend option group so the row set stays
+// business-governed. The last rung is the catch-all: any live management stage that
+// does not match an earlier rung folds into it.
+function cohortBucket(managementStage: string, ladder: string[]): string {
+  const stage = (managementStage || "").trim().toUpperCase();
+  const fallback = ladder[ladder.length - 1] ?? "";
+  for (const rung of ladder.slice(0, -1)) {
+    const key = rung.toUpperCase();
+    if (stage.startsWith(key) || stage.includes(key)) return rung;
+  }
+  return fallback;
+}
+
+interface CohortPivotRow {
+  cohort: string;
+  animals: number;
+  pending: Record<string, number>;
+}
+
+function buildCohortPivot(
+  matrix: Array<{ cohort: { managementStage: string; animalCount: number }; vaccineLabel: string; pendingCount: number }>,
+  ladder: string[]
+): { vaccines: string[]; rows: CohortPivotRow[] } {
+  const vaccines = Array.from(new Set(matrix.map((c) => c.vaccineLabel).filter(Boolean))).sort();
+  const rows = ladder.map((cohort) => {
+    const pending: Record<string, number> = {};
+    // Animals are per (stage, sex) cohort, so summing the DISTINCT stage/sex pairs that
+    // fold into this bucket avoids double counting the same cohort once per vaccine.
+    const countedCohorts = new Set<string>();
+    let animals = 0;
+    matrix.forEach((cell) => {
+      if (cohortBucket(cell.cohort.managementStage, ladder) !== cohort) return;
+      pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+      if (!countedCohorts.has(cell.cohort.managementStage)) {
+        countedCohorts.add(cell.cohort.managementStage);
+        animals += cell.cohort.animalCount;
+      }
+    });
+    return { cohort, animals, pending };
+  });
+  return { vaccines, rows };
 }
 
 function buildShedGrid(
@@ -268,36 +311,53 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
           );
         })()}
 
-        {/* Cohort Matrix Table - conditional coloring on pending count */}
-        {view.cohortMatrix.length > 0 && (
-          <div className="cbm-cohort-section">
-            <h3 className="cbm-cohort-title">{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
-            <div style={{ overflowX: "auto" }}>
-              <table className="cbm-cohort-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
-                    <th>{copy(pageContract, "command_board.cohort_matrix.column.sex")}</th>
-                    <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                    <th>{copy(pageContract, "command_board.cohort_matrix.column.vaccine")}</th>
-                    <th>{copy(pageContract, "command_board.cohort_matrix.column.pending")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.cohortMatrix.map((cell, idx) => (
-                    <tr key={idx}>
-                      <td>{cell.cohort.managementStage}</td>
-                      <td>{cell.cohort.sex}</td>
-                      <td className="cbm-cohort-num">{cell.cohort.animalCount}</td>
-                      <td>{cell.vaccineLabel}</td>
-                      <td className={`cbm-cohort-num ${cell.pendingCount > 0 ? "cbm-cohort-pending" : ""}`}>{cell.pendingCount}</td>
+        {/* Cohort matrix: fixed cohort ladder down the side, vaccines across the top,
+            pending count in the cell, red when > 0. */}
+        {(() => {
+          const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
+          const pivot = buildCohortPivot(view.cohortMatrix, ladder);
+          return (
+            <div className="cbm-cohort-section">
+              <h3 className="cbm-cohort-title">{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
+              <div className="cbm-hm">
+                <table className="cbm-heat cbm-cohort-heat">
+                  <thead>
+                    <tr>
+                      <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
+                      {pivot.vaccines.map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
+                      <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {pivot.rows.map((row) => (
+                      <tr key={row.cohort}>
+                        <th className="cbm-rowh">{row.cohort}</th>
+                        {pivot.vaccines.map((v) => {
+                          const pending = row.pending[v];
+                          if (row.animals === 0 || pending === undefined) {
+                            return <td key={v} className="cbm-cell cbm-na">—</td>;
+                          }
+                          return (
+                            <td
+                              key={v}
+                              className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
+                              title={`${row.cohort} · ${v} · ${pending} pending`}
+                            >
+                              {pending}
+                            </td>
+                          );
+                        })}
+                        <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Weekly given - bar chart */}
         {view.weeklyGiven.length > 0 && (() => {
@@ -349,11 +409,20 @@ export function CommandBoardView({ board, pageContract }: CommandBoardViewProps)
                 <span className="cbm-meta">{copy(pageContract, "command_board.weekly.meta")}</span>
               </div>
               <div className="cbm-chartbox">
-                <svg className="cbm-chart" viewBox={`0 0 ${400 + weeks.length * 60} 250`} preserveAspectRatio="xMidYMid slice">
+                {/* Width tracks the week count so a 4-week chart does not carry ~400px of
+                    dead space, and the aspect ratio is preserved with "meet" — "slice"
+                    scales to FILL the box and crops, which inflated the plot height. */}
+                <svg
+                  className="cbm-chart"
+                  viewBox={`0 0 ${70 + weeks.length * 60} 250`}
+                  width={70 + weeks.length * 60}
+                  height={250}
+                  preserveAspectRatio="xMinYMid meet"
+                >
                   {/* Y-axis labels and grid lines */}
                   {axisTicks.map((val) => (
                     <g key={`grid-${val}`}>
-                      <line x1="40" x2={400 + weeks.length * 60} y1={220 - (val / maxCount) * 180} y2={220 - (val / maxCount) * 180} stroke="var(--line2)" strokeWidth="1" opacity="0.5" />
+                      <line x1="40" x2={60 + weeks.length * 60} y1={220 - (val / maxCount) * 180} y2={220 - (val / maxCount) * 180} stroke="var(--line2)" strokeWidth="1" opacity="0.5" />
                       <text x="35" y={223 - (val / maxCount) * 180} textAnchor="end" fontSize="10" fill="var(--faint)">
                         {val}
                       </text>
