@@ -330,8 +330,14 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 5000
-            default: 250
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque roster cursor returned as next_cursor by the previous page.
       responses:
         "200":
           description: Weighing scope roster rows.
@@ -405,6 +411,75 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WeighingObservationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos:
+    get:
+      tags:
+        - Weighing
+      operationId: appGetWeighingShedVideos
+      summary: Get leadership-visible proof videos for one Weighing scope.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Shed proof media and observations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingShedVideosResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit:
+    post:
+      tags:
+        - Weighing
+      operationId: submitWeighingIndividualScope
+      summary: Idempotently close one individual-animal Weighing scope after proof-backed capture.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitWeighingIndividualScopeRequest"
+      responses:
+        "200":
+          description: Scope completed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingSubmitResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -14312,6 +14387,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingRosterRow"
+        observations:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingObservation"
+        next_cursor:
+          type: string
         trace_id:
           type: string
     CreateWeighingCampaignShed:
@@ -14448,9 +14529,22 @@ components:
           format: uuid
         weight_kg:
           type: number
+        average_weight_kg:
+          type: number
+        animal_count:
+          type: integer
         proof_artifact_id:
           type: string
           format: uuid
+        proof_artifact_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingProofMedia"
         expected_location_id:
           type: string
           format: uuid
@@ -14462,6 +14556,83 @@ components:
         accepted_at:
           type: string
           format: date-time
+    WeighingProofMedia:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_id
+        - download_url
+      properties:
+        proof_id:
+          type: string
+          format: uuid
+        download_url:
+          type: string
+          format: uri
+        mime_type:
+          type: string
+    WeighingShedVideos:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - campaign_shed_id
+        - shed_name
+        - weighing_category
+        - status
+        - individual
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        campaign_shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        weighing_category:
+          $ref: "#/components/schemas/WeighingCategory"
+        status:
+          type: string
+        individual:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingObservation"
+        lump_sum:
+          $ref: "#/components/schemas/WeighingObservation"
+    WeighingShedVideosResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed
+      properties:
+        shed:
+          $ref: "#/components/schemas/WeighingShedVideos"
+        trace_id:
+          type: string
+    SubmitWeighingIndividualScopeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scanned_identifiers
+      properties:
+        scanned_identifiers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+    WeighingSubmitResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [completed]
+        trace_id:
+          type: string
     WeighingObservationResponse:
       type: object
       additionalProperties: false

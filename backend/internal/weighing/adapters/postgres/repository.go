@@ -545,7 +545,11 @@ FROM weighing_observations
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND campaign_shed_id=$3::uuid
-ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID)
+  AND (
+    animal_id IS NULL
+    OR animal_id = ANY($4::uuid[])
+  )
+ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out))
 	if err != nil {
 		return domain.RosterPage{}, err
 	}
@@ -712,6 +716,8 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 		   AND ea.campaign_id=$2::uuid
 		   AND ea.campaign_shed_id=$9::uuid
 		   AND ea.animal_id=g.goat_id
+		   AND ea.status <> 'unavailable'
+		   AND ea.availability_status NOT IN ('icu','quarantine','dead','culled','sold_transferred','exited')
 	  LEFT JOIN locations actual_location
 	    ON actual_location.tenant_id=g.tenant_id
 	   AND actual_location.location_id=COALESCE(NULLIF($8, '')::uuid, g.current_location_id)
@@ -1002,7 +1008,7 @@ WHERE cs.tenant_id=$1::uuid
 	return r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID)
 }
 
-func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID string, scannedIdentifiers []string) error {
+func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -1010,6 +1016,21 @@ func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campai
 		return err
 	}
 	defer tx.Rollback(ctx)
+	fingerprint := idempotencyFingerprint(map[string]any{
+		"campaign_id":         campaignID,
+		"campaign_shed_id":    campaignShedID,
+		"submitted_by":        actorID,
+		"scanned_identifiers": scannedIdentifiers,
+	})
+	if _, resourceType, _, ok, err := r.idempotencyResource(ctx, tx, tenantID, "weighing.individual_scope_submitted", idempotencyKey, fingerprint); err != nil || ok {
+		if err != nil {
+			return err
+		}
+		if resourceType != "weighing_campaign_shed" {
+			return ports.ErrIdempotencyConflict
+		}
+		return tx.Commit(ctx)
+	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
 SET status='completed', completed_at=COALESCE(cs.completed_at, now()), updated_at=now()
@@ -1058,7 +1079,25 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
 	if err := r.completeCampaignIfDone(ctx, tx, tenantID, campaignID); err != nil {
 		return err
 	}
+	if err := r.recordIdempotency(ctx, tx, tenantID, "weighing.individual_scope_submitted", idempotencyKey, fingerprint, "weighing_campaign_shed", campaignShedID, map[string]any{
+		"campaign_id":         campaignID,
+		"campaign_shed_id":    campaignShedID,
+		"submitted_by":        actorID,
+		"scanned_identifiers": scannedIdentifiers,
+	}); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+func rosterAnimalIDs(rows []domain.ExpectedAnimal) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.AnimalID != "" {
+			ids = append(ids, row.AnimalID)
+		}
+	}
+	return ids
 }
 
 func (r *Repository) completeCampaignIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {

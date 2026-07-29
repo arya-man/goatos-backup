@@ -26,7 +26,7 @@ type Service interface {
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
-	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, scannedIdentifiers []string) error
+	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
 }
 
 type Handler struct {
@@ -250,6 +250,7 @@ func (h *Handler) SubmitIndividualScope(w http.ResponseWriter, r *http.Request) 
 		actor(r),
 		r.PathValue("campaign_id"),
 		r.PathValue("campaign_shed_id"),
+		r.Header.Get("Idempotency-Key"),
 		req.ScannedIdentifiers,
 	)
 	h.respond(w, r, map[string]any{"status": "completed", "trace_id": traceID(r)}, err)
@@ -282,6 +283,8 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, errorEnvelope{Code: "not_found", Message: "weighing resource was not found", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrImmutable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 	}

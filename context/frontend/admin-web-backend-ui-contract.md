@@ -284,6 +284,13 @@ Explicit exceptions:
   remain as fallback text until the backend contract is extended with full copy keys. Escalation
   counting fix (P2b): now uses backend `escalation_state` or `status` field instead of
   `source === 'escalation'` alone.
+- `features/weighing/*` (route `/weighing`): the weekly kids weighing planning
+  and monitoring slice is backed by generated Weighing API calls, but the
+  backend `AdminWebPageContract` has not yet been extended with planner copy,
+  option labels, scope table labels, disabled reasons, and duplicate-task edit
+  copy. Keep the literal exception until `backend/internal/adminui/app/service.go`
+  registers the weighing route contract and the page reads copy/table labels from
+  that contract.
 - `features/verification-review/*` (route `/verification`): a new Admin/Data Ops authority screen
   (Head/Director/CEO act surface for the generic Verification vertical,
   `context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`) built ahead of

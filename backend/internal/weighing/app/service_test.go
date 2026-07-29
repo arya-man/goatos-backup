@@ -247,6 +247,24 @@ func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
 	}
 }
 
+func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
+
+	err := service.SubmitIndividualScope(
+		context.Background(),
+		operator,
+		"00000000-0000-4000-8000-000000000501",
+		"00000000-0000-4000-8000-000000000801",
+		"",
+		[]string{"RFID-ONE"},
+	)
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("missing idempotency key err=%v, want invalid argument", err)
+	}
+}
+
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
 	service := NewService(repo)
@@ -421,6 +439,9 @@ func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalO
 func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObservation) (domain.Observation, error) {
 	f.shedWrites++
 	return domain.Observation{}, nil
+}
+func (f fakeRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
+	return nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
 
@@ -666,6 +687,9 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 }
 
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+func (r *scenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
+	return nil
+}
 
 func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.ExpectedAnimal) domain.Progress {
 	progress := domain.Progress{}
