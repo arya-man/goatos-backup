@@ -428,6 +428,17 @@
       "ciStep": "android-compose-lists-guard"
     },
     {
+      "id": "android-row-action-scope",
+      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
+      "makeTarget": "android-row-action-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-row-action-scope-guard",
+      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
+    },
+    {
       "id": "calendar-endpoint-grain",
       "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
       "makeTarget": "calendar-endpoint-grain-guard",
