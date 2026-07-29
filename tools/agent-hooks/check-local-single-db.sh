@@ -56,6 +56,7 @@ for file in "${normal_runtime_files[@]}"; do
   fi
   require_pattern "$file" "goatos-local-current" "canonical local DB detection"
   require_pattern "$file" "Multiple Goat OS local app Postgres containers are running; refusing to guess DATABASE_URL." "multiple-DB refusal"
+  reject_pattern "$file" "/goatosdb?sslmode=disable" "non-canonical goatosdb normal-runtime target"
   reject_pattern "$file" "127.0.0.1:5432/goatos" "old host-Postgres fallback on :5432"
 done
 
