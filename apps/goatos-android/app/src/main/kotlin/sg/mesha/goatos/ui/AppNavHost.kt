@@ -460,7 +460,15 @@ object Routes {
 
 internal fun routeAcceptsWeighingRfid(route: String?): Boolean =
     route?.substringBefore("?") == Routes.WEIGHING_SCAN &&
-        Uri.parse(route).getQueryParameter(Routes.WEIGHING_CATEGORY_ARG) != "per_shed_partition"
+        Uri.parse(route)
+            .getQueryParameter(Routes.WEIGHING_CATEGORY_ARG)
+            ?.isPerShedPartitionCategory() != true
+
+private fun String.isPerShedPartitionCategory(): Boolean =
+    trim()
+        .replace('-', '_')
+        .replace(' ', '_')
+        .equals("per_shed_partition", ignoreCase = true)
 
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
@@ -742,7 +750,7 @@ fun AppNavHost(
                                 expectedLocationLabel = assignment.expectedLocationLabel,
                                 scanTitle = assignment.label,
                             ),
-                        ) { launchSingleTop = true }
+                        )
                     }
                 },
                 )
