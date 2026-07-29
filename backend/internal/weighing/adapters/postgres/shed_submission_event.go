@@ -60,6 +60,7 @@ WHERE cs.tenant_id=$1::uuid
 		eventWeighingShedSubmissionCompleted,
 		payload.CampaignID,
 		eventWeighingShedSubmissionCompleted+":"+campaignShedID,
+		"",
 		payload,
 	)
 }

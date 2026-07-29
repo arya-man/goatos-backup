@@ -38,7 +38,8 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey); err != nil || ok {
+	fingerprint := idempotencyFingerprint(cmd)
+	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint); err != nil || ok {
 		return existing, err
 	}
 	var c domain.Campaign
@@ -83,7 +84,10 @@ RETURNING (SELECT campaign_shed_id::text FROM inserted), $1::text, $3::text, $4,
 		}
 		c.Sheds = append(c.Sheds, cs)
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, c); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -101,7 +105,11 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_updated", cmd.IdempotencyKey); err != nil || ok {
+	fingerprint := idempotencyFingerprint(struct {
+		CampaignID string
+		Command    domain.UpdateCampaign
+	}{CampaignID: campaignID, Command: cmd})
+	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_updated", cmd.IdempotencyKey, fingerprint); err != nil || ok {
 		return existing, err
 	}
 	tag, err := tx.Exec(ctx, `
@@ -175,7 +183,10 @@ RETURNING (SELECT campaign_shed_id::text FROM upserted)`, campaignID, cmd.Tenant
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, c); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_updated", cmd.IdempotencyKey, fingerprint, "weighing_campaign", campaignID, c); err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
 	return c, tx.Commit(ctx)
@@ -189,7 +200,8 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, ok, err := r.campaignByIdempotency(ctx, tx, tenantID, "weighing.campaign_published", idempotencyKey); err != nil || ok {
+	fingerprint := idempotencyFingerprint(map[string]string{"campaign_id": campaignID, "published_by": actorID})
+	if existing, ok, err := r.campaignByIdempotency(ctx, tx, tenantID, "weighing.campaign_published", idempotencyKey, fingerprint); err != nil || ok {
 		return existing, err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE weighing_campaigns SET status='published', published_at=now(), updated_at=now(), row_version=row_version+1 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND status='draft'`, tenantID, campaignID)
@@ -203,7 +215,10 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := r.enqueue(ctx, tx, tenantID, "weighing.campaign_published", campaignID, idempotencyKey, map[string]string{"campaign_id": campaignID, "published_by": actorID}); err != nil {
+	if err := r.recordIdempotency(ctx, tx, tenantID, "weighing.campaign_published", idempotencyKey, fingerprint, "weighing_campaign", campaignID, c); err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := r.enqueue(ctx, tx, tenantID, "weighing.campaign_published", campaignID, idempotencyKey, fingerprint, map[string]string{"campaign_id": campaignID, "published_by": actorID}); err != nil {
 		return domain.Campaign{}, err
 	}
 	return c, tx.Commit(ctx)
@@ -664,7 +679,8 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 		return domain.Observation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, cmd.IdempotencyKey); err != nil || ok {
+	fingerprint := idempotencyFingerprint(cmd)
+	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint); err != nil || ok {
 		if err != nil {
 			return domain.Observation{}, err
 		}
@@ -691,7 +707,11 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	    actual_location.name AS actual_location_label
 	  FROM campaign c
 	  JOIN goats g ON g.tenant_id=$1::uuid AND g.goat_id=$3::uuid
-	  LEFT JOIN weighing_expected_animals ea ON ea.tenant_id=$1::uuid AND ea.campaign_id=$2::uuid AND ea.animal_id=g.goat_id
+		  JOIN weighing_expected_animals ea
+		    ON ea.tenant_id=$1::uuid
+		   AND ea.campaign_id=$2::uuid
+		   AND ea.campaign_shed_id=$9::uuid
+		   AND ea.animal_id=g.goat_id
 	  LEFT JOIN locations actual_location
 	    ON actual_location.tenant_id=g.tenant_id
 	   AND actual_location.location_id=COALESCE(NULLIF($8, '')::uuid, g.current_location_id)
@@ -714,7 +734,7 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
 	)
 	SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID).
+		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyAnimalObservationRejection(ctx, tx, cmd)
@@ -741,7 +761,10 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, cmd.T
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_observation", obs.ObservationID, obs); err != nil {
+		return domain.Observation{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
 		return domain.Observation{}, err
 	}
 	if err := r.auditAnimalObservation(ctx, tx, cmd, nil, obs); err != nil {
@@ -781,21 +804,20 @@ WITH campaign AS (
     AND proof.proof_id=$5::uuid
     AND proof.upload_state='completed'
     AND proof.proof_type='video'
-), updated AS (
-  UPDATE weighing_observations observation
-  SET weight_kg=$4,
-      proof_artifact_id=p.proof_id,
-      recorded_by=$7::uuid,
-      idempotency_key=$6,
-      accepted_at=now()
-  FROM campaign c
-  JOIN assigned_shed s ON true
-  JOIN proof_ok p ON true
-  WHERE observation.tenant_id=$1::uuid
+	), updated AS (
+	  UPDATE weighing_observations observation
+	  SET weight_kg=$4,
+	      proof_artifact_id=p.proof_id,
+	      recorded_by=$7::uuid,
+	      accepted_at=now()
+	  FROM campaign c
+	  JOIN assigned_shed s ON true
+	  JOIN proof_ok p ON true
+	  WHERE observation.tenant_id=$1::uuid
     AND observation.campaign_id=$2::uuid
-    AND observation.campaign_shed_id=s.campaign_shed_id
-    AND observation.animal_id IS NULL
-    AND lower(observation.scanned_identifier)=lower($3)
+	    AND observation.campaign_shed_id=s.campaign_shed_id
+	    AND observation.animal_id IS NULL
+	    AND lower(observation.scanned_identifier)=lower($3)
   RETURNING observation.observation_id::text, observation.campaign_id::text,
     COALESCE(observation.campaign_shed_id::text,'') AS campaign_shed_id_text,
     observation.scanned_identifier AS animal_id_text, observation.weight_kg::float8,
@@ -832,7 +854,11 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
+	fingerprint := idempotencyFingerprint(cmd)
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_observation", obs.ObservationID, obs); err != nil {
+		return domain.Observation{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
 		return domain.Observation{}, err
 	}
 	if err := r.auditAnimalObservation(ctx, tx, cmd, before, obs); err != nil {
@@ -855,7 +881,8 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 		return domain.Observation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, cmd.IdempotencyKey); err != nil || ok {
+	fingerprint := idempotencyFingerprint(cmd)
+	if existing, ok, err := r.observationByIdemTx(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", cmd.IdempotencyKey, fingerprint); err != nil || ok {
 		if err != nil {
 			return domain.Observation{}, err
 		}
@@ -941,7 +968,10 @@ WHERE tenant_id=$1::uuid
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", obs.ObservationID, cmd.IdempotencyKey, obs); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_shed_observation", obs.ObservationID, obs); err != nil {
+		return domain.Observation{}, err
+	}
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, tx.Commit(ctx)
@@ -1356,21 +1386,20 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid`, tenantID, campaignID
 	return completedAnimals, completedScopes, wrongShed, missing, err
 }
 
-func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string) (domain.Campaign, bool, error) {
-	var id string
-	err := tx.QueryRow(ctx, `SELECT aggregate_id::text FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2 AND idempotency_key=$3`, tenantID, eventType, idem).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Campaign{}, false, nil
+func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (domain.Campaign, bool, error) {
+	id, resourceType, _, ok, err := r.idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprint)
+	if err != nil || !ok {
+		return domain.Campaign{}, ok, err
 	}
-	if err != nil {
-		return domain.Campaign{}, false, err
+	if resourceType != "weighing_campaign" {
+		return domain.Campaign{}, true, ports.ErrIdempotencyConflict
 	}
 	c, err := r.getCampaignTx(ctx, tx, tenantID, id)
 	return c, true, err
 }
 
 func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID, idem string) (domain.Observation, error) {
-	obs, ok, err := r.observationByIdemTx(ctx, tx, tenantID, idem)
+	obs, ok, err := r.observationByIdemTx(ctx, tx, tenantID, "weighing.observation_accepted", idem, "")
 	if err != nil {
 		return domain.Observation{}, err
 	}
@@ -1380,17 +1409,26 @@ func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID,
 	return obs, tx.Commit(ctx)
 }
 
-func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, idem string) (domain.Observation, bool, error) {
-	var obs domain.Observation
-	err := tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), COALESCE(animal_id::text, scanned_identifier), weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, idem).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
-	if err == nil {
+func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (domain.Observation, bool, error) {
+	id, resourceType, snapshot, ok, err := r.idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprint)
+	if err != nil || !ok {
+		return domain.Observation{}, ok, err
+	}
+	if len(snapshot) > 0 {
+		var obs domain.Observation
+		if err := json.Unmarshal(snapshot, &obs); err != nil {
+			return domain.Observation{}, true, err
+		}
 		return obs, true, nil
 	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, false, err
-	}
-	err = tx.QueryRow(ctx, `
+	var obs domain.Observation
+	var queryErr error
+	switch resourceType {
+	case "weighing_observation":
+		queryErr = tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), COALESCE(animal_id::text, scanned_identifier), weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, tenantID, id).
+			Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
+	case "weighing_shed_observation":
+		queryErr = tx.QueryRow(ctx, `
 SELECT
   wso.shed_observation_id::text,
   wso.campaign_id::text,
@@ -1409,13 +1447,13 @@ SELECT
   ),
   wso.accepted_at
 FROM weighing_shed_observations wso
-WHERE wso.tenant_id=$1::uuid AND wso.idempotency_key=$2`, tenantID, idem).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.ProofArtifactID, &obs.ProofArtifactIDs, &obs.AcceptedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, false, nil
+WHERE wso.tenant_id=$1::uuid AND wso.shed_observation_id=$2::uuid`, tenantID, id).
+			Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.ProofArtifactID, &obs.ProofArtifactIDs, &obs.AcceptedAt)
+	default:
+		return domain.Observation{}, true, ports.ErrIdempotencyConflict
 	}
-	if err != nil {
-		return domain.Observation{}, false, err
+	if queryErr != nil {
+		return domain.Observation{}, true, queryErr
 	}
 	return obs, true, nil
 }
@@ -1605,16 +1643,71 @@ func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pg
 	return ports.ErrNotFound
 }
 
-func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggregateID, idem string, payload any) error {
+func (r *Repository) idempotencyResource(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (id string, resourceType string, snapshot []byte, ok bool, err error) {
+	var storedFingerprint string
+	var snapshotText string
+	err = tx.QueryRow(ctx, `
+SELECT request_fingerprint, resource_type, resource_id::text, COALESCE(result_snapshot::text, '')
+FROM weighing_idempotency_records
+WHERE tenant_id=$1::uuid AND event_type=$2 AND idempotency_key=$3`, tenantID, eventType, idem).
+		Scan(&storedFingerprint, &resourceType, &id, &snapshotText)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil, false, nil
+	}
+	if err != nil {
+		return "", "", nil, false, err
+	}
+	if fingerprint != "" && storedFingerprint != fingerprint {
+		return "", "", nil, true, ports.ErrIdempotencyConflict
+	}
+	if snapshotText != "" {
+		snapshot = []byte(snapshotText)
+	}
+	return id, resourceType, snapshot, true, nil
+}
+
+func (r *Repository) recordIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint, resourceType, resourceID string, snapshot any) error {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
+INSERT INTO weighing_idempotency_records (
+  tenant_id, event_type, idempotency_key, request_fingerprint, resource_type, resource_id, result_snapshot
+)
+VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7::jsonb)
+ON CONFLICT (tenant_id, event_type, idempotency_key) DO NOTHING`,
+		tenantID, eventType, idem, fingerprint, resourceType, resourceID, string(raw))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		_, _, _, _, err := r.idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprint)
+		return err
+	}
+	return nil
+}
+
+func idempotencyFingerprint(payload any) string {
+	raw, _ := json.Marshal(payload)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggregateID, idem, fingerprint string, payload any) error {
 	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	headers, err := json.Marshal(map[string]string{"request_fingerprint": fingerprint})
 	if err != nil {
 		return err
 	}
 	eventID := deterministicUUID(eventType + ":" + tenantID + ":" + idem)
 	_, err = tx.Exec(ctx, `
 INSERT INTO outbox_messages (tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id, topic, payload, headers, idempotency_key, status)
-VALUES ($1::uuid, $2::uuid, $3, 'v1', 'weighing', $4::uuid, 'domain-events', $5::jsonb, '{}'::jsonb, $6, 'pending')
-ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), idem)
+VALUES ($1::uuid, $2::uuid, $3, 'v1', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, 'pending')
+ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem)
 	return err
 }
 

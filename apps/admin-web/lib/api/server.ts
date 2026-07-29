@@ -95,6 +95,8 @@ export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["Va
 export type WeighingCampaign = AppApiComponents["schemas"]["WeighingCampaign"];
 export type WeighingCampaignShed = AppApiComponents["schemas"]["WeighingCampaignShed"];
 export type WeighingCampaignListResponse = AppApiComponents["schemas"]["WeighingCampaignListResponse"];
+export type WeighingPlannerCatalogResponse = AppApiComponents["schemas"]["WeighingPlannerCatalogResponse"];
+export type WeighingPlannerPark = AppApiComponents["schemas"]["WeighingPlannerPark"];
 export type CreateWeighingCampaignRequest = AppApiComponents["schemas"]["CreateWeighingCampaignRequest"];
 export type WeighingCampaignResponse = AppApiComponents["schemas"]["WeighingCampaignResponse"];
 
@@ -1062,7 +1064,9 @@ export async function getVaccinationDriveAssignments(
   );
 }
 
-export async function getWeighingCampaigns(): Promise<ApiResult<WeighingCampaignListResponse>> {
+export async function getWeighingCampaigns(
+  params: { cursor?: string; limit?: number } = {},
+): Promise<ApiResult<WeighingCampaignListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
@@ -1071,6 +1075,24 @@ export async function getWeighingCampaigns(): Promise<ApiResult<WeighingCampaign
       client.request<WeighingCampaignListResponse>("/weighing/campaigns", {
         cache: "no-store",
         signal,
+        query: compactQuery({ cursor: params.cursor, limit: params.limit }),
+      }),
+    ),
+  );
+}
+
+export async function getWeighingPlannerCatalog(
+  periodStartDate: string,
+): Promise<ApiResult<WeighingPlannerCatalogResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<WeighingPlannerCatalogResponse>("/app/weighing/planner/catalog", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ period_start_date: periodStartDate }),
       }),
     ),
   );

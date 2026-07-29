@@ -130,6 +130,20 @@ paths:
         - Weighing
       operationId: listWeighingCampaigns
       summary: List leadership-visible Weighing campaigns.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 20
       responses:
         "200":
           description: Weighing campaigns.
@@ -241,6 +255,20 @@ paths:
         - Weighing
       operationId: appListWeighingCampaigns
       summary: List operator-visible Weighing campaigns.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 20
       responses:
         "200":
           description: Operator Weighing campaigns.
@@ -14107,6 +14135,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingCampaign"
+        next_cursor:
+          type: string
         trace_id:
           type: string
     WeighingCampaignResponse:
@@ -14343,14 +14373,20 @@ components:
       type: object
       additionalProperties: false
       required:
+        - campaign_shed_id
         - animal_id
         - weight_kg
         - proof_artifact_id
         - actual_location_id
       properties:
+        campaign_shed_id:
+          type: string
+          format: uuid
         animal_id:
           type: string
           format: uuid
+        scanned_identifier:
+          type: string
         weight_kg:
           type: number
           exclusiveMinimum: 0
@@ -14366,7 +14402,7 @@ components:
       required:
         - campaign_shed_id
         - weight_kg
-        - proof_artifact_id
+        - animal_count
       properties:
         campaign_shed_id:
           type: string
@@ -14374,9 +14410,20 @@ components:
         weight_kg:
           type: number
           exclusiveMinimum: 0
+        average_weight_kg:
+          type: number
+          exclusiveMinimum: 0
+        animal_count:
+          type: integer
+          minimum: 1
         proof_artifact_id:
           type: string
           format: uuid
+        proof_artifact_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
     WeighingObservation:
       type: object
       additionalProperties: false
