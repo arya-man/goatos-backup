@@ -474,6 +474,44 @@ Before a new vertical is allowed into shared surfaces:
 - Add scale test for target row count.
 - Add pagination test proving summary is not page-local.
 
+## Vaccination Read Models
+
+### GET /vaccination/command
+
+Status: Implemented; grain and bucket definitions below.
+
+**Purpose**: CEO/leadership command board: all-history vaccination KPIs, active-batch drive status, cohort pending matrix, and verification queue backlog.
+
+**Grain and Buckets** (disjoint unless noted):
+
+- **KPIs (all-history scope, park-scoped)**:
+  - `targets`: `COUNT(DISTINCT obligation_id)` for all open + completed + overdue obligations
+  - `doses_verified`: `COUNT(DISTINCT completion_id WHERE status='accepted')` from all verified completions
+  - `awaiting_verification`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` from all pending-verification completions
+  - `overdue_not_given`: `COUNT(DISTINCT obligation_id WHERE status='overdue')` for open overdue obligations at current as-of date
+  - `scheduled_ahead`: `COUNT(DISTINCT obligation_id WHERE due_at > current_as_of_date)` for open future-scheduled obligations
+
+- **Active Batch Status (current drive scope, per park)**:
+  - `targets`: `COUNT(DISTINCT animal_id)` assigned in current active `vaccination_drive_assignments` batch
+  - `verified`: `COUNT(DISTINCT completion_id WHERE status='accepted')` from active batch animals
+  - `awaiting`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` from active batch animals
+  - `overdue`: `COUNT(DISTINCT obligation_id WHERE status='overdue')` from active batch animals
+
+- **Cohort Pending Matrix (obligation grain, per stage×sex×vaccine, disjoint)**:
+  - Key: `(management_stage, sex, vaccine_label)` from obligation eligibility
+  - `animal_count`: `COUNT(DISTINCT animal_id)` in cohort across open + completed obligations
+  - `pending_count`: `COUNT(DISTINCT obligation_id WHERE status IN ('scheduled', 'due'))` in cohort
+  - Each obligation counted once per its (stage, sex, vaccine) tuple
+
+- **Verification Queue (shed-scoped backlog, per shed×dose-rule, ordered by age)**:
+  - Key: `(shed_id, dose_rule)` from SOP task + dose rule origin
+  - `awaiting_count`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` for shed×rule
+  - `total_count`: `COUNT(DISTINCT completion_id WHERE status IN ('verification_pending', 'accepted', 'rejected'))` for shed×rule
+  - `days_in_queue`: `DATEDIFF(current_business_date, MIN(created_date WHERE status='verification_pending'))` for oldest pending in shed×rule
+  - Ordered: `days_in_queue DESC` (oldest first, most urgent)
+
+**Contract**: See backend `VaccinationCommandBoardResponse` OpenAPI schema and generated TypeScript client in `lib/api/vaccination-command-board.ts`.
+
 ## Rollout Plan
 
 ### Phase 1: Stop Contract Drift
