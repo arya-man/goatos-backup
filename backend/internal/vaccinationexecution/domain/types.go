@@ -772,3 +772,84 @@ type ShedAnimalQuery struct {
 	Cursor       *string // last goat_id seen (exclusive)
 	Limit        int
 }
+
+// ---- Vaccination command board read model (CEO closure view) ----
+// projection-review: membership=tenant + optional drive_batch_id scoped obligations & completions;
+// grain=kpi (all), cohort (stage×sex), shed×dose (rule grain), week (ISO week of administered_at),
+// verification queue (shed×dose); join_cardinality=goat lookups 1:1, completion status pre-aggregated;
+// pagination=verification_queue keyset-bound, others unbounded per envelope (324-goat, ~640-obligation basis).
+
+type CommandBoardKPI struct {
+	Targets               int `json:"targets"`
+	DosesVerified         int `json:"dosesVerified"`
+	AwaitingVerification  int `json:"awaitingVerification"`
+	OverdueNotGiven       int `json:"overdueNotGiven"`
+	ScheduledAhead        int `json:"scheduledAhead"`
+}
+
+type CommandBoardCohort struct {
+	ManagementStage string `json:"managementStage"`
+	Sex             string `json:"sex"`
+	AnimalCount     int    `json:"animalCount"`
+}
+
+type CommandBoardCohortCell struct {
+	Cohort       CommandBoardCohort `json:"cohort"`
+	VaccineLabel string             `json:"vaccineLabel"`
+	PendingCount int                `json:"pendingCount"`
+}
+
+// ShedDoseMatrixCell represents state of a shed × dose rule combination.
+type ShedDoseMatrixCell struct {
+	ShedID                string     `json:"shedId"`
+	ShedName              string     `json:"shedName"`
+	DoseRule              string     `json:"doseRule"` // e.g. "et_tt_adult_w1", vaccine + position label
+	State                 string     `json:"state"`   // "verified", "awaiting", "overdue", "scheduled"
+	AnimalCount           int        `json:"animalCount"`
+	MinAdministeredDate   *time.Time `json:"minAdministeredDate,omitempty"` // for completed
+	MaxAdministeredDate   *time.Time `json:"maxAdministeredDate,omitempty"` // for completed
+	MinDueDate            *time.Time `json:"minDueDate,omitempty"`          // for scheduled
+	MaxDueDate            *time.Time `json:"maxDueDate,omitempty"`          // for scheduled
+}
+
+// WeeklyGivenRow is one ISO week × vaccine × status aggregation.
+type WeeklyGivenRow struct {
+	ISOYear           int    `json:"isoYear"`
+	ISOWeek           int    `json:"isoWeek"`
+	VaccineLabel      string `json:"vaccineLabel"`
+	CompletionStatus  string `json:"completionStatus"` // "accepted" or "recorded"
+	Count             int    `json:"count"`
+	MinAdministeredAt time.Time `json:"minAdministeredAt"`
+	MaxAdministeredAt time.Time `json:"maxAdministeredAt"`
+}
+
+// VerificationQueueRow is one shed × dose awaiting-verification row.
+type VerificationQueueRow struct {
+	ShedID            string     `json:"shedId"`
+	ShedName          string     `json:"shedName"`
+	DoseRule          string     `json:"doseRule"`
+	AwaitingCount     int        `json:"awaitingCount"`
+	TotalCount        int        `json:"totalCount"`
+	LastGivenOnDate   *time.Time `json:"lastGivenOnDate,omitempty"` // max administered_at
+	DaysInQueue       *int       `json:"daysInQueue,omitempty"`      // business days since min administered_at
+}
+
+// CommandBoardResponse is the CEO closure view aggregating KPIs, cohort vaccine matrix,
+// shed dose matrix, weekly given chart, and verification queue.
+type CommandBoardResponse struct {
+	Source                string                   `json:"source"`
+	KPIs                  CommandBoardKPI          `json:"kpis"`
+	CohortMatrix          []CommandBoardCohortCell `json:"cohortMatrix"`
+	ShedDoseMatrix        []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
+	WeeklyGiven           []WeeklyGivenRow         `json:"weeklyGiven"`
+	VerificationQueue     []VerificationQueueRow   `json:"verificationQueue"`
+	Freshness             *ProjectionFreshness     `json:"freshness,omitempty"`
+}
+
+type CommandBoardQuery struct {
+	TenantID        string
+	DriveBatchID    *string   // optional: narrow KPIs to this drive batch
+	AsOf            time.Time // defaults to now in business timezone
+	HistoricalAsOf  bool
+}
+

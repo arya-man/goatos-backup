@@ -1377,6 +1377,45 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/command:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationCommandBoard
+      summary: CEO closure view — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: >-
+            Optional: narrow KPIs to this drive batch. When absent, KPIs aggregate all-history.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            Scope instant (defaults to now in business timezone). Past values are supported for historical
+            closure review; future values clamp to now.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: CEO vaccination command board — KPIs, matrices, charts, and queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationCommandBoardResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/operations:
     get:
       tags:
@@ -11929,6 +11968,224 @@ components:
             $ref: "#/components/schemas/VaccinationOperationsCohort"
         next_cursor:
           type: string
+        freshness:
+          $ref: "#/components/schemas/VaccinationProjectionFreshness"
+    VaccinationCommandBoardKPI:
+      type: object
+      additionalProperties: false
+      required:
+        - targets
+        - dosesVerified
+        - awaitingVerification
+        - overdueNotGiven
+        - scheduledAhead
+      properties:
+        targets:
+          type: integer
+          description: Total planning count (all obligations for drive or all-history).
+        dosesVerified:
+          type: integer
+          description: Accepted vaccination completions.
+        awaitingVerification:
+          type: integer
+          description: Recorded completions awaiting verification (status=recorded, verified_at=null).
+        overdueNotGiven:
+          type: integer
+          description: Obligations due before now with no completion.
+        scheduledAhead:
+          type: integer
+          description: Obligations due after now.
+    VaccinationCommandBoardCohort:
+      type: object
+      additionalProperties: false
+      required:
+        - managementStage
+        - sex
+        - animalCount
+      properties:
+        managementStage:
+          type: string
+          description: Management stage from goat classification (e.g., Buck, Non-Pregnant Female).
+        sex:
+          type: string
+          enum:
+            - male
+            - female
+        animalCount:
+          type: integer
+    VaccinationCommandBoardCohortCell:
+      type: object
+      additionalProperties: false
+      required:
+        - cohort
+        - vaccineLabel
+        - pendingCount
+      properties:
+        cohort:
+          $ref: "#/components/schemas/VaccinationCommandBoardCohort"
+        vaccineLabel:
+          type: string
+          description: Human-readable vaccine label (e.g., ET+TT, PPR · Booster).
+        pendingCount:
+          type: integer
+          description: >-
+            Count of animals in this cohort with pending obligations for this vaccine
+            (scheduled, due, or recorded-unverified).
+    ShedDoseMatrixCell:
+      type: object
+      additionalProperties: false
+      required:
+        - shedId
+        - shedName
+        - doseRule
+        - state
+        - animalCount
+      properties:
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        doseRule:
+          type: string
+          description: Dose rule identifier (e.g., et_tt_adult_w1) or human label.
+        state:
+          type: string
+          enum:
+            - verified
+            - awaiting
+            - overdue
+            - scheduled
+          description: State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
+        animalCount:
+          type: integer
+          description: Number of unique animals with this state in this shed for this dose.
+        minAdministeredDate:
+          type: string
+          format: date-time
+          description: Earliest administered_at date for verified/awaiting completions.
+        maxAdministeredDate:
+          type: string
+          format: date-time
+          description: Latest administered_at date for verified/awaiting completions.
+        minDueDate:
+          type: string
+          format: date-time
+          description: Earliest due_at date for scheduled obligations.
+        maxDueDate:
+          type: string
+          format: date-time
+          description: Latest due_at date for scheduled obligations.
+    WeeklyGivenRow:
+      type: object
+      additionalProperties: false
+      required:
+        - isoYear
+        - isoWeek
+        - vaccineLabel
+        - completionStatus
+        - count
+        - minAdministeredAt
+        - maxAdministeredAt
+      properties:
+        isoYear:
+          type: integer
+          description: ISO 8601 week year.
+        isoWeek:
+          type: integer
+          description: ISO 8601 week number (1-53).
+        vaccineLabel:
+          type: string
+          description: Human-readable vaccine label.
+        completionStatus:
+          type: string
+          enum:
+            - accepted
+            - recorded
+          description: Completion status (accepted=verified, recorded=recorded-unverified).
+        count:
+          type: integer
+          description: Number of completions this week for this vaccine and status.
+        minAdministeredAt:
+          type: string
+          format: date-time
+          description: Earliest administered_at this week.
+        maxAdministeredAt:
+          type: string
+          format: date-time
+          description: Latest administered_at this week.
+    VerificationQueueRow:
+      type: object
+      additionalProperties: false
+      required:
+        - shedId
+        - shedName
+        - doseRule
+        - awaitingCount
+        - totalCount
+      properties:
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        doseRule:
+          type: string
+          description: Dose rule identifier or human label.
+        awaitingCount:
+          type: integer
+          description: Count of completions awaiting verification (status=recorded, verified_at=null).
+        totalCount:
+          type: integer
+          description: Total count of obligations for this shed × dose.
+        lastGivenOnDate:
+          type: string
+          format: date-time
+          description: Latest administered_at date for awaiting completions.
+        daysInQueue:
+          type: integer
+          description: Business days since earliest administered_at.
+    VaccinationCommandBoardResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - kpis
+        - cohortMatrix
+        - shedDoseMatrix
+        - weeklyGiven
+        - verificationQueue
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        kpis:
+          $ref: "#/components/schemas/VaccinationCommandBoardKPI"
+        cohortMatrix:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
+          description: Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells.
+        shedDoseMatrix:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedDoseMatrixCell"
+          description: Shed × dose rule state matrix; each row is a shed+dose combination with state and date range.
+        weeklyGiven:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeeklyGivenRow"
+          description: >-
+            Weekly aggregation of doses given (ISO week × vaccine × completion status).
+            Ordered by week descending.
+        verificationQueue:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationQueueRow"
+          description: >-
+            Per-shed × dose rows awaiting verification. Includes animal count, last-given date,
+            and days in queue.
         freshness:
           $ref: "#/components/schemas/VaccinationProjectionFreshness"
     VaccinationExecutionDriveSummary:

@@ -56,6 +56,10 @@ type Reader interface {
 	// active park of the tenant. Ids and labels are `locations` data compiled by the backend -- the
 	// park option list is never assembled or labelled in the frontend.
 	AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]vaccexecd.ParkOption, error)
+
+	// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+	// weekly given, and verification queue.
+	VaccinationCommandBoard(ctx context.Context, q vaccexecd.CommandBoardQuery) (vaccexecd.CommandBoardResponse, error)
 }
 
 // OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
@@ -143,6 +147,7 @@ func (h *Handler) now() time.Time {
 
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
 func Register(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("GET /vaccination/command", h.GetVaccinationCommandBoard)
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
@@ -1588,4 +1593,38 @@ func optionalString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+// GetVaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+// weekly given, and verification queue. GET /vaccination/command
+func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	asOf := h.now()
+	if asOfStr := r.URL.Query().Get("as_of"); asOfStr != "" {
+		t, err := time.Parse(time.RFC3339, asOfStr)
+		if err == nil {
+			asOf = t.In(biztime.DefaultLocation())
+		}
+	}
+
+	driveBatchID := r.URL.Query().Get("drive_batch_id")
+	var driveBatchIDPtr *string
+	if driveBatchID != "" {
+		driveBatchIDPtr = &driveBatchID
+	}
+
+	resp, err := h.reader.VaccinationCommandBoard(r.Context(), vaccexecd.CommandBoardQuery{
+		TenantID:     tenantID,
+		DriveBatchID: driveBatchIDPtr,
+		AsOf:         asOf,
+	})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			errorEnvelope{Code: "read_error", Message: err.Error(), TraceID: traceID(r)}, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }
