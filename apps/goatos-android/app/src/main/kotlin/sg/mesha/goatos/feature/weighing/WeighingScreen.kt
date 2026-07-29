@@ -1282,7 +1282,7 @@ private fun WeighingExecutionScanScreen(
                     }
                 } else {
                     items(
-                        items = state.visibleRows.asReversed(),
+                        items = state.visibleRows,
                         key = { row -> row.animalId },
                     ) { row ->
                         WeighingFreeFlowFeedRow(
