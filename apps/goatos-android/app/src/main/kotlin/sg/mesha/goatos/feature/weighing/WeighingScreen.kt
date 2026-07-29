@@ -783,9 +783,10 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusPill(row.status)
+                CategoryPill(row.category)
             }
             Text(
-                text = row.label,
+                text = row.expectedLocationLabel.ifBlank { row.label },
                 color = MeshaColors.Ink,
                 style = MeshaType.cardTitle,
                 maxLines = 1,

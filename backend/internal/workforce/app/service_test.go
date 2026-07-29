@@ -45,6 +45,24 @@ func TestBootstrapDeniesRevokedDevice(t *testing.T) {
 	assertAppCode(t, err, "device_revoked")
 }
 
+func TestBootstrapAllowsFreshUnregisteredDevice(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile:   profile("active"),
+		grants:    []domain.GrantSummary{grant()},
+		deviceErr: ports.ErrNotFound,
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	if got.DeviceState.Device == nil {
+		t.Fatalf("device state missing device: %#v", got.DeviceState)
+	}
+	if got.DeviceState.Status != "not_registered" || got.DeviceState.Device.Status != "not_registered" {
+		t.Fatalf("device state=%#v, want not_registered", got.DeviceState)
+	}
+}
+
 func TestBootstrapAllowsActiveProfileGrantCapabilityDevice(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
