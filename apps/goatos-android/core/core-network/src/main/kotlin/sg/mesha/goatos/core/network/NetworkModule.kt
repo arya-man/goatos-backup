@@ -99,7 +99,9 @@ import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -245,6 +247,12 @@ interface AppApiService {
         @Query("limit") limit: Int,
     ): WeighingRosterResponseDto
 
+    @GET("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos")
+    suspend fun getWeighingLeadershipShedVideos(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+    ): WeighingLeadershipShedVideosResponseDto
+
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
         @Path("task_id") taskId: String,
@@ -279,6 +287,13 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: WeighingShedObservationRequestDto,
     ): WeighingObservationResponseDto
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit")
+    suspend fun submitWeighingScope(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Body request: WeighingScopeSubmitRequestDto,
+    )
 
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
@@ -722,6 +737,12 @@ class RetrofitAppApi(
         limit: Int,
     ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, limit)
 
+    override suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+    ): WeighingLeadershipShedVideosResponseDto =
+        service.getWeighingLeadershipShedVideos(campaignId, campaignShedId)
+
     override suspend fun submitAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -751,6 +772,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: WeighingShedObservationRequestDto,
     ): WeighingObservationResponseDto = service.recordWeighingShedObservation(campaignId, idempotencyKey, request)
+
+    override suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        request: WeighingScopeSubmitRequestDto,
+    ) = service.submitWeighingScope(campaignId, campaignShedId, request)
 
     override suspend fun verifyAppTask(
         taskId: String,

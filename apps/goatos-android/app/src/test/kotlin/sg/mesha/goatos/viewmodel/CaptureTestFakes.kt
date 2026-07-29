@@ -63,6 +63,17 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         }
     }
 
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+    ): Boolean {
+        if (rows.any { it.fieldKey == fieldKey && it.tag == tag }) return false
+        recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs)
+        return true
+    }
+
     override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
         enqueuePendingScansCalls++
     }

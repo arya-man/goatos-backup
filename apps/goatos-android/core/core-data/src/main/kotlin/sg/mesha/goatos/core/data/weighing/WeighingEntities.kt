@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 enum class WeighingCategory { INDIVIDUAL_ANIMAL, PER_SHED_PARTITION }
@@ -150,6 +151,12 @@ interface WeighingObservationDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entity: WeighingObservationEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun restoreAccepted(entity: WeighingObservationEntity)
+
+    @Update
+    suspend fun update(entity: WeighingObservationEntity)
+
     @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey ORDER BY capturedAtMs ASC LIMIT :limit")
     fun observeForScope(scopeKey: String, limit: Int = MAX_OBSERVATIONS_PER_SCOPE): Flow<List<WeighingObservationEntity>>
 
@@ -181,9 +188,16 @@ interface WeighingObservationDao {
 
     @Query(
         "UPDATE weighing_observation SET proofCaptureId = :proofCaptureId, serverProofId = :serverProofId, " +
-            "syncStatus = :syncStatus, lastError = NULL WHERE observationId = :observationId",
+            "idempotencyKey = :idempotencyKey, syncStatus = :syncStatus, lastError = NULL " +
+            "WHERE observationId = :observationId",
     )
-    suspend fun attachProof(observationId: String, proofCaptureId: String, serverProofId: String?, syncStatus: String)
+    suspend fun attachProof(
+        observationId: String,
+        proofCaptureId: String,
+        serverProofId: String?,
+        idempotencyKey: String,
+        syncStatus: String,
+    )
 
     @Query("DELETE FROM weighing_observation WHERE observationId = :observationId AND syncStatus != 'ACCEPTED'")
     suspend fun deleteEditable(observationId: String)

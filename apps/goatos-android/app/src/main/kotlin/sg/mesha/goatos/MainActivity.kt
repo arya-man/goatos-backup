@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -218,16 +219,32 @@ class MainActivity : ComponentActivity() {
     // restriction, so suppress that annotation only on this intentional platform override.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = dispatchRfidFirst(
+        textInputActive = isTextInputActive(
+            focusedViewIsTextEditor = currentFocus?.onCheckIsTextEditor() == true,
+            inputMethodAcceptingText =
+                getSystemService(InputMethodManager::class.java)?.isAcceptingText == true,
+        ),
         rfidConsumes = { rfidReader.onKeyEvent(event) },
         dispatchNormally = { super.dispatchKeyEvent(event) },
     )
 }
 
+/**
+ * Compose can keep a hardware/ADB-editable text field focused without showing the soft keyboard.
+ * In that state InputMethodManager may report false even though AndroidComposeView has an active
+ * input connection, so either platform signal must protect typed digits from RFID interception.
+ */
+internal fun isTextInputActive(
+    focusedViewIsTextEditor: Boolean,
+    inputMethodAcceptingText: Boolean,
+): Boolean = focusedViewIsTextEditor || inputMethodAcceptingText
+
 /** Keeps the Activity's input-order contract independently regression-testable. */
 internal fun dispatchRfidFirst(
+    textInputActive: Boolean = false,
     rfidConsumes: () -> Boolean,
     dispatchNormally: () -> Boolean,
-): Boolean = if (rfidConsumes()) true else dispatchNormally()
+): Boolean = if (textInputActive) dispatchNormally() else if (rfidConsumes()) true else dispatchNormally()
 
 @Composable
 private fun BootstrapLoading() {

@@ -108,21 +108,44 @@ type ExpectedAnimal struct {
 }
 
 type RosterPage struct {
-	Items      []ExpectedAnimal `json:"items"`
-	NextCursor string           `json:"next_cursor,omitempty"`
+	Items        []ExpectedAnimal `json:"items"`
+	Observations []Observation    `json:"observations,omitempty"`
+	NextCursor   string           `json:"next_cursor,omitempty"`
+}
+
+// LeadershipShedVideos is the read-only, shed-grain weighing proof contract.
+// Exactly one observation collection is populated according to WeighingCategory.
+type LeadershipShedVideos struct {
+	CampaignID       string        `json:"campaign_id"`
+	CampaignShedID   string        `json:"campaign_shed_id"`
+	ShedName         string        `json:"shed_name"`
+	WeighingCategory string        `json:"weighing_category"`
+	Status           string        `json:"status"`
+	Individual       []Observation `json:"individual"`
+	LumpSum          *Observation  `json:"lump_sum,omitempty"`
+}
+
+type ProofMedia struct {
+	ProofID     string `json:"proof_id"`
+	DownloadURL string `json:"download_url"`
+	MimeType    string `json:"mime_type,omitempty"`
 }
 
 type Observation struct {
-	ObservationID       string    `json:"observation_id"`
-	CampaignID          string    `json:"campaign_id"`
-	CampaignShedID      string    `json:"campaign_shed_id,omitempty"`
-	AnimalID            string    `json:"animal_id,omitempty"`
-	WeightKg            float64   `json:"weight_kg"`
-	ProofArtifactID     string    `json:"proof_artifact_id"`
-	ExpectedLocationID  string    `json:"expected_location_id,omitempty"`
-	ActualLocationID    string    `json:"actual_location_id,omitempty"`
-	ActualLocationLabel string    `json:"actual_location_label,omitempty"`
-	AcceptedAt          time.Time `json:"accepted_at"`
+	ObservationID       string       `json:"observation_id"`
+	CampaignID          string       `json:"campaign_id"`
+	CampaignShedID      string       `json:"campaign_shed_id,omitempty"`
+	AnimalID            string       `json:"animal_id,omitempty"`
+	WeightKg            float64      `json:"weight_kg"`
+	AverageWeightKg     float64      `json:"average_weight_kg,omitempty"`
+	AnimalCount         int          `json:"animal_count,omitempty"`
+	ProofArtifactID     string       `json:"proof_artifact_id"`
+	ProofArtifactIDs    []string     `json:"proof_artifact_ids,omitempty"`
+	Media               []ProofMedia `json:"media,omitempty"`
+	ExpectedLocationID  string       `json:"expected_location_id,omitempty"`
+	ActualLocationID    string       `json:"actual_location_id,omitempty"`
+	ActualLocationLabel string       `json:"actual_location_label,omitempty"`
+	AcceptedAt          time.Time    `json:"accepted_at"`
 }
 
 type Progress struct {
@@ -171,11 +194,14 @@ type RecordAnimalObservation struct {
 }
 
 type RecordShedObservation struct {
-	TenantID        string
-	CampaignID      string
-	CampaignShedID  string
-	WeightKg        float64
-	ProofArtifactID string
-	IdempotencyKey  string
-	RecordedBy      string
+	TenantID         string
+	CampaignID       string
+	CampaignShedID   string
+	WeightKg         float64
+	AverageWeightKg  float64
+	AnimalCount      int
+	ProofArtifactID  string
+	ProofArtifactIDs []string
+	IdempotencyKey   string
+	RecordedBy       string
 }

@@ -84,7 +84,9 @@ import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
 const val APP_TASK_PAGE_SIZE = 20
@@ -357,6 +359,11 @@ interface AppApi {
         limit: Int = 250,
     ): WeighingRosterResponseDto
 
+    suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+    ): WeighingLeadershipShedVideosResponseDto
+
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
      *  retry) so a server-committed-but-client-unrecorded replay never duplicates the write. */
@@ -395,6 +402,12 @@ interface AppApi {
         idempotencyKey: String,
         request: WeighingShedObservationRequestDto,
     ): WeighingObservationResponseDto
+
+    suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        request: WeighingScopeSubmitRequestDto,
+    )
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
@@ -1024,6 +1037,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 
+    override suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+    ): WeighingLeadershipShedVideosResponseDto = WeighingLeadershipShedVideosResponseDto()
+
     override suspend fun submitAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -1053,6 +1071,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: WeighingShedObservationRequestDto,
     ): WeighingObservationResponseDto = WeighingObservationResponseDto()
+
+    override suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        request: WeighingScopeSubmitRequestDto,
+    ) = Unit
 
     override suspend fun verifyAppTask(
         taskId: String,
@@ -1377,19 +1401,35 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
  * module's bar; the client only parses them (TRD §14 dumb-renderer). Labels pass through
  * verbatim — they are localized backend-side in `bootstrap_copy.go`.
  */
-fun BootstrapDto.toNavState(): NavState = NavState(
-    chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
-    items = visibleNavigation.map { it.toNavItem() },
-    modules = modules.map { module ->
+fun BootstrapDto.toNavState(): NavState {
+    val enabledModules = modules
+        .filterNot { it.key.equals(COUNTS_MODULE_KEY, ignoreCase = true) }
+        .map { module ->
         NavModule(
             key = module.key,
             label = module.label,
             href = module.href,
             status = NavModuleStatus.from(module.status),
-            navItems = module.navItems.map { it.toNavItem() },
+            navItems = module.navItems
+                .filterNot { it.isCountsNavigation() }
+                .map { it.toNavItem() },
         )
-    },
-    featureFlags = featureFlags,
-)
+    }
+    val enabledItems = visibleNavigation
+        .filterNot { it.isCountsNavigation() }
+        .map { it.toNavItem() }
+        .ifEmpty { enabledModules.firstOrNull()?.navItems.orEmpty() }
+    return NavState(
+        chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
+        items = enabledItems,
+        modules = enabledModules,
+        featureFlags = featureFlags,
+    )
+}
 
 private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)
+
+private fun NavItemDto.isCountsNavigation(): Boolean =
+    key.startsWith(COUNTS_MODULE_KEY, ignoreCase = true) || href.startsWith("/counts")
+
+private const val COUNTS_MODULE_KEY = "counts"

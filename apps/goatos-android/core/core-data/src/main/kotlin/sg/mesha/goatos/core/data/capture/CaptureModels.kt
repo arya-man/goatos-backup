@@ -60,6 +60,7 @@ enum class ProofSubject(val wireValue: String) {
     SHED("shed"),
     VIAL_LOT("vial_lot"),
     ADMINISTRATION("administration"),
+    OTHER("other"),
     EXTRA("extra"),
     ;
 

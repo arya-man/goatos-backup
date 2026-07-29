@@ -93,6 +93,8 @@ import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
+import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
@@ -127,6 +129,7 @@ import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
+import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -134,6 +137,7 @@ object Routes {
     const val CALENDAR = "/calendar"
     const val VACCINATION = "/vaccination"
     const val WEIGHING = "/weighing"
+    const val WEIGHING_VIDEOS = "/weighing/videos"
     const val WEIGHING_SCAN = "/weighing/scan"
     /**
      * Hosted Calendar child destination. It deliberately differs from the
@@ -564,6 +568,7 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
     showProtocolAdherenceCard: Boolean = false,
+    leadershipWeighing: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -705,7 +710,13 @@ fun AppNavHost(
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
-            WeighingScreen(
+            if (leadershipWeighing) {
+                LeadershipWeighingScreen(
+                    state = state,
+                    onRefresh = vm::refresh,
+                )
+            } else {
+                WeighingScreen(
                 state = state,
                 onScanInputChange = vm::onScanInputChange,
                 onScanSubmit = vm::submitTypedScan,
@@ -734,7 +745,14 @@ fun AppNavHost(
                         ) { launchSingleTop = true }
                     }
                 },
-            )
+                )
+            }
+        }
+
+        composable(Routes.WEIGHING_VIDEOS) {
+            val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingLeadershipVideosScreen(state = state)
         }
 
         composable(
@@ -802,9 +820,22 @@ fun AppNavHost(
                     onScanInputChange = vm::onScanInputChange,
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
+                    onAnimalCountChange = vm::onAnimalCountInputChange,
+                    onWeightEntryActive = vm::setWeightEntryActive,
+                    onAnimalWeightChange = vm::onAnimalWeightInputChange,
+                    onRecordAnimalWeight = vm::recordIndividual,
+                    onRetryVideo = vm::retryVideo,
+                    onReuploadVideo = vm::reuploadVideo,
                     onSelectAnimal = vm::selectAnimal,
                     onRecordIndividual = vm::recordIndividual,
-                    onRecordShedPartition = vm::recordShedPartition,
+                    onSubmitIndividualScope = {
+                        vm.submitIndividualScope { navController.popBackStack() }
+                    },
+                    onRecordShedPartition = {
+                        vm.recordShedPartition { navController.popBackStack() }
+                    },
+                    onCaptureShedVideo = vm::captureShedVideo,
+                    onReconnectReader = { navController.navigate(Routes.RFID) { launchSingleTop = true } },
                     onRefresh = vm::refresh,
                     onBack = { navController.popBackStack() },
                 )

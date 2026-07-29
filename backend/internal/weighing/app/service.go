@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -104,13 +105,23 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
 }
 
+func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.LeadershipShedVideos{}, ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
+		return domain.LeadershipShedVideos{}, ports.ErrInvalidArgument
+	}
+	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID)
+}
+
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return domain.Observation{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || cmd.WeightKg <= 0 || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if !uuidutil.IsUUIDString(cmd.AnimalID) && strings.TrimSpace(cmd.ScannedIdentifier) == "" {
@@ -128,10 +139,79 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || cmd.WeightKg <= 0 || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !isPositiveFinite(cmd.WeightKg) || cmd.AnimalCount <= 0 {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	cmd.AverageWeightKg = cmd.WeightKg / float64(cmd.AnimalCount)
+	cmd.ProofArtifactIDs = normalizeProofArtifactIDs(cmd.ProofArtifactID, cmd.ProofArtifactIDs)
+	if len(cmd.ProofArtifactIDs) > 0 {
+		cmd.ProofArtifactID = cmd.ProofArtifactIDs[0]
+	}
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !isPositiveFinite(cmd.AverageWeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return domain.Observation{}, ports.ErrInvalidArgument
+	}
+	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > 5 {
+		return domain.Observation{}, ports.ErrInvalidArgument
+	}
+	for _, proofID := range cmd.ProofArtifactIDs {
+		if !uuidutil.IsUUIDString(proofID) {
+			return domain.Observation{}, ports.ErrInvalidArgument
+		}
+	}
 	return s.repo.RecordShedObservation(ctx, cmd)
+}
+
+func isPositiveFinite(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, scannedIdentifiers []string) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+		return ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || len(scannedIdentifiers) == 0 {
+		return ports.ErrInvalidArgument
+	}
+	normalized := make([]string, 0, len(scannedIdentifiers))
+	seen := make(map[string]struct{}, len(scannedIdentifiers))
+	for _, identifier := range scannedIdentifiers {
+		identifier = strings.TrimSpace(identifier)
+		if identifier == "" {
+			return ports.ErrInvalidArgument
+		}
+		if _, exists := seen[identifier]; !exists {
+			seen[identifier] = struct{}{}
+			normalized = append(normalized, identifier)
+		}
+	}
+	submitter, ok := s.repo.(interface {
+		SubmitIndividualScope(context.Context, string, string, string, string, []string) error
+	})
+	if !ok {
+		return ports.ErrInvalidArgument
+	}
+	return submitter.SubmitIndividualScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, normalized)
+}
+
+func normalizeProofArtifactIDs(primary string, ids []string) []string {
+	normalized := make([]string, 0, len(ids)+1)
+	seen := make(map[string]struct{}, len(ids)+1)
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	add(primary)
+	for _, id := range ids {
+		add(id)
+	}
+	return normalized
 }
 
 func validateCreate(cmd domain.CreateCampaign) error {

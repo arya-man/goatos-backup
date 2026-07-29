@@ -216,8 +216,11 @@ fun GoatOsShell(navState: NavState) {
         }
     }
 
+    val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)
+    val visibleNavState = navState.withLeadershipWeighingNavigation(leadershipWeighing)
+
     GoatOsShellChrome(
-        navState = navState,
+        navState = visibleNavState,
         currentRoute = backStackEntry?.destination?.route,
         onNavigate = navigate,
         drawerProfile = DrawerProfile(profile.name, profile.roleLabel, profile.initials),
@@ -231,8 +234,9 @@ fun GoatOsShell(navState: NavState) {
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
         AppNavHost(
             navController = navController,
-            startDestination = startDestinationFor(navState),
+            startDestination = startDestinationFor(visibleNavState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
+            leadershipWeighing = leadershipWeighing,
         )
     }
 
@@ -254,6 +258,32 @@ fun GoatOsShell(navState: NavState) {
             onDismiss = { showLanguage = false },
         )
     }
+}
+
+internal fun isWeighingLeadershipRole(roleLabel: String): Boolean {
+    val role = roleLabel.trim().lowercase().replace('-', '_').replace(' ', '_')
+    return role in setOf("ceo", "ceo_internal", "cxo", "director", "pc_director", "preventive_care_director")
+}
+
+internal fun NavState.withLeadershipWeighingNavigation(enabled: Boolean): NavState {
+    if (!enabled) return this
+    val weighingModule = modules.firstOrNull { it.key.equals("weighing", ignoreCase = true) } ?: return this
+    val leadershipItems = listOf(
+        NavItem(key = "weighing", label = "Weighing", href = Routes.WEIGHING),
+        NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "you", label = "You", href = Routes.YOU),
+    )
+    return copy(
+        items = if (items == weighingModule.navItems) leadershipItems else items,
+        modules = modules.map { module ->
+            if (module.key.equals("weighing", ignoreCase = true)) {
+                module.copy(href = Routes.WEIGHING, navItems = leadershipItems)
+            } else {
+                module
+            }
+        },
+    )
 }
 
 /**
