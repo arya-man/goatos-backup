@@ -571,6 +571,55 @@ func TestUpdateCampaignCancelsDeselectedSheds(t *testing.T) {
 	assertScopeStatus(t, ctx, pool, repoShedScope, "canceled")
 }
 
+func TestUpdateCampaignReaddingDeselectedShedRestoresScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.UpdateCampaign(ctx, repoCampaign, domain.UpdateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2026-07-27",
+		PeriodEndDate:     "2026-08-02",
+		StartBusinessDate: "2026-07-29",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "update:remove-animal-shed",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID: repoPerShed, LocationType: "shed", DisplayName: "Q1", WeighingCategory: domain.CategoryPerShedPartition,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("remove animal shed: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "canceled")
+
+	_, err = repo.UpdateCampaign(ctx, repoCampaign, domain.UpdateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2026-07-27",
+		PeriodEndDate:     "2026-08-02",
+		StartBusinessDate: "2026-07-29",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "update:readd-animal-shed",
+		Sheds: []domain.CreateCampaignShed{
+			{LocationID: repoExpectedShed, LocationType: "shed", DisplayName: "Gandhi 1 - Part 1", WeighingCategory: domain.CategoryIndividualAnimal},
+			{LocationID: repoPerShed, LocationType: "shed", DisplayName: "Q1", WeighingCategory: domain.CategoryPerShedPartition},
+		},
+	})
+	if err != nil {
+		t.Fatalf("readd animal shed: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
+}
+
 func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -701,6 +750,22 @@ func assertScopeStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ca
 	}
 	if got != want {
 		t.Fatalf("scope %s status=%s, want %s", campaignShedID, got, want)
+	}
+}
+
+func assertExpectedAnimalStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, animalID, want string) {
+	t.Helper()
+	var got string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM weighing_expected_animals
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND animal_id=$3::uuid`, repoTenant, repoCampaign, animalID).Scan(&got); err != nil {
+		t.Fatalf("read expected animal status: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected animal %s status=%s, want %s", animalID, got, want)
 	}
 }
 

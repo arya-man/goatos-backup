@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
@@ -25,6 +26,10 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,8 +70,18 @@ data class VerificationQueueRow(
     val categoryLabel: String,
     val title: String,
     val subtitle: String,
+    val scopeType: VerifyScopeType = VerifyScopeType.OTHER,
+    val shedLabel: String = "",
+    val animalLabel: String = "",
+    val weightLabel: String = "",
+    val mediaCountLabel: String = "",
+    val parkLabel: String = "",
+    val operatorLabel: String = "",
+    val capturedAtLabel: String = "",
     val statusTone: VerifyTone,
 )
+
+enum class VerifyScopeType { INDIVIDUAL, LUMP_SUM, OTHER }
 
 data class VerifyDriveClosure(
     val batchId: String,
@@ -95,7 +110,7 @@ data class VerifyCategoryOption(val value: String?, val label: String?)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
-enum class VerifyModuleTab { VACCINATION, WEIGHING }
+enum class VerifyModuleTab { BIRTH, DEATH, VACCINATION, WEIGHING, SHIFTING, PACKING, FEED_DIRECTION, TRANSPORT }
 
 @Immutable
 data class VerifyQueueUiState(
@@ -143,6 +158,7 @@ fun VerifyQueueScreen(
 ) {
     RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
     val listState = rememberLazyListState()
+    var selectedWeighingScope by remember { mutableStateOf<VerifyScopeType?>(null) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
         if (
             !state.hasMore ||
@@ -168,6 +184,13 @@ fun VerifyQueueScreen(
             ModuleTabs(
                 selected = state.selectedModule,
                 onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
+            )
+        }
+        if (state.selectedModule == VerifyModuleTab.WEIGHING) {
+            WeighingScopeTabs(
+                rows = state.rows,
+                selected = selectedWeighingScope,
+                onSelect = { selectedWeighingScope = it },
             )
         }
         if (state.categoryOptions.size > 1) {
@@ -220,8 +243,25 @@ fun VerifyQueueScreen(
                     )
                 }
             } else {
-                items(state.rows, key = { it.id }) { row ->
-                    QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                if (state.selectedModule == VerifyModuleTab.WEIGHING) {
+                    val visibleRows = if (selectedWeighingScope != null) {
+                        state.rows.filter { it.scopeType == selectedWeighingScope }
+                    } else {
+                        state.rows
+                    }
+                    val shedGroups = visibleRows.groupBy { it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } } }
+                    shedGroups.forEach { (shedLabel, rows) ->
+                        item(key = "shed-$shedLabel") {
+                            ShedGroupHeader(shedLabel = shedLabel, rows = rows)
+                        }
+                        items(rows, key = { it.id }) { row ->
+                            QueueRowCard(row = row, hierarchical = true, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                        }
+                    }
+                } else {
+                    items(state.rows, key = { it.id }) { row ->
+                        QueueRowCard(row = row, hierarchical = false, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                    }
                 }
                 if (state.isLoadingMore) {
                     item {
@@ -331,8 +371,14 @@ private fun ModuleTabs(
     onSelect: (VerifyModuleTab) -> Unit,
 ) {
     val tabs = listOf(
+        VerifyModuleTab.BIRTH to stringResource(R.string.verify_module_birth),
+        VerifyModuleTab.DEATH to stringResource(R.string.verify_module_death),
         VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
         VerifyModuleTab.WEIGHING to stringResource(R.string.verify_module_weighing),
+        VerifyModuleTab.SHIFTING to stringResource(R.string.verify_module_shifting),
+        VerifyModuleTab.PACKING to stringResource(R.string.verify_module_packing),
+        VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
+        VerifyModuleTab.TRANSPORT to stringResource(R.string.verify_module_transport),
     )
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -342,6 +388,78 @@ private fun ModuleTabs(
         items(tabs, key = { it.first.name }) { (tab, label) ->
             CategoryChip(label = label, selected = tab == selected, onClick = { onSelect(tab) })
         }
+    }
+}
+
+@Composable
+private fun WeighingScopeTabs(
+    rows: List<VerificationQueueRow>,
+    selected: VerifyScopeType?,
+    onSelect: (VerifyScopeType?) -> Unit,
+) {
+    val individualCount = rows.count { it.scopeType == VerifyScopeType.INDIVIDUAL }
+    val lumpSumCount = rows.count { it.scopeType == VerifyScopeType.LUMP_SUM }
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_all),
+                selected = selected == null,
+                onClick = { onSelect(null) },
+            )
+        }
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_individual, individualCount),
+                selected = selected == VerifyScopeType.INDIVIDUAL,
+                onClick = { onSelect(VerifyScopeType.INDIVIDUAL) },
+            )
+        }
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_lumpsum, lumpSumCount),
+                selected = selected == VerifyScopeType.LUMP_SUM,
+                onClick = { onSelect(VerifyScopeType.LUMP_SUM) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>) {
+    val videoCount = rows.sumOf { row ->
+        row.mediaCountLabel.substringBefore(' ').toIntOrNull() ?: 0
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = shedLabel,
+                color = MeshaColors.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W800,
+            )
+            Text(
+                text = stringResource(R.string.verify_shed_group_summary, rows.size, videoCount),
+                color = MeshaColors.Faint,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier.padding(top = 1.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .height(1.dp)
+                .weight(1f)
+                .background(MeshaColors.Hair),
+        )
     }
 }
 
@@ -432,7 +550,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
+private fun QueueRowCard(row: VerificationQueueRow, hierarchical: Boolean, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -461,13 +579,20 @@ private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = row.title,
+                    text = if (hierarchical) row.animalLabel.ifBlank { row.title }.ifBlank { row.shedLabel } else row.title,
                     color = MeshaColors.Ink,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.W700,
                 )
                 Text(
-                    text = row.subtitle,
+                    text = if (hierarchical) {
+                        listOf(row.weightLabel, row.mediaCountLabel, row.operatorLabel)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                            .ifBlank { row.subtitle }
+                    } else {
+                        row.subtitle
+                    },
                     color = MeshaColors.Muted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp),
@@ -476,13 +601,19 @@ private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
             StatusPill(tone = row.statusTone)
         }
         Text(
-            text = row.categoryLabel,
+            text = if (hierarchical) row.scopeType.label() else row.categoryLabel,
             color = MeshaColors.Faint,
             fontSize = 11.sp,
             fontWeight = FontWeight.W700,
             modifier = Modifier.padding(top = 10.dp),
         )
     }
+}
+
+private fun VerifyScopeType.label(): String = when (this) {
+    VerifyScopeType.INDIVIDUAL -> "Individual"
+    VerifyScopeType.LUMP_SUM -> "Lump-sum"
+    VerifyScopeType.OTHER -> "Evidence"
 }
 
 /** Resolves the LOCALIZED status label for [tone] — the pill text is never a hardcoded

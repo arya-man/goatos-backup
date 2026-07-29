@@ -258,20 +258,21 @@ function plannerFromCatalog(
   const selectedPark = selectPlannerPark(catalog.parks, selectedItem);
   const selectedShedIds = new Set((selectedItem?.sheds ?? []).map((shed) => shed.location_id));
   const selectedOperatorId = selectedItem?.operator_user_id || catalog.operators[0]?.user_id || "";
-  const sheds: WeighingPlannerShed[] = (selectedPark?.sheds ?? []).map((shed) => {
+  const sheds: WeighingPlannerShed[] = catalog.parks.flatMap((park) => park.sheds.map((shed) => {
     const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
+    const isSelectedPark = park.park_id === selectedPark?.park_id;
     return {
       id: shed.location_id,
-      parkId: selectedPark?.park_id ?? "",
+      parkId: park.park_id,
       locationType: campaignShed?.location_type ?? "shed",
       label: shed.name,
-      subtitle: "kid shed",
+      subtitle: `${park.name} kid shed`,
       kidCount: shed.kid_count,
-      selected: selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true,
+      selected: isSelectedPark && (selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true),
       category: campaignShed?.weighing_category ?? "individual_animal",
     };
-  });
-  const selected = sheds.filter((shed) => shed.selected);
+  }));
+  const selected = sheds.filter((shed) => shed.selected && shed.parkId === selectedPark?.park_id);
   const individual = selected.filter((shed) => shed.category === "individual_animal");
   const lumpsum = selected.filter((shed) => shed.category === "per_shed_partition");
   const existing = selectedPark?.existing_campaign;

@@ -29,6 +29,7 @@ import sg.mesha.goatos.feature.verify.VerifyCategoryOption
 import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
+import sg.mesha.goatos.feature.verify.VerifyScopeType
 import sg.mesha.goatos.feature.verify.VerifyTone
 import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import javax.inject.Inject
@@ -88,11 +89,15 @@ class VerifyQueueViewModel @Inject constructor(
         combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
             Triple(module, parkId, shedId)
         }.flatMapLatest { (module, parkId, shedId) ->
-            val category = module.category
-            if (isActionQueue) {
-                repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+            val category = categoryForModule(module)
+            if (category != null) {
+                if (isActionQueue) {
+                    repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                } else {
+                    repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                }
             } else {
-                repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
+                kotlinx.coroutines.flow.flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
@@ -206,7 +211,7 @@ class VerifyQueueViewModel @Inject constructor(
         _isLoadingMore.value = false
         _isRefreshing.value = true
         try {
-            val category = _selectedModule.value.category
+            val category = categoryForModule(_selectedModule.value) ?: return@launch
             AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
@@ -230,11 +235,12 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun loadMore() = viewModelScope.launch {
+        val category = categoryForModule(_selectedModule.value) ?: return@launch
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
             cursor = cursor,
-            category = _selectedModule.value.category,
+            category = category,
             parkId = _selectedParkId.value,
             shedId = _selectedShedId.value,
             limit = VERIFY_QUEUE_PAGE_SIZE,
@@ -327,29 +333,75 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
-        // Backend-owned display labels: never render raw UUIDs. Use labels when available.
-        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { "Vaccination proof" }
+        // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
+        // category-humanized name is the last-resort fallback so a non-vaccination row never
+        // mislabels as "Vaccination proof".
+        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
             .joinToString(" · ")
+        val mediaCount = media.size
+        val firstMedia = media.firstOrNull()
+        val scopeType = weighingScopeType()
         return VerificationQueueRow(
             id = itemId,
             category = category,
             categoryLabel = humanizeCategory(category),
             title = title,
             subtitle = subtitle,
+            scopeType = scopeType,
+            shedLabel = shedLabel ?: subjectLabel.orEmpty(),
+            animalLabel = when (scopeType) {
+                VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
+                VerifyScopeType.LUMP_SUM -> ""
+                VerifyScopeType.OTHER -> ""
+            },
+            weightLabel = firstMedia?.answer.orEmpty(),
+            mediaCountLabel = when (mediaCount) {
+                0 -> ""
+                1 -> "1 video"
+                else -> "$mediaCount videos"
+            },
+            parkLabel = parkLabel.orEmpty(),
+            operatorLabel = operatorName.orEmpty(),
+            capturedAtLabel = capturedAt,
             statusTone = statusTone(status),
         )
+    }
+
+    private fun VerificationQueueItem.weighingScopeType(): VerifyScopeType {
+        if (category != WEIGHING_CATEGORY) return VerifyScopeType.OTHER
+        val refType = source.refType.lowercase()
+        val label = listOfNotNull(subjectLabel, shedLabel, media.firstOrNull()?.label)
+            .joinToString(" ")
+            .lowercase()
+        return when {
+            refType.contains("shed") || refType.contains("lump") || label.contains("lump") || label.contains("shed weight") ->
+                VerifyScopeType.LUMP_SUM
+            else ->
+                VerifyScopeType.INDIVIDUAL
+        }
     }
 }
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val WEIGHING_CATEGORY = "weighing_proof"
+private const val BIRTH_CATEGORY = "birth_evidence"
+private const val DEATH_CATEGORY = "death_evidence"
+private const val SHIFTING_CATEGORY = "shifting_move"
+private const val PACKING_CATEGORY = "feed_packing"
+private const val FEED_DISTRIBUTION_CATEGORY = "feed_distribution"
+private const val FEED_TRANSPORT_CATEGORY = "feed_transport"
 
-private val VerifyModuleTab.category: String
-    get() = when (this) {
-        VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
-        VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
-    }
+private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
+    VerifyModuleTab.BIRTH -> BIRTH_CATEGORY
+    VerifyModuleTab.DEATH -> DEATH_CATEGORY
+    VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
+    VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
+    VerifyModuleTab.SHIFTING -> SHIFTING_CATEGORY
+    VerifyModuleTab.PACKING -> PACKING_CATEGORY
+    VerifyModuleTab.FEED_DIRECTION -> FEED_DISTRIBUTION_CATEGORY
+    VerifyModuleTab.TRANSPORT -> FEED_TRANSPORT_CATEGORY
+}
 
 private fun locationOptions(
     allLabel: String,
