@@ -101,7 +101,7 @@ data class WeighingUiState(
     val readerConnection: ScanReaderConnection? = null,
     val shedProofs: List<WeighingProofUiRow> = emptyList(),
 ) {
-    val isShedPartition: Boolean get() = category == "per_shed_partition"
+    val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
     val individualResolved: Int get() = maxOf(
         individualCompleted,
@@ -119,8 +119,7 @@ data class WeighingUiState(
         hasScope && isShedPartition && !actionInFlight &&
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
             animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
-            shedProofs.isNotEmpty() &&
-            shedProofs.all { it.status == ProofUploadStatus.SYNCED }
+            shedProofs.any { it.status == ProofUploadStatus.SYNCED }
 }
 
 data class WeighingProofUiRow(

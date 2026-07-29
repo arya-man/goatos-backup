@@ -264,10 +264,25 @@ class WeighingViewModelTest {
         )
     }
 
+    @Test
+    fun `shed partition category is normalized before field gates run`() = runTest(dispatcher) {
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            weighingCategory = " Per Shed Partition ",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("per_shed_partition", vm.state.value.category)
+        assertTrue(vm.state.value.isShedPartition)
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
+        weighingCategory: String = "individual_animal",
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
@@ -284,7 +299,7 @@ class WeighingViewModelTest {
                         "campaignId" to "campaign-1",
                         "workGroupId" to "group-1",
                         "campaignShedId" to "campaign-shed-1",
-                        "weighingCategory" to "individual_animal",
+                        "weighingCategory" to weighingCategory,
                         "tenantId" to "tenant-1",
                         "expectedLocationId" to "shed-1",
                         "expectedLocationLabel" to "Shed 1",
