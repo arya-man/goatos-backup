@@ -597,6 +597,52 @@
   .main table.feed-table{min-width:900px}
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
+  /* Vaccination Command Board */
+  .cbm-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+  @media(max-width:1200px){.cbm-kpi-row{grid-template-columns:repeat(2,1fr)}}
+  .kpi{position:relative;overflow:hidden}.kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}
+  .kpi .val{color:var(--ink)}.kpi.ok .val{color:var(--ok)}.kpi.warn .val{color:var(--warn)}.kpi.danger .val{color:var(--danger)}.kpi.info .val{color:var(--info)}
+  .kpi .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .kpi .val{font-size:26px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi .dl{font-size:11.5px;margin-top:3px;color:var(--muted)}
+  .cbm-section-head{display:flex;align-items:baseline;gap:8px;margin-bottom:14px}
+  .cbm-section-head h3{margin:0;font-size:13px;font-weight:650}
+  .cbm-section-head .cbm-meta{margin-left:auto;font-size:11.5px;color:var(--muted)}
+  .cbm-hm{overflow-x:auto}
+  .cbm-heat{border-collapse:separate;border-spacing:3px;width:100%}
+  .cbm-heat th{font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;text-align:center;white-space:nowrap}
+  .cbm-heat th.cbm-rowh{text-align:left;color:var(--muted);text-transform:none;font-size:12px;letter-spacing:0}
+  .cbm-cell{min-width:86px;height:38px;border-radius:6px;text-align:center;font-size:11.5px;color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums;padding:2px 6px;position:relative}
+  .cbm-cell small{display:block;font-size:9.5px;color:rgba(232,240,234,.75)}
+  .cbm-cell:hover{outline:1px solid var(--line2)}
+  .cbm-cell.cbm-na{background:var(--panel-2);color:var(--muted)}
+  .cbm-cell.cbm-verified{background:#22633c}.cbm-cell.cbm-verified small{color:#a7e3bd}
+  .cbm-cell.cbm-awaiting{background:#5c4514;color:#ffe9b3}.cbm-cell.cbm-awaiting small{color:#e8c877}
+  .cbm-cell.cbm-overdue{background:#5b2320;color:#ffd9d6}.cbm-cell.cbm-overdue small{color:#f8a9a4}
+  .cbm-cell.cbm-scheduled{background:#1c2a42;color:#b9d1f5}.cbm-cell.cbm-scheduled small{color:#7fa4dd}
+  .cbm-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .cbm-legend span{display:inline-flex;align-items:center;gap:6px}
+  .cbm-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .cbm-chartbox{position:relative}
+  .cbm-chart{width:100%;height:auto}
+  .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
+  .cbm-queue-table td:first-child{color:var(--ink)}
+  .cbm-celllink{cursor:pointer}.cbm-celllink:hover{color:var(--brand)}
+  .cbm-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
+  .cbm-pill-warn{background:rgba(251,191,36,.14);color:var(--warn)}
+  .cbm-pill-ok{background:rgba(74,222,128,.14);color:var(--ok)}
+  .cbm-aging{color:var(--danger);font-weight:600}
+  .cbm-queue-num{font-variant-numeric:tabular-nums}
+  .cbm-cohort-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-cohort-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .cbm-cohort-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted)}
+  .cbm-cohort-table td:first-child{color:var(--ink)}
+  .cbm-cohort-num{font-variant-numeric:tabular-nums;text-align:right}.cbm-cohort-num.cbm-cohort-pending{color:var(--danger);font-weight:600}
+  .cbm-cohort-title{margin:0 0 14px;font-size:13px;font-weight:650}
+  .cbm-loading,.cbm-unavailable{padding:26px;text-align:center;color:var(--muted);font-size:12.5px}
   /* A shed's item lines are one visual block: the shed-level cells span them, so the group needs a
      boundary rule rather than a rule between every item line. */
   .main table.feed-table td[rowspan]{border-right:1px solid var(--line2)}
