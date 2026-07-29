@@ -2,10 +2,40 @@ package postgres
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+func TestLatestOutboxValidatorCoversProducedAggregateTypes(t *testing.T) {
+	body, err := os.ReadFile("000055_restore_weighing_outbox_validator.sql")
+	if err != nil {
+		t.Fatalf("read latest validator migration: %v", err)
+	}
+	sql := string(body)
+	required := map[string][]string{
+		"vaccination_batch": {"obligation_batches", "batch_id"},
+		"verification_item": {"verification_items", "item_id"},
+		"weighing":          {"weighing_campaigns", "weighing_observations", "weighing_shed_observations"},
+		"absence":           {"workforce_absences", "absence_id"},
+		"park":              {"locations", "location_id"},
+	}
+
+	for aggregateType, needles := range required {
+		t.Run(aggregateType, func(t *testing.T) {
+			if !strings.Contains(sql, "NEW.aggregate_type = '"+aggregateType+"'") {
+				t.Fatalf("latest outbox validator is missing aggregate_type branch %q", aggregateType)
+			}
+			for _, needle := range needles {
+				if !strings.Contains(sql, needle) {
+					t.Fatalf("latest outbox validator branch %q is missing %q", aggregateType, needle)
+				}
+			}
+		})
+	}
+}
 
 // TestR50InvalidIndexRecovery reproduces the P0 bug where a failed CREATE INDEX CONCURRENTLY
 // leaves an INVALID index. The buggy migration sees the invalid index "exists" and skips rebuilding,
