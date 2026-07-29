@@ -34,6 +34,7 @@ enum class ProofCapturePrompt {
     FEED_PACKING,
     FEED_TRANSPORT,
     MILK_PREPARATION,
+    MILK_FEEDING,
 }
 
 /**

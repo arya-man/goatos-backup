@@ -325,8 +325,21 @@ interface SyncRepository {
         parkId: String,
         preparationDate: String,
         goatMilkUsed: Boolean,
+        answers: MilkPreparationAnswersPayload,
         proofOutboxItemIds: Map<String, String>,
     ): AppResult<String> = AppResult.Err("milk preparation sync is not configured")
+
+    suspend fun enqueueMilkFeedingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        parkId: String,
+        feedingDate: String,
+        sessionNo: Int,
+        answers: sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto,
+        cleanBottlesProofOutboxItemId: String,
+        mixingAndFillingProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("milk feeding sync is not configured")
 
     suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = AppResult.Err("feed transport sync is not configured")
 
@@ -837,14 +850,32 @@ class DefaultSyncRepository(
         parkId: String,
         preparationDate: String,
         goatMilkUsed: Boolean,
+        answers: MilkPreparationAnswersPayload,
         proofOutboxItemIds: Map<String, String>,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.MILK_PREPARATION_SUBMIT,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
-            MilkPreparationSubmitPayload(parkId.trim(), preparationDate.trim(), goatMilkUsed, proofOutboxItemIds),
+            MilkPreparationSubmitPayload(parkId.trim(), preparationDate.trim(), goatMilkUsed, answers, proofOutboxItemIds),
         ),
+    )
+
+    override suspend fun enqueueMilkFeedingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        parkId: String,
+        feedingDate: String,
+        sessionNo: Int,
+        answers: sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto,
+        cleanBottlesProofOutboxItemId: String,
+        mixingAndFillingProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.MILK_FEEDING_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(MilkFeedingSubmitPayload(taskId, parkId, feedingDate, sessionNo, answers, cleanBottlesProofOutboxItemId, mixingAndFillingProofOutboxItemId)),
     )
 
     override suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = enqueue(opType=OutboxOpType.FEED_TRANSPORT_SUBMIT,groupKey=groupKey,idempotencyKey=idempotencyKey,payloadJson=syncJson.encodeToString(FeedTransportSubmitPayload(taskId,proofOutboxItemId)))

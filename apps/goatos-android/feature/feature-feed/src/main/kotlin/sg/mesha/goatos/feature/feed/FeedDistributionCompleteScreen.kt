@@ -124,8 +124,8 @@ fun FeedDistributionCompleteScreen(
             fontWeight = FontWeight.W700,
         )
         when {
-            state.videoCaptured -> FeedDistCaptured(label = stringResource(R.string.feed_dist_video_recorded))
-            state.isCapturingVideo -> FeedDistActionButton(
+            state.videoCaptured -> FeedVerificationCaptured(label = stringResource(R.string.feed_dist_video_recorded))
+            state.isCapturingVideo -> FeedVerificationActionButton(
                 label = stringResource(R.string.feed_dist_video_uploading),
                 enabled = false,
                 primary = false,
@@ -133,7 +133,7 @@ fun FeedDistributionCompleteScreen(
                 onClick = {},
             )
             else -> Row {
-                FeedDistActionButton(
+                FeedVerificationActionButton(
                     label = stringResource(R.string.feed_dist_record_video),
                     enabled = !state.isCapturingWater && !committed,
                     primary = false,
@@ -161,8 +161,8 @@ fun FeedDistributionCompleteScreen(
             )
         }
         when {
-            state.waterCaptured -> FeedDistCaptured(label = stringResource(R.string.feed_dist_water_captured))
-            state.isCapturingWater -> FeedDistActionButton(
+            state.waterCaptured -> FeedVerificationCaptured(label = stringResource(R.string.feed_dist_water_captured))
+            state.isCapturingWater -> FeedVerificationActionButton(
                 label = stringResource(R.string.feed_dist_water_uploading),
                 enabled = false,
                 primary = false,
@@ -171,14 +171,14 @@ fun FeedDistributionCompleteScreen(
             )
             else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FeedDistActionButton(
+                    FeedVerificationActionButton(
                         label = stringResource(R.string.feed_dist_take_water_photo),
                         enabled = state.waterCaptureEnabled,
                         primary = false,
                         modifier = Modifier.weight(1f),
                         onClick = { onEvent(FeedDistributionEvent.TakeWaterPhoto) },
                     )
-                    FeedDistActionButton(
+                    FeedVerificationActionButton(
                         label = stringResource(R.string.feed_dist_record_water_video),
                         enabled = state.waterCaptureEnabled,
                         primary = false,
@@ -192,7 +192,7 @@ fun FeedDistributionCompleteScreen(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        FeedDistActionButton(
+        FeedVerificationActionButton(
             label = stringResource(R.string.feed_dist_submit),
             enabled = state.submitEnabled,
             primary = true,
@@ -218,7 +218,7 @@ fun FeedDistributionCompleteScreen(
  * a disabled button for video vs. plain text for water.
  */
 @Composable
-private fun FeedDistCaptured(label: String) {
+internal fun FeedVerificationCaptured(label: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -230,7 +230,7 @@ private fun FeedDistCaptured(label: String) {
 }
 
 @Composable
-private fun FeedDistActionButton(
+internal fun FeedVerificationActionButton(
     label: String,
     enabled: Boolean,
     primary: Boolean,

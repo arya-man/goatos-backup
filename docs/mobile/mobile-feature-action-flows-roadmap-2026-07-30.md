@@ -143,10 +143,9 @@ Two facts that set the whole plan:
    `doc.go`. `backend/internal/forms/domain/` is empty. `backend/internal/health/`
    is a `.gitkeep`. The engine has to be built, and it is the critical path for
    six of the seven features.
-2. **Shifting already has the right shape.** The verification gate landed
-   (maintainer decision 2026-07-26): operator completes with mandatory video →
-   `pending_verification` → verifier approves → animals relocate. That is the
-   pattern the other six need.
+2. **Shifting already has the right action shape.** Raised work appears in Actions; Park Head
+   approval and operator completion are independent gates; the second gate relocates. Mandatory
+   video verification is post-task evidence review and cannot roll back census truth.
 
 ---
 
@@ -272,8 +271,8 @@ Proof text in use: Feed Quantity — *"Please upload a video showing the quantit
 measured for feed."* Feed Consumption — *"Please upload a video showing the feed
 being given to the animal."* Shifting Video — *"{SRC_SHED} → {DST_SHED}"*.
 
-**What changes vs the app today:** the app models a shifting as *one* video and a
-verification gate. The real workflow is a **conditional chain of up to six
+**What changes vs the app today:** the app models a shifting as one mandatory
+completion video followed by evidence review. The real workflow is a **conditional chain of up to six
 actions**, where a high-priority move pulls in a three-step feed sequence and a
 post-shift count form. `ShiftingExecuteScreen` must render the action list the
 backend gives it instead of a fixed single-proof screen.
@@ -281,16 +280,15 @@ backend gives it instead of a fixed single-proof screen.
 **What must NOT change** — already-ratified Goat OS rules:
 
 - Goats never move between parks; leaving a park is a terminal transfer/sale.
-- Completion with mandatory video → `pending_verification`; **nothing relocates
-  and the count does not move**.
-- Animals relocate and counts move only on verifier approval
-  (`ApplyVerifiedShiftingEvent`); rejection bounces to `authorized`
-  (`BounceShiftingEventForRework`).
+- Park Head approval and operator completion with mandatory video are independent;
+  whichever arrives second atomically relocates the animals and changes the count.
+- Verification is post-task evidence review. Approval marks evidence verified;
+  rejection requests a re-shoot and never rolls back location or count.
 - Missing proof → `422 proof_required`.
 - Destination stage comes only from the destination shed's active
   `shed_profiles` row via `animal_stage_lookup`.
-- Feed projection counts `authorized` **and** `pending_verification`, excludes
-  `applied`, with no lead-day/priority branch.
+- Feed projection counts approved-but-unapplied movement intent, excludes
+  completion-before-approval and `applied`, with no lead-day/priority branch.
 
 Note the tension to resolve: legacy branches feed actions on `{PRIORITY} = High`,
 while the confirmed Goat OS feed-projection rule explicitly says *"forget high
@@ -559,7 +557,7 @@ something real to look at.
 | **Mon 27** | Freeze the action-type DSL, schedule-rule grammar, and condition grammar. Schema + migration for `workflow_types` / `workflows` / `workflow_actions`. OpenAPI contract for task + ordered actions. Confirm the priority-branch question in §4.3 with the maintainer. |
 | **Tue 28** | Backend engine: action generation from template, schedule resolution on IST business days, condition evaluation, `TRIGGER_EVENT` wiring to real producers. Register domain events both ends. |
 | **Wed 29** | Android: Room task/action entities + migration + upgrade-crash test, offline outbox for action submit, reusable renderers for `ACTION`, `QUESTION`, `QUESTION_SELECT`, `MODAL_FORM`, `APPROVAL`. |
-| **Thu 30** | Rework Birth (mother/kid tracks + scheduled follow-ups), Death (two mandatory videos), Shifting (conditional six-action chain on the existing verification gate). Feed Transport as the single-video port (§4.6 option a). Run affected-component `make ci-local`, rendered device check, demo. |
+| **Thu 30** | Rework Birth (mother/kid tracks + scheduled follow-ups), Death (two mandatory videos), Shifting (conditional six-action chain with independent approval/completion and post-task evidence review). Feed Transport as the single-video port (§4.6 option a). Run affected-component `make ci-local`, rendered device check, demo. |
 
 **Gate-1 exit:** four workflows running on the generic engine, on a device, with
 production-path E2E for replay, offline recovery, rework, and app restart.
@@ -608,7 +606,7 @@ A workflow is done only when:
   static checklist.
 - Commands are idempotent, audited, event-backed, replay-safe, and offline-safe.
 - Birth creates children at submission and activates counts at web approval;
-  Death applies at approval; Shifting applies only at verifier approval.
+  Death applies at approval; Shifting applies when approval and operator completion both exist.
 - No unpublished medical value from the workbook has become hardcoded app
   behaviour.
 - Room-backed UI distinguishes pending sync, pending approval/verification,

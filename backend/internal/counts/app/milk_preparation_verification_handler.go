@@ -27,7 +27,7 @@ type milkPreparationVerdictPayload struct {
 }
 
 // MilkPreparationVerificationHandler is the sole consumer that turns the verifier's one verdict
-// into park-day preparation completion or rework. Duplicate verdict delivery is a store-level no-op.
+// into shed-day preparation completion or rework. Duplicate verdict delivery is a store-level no-op.
 type MilkPreparationVerificationHandler struct {
 	store ports.MilkPreparationCompletionStore
 }

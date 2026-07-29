@@ -523,6 +523,30 @@ val MIGRATION_20_21: Migration = object : Migration(20,21){
 }
 
 /**
+ * v21 -> v22: scope Feed Transport's Room pages by date + Farm + shed + status. The original
+ * date-only tables remain intact for upgrade safety; the new filtered read path uses this parallel,
+ * bounded pair so changing a filter cannot evict another filter's offline page.
+ */
+val MIGRATION_21_22: Migration = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_transport_scoped_items` " +
+                "(`scopeKey` TEXT NOT NULL, `taskId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `taskId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_scopeKey_sortIndex` " +
+                "ON `feed_transport_scoped_items` (`scopeKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_transport_scoped_remote_keys` " +
+                "(`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`filtersJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        )
+    }
+}
+
+/**
  * v18 -> v19: the "Awaiting RFID" list pair — the Counts promote flow's offline-first read model. One
  * Room row per temporary-tagged goat ([AwaitingRfidItemEntity]) plus its keyset remote key
  * ([AwaitingRfidRemoteKeyEntity]). Additive and non-destructive: no existing table is touched, so an

@@ -18,7 +18,7 @@ import (
 
 const milkPreparationResourceType = "milk_preparation_completion"
 
-// SubmitMilkPreparation stores a new immutable proof attempt and moves the park-day preparation to
+// SubmitMilkPreparation stores a new immutable proof attempt and moves the farm-day preparation to
 // pending_verification in one transaction. Exact idempotency replay returns NeedsEnqueue=true while
 // the same attempt is pending, allowing the caller to heal a prior verifier-queue enqueue failure.
 func (r *Repository) SubmitMilkPreparation(ctx context.Context, in domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error) {
@@ -33,6 +33,10 @@ func (r *Repository) SubmitMilkPreparation(ctx context.Context, in domain.MilkPr
 	proofJSON, err := json.Marshal(proofMap)
 	if err != nil {
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: marshal milk preparation proofs: %w", err)
+	}
+	answersJSON, err := json.Marshal(in.Answers)
+	if err != nil {
+		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: marshal milk preparation answers: %w", err)
 	}
 	fingerprint := milkPreparationFingerprint(in, steps)
 	preparationDate := in.PreparationDate.Format("2006-01-02")
@@ -75,7 +79,8 @@ WHERE a.tenant_id = $1::uuid AND a.idempotency_key = $2`,
 	err = tx.QueryRow(ctx, `
 SELECT completion_id::text, status, current_attempt_no, row_version
 FROM milk_preparation_completions
-WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND preparation_date = $3::date
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id IS NULL
+  AND preparation_date = $3::date AND status <> 'retired'
 FOR UPDATE`, in.TenantID, in.ParkID, preparationDate).
 		Scan(&result.CompletionID, &currentStatus, &result.AttemptNo, &result.RowVersion)
 	switch {
@@ -83,19 +88,19 @@ FOR UPDATE`, in.TenantID, in.ParkID, preparationDate).
 		result.AttemptNo = 1
 		err = tx.QueryRow(ctx, `
 INSERT INTO milk_preparation_completions (
-  tenant_id, park_id, preparation_date, feeding_date, status, current_attempt_no,
+  tenant_id, park_id, shed_id, preparation_date, feeding_date, status, current_attempt_no,
   goat_milk_used, submitted_by, submitted_at
-) SELECT $1::uuid, l.location_id, $3::date, $4::date, 'pending_verification', 1,
-         $5, $6::uuid, $7
-FROM locations l
-WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
-  AND l.location_type = 'park' AND l.status = 'active'
+) SELECT $1::uuid, p.location_id, NULL, $3::date, $4::date,
+         'pending_verification', 1, $5, $6::uuid, $7
+FROM locations p
+WHERE p.tenant_id = $1::uuid AND p.location_id = $2::uuid
+  AND p.location_type = 'park' AND p.status = 'active'
 RETURNING completion_id::text, status, current_attempt_no, row_version`,
 			in.TenantID, in.ParkID, preparationDate, feedingDate, in.GoatMilkUsed,
 			in.SubmittedBy, in.SubmittedAt.UTC()).
 			Scan(&result.CompletionID, &result.Status, &result.AttemptNo, &result.RowVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: active milk preparation park not found")
+			return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: active milk preparation farm not found")
 		}
 	case err != nil:
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: lock milk preparation: %w", err)
@@ -123,10 +128,10 @@ RETURNING status, row_version`, in.TenantID, result.CompletionID, preparationDat
 
 	if _, err := tx.Exec(ctx, `
 INSERT INTO milk_preparation_proof_attempts (
-  tenant_id, completion_id, attempt_no, goat_milk_used, proof_refs,
+  tenant_id, completion_id, attempt_no, goat_milk_used, proof_refs, answers,
   submitted_by, submitted_at, idempotency_key, request_fingerprint
-) VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6::uuid, $7, $8, $9)`,
-		in.TenantID, result.CompletionID, result.AttemptNo, in.GoatMilkUsed, proofJSON,
+) VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::uuid, $8, $9, $10)`,
+		in.TenantID, result.CompletionID, result.AttemptNo, in.GoatMilkUsed, proofJSON, answersJSON,
 		in.SubmittedBy, in.SubmittedAt.UTC(), in.IdempotencyKey, fingerprint); err != nil {
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: insert milk preparation proof attempt: %w", err)
 	}
@@ -137,7 +142,7 @@ INSERT INTO milk_preparation_proof_attempts (
 		AfterState: map[string]any{"preparation_date": preparationDate, "feeding_date": feedingDate,
 			"status": domain.MilkPreparationVerificationPending, "attempt_no": result.AttemptNo,
 			"step_count": len(steps)},
-		Metadata: map[string]any{"source": "milk-preparation", "proof_steps": proofMap}, TraceID: in.TraceID,
+		Metadata: map[string]any{"source": "milk-preparation", "park_id": in.ParkID, "proof_steps": proofMap}, TraceID: in.TraceID,
 	}); err != nil {
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: audit milk preparation submission: %w", err)
 	}
@@ -149,7 +154,8 @@ INSERT INTO milk_preparation_proof_attempts (
 }
 
 func milkPreparationFingerprint(in domain.MilkPreparationSubmission, steps []domain.MilkPreparationStepProof) string {
-	parts := []string{in.ParkID, in.PreparationDate.Format("2006-01-02"), fmt.Sprintf("%t", in.GoatMilkUsed)}
+	answerJSON, _ := json.Marshal(in.Answers)
+	parts := []string{in.ParkID, in.PreparationDate.Format("2006-01-02"), fmt.Sprintf("%t", in.GoatMilkUsed), string(answerJSON)}
 	for _, step := range steps {
 		parts = append(parts, step.StepCode, step.ProofRef)
 	}
@@ -216,7 +222,7 @@ RETURNING park_id::text, preparation_date::text, current_attempt_no`,
 		ScopeType: "park", ScopeID: parkID,
 		AfterState: map[string]any{"preparation_date": preparationDate, "status": target,
 			"attempt_no": attemptNo, "reason": strings.TrimSpace(in.Reason)},
-		Metadata: map[string]any{"source": "milk-preparation-verification"}, TraceID: in.TraceID,
+		Metadata: map[string]any{"source": "milk-preparation-verification", "park_id": parkID}, TraceID: in.TraceID,
 	}); err != nil {
 		return false, fmt.Errorf("counts: audit milk preparation verdict: %w", err)
 	}

@@ -343,6 +343,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 				{Key: "death", Label: "Death", Href: "/counts/death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
 				{Key: "milk_preparation", Label: "Milk Prep", Href: "/counts/milk-preparation"},
+				{Key: "milk_feeding", Label: "Milk Feeding", Href: "/counts/milk-feeding"},
 			},
 		},
 		{
@@ -695,9 +696,9 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting", "milk_preparation"}},
+		{permissions.RoleOperator, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "milk_preparation"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "milk_preparation", "milk_feeding"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -840,13 +841,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "milk_preparation"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting milk_preparation]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth death shifting milk_preparation milk_feeding]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "milk_preparation"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting milk_preparation] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}) {
+		t.Fatalf("park_head counts bar=%v want [birth death shifting milk_preparation milk_feeding] (no approval on mobile)", got)
 	}
 
 	// No role gets an "approval" or a "You" tab from Counts on mobile.

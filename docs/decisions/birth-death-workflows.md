@@ -337,8 +337,9 @@ atomically restores the workflow card counters for those reopened rows.
 - `POST /app/counts/birth-events` no longer requires an identifier from the
   app. It requires a canonical park and generates one distinct provisional tag
   per litter child (`CBE-#####` or `CPT-#####`, deterministically derived from
-  the idempotency key + ordinal and uniqueness-checked). The Awaiting-RFID path
-  is unchanged and is how "Tag the kid" promotes each child.
+  the idempotency key + ordinal and uniqueness-checked). There is no standalone
+  Awaiting RFID page: each child's final **Tag the kid** action opens the permanent-
+  RFID assignment directly, then requires its own live-camera tagging video.
 - New optional field `time_of_birth` (`HH:MM`, IST) on
   `CreateAdminGoatRequest`, stored as `goats.time_of_birth time`, carried in
   the `goat.created` payload (consumed by the workflow opener for EVENT+1H /

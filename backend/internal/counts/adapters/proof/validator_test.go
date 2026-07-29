@@ -20,7 +20,7 @@ func (r *proofRepoStub) GetProofsByIDs(context.Context, string, []string) (map[s
 	return r.artifacts, nil
 }
 
-func TestMilkPreparationProofMustMatchParkStepAndLiveCamera(t *testing.T) {
+func TestMilkPreparationProofMustMatchFarmStepAndLiveCamera(t *testing.T) {
 	park := "park-1"
 	base := proofdomain.Artifact{
 		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",

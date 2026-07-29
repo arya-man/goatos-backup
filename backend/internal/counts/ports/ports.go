@@ -19,6 +19,11 @@ var (
 	ErrMilkPreparationNotFound     = errors.New("counts: milk preparation completion not found")
 	ErrMilkPreparationProofs       = errors.New("counts: every applicable milk preparation step requires its own video")
 	ErrMilkPreparationInvalidProof = errors.New("counts: milk preparation proof must be a completed live-camera video for its step")
+	ErrMilkFeedingPending          = errors.New("counts: milk feeding is already pending verification")
+	ErrMilkFeedingCompleted        = errors.New("counts: milk feeding is already completed")
+	ErrMilkFeedingNotFound         = errors.New("counts: milk feeding task not found")
+	ErrMilkFeedingNotYetAvailable  = errors.New("counts: milk feeding session is not available before its scheduled time")
+	ErrMilkFeedingInvalidProof     = errors.New("counts: milk feeding proof must be a completed live-camera video for its step")
 
 	// ErrApprovalRequestNotFound is returned when the addressed approval request does not exist in
 	// the caller's tenant.
@@ -155,11 +160,19 @@ type Repository interface {
 	ListShiftingEventsPendingExecution(ctx context.Context, q domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error)
 }
 
-// MilkPreparationCompletionStore owns the park-day preparation verification state. Keeping this
+// MilkPreparationCompletionStore owns the shed-day preparation verification state. Keeping this
 // write slice separate from Repository means read-only Counts consumers do not gain a mutation
 // dependency merely because milk preparation is visible in the Counts read model.
 type MilkPreparationCompletionStore interface {
 	SubmitMilkPreparation(ctx context.Context, in domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ApplyVerifiedMilkPreparation(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
 	BounceMilkPreparationForRework(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
+}
+
+type MilkFeedingStore interface {
+	MaterializeMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingMaterializeRequest) (domain.MilkFeedingMaterializeResult, error)
+	ListMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
+	SubmitMilkFeeding(ctx context.Context, in domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error)
+	ApplyVerifiedMilkFeeding(ctx context.Context, in domain.MilkFeedingVerdictCommand) (bool, error)
+	BounceMilkFeedingForRework(ctx context.Context, in domain.MilkFeedingVerdictCommand) (bool, error)
 }

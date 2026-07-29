@@ -46,6 +46,10 @@ import sg.mesha.goatos.core.data.cache.FeedTransportItemDao
 import sg.mesha.goatos.core.data.cache.FeedTransportItemEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemDao
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
@@ -173,8 +177,10 @@ import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
         WorkflowDetailCacheEntity::class,
         FeedTransportItemEntity::class,
         FeedTransportRemoteKeyEntity::class,
+        FeedTransportScopedItemEntity::class,
+        FeedTransportScopedRemoteKeyEntity::class,
     ],
-    version = 21,
+    version = 22,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -207,6 +213,8 @@ import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
 abstract class GoatDatabase : RoomDatabase() {
 	abstract fun feedTransportItemDao(): FeedTransportItemDao
 	abstract fun feedTransportRemoteKeyDao(): FeedTransportRemoteKeyDao
+    abstract fun feedTransportScopedItemDao(): FeedTransportScopedItemDao
+    abstract fun feedTransportScopedRemoteKeyDao(): FeedTransportScopedRemoteKeyDao
     abstract fun bootstrapCacheDao(): BootstrapCacheDao
     abstract fun calendarCacheDao(): CalendarCacheDao
     abstract fun calendarScheduleDao(): CalendarScheduleDao

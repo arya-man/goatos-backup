@@ -67,3 +67,26 @@ func TestBuildMilkPreparationRowRejectsNonMilkStage(t *testing.T) {
 		t.Fatal("adult stage must not become a milk preparation row")
 	}
 }
+
+func TestBuildMilkPreparationDirectionBreakdownMatchesLegacyFormula(t *testing.T) {
+	rows := []MilkPreparationRow{
+		{ManagementStage: "K2", HeadCount: 36, DailyRequiredML: 43_200},
+		{ManagementStage: "K1", HeadCount: 1, DailyRequiredML: 800},
+		{ManagementStage: "K3", HeadCount: 27, DailyRequiredML: 10_800},
+		{ManagementStage: "K2", HeadCount: 0, DailyRequiredML: 0},
+	}
+
+	got := BuildMilkPreparationDirectionBreakdown(rows)
+	if len(got) != 3 {
+		t.Fatalf("direction rows=%d, want 3", len(got))
+	}
+	if got[0].ManagementStage != "K1" || got[0].HeadCount != 1 || got[0].PerHeadML != 200 || got[0].SessionCount != 4 || got[0].RequiredML != 800 {
+		t.Fatalf("K1 direction=%+v", got[0])
+	}
+	if got[1].ManagementStage != "K2" || got[1].HeadCount != 36 || got[1].PerHeadML != 300 || got[1].SessionCount != 4 || got[1].RequiredML != 43_200 {
+		t.Fatalf("K2 direction=%+v", got[1])
+	}
+	if got[2].ManagementStage != "K3" || got[2].HeadCount != 27 || got[2].PerHeadML != 200 || got[2].SessionCount != 2 || got[2].RequiredML != 10_800 {
+		t.Fatalf("K3 direction=%+v", got[2])
+	}
+}

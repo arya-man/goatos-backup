@@ -17,4 +17,26 @@ class MeshaNavIconTest {
         assertNotSame(birthIcon, deathIcon)
         assertSame(MeshaIcons.ArrowUpDown, MeshaIcons.forNavKey("birth_death"))
     }
+
+    @Test
+    fun feedPackingAndTransportUseDistinctOperationalIcons() {
+        val packingIcon = MeshaIcons.forNavKey("feed_packing")
+        val transportIcon = MeshaIcons.forNavKey("feed_transport")
+
+        assertNotSame(MeshaIcons.Module, packingIcon)
+        assertNotSame(MeshaIcons.Module, transportIcon)
+        assertNotSame(packingIcon, transportIcon)
+    }
+
+    @Test
+    fun milkPreparationAndFeedingUseDistinctMilkIcons() {
+        val preparationIcon = MeshaIcons.forNavKey("milk_preparation")
+        val feedingIcon = MeshaIcons.forNavKey("milk_feeding")
+
+        assertSame(MeshaIcons.MilkPreparation, preparationIcon)
+        assertSame(MeshaIcons.MilkFeeding, feedingIcon)
+        assertNotSame(MeshaIcons.Module, preparationIcon)
+        assertNotSame(MeshaIcons.Module, feedingIcon)
+        assertNotSame(preparationIcon, feedingIcon)
+    }
 }

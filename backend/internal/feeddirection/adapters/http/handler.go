@@ -38,7 +38,7 @@ type Service interface {
 	// session to pending_verification. Separate from CompleteSession (the old instant path, now inert) and
 	// from CompleteDistribution.
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
-	ListTransportTasks(ctx context.Context, tenantID, actorID, date, cursor string, limit int) ([]ports.FeedTransportTask, string, error)
+	ListTransportTasks(ctx context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error)
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
 }
 
@@ -78,8 +78,19 @@ type transportTaskDTO struct {
 	ScheduledAt  time.Time `json:"scheduled_at"`
 }
 type transportListResponse struct {
-	Items      []transportTaskDTO `json:"items"`
-	NextCursor string             `json:"next_cursor,omitempty"`
+	Items      []transportTaskDTO  `json:"items"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+	Filters    transportFiltersDTO `json:"filters"`
+}
+
+type transportFilterOptionDTO struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type transportFiltersDTO struct {
+	Parks []transportFilterOptionDTO `json:"parks"`
+	Sheds []transportFilterOptionDTO `json:"sheds"`
 }
 
 func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
@@ -94,16 +105,37 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	items, next, err := h.service.ListTransportTasks(r.Context(), tenant, actor, r.URL.Query().Get("business_date"), r.URL.Query().Get("cursor"), int(limit))
+	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
+		TenantID: tenant,
+		ActorID:  actor,
+		Date:     r.URL.Query().Get("business_date"),
+		ParkID:   r.URL.Query().Get("park_id"),
+		ShedID:   r.URL.Query().Get("shed_id"),
+		Status:   r.URL.Query().Get("status"),
+		Cursor:   r.URL.Query().Get("cursor"),
+		Limit:    int(limit),
+	})
 	if err != nil {
 		h.writeServiceError(w, r, "list feed transport tasks", err)
 		return
 	}
-	out := make([]transportTaskDTO, 0, len(items))
-	for _, x := range items {
+	out := make([]transportTaskDTO, 0, len(page.Items))
+	for _, x := range page.Items {
 		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: next})
+	parks := make([]transportFilterOptionDTO, 0, len(page.Filters.Parks))
+	for _, option := range page.Filters.Parks {
+		parks = append(parks, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
+	}
+	sheds := make([]transportFilterOptionDTO, 0, len(page.Filters.Sheds))
+	for _, option := range page.Filters.Sheds {
+		sheds = append(sheds, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{
+		Items:      out,
+		NextCursor: page.NextCursor,
+		Filters:    transportFiltersDTO{Parks: parks, Sheds: sheds},
+	})
 }
 
 type transportSubmitRequest struct {
@@ -577,6 +609,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, err.Error(), nil)
 	case errors.Is(err, ports.ErrParkRequired),
 		errors.Is(err, ports.ErrInvalidTargetDate),
+		errors.Is(err, ports.ErrInvalidTransportStatus),
 		errors.Is(err, ports.ErrInvalidWorkflow),
 		errors.Is(err, ports.ErrInvalidPaging),
 		errors.Is(err, ports.ErrShedRequired),

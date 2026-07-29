@@ -42,20 +42,52 @@ func TestFeedTransportDailyShedWorkflowRetainsRejectedAttempt(t *testing.T) {
 	if replay.Inserted != 0 {
 		t.Fatalf("replay inserted=%d want 0", replay.Inserted)
 	}
-	tasks, _, err := repo.ListTransportTasks(ctx, fdTenant, day, transportOperator, 20, "")
+	page, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{TenantID: fdTenant, Day: day, ActorID: transportOperator, Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
+	tasks := page.Items
 	if len(tasks) != 2 {
 		t.Fatalf("tasks=%d want 2", len(tasks))
 	}
+	if len(page.Filters.Parks) != 1 || len(page.Filters.Sheds) != 2 {
+		t.Fatalf("filters=%+v want one park and two physical sheds", page.Filters)
+	}
 	task := tasks[0]
+	filtered, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID: fdTenant,
+		Day:      day,
+		ActorID:  transportOperator,
+		ParkID:   task.ParkID,
+		ShedID:   task.ShedID,
+		Status:   domain.TransportStatusDue,
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered.Items) != 1 || filtered.Items[0].TaskID != task.TaskID {
+		t.Fatalf("filtered tasks=%+v want task %s", filtered.Items, task.TaskID)
+	}
 	first, err := repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-live-1", OperatorID: transportOperator, IdempotencyKey: "transport-submit-0001", ActorID: transportOperator, ActorType: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Status != domain.TransportStatusVerificationDue || first.AttemptNo != 1 {
 		t.Fatalf("first=%+v", first)
+	}
+	inReview, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID: fdTenant,
+		Day:      day,
+		ActorID:  transportOperator,
+		Status:   domain.TransportStatusVerificationDue,
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inReview.Items) != 1 || inReview.Items[0].TaskID != task.TaskID {
+		t.Fatalf("verification_due tasks=%+v want task %s", inReview.Items, task.TaskID)
 	}
 	_, err = repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-other", OperatorID: otherOperator, IdempotencyKey: "transport-submit-other", ActorID: otherOperator})
 	if !errors.Is(err, ports.ErrTransportAssignedToAnotherOperator) && !errors.Is(err, ports.ErrTransportTaskNotActionable) {

@@ -380,8 +380,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	countsService := countsapp.NewService(countsRepo)
+	countsProofValidator := countsproof.NewValidator(proofRepo)
 	herdRegisterService := countsapp.NewHerdRegisterService(countsRepo).
-		WithMilkPreparationProofValidator(countsproof.NewValidator(proofRepo))
+		WithMilkPreparationProofValidator(countsProofValidator).
+		WithMilkFeedingProofValidator(countsProofValidator)
 	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
 	// App-tier Counts writes (shifting/birth/death) + the lifecycle approval workflow.
 	//
@@ -506,6 +508,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	herdRegisterService.WithMilkPreparationVerificationEnqueuer(
 		countsbridge.NewMilkPreparationVerificationEnqueuer(verificationService))
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
+		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"}, SLAHours: 24,
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	herdRegisterService.WithMilkFeedingVerificationEnqueuer(countsbridge.NewMilkFeedingVerificationEnqueuer(verificationService))
 	// Feed distribution verification (maintainer decision, 2026-07-26): a feed-direction session is
 	// completed only after a verifier approves the operator's video + water proof, so feed is a
 	// verification producer just like vaccination and shifting. Register its category and wire the

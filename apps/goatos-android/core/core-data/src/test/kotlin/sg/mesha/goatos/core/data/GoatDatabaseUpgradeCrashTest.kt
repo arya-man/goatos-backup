@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
@@ -122,6 +123,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_18_19,
                 MIGRATION_19_20,
                 MIGRATION_20_21,
+                MIGRATION_21_22,
             )
             .build()
         try {
@@ -141,6 +143,22 @@ class GoatDatabaseUpgradeCrashTest {
             dao.upsert(RosterTimetableCacheEntity(cacheKey = "center-1", dtoJson = "{}", updatedAt = 7L))
             val row = dao.observe("center-1").first()
             assertEquals(7L, row?.updatedAt)
+
+            upgraded.feedTransportScopedItemDao().upsertAll(
+                listOf(
+                    FeedTransportScopedItemEntity(
+                        scopeKey = "2026-07-29|park-1||",
+                        taskId = "task-1",
+                        sortIndex = 0,
+                        dtoJson = "{}",
+                        updatedAt = 22L,
+                    ),
+                ),
+            )
+            assertEquals(
+                "task-1",
+                upgraded.feedTransportScopedItemDao().observe("2026-07-29|park-1||", 20).first().single().taskId,
+            )
 
             // 5. The v11 scan_roster_row table (R50-007/task-scoped R50 rework) is present and
             //    usable post-upgrade — a write + indexed tag lookup + GROUP BY aggregate round-trip
@@ -409,6 +427,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_18_19,
                 MIGRATION_19_20,
                 MIGRATION_20_21,
+                MIGRATION_21_22,
             )
             .build()
         try {

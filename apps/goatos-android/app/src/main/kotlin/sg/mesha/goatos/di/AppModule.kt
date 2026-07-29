@@ -48,6 +48,10 @@ import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
+import sg.mesha.goatos.core.data.DefaultMilkPreparationRepository
+import sg.mesha.goatos.core.data.MilkPreparationRepository
+import sg.mesha.goatos.core.data.DefaultMilkFeedingRepository
+import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.DefaultFeedRepository
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedRepository
@@ -321,6 +325,20 @@ object AppModule {
         shiftingDestinationsDao: CountsShiftingDestinationsCacheDao,
     ): CountsRepository =
         DefaultCountsRepository(api, database, summaryDao, breakdownMetaDao, shiftingDestinationsDao)
+
+    @Provides
+    @Singleton
+    fun provideMilkPreparationRepository(
+        api: AppApi,
+        breakdownMetaDao: CountsBreakdownMetaCacheDao,
+    ): MilkPreparationRepository = DefaultMilkPreparationRepository(api, breakdownMetaDao)
+
+    @Provides
+    @Singleton
+    fun provideMilkFeedingRepository(
+        api: AppApi,
+        breakdownMetaDao: CountsBreakdownMetaCacheDao,
+    ): MilkFeedingRepository = DefaultMilkFeedingRepository(api, breakdownMetaDao)
 
     @Provides
     @Singleton

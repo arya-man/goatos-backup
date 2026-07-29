@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
@@ -67,6 +68,34 @@ type MilkPreparationRow struct {
 	ReworkReason       string                   `json:"rework_reason,omitempty"`
 }
 
+// MilkPreparationFarmTask is the only actionable operator grain: one farm on one preparation
+// day. Shed breakdown is deliberately absent from the operator contract.
+type MilkPreparationFarmTask struct {
+	ParkID                  string                         `json:"park_id"`
+	ParkLabel               string                         `json:"park_label"`
+	CohortCount             int                            `json:"cohort_count"`
+	HeadCount               int                            `json:"head_count"`
+	TotalRequiredML         int64                          `json:"total_required_ml"`
+	MilkDirection           []MilkPreparationDirectionLine `json:"milk_direction"`
+	CitricAcidGramsPerLitre float64                        `json:"citric_acid_grams_per_litre"`
+	CitricAcidGrams         float64                        `json:"citric_acid_grams"`
+	VerificationStatus      string                         `json:"verification_status"`
+	CompletionID            string                         `json:"completion_id,omitempty"`
+	AttemptNo               int32                          `json:"attempt_no,omitempty"`
+	ReworkReason            string                         `json:"rework_reason,omitempty"`
+}
+
+// MilkPreparationDirectionLine is one operator-visible line of the legacy Milk Direction
+// calculation. It is calculated from canonical live-herd counts and never changes the farm-day
+// task grain.
+type MilkPreparationDirectionLine struct {
+	ManagementStage string `json:"management_stage"`
+	HeadCount       int    `json:"head_count"`
+	PerHeadML       int    `json:"per_head_ml"`
+	SessionCount    int    `json:"session_count"`
+	RequiredML      int64  `json:"required_ml"`
+}
+
 // MilkPreparationSummary is whole-scope and invariant to page size/offset.
 type MilkPreparationSummary struct {
 	Scope                        string  `json:"scope"`
@@ -77,23 +106,24 @@ type MilkPreparationSummary struct {
 	CitricAcidGrams              float64 `json:"citric_acid_grams"`
 	BlockedRowCount              int     `json:"blocked_row_count"`
 	ParkCount                    int     `json:"park_count"`
-	NotSubmittedParkCount        int     `json:"not_submitted_park_count"`
-	PendingVerificationParkCount int     `json:"pending_verification_park_count"`
-	CompletedParkCount           int     `json:"completed_park_count"`
-	ReworkParkCount              int     `json:"rework_park_count"`
+	NotSubmittedFarmCount        int     `json:"not_submitted_farm_count"`
+	PendingVerificationFarmCount int     `json:"pending_verification_farm_count"`
+	CompletedFarmCount           int     `json:"completed_farm_count"`
+	ReworkFarmCount              int     `json:"rework_farm_count"`
 }
 
 // MilkPreparationPage is the backend-owned admin-web contract. Items are one bounded page;
 // Summary always covers the complete park scope.
 type MilkPreparationPage struct {
-	PreparationDate string                 `json:"preparation_date"`
-	FeedingDate     string                 `json:"feeding_date"`
-	GeneratedAt     time.Time              `json:"generated_at"`
-	Items           []MilkPreparationRow   `json:"items"`
-	Summary         MilkPreparationSummary `json:"summary"`
-	Limit           int32                  `json:"limit"`
-	Offset          int32                  `json:"offset"`
-	HasMore         bool                   `json:"has_more"`
+	PreparationDate string                    `json:"preparation_date"`
+	FeedingDate     string                    `json:"feeding_date"`
+	GeneratedAt     time.Time                 `json:"generated_at"`
+	Items           []MilkPreparationRow      `json:"items"`
+	FarmTasks       []MilkPreparationFarmTask `json:"farm_tasks"`
+	Summary         MilkPreparationSummary    `json:"summary"`
+	Limit           int32                     `json:"limit"`
+	Offset          int32                     `json:"offset"`
+	HasMore         bool                      `json:"has_more"`
 }
 
 type milkPreparationRule struct {
@@ -190,4 +220,30 @@ func BuildMilkPreparationSummary(rows []MilkPreparationRow) MilkPreparationSumma
 func MilkPreparationCitricAcidGrams(totalRequiredML int64) float64 {
 	grams := (float64(totalRequiredML) / 1000) * milkCitricAcidGramsPerLitre
 	return math.Round(grams*10) / 10
+}
+
+// BuildMilkPreparationDirectionBreakdown reproduces the legacy formula at farm scope:
+// head count × configured millilitres per session × active session count.
+func BuildMilkPreparationDirectionBreakdown(rows []MilkPreparationRow) []MilkPreparationDirectionLine {
+	byStage := make(map[string]MilkPreparationDirectionLine, 3)
+	for _, row := range rows {
+		rule, ok := milkPreparationRuleForStage(row.ManagementStage)
+		if !ok {
+			continue
+		}
+		stage := strings.ToUpper(strings.TrimSpace(row.ManagementStage))
+		line := byStage[stage]
+		line.ManagementStage = stage
+		line.HeadCount += row.HeadCount
+		line.PerHeadML = rule.PerHeadML
+		line.SessionCount = len(rule.ActiveSessions)
+		line.RequiredML += row.DailyRequiredML
+		byStage[stage] = line
+	}
+	result := make([]MilkPreparationDirectionLine, 0, len(byStage))
+	for _, line := range byStage {
+		result = append(result, line)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ManagementStage < result[j].ManagementStage })
+	return result
 }

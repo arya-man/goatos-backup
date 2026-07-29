@@ -26,6 +26,8 @@ type HerdRegisterService interface {
 	GetBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
 	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 	SubmitMilkPreparation(ctx context.Context, req domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
+	ListMilkFeedingTasks(ctx context.Context, req domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
+	SubmitMilkFeeding(ctx context.Context, req domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error)
 }
 
 type Handler struct {
@@ -41,17 +43,117 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-register/summary", h.GetSummary)
 	mux.HandleFunc("GET /counts/breakdown", h.GetBreakdown)
 	mux.HandleFunc("GET /counts/milk-preparation", h.GetMilkPreparation)
+	mux.HandleFunc("GET /app/counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("POST /app/counts/milk-preparation/submit", h.SubmitMilkPreparation)
+	mux.HandleFunc("GET /app/counts/milk-feeding/tasks", h.ListMilkFeedingTasks)
+	mux.HandleFunc("POST /app/counts/milk-feeding/tasks/{task_id}/submit", h.SubmitMilkFeeding)
+}
+
+type submitMilkFeedingRequest struct {
+	ParkID      string                    `json:"park_id"`
+	FeedingDate string                    `json:"feeding_date"`
+	SessionNo   int                       `json:"session_no"`
+	Answers     domain.MilkFeedingAnswers `json:"answers"`
+	Proofs      domain.MilkFeedingProofs  `json:"proofs"`
+}
+
+func (h *Handler) ListMilkFeedingTasks(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	q := r.URL.Query()
+	day := time.Now().In(biztime.DefaultLocation())
+	if raw := strings.TrimSpace(q.Get("feeding_date")); raw != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+		if err != nil {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "feeding_date must be YYYY-MM-DD"}, nil)
+			return
+		}
+		day = parsed
+	}
+	limit, err := boundedIntParam(q, "limit", 20, 1, 20)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	offset, err := boundedIntParam(q, "offset", 0, 0, milkPreparationMaxOffset)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	var sessionNo *int
+	if raw := strings.TrimSpace(q.Get("session_no")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 || parsed > 4 {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_session", "message": "session_no must be between 1 and 4"}, nil)
+			return
+		}
+		sessionNo = &parsed
+	}
+	page, err := h.service.ListMilkFeedingTasks(r.Context(), domain.MilkFeedingQuery{TenantID: tenantID, ParkID: nullableString(q.Get("park_id")), FeedingDate: day, SessionNo: sessionNo, Limit: limit, Offset: offset})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "failed to load milk feeding actions", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
+func (h *Handler) SubmitMilkFeeding(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenantID == "" || actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, map[string]string{"code": "missing_context", "message": "tenant and actor context are required"}, nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "idempotency_key_required", "message": "Idempotency-Key header is required"}, nil)
+		return
+	}
+	var body submitMilkFeedingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_json", "message": "invalid request body"}, err)
+		return
+	}
+	day, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(body.FeedingDate), biztime.DefaultLocation())
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "feeding_date must be YYYY-MM-DD"}, nil)
+		return
+	}
+	result, err := h.service.SubmitMilkFeeding(r.Context(), domain.MilkFeedingSubmission{TenantID: tenantID, TaskID: strings.TrimSpace(r.PathValue("task_id")), ParkID: strings.TrimSpace(body.ParkID), FeedingDate: day, SessionNo: body.SessionNo, Answers: body.Answers, Proofs: body.Proofs, SubmittedBy: actorID, SubmittedAt: time.Now().UTC(), IdempotencyKey: key, TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	if err != nil {
+		status := http.StatusUnprocessableEntity
+		code := "invalid_milk_feeding"
+		if errors.Is(err, ports.ErrMilkFeedingNotFound) {
+			status = http.StatusNotFound
+			code = "task_not_found"
+		} else if errors.Is(err, ports.ErrIdempotencyConflict) {
+			status = http.StatusConflict
+			code = "idempotency_conflict"
+		} else if errors.Is(err, ports.ErrMilkFeedingPending) || errors.Is(err, ports.ErrMilkFeedingCompleted) {
+			status = http.StatusConflict
+			code = "task_not_actionable"
+		} else if errors.Is(err, ports.ErrMilkFeedingNotYetAvailable) {
+			status = http.StatusConflict
+			code = "task_not_yet_available"
+		}
+		httpresponse.WriteError(w, r, h.log, status, map[string]string{"code": code, "message": err.Error()}, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, result)
 }
 
 type submitMilkPreparationRequest struct {
-	ParkID          string                       `json:"park_id"`
-	PreparationDate string                       `json:"preparation_date"`
-	GoatMilkUsed    bool                         `json:"goat_milk_used"`
-	Proofs          domain.MilkPreparationProofs `json:"proofs"`
+	ParkID          string                         `json:"park_id"`
+	PreparationDate string                         `json:"preparation_date"`
+	GoatMilkUsed    bool                           `json:"goat_milk_used"`
+	Answers         *domain.MilkPreparationAnswers `json:"answers"`
+	Proofs          domain.MilkPreparationProofs   `json:"proofs"`
 }
 
-// SubmitMilkPreparation accepts one park-day attempt. It stores nothing as completed: success is
+// SubmitMilkPreparation accepts one farm-day attempt. It stores nothing as completed: success is
 // 202 pending_verification until the generic verifier approves the complete step-video package.
 func (h *Handler) SubmitMilkPreparation(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
@@ -78,13 +180,13 @@ func (h *Handler) SubmitMilkPreparation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	preparationDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(body.PreparationDate), biztime.DefaultLocation())
-	if err != nil || strings.TrimSpace(body.ParkID) == "" {
+	if err != nil || strings.TrimSpace(body.ParkID) == "" || body.Answers == nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_scope", "message": "park_id and preparation_date (YYYY-MM-DD) are required"}, nil)
 		return
 	}
 	result, err := h.service.SubmitMilkPreparation(r.Context(), domain.MilkPreparationSubmission{
 		TenantID: tenantID, ParkID: strings.TrimSpace(body.ParkID), PreparationDate: preparationDate,
-		GoatMilkUsed: body.GoatMilkUsed, Proofs: body.Proofs, SubmittedBy: actorID,
+		GoatMilkUsed: body.GoatMilkUsed, Answers: *body.Answers, Proofs: body.Proofs, SubmittedBy: actorID,
 		SubmittedAt: time.Now().UTC(), IdempotencyKey: key,
 		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 	})

@@ -17,6 +17,9 @@ type HerdRegisterService struct {
 	milkPreparationStore    ports.MilkPreparationCompletionStore
 	milkPreparationProofs   MilkPreparationProofValidator
 	milkPreparationEnqueuer MilkPreparationVerificationEnqueuer
+	milkFeedingStore        ports.MilkFeedingStore
+	milkFeedingProofs       MilkFeedingProofValidator
+	milkFeedingEnqueuer     MilkFeedingVerificationEnqueuer
 	now                     func() time.Time
 }
 
@@ -26,7 +29,38 @@ func NewHerdRegisterService(repo ports.Repository) *HerdRegisterService {
 	if store, ok := repo.(ports.MilkPreparationCompletionStore); ok {
 		service.milkPreparationStore = store
 	}
+	if store, ok := repo.(ports.MilkFeedingStore); ok {
+		service.milkFeedingStore = store
+	}
 	return service
+}
+
+type MilkFeedingProofValidator interface {
+	ValidateMilkFeedingProofs(ctx context.Context, tenantID, parkID string, proofs []domain.MilkPreparationStepProof) error
+}
+
+type MilkFeedingVerificationEnqueueRequest struct {
+	TenantID       string
+	CompletionID   string
+	ParkID         string
+	OperatorID     string
+	AttemptNo      int32
+	StepProofs     []domain.MilkPreparationStepProof
+	CapturedAt     time.Time
+	IdempotencyKey string
+}
+
+type MilkFeedingVerificationEnqueuer interface {
+	EnqueueMilkFeedingVerification(ctx context.Context, in MilkFeedingVerificationEnqueueRequest) error
+}
+
+func (s *HerdRegisterService) WithMilkFeedingProofValidator(v MilkFeedingProofValidator) *HerdRegisterService {
+	s.milkFeedingProofs = v
+	return s
+}
+func (s *HerdRegisterService) WithMilkFeedingVerificationEnqueuer(e MilkFeedingVerificationEnqueuer) *HerdRegisterService {
+	s.milkFeedingEnqueuer = e
+	return s
 }
 
 // MilkPreparationProofValidator verifies that every step reference is a completed, step-bound,
@@ -93,10 +127,13 @@ func (s *HerdRegisterService) SubmitMilkPreparation(ctx context.Context, in doma
 	in.SubmittedBy = strings.TrimSpace(in.SubmittedBy)
 	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	if in.TenantID == "" || in.ParkID == "" || in.SubmittedBy == "" || in.IdempotencyKey == "" || in.PreparationDate.IsZero() {
-		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: tenant, park, operator, preparation date, and idempotency key are required")
+		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: tenant, farm, operator, preparation date, and idempotency key are required")
 	}
 	if err := in.Proofs.Validate(in.GoatMilkUsed); err != nil {
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("%w: %v", ports.ErrMilkPreparationProofs, err)
+	}
+	if err := in.Answers.Validate(in.GoatMilkUsed); err != nil {
+		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: invalid milk preparation answers: %w", err)
 	}
 	if s.milkPreparationStore == nil || s.milkPreparationProofs == nil || s.milkPreparationEnqueuer == nil {
 		return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: milk preparation verification is not configured")
@@ -121,6 +158,57 @@ func (s *HerdRegisterService) SubmitMilkPreparation(ctx context.Context, in doma
 			CapturedAt: in.SubmittedAt, IdempotencyKey: key,
 		}); err != nil {
 			return domain.MilkPreparationSubmissionResult{}, fmt.Errorf("counts: enqueue milk preparation verification: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func (s *HerdRegisterService) MaterializeMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingMaterializeRequest) (domain.MilkFeedingMaterializeResult, error) {
+	if s.milkFeedingStore == nil {
+		return domain.MilkFeedingMaterializeResult{}, fmt.Errorf("counts: milk feeding store is not configured")
+	}
+	return s.milkFeedingStore.MaterializeMilkFeedingTasks(ctx, in)
+}
+
+func (s *HerdRegisterService) ListMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingQuery) (domain.MilkFeedingPage, error) {
+	if s.milkFeedingStore == nil {
+		return domain.MilkFeedingPage{}, fmt.Errorf("counts: milk feeding store is not configured")
+	}
+	return s.milkFeedingStore.ListMilkFeedingTasks(ctx, in)
+}
+
+func (s *HerdRegisterService) SubmitMilkFeeding(ctx context.Context, in domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error) {
+	if s.milkFeedingStore == nil || s.milkFeedingProofs == nil || s.milkFeedingEnqueuer == nil {
+		return domain.MilkFeedingSubmissionResult{}, fmt.Errorf("counts: milk feeding verification is not configured")
+	}
+	if strings.TrimSpace(in.TenantID) == "" || strings.TrimSpace(in.TaskID) == "" || strings.TrimSpace(in.ParkID) == "" || strings.TrimSpace(in.SubmittedBy) == "" || strings.TrimSpace(in.IdempotencyKey) == "" {
+		return domain.MilkFeedingSubmissionResult{}, fmt.Errorf("counts: milk feeding task, farm, operator, and idempotency key are required")
+	}
+	if _, ok := domain.MilkFeedingSessionDueTime(in.SessionNo); !ok {
+		return domain.MilkFeedingSubmissionResult{}, fmt.Errorf("counts: milk feeding session must be 1 through 4")
+	}
+	if err := in.Proofs.Validate(); err != nil {
+		return domain.MilkFeedingSubmissionResult{}, err
+	}
+	steps := in.Proofs.OrderedStepProofs()
+	if err := s.milkFeedingProofs.ValidateMilkFeedingProofs(ctx, in.TenantID, in.ParkID, steps); err != nil {
+		return domain.MilkFeedingSubmissionResult{}, err
+	}
+	if in.SubmittedAt.IsZero() {
+		in.SubmittedAt = s.now().UTC()
+	}
+	result, err := s.milkFeedingStore.SubmitMilkFeeding(ctx, in)
+	if err != nil {
+		return domain.MilkFeedingSubmissionResult{}, err
+	}
+	if result.NeedsEnqueue {
+		err = s.milkFeedingEnqueuer.EnqueueMilkFeedingVerification(ctx, MilkFeedingVerificationEnqueueRequest{
+			TenantID: in.TenantID, CompletionID: result.CompletionID, ParkID: in.ParkID,
+			OperatorID: in.SubmittedBy, AttemptNo: result.AttemptNo, StepProofs: steps, CapturedAt: in.SubmittedAt,
+			IdempotencyKey: fmt.Sprintf("milk-feeding-verification:%s:%d", result.CompletionID, result.AttemptNo),
+		})
+		if err != nil {
+			return domain.MilkFeedingSubmissionResult{}, fmt.Errorf("counts: enqueue milk feeding verification: %w", err)
 		}
 	}
 	return result, nil

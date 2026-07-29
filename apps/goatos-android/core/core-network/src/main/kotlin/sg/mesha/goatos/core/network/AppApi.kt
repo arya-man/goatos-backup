@@ -16,6 +16,10 @@ import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -692,7 +696,23 @@ interface AppApi {
         request: MilkPreparationSubmissionRequestDto,
     ): MilkPreparationSubmissionResponseDto
 
-    suspend fun getFeedTransportTasks(businessDate: String, cursor: String? = null, limit: Int? = null): FeedTransportTaskPageDto
+    suspend fun getMilkPreparation(
+        parkId: String? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+    ): MilkPreparationPageDto
+
+    suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String? = null, sessionNo: Int? = null, limit: Int = 20, offset: Int = 0): MilkFeedingPageDto
+    suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
+
+    suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String? = null,
+        shedId: String? = null,
+        status: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): FeedTransportTaskPageDto
     suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
 
     suspend fun getFeedPackingWorklist(
@@ -1188,7 +1208,20 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         completionId = "fake-milk-preparation", status = "pending_verification", attemptNo = 1, rowVersion = 1,
     )
 
-    override suspend fun getFeedTransportTasks(businessDate: String, cursor: String?, limit: Int?): FeedTransportTaskPageDto = FeedTransportTaskPageDto()
+    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        MilkPreparationPageDto()
+
+    override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = MilkFeedingPageDto(feedingDate = feedingDate)
+    override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = MilkFeedingSubmitResponseDto(completionId = taskId, status = "pending_verification", attemptNo = 1, rowVersion = 1)
+
+    override suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String?,
+        shedId: String?,
+        status: String?,
+        cursor: String?,
+        limit: Int?,
+    ): FeedTransportTaskPageDto = FeedTransportTaskPageDto()
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = FeedTransportSubmitResponseDto("fake-attempt", "verification_due", 1, true)
 
     override suspend fun getFeedDirectionPreview(

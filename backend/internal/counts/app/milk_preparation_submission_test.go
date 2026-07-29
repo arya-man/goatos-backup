@@ -55,7 +55,9 @@ func TestSubmitMilkPreparationEnqueuesAllFiveStepVideosTogether(t *testing.T) {
 		UHTMilkQuantityProofRef: "uht", CitricAcidMixingProofRef: "citric",
 	}
 	_, err := service.SubmitMilkPreparation(context.Background(), domain.MilkPreparationSubmission{
-		TenantID: "tenant", ParkID: "park", PreparationDate: prep, GoatMilkUsed: true, Proofs: proofs,
+		TenantID: "tenant", ParkID: "park", PreparationDate: prep, GoatMilkUsed: true,
+		Answers:     domain.MilkPreparationAnswers{MorningMilkCollectedLitres: 4, EveningMilkCollectedLitres: 3, GoatMilkQuantityLitres: 2, BoilingTemperatureC: 100, CooledTemperatureC: 38, UHTMilkQuantityLitres: 8, CitricAcidGrams: 44},
+		Proofs:      proofs,
 		SubmittedBy: "operator", IdempotencyKey: "attempt-key",
 	})
 	if err != nil {
@@ -71,5 +73,8 @@ func TestSubmitMilkPreparationEnqueuesAllFiveStepVideosTogether(t *testing.T) {
 	}
 	if store.submitted.FeedingDate.Format("2006-01-02") != "2026-07-30" {
 		t.Fatalf("feeding=%s", store.submitted.FeedingDate)
+	}
+	if enqueuer.request.ParkID != "park" {
+		t.Fatalf("verification farm=%q", enqueuer.request.ParkID)
 	}
 }

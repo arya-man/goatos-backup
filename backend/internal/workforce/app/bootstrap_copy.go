@@ -104,6 +104,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},                                  //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite},                         //nav-composition:ignore: registry entry
 			{key: "milk_preparation", labelKey: "nav.milk_preparation", href: "/counts/milk-preparation", shared_key: "", priority: 5, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			{key: "milk_feeding", labelKey: "nav.milk_feeding", href: "/counts/milk-feeding", shared_key: "", priority: 6, requiredPermission: permissions.CountsWrite},             //nav-composition:ignore: registry entry
 			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
 			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
@@ -482,6 +483,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.death":            "Death",
 		"nav.shifting":         "Shifting",
 		"nav.milk_preparation": "Milk Prep",
+		"nav.milk_feeding":     "Milk Feeding",
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
 		"nav.feed_transport":   "Feed Transport",
@@ -508,6 +510,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.death":            "मृत्यु",
 		"nav.shifting":         "शिफ्टिंग",
 		"nav.milk_preparation": "दूध तैयारी",
+		"nav.milk_feeding":     "दूध पिलाना",
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
 		"nav.feed_transport":   "फ़ीड परिवहन",
@@ -534,6 +537,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.death":            "ಮರಣ",
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
 		"nav.milk_preparation": "ಹಾಲು ತಯಾರಿ",
+		"nav.milk_feeding":     "ಹಾಲು ಕುಡಿಸುವುದು",
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
@@ -560,6 +564,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.death":            "మరణం",
 		"nav.shifting":         "షిఫ్టింగ్",
 		"nav.milk_preparation": "పాల తయారీ",
+		"nav.milk_feeding":     "పాలు పట్టించడం",
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",

@@ -154,6 +154,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// guard compares this list with kernelstages.BuildDomainBus so a wrapper cannot hide bus drift.
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
 	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)

@@ -116,8 +116,10 @@ enum class OutboxOpType {
      * two completions of the same shed-session drain strictly oldest-first.
      */
     FEED_PACKING_COMPLETE,
-    /** Park-day milk preparation; carries 2 or 5 proof-upload row references as one submission. */
+    /** Shed-day milk preparation; carries 2 or 5 proof-upload row references as one submission. */
     MILK_PREPARATION_SUBMIT,
+    /** One shed-session Milk Feeding answer cascade plus two proof-upload references. */
+    MILK_FEEDING_SUBMIT,
     FEED_TRANSPORT_SUBMIT,
 
     /**

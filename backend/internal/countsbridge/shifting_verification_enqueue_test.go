@@ -60,4 +60,7 @@ func TestMilkPreparationEnqueuesFiveVideosInStepOrderOnOneItem(t *testing.T) {
 	if capture.item.Source.RefType != "milk_preparation_completion" {
 		t.Fatalf("source=%+v", capture.item.Source)
 	}
+	if capture.item.ParkID == nil || *capture.item.ParkID != "park" || capture.item.ShedID != nil {
+		t.Fatalf("farm-only scope park=%v shed=%v", capture.item.ParkID, capture.item.ShedID)
+	}
 }

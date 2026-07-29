@@ -20,6 +20,7 @@ var (
 	_ worker.StageRunner = (*ProcessedEventSweeperStage)(nil)
 	_ worker.StageRunner = (*IdempotencyKeySweeperStage)(nil)
 	_ worker.StageRunner = (*FeedTransportStage)(nil)
+	_ worker.StageRunner = (*MilkFeedingStage)(nil)
 )
 
 // TestStageNamesAreStableAndUnique guards the advisory-lock identity of each
@@ -39,6 +40,7 @@ func TestStageNamesAreStableAndUnique(t *testing.T) {
 		(&SopReviewFanoutRetryStage{}).Name(),
 		(&DomainConsumerStage{}).Name(),
 		(&FeedTransportStage{}).Name(),
+		(&MilkFeedingStage{}).Name(),
 	}
 	seen := map[string]bool{}
 	for _, name := range names {

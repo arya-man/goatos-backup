@@ -22,6 +22,11 @@ type FeedTransportVerificationEnqueueRequest struct {
 }
 type SubmitTransportInput struct{ TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string }
 
+type ListTransportTasksInput struct {
+	TenantID, ActorID, Date, ParkID, ShedID, Status, Cursor string
+	Limit                                                   int
+}
+
 func (s *Service) MaterializeTransportTasks(ctx context.Context, tenantID string, asOf time.Time) (ports.MaterializeTransportResult, error) {
 	if s.transports == nil {
 		return ports.MaterializeTransportResult{}, ports.ErrTransportTaskNotActionable
@@ -29,15 +34,28 @@ func (s *Service) MaterializeTransportTasks(ctx context.Context, tenantID string
 	return s.transports.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{TenantID: strings.TrimSpace(tenantID), AsOf: asOf})
 }
 
-func (s *Service) ListTransportTasks(ctx context.Context, tenantID, actorID, date, cursor string, limit int) ([]ports.FeedTransportTask, string, error) {
+func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
 	if s.transports == nil {
-		return nil, "", ports.ErrTransportTaskNotActionable
+		return ports.FeedTransportTaskPage{}, ports.ErrTransportTaskNotActionable
 	}
-	day, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(date), biztime.DefaultLocation())
+	day, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(in.Date), biztime.DefaultLocation())
 	if err != nil {
-		return nil, "", ports.ErrInvalidTargetDate
+		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTargetDate
 	}
-	return s.transports.ListTransportTasks(ctx, tenantID, day, actorID, limit, cursor)
+	status := strings.TrimSpace(in.Status)
+	if status != "" && status != "due" && status != "verification_due" && status != "rework" && status != "completed" {
+		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTransportStatus
+	}
+	return s.transports.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID: strings.TrimSpace(in.TenantID),
+		ActorID:  strings.TrimSpace(in.ActorID),
+		Day:      day,
+		ParkID:   strings.TrimSpace(in.ParkID),
+		ShedID:   strings.TrimSpace(in.ShedID),
+		Status:   status,
+		Cursor:   strings.TrimSpace(in.Cursor),
+		Limit:    in.Limit,
+	})
 }
 
 func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) (ports.SubmitTransportResult, error) {

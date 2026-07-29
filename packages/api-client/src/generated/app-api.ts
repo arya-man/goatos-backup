@@ -1619,6 +1619,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/milk-preparation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get today's operator Milk Preparation farm worklist and direction.
+         * @description Operator-authorized form of the current-day Milk Preparation read. farm_tasks is the bounded actionable farm_day worklist; items remains the paged internal milk-cohort direction. Summary and farm_tasks cover the whole selected scope and never depend on the requested item page.
+         */
+        get: operations["getAppCountsMilkPreparation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/milk-preparation/submit": {
         parameters: {
             query?: never;
@@ -1630,9 +1650,49 @@ export interface paths {
         put?: never;
         /**
          * Submit every applicable milk-preparation step video for one verifier verdict.
-         * @description Creates one pending_verification preparation attempt at park x preparation_date grain. When goat_milk_used is true, five distinct completed in-app-camera videos are required: goat-milk quantity, boiling temperature, cooled temperature, UHT-milk quantity, and citric-acid mixing. When false, the last two videos are required. Each proof is bound to its exact step and park; one proof cannot satisfy two steps. All applicable videos travel on one generic Verification item. This command never completes preparation: one verifier approval completes the whole attempt and rejection returns it to rework with immutable prior attempts preserved.
+         * @description Creates one pending_verification preparation attempt at shed x preparation_date grain. When goat_milk_used is true, five distinct completed in-app-camera videos are required: goat-milk quantity, boiling temperature, cooled temperature, UHT-milk quantity, and citric-acid mixing. When false, the last two videos are required. Each proof is bound to its exact step and shed; one proof cannot satisfy two steps. All applicable videos travel on one generic Verification item. This command never completes preparation: one verifier approval completes the whole attempt and rejection returns it to rework with immutable prior attempts preserved.
          */
         post: operations["submitAppCountsMilkPreparation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/milk-feeding/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the four daily Milk Feeding actions at farm-session grain.
+         * @description Returns backend-owned farm x feeding_date x session tasks. Session times are 08:00, 12:00, 16:00, and 21:00 IST. Milk Feeding is a separate Action and never appears inside Milk Preparation.
+         */
+        get: operations["listAppMilkFeedingTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/milk-feeding/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one Milk Feeding session's questions and two videos for verification.
+         * @description Stores an immutable attempt and moves the farm-session task to pending_verification. Approval completes it; rejection returns it to rework and requires fresh videos.
+         */
+        post: operations["submitAppMilkFeedingTask"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2667,6 +2727,16 @@ export interface components {
         FeedTransportTaskPage: {
             items: components["schemas"]["FeedTransportTask"][];
             next_cursor?: string;
+            filters: components["schemas"]["FeedTransportFilterOptions"];
+        };
+        FeedTransportFilterOption: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+        };
+        FeedTransportFilterOptions: {
+            parks: components["schemas"]["FeedTransportFilterOption"][];
+            sheds: components["schemas"]["FeedTransportFilterOption"][];
         };
         FeedTransportSubmitRequest: {
             /** @description Server-minted proof id for one fresh in-app camera video. */
@@ -5570,6 +5640,10 @@ export interface components {
             head_count: number;
             /** Format: int64 */
             total_required_ml: number;
+            /** @description Farm-level Milk Direction calculation lines derived from canonical K1/K2/K3 counts. */
+            milk_direction: components["schemas"]["MilkPreparationDirectionLine"][];
+            /** Format: double */
+            citric_acid_grams_per_litre: number;
             /**
              * Format: double
              * @description Whole-scope milk litres x 5.5 grams, rounded to one decimal place.
@@ -5577,10 +5651,36 @@ export interface components {
             citric_acid_grams: number;
             blocked_row_count: number;
             park_count: number;
-            not_submitted_park_count: number;
-            pending_verification_park_count: number;
-            completed_park_count: number;
-            rework_park_count: number;
+            not_submitted_farm_count: number;
+            pending_verification_farm_count: number;
+            completed_farm_count: number;
+            rework_farm_count: number;
+        };
+        MilkPreparationFarmTask: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            cohort_count: number;
+            head_count: number;
+            /** Format: int64 */
+            total_required_ml: number;
+            /** Format: double */
+            citric_acid_grams: number;
+            /** @enum {string} */
+            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
+            /** Format: uuid */
+            completion_id?: string;
+            attempt_no?: number;
+            rework_reason?: string;
+        };
+        MilkPreparationDirectionLine: {
+            /** @enum {string} */
+            management_stage: "K1" | "K2" | "K3";
+            head_count: number;
+            per_head_ml: number;
+            session_count: number;
+            /** Format: int64 */
+            required_ml: number;
         };
         MilkPreparationPage: {
             /**
@@ -5596,6 +5696,8 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             items: components["schemas"]["MilkPreparationRow"][];
+            /** @description Bounded actionable farm_day worklist, independent of item pagination. */
+            farm_tasks: components["schemas"]["MilkPreparationFarmTask"][];
             summary: components["schemas"]["MilkPreparationSummary"];
             limit: number;
             offset: number;
@@ -5613,15 +5715,109 @@ export interface components {
             /** Format: uuid */
             citric_acid_mixing_proof_ref: string;
         };
+        MilkPreparationAnswers: {
+            morning_milk_collected_litres: number;
+            evening_milk_collected_litres: number;
+            goat_milk_quantity_litres: number;
+            boiling_temperature_c: number;
+            cooled_temperature_c: number;
+            uht_milk_quantity_litres: number;
+            citric_acid_grams: number;
+        };
         MilkPreparationSubmissionRequest: {
             /** Format: uuid */
             park_id: string;
             /** Format: date */
             preparation_date: string;
             goat_milk_used: boolean;
+            answers: components["schemas"]["MilkPreparationAnswers"];
             proofs: components["schemas"]["MilkPreparationProofs"];
         };
         MilkPreparationSubmissionResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /** @enum {string} */
+            status: "pending_verification";
+            attempt_no: number;
+            row_version: number;
+        };
+        MilkFeedingWatchlistKid: {
+            /** Format: uuid */
+            goat_id: string;
+            consecutive_yes: number;
+            remarks?: string;
+            /** Format: date */
+            added_date: string;
+            added_session: number;
+        };
+        MilkFeedingTask: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: date */
+            feeding_date: string;
+            session_no: number;
+            due_time: string;
+            available: boolean;
+            /** Format: date-time */
+            available_at: string;
+            blocked_reason?: string;
+            head_count: number;
+            /** @enum {string} */
+            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
+            /** Format: uuid */
+            completion_id?: string;
+            attempt_no?: number;
+            rework_reason?: string;
+            watchlist: components["schemas"]["MilkFeedingWatchlistKid"][];
+        };
+        MilkFeedingPage: {
+            /** Format: date */
+            feeding_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["MilkFeedingTask"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        MilkFeedingWatchlistAnswer: {
+            /** Format: uuid */
+            goat_id: string;
+            drank_milk: boolean;
+        };
+        MilkFeedingNewRefusal: {
+            /** Format: uuid */
+            goat_id: string;
+            remarks?: string;
+        };
+        MilkFeedingAnswers: {
+            watchlist_answers: components["schemas"]["MilkFeedingWatchlistAnswer"][];
+            total_kids_fed: number;
+            attempt_1_not_drinking: number;
+            attempt_2_not_drinking: number;
+            new_refusals: components["schemas"]["MilkFeedingNewRefusal"][];
+            udder_milk_not_drinking: number;
+            ors_not_drinking: number;
+        };
+        MilkFeedingProofs: {
+            /** Format: uuid */
+            clean_bottles_proof_ref: string;
+            /** Format: uuid */
+            mixing_and_filling_proof_ref: string;
+        };
+        MilkFeedingSubmissionRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: date */
+            feeding_date: string;
+            session_no: number;
+            answers: components["schemas"]["MilkFeedingAnswers"];
+            proofs: components["schemas"]["MilkFeedingProofs"];
+        };
+        MilkFeedingSubmissionResponse: {
             /** Format: uuid */
             completion_id: string;
             /** @enum {string} */
@@ -8293,6 +8489,12 @@ export interface operations {
         parameters: {
             query: {
                 business_date: string;
+                /** @description Optional Farm filter. The response still returns the complete Farm vocabulary for the selected date. */
+                park_id?: string;
+                /** @description Optional physical-shed filter; must remain shed-grain and never imply a feed session. */
+                shed_id?: string;
+                /** @description Optional verification-lifecycle filter. */
+                status?: "due" | "verification_due" | "rework" | "completed";
                 cursor?: string;
                 limit?: number;
             };
@@ -9484,6 +9686,34 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getAppCountsMilkPreparation: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current operator shed-day worklist, direction page, and whole-scope totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkPreparationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     submitAppCountsMilkPreparation: {
         parameters: {
             query?: never;
@@ -9506,6 +9736,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MilkPreparationSubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppMilkFeedingTasks: {
+        parameters: {
+            query?: {
+                feeding_date?: string;
+                park_id?: string;
+                session_no?: number;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded Milk Feeding task page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkFeedingPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitAppMilkFeedingTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilkFeedingSubmissionRequest"];
+            };
+        };
+        responses: {
+            /** @description Questions and both proofs are pending verifier review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkFeedingSubmissionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

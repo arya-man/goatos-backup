@@ -9,6 +9,7 @@
     <string name="feed_filters_title">ಫಿಲ್ಟರ್‌ಗಳು</string>
     <string name="feed_filters_clear">ತೆರವುಗೊಳಿಸಿ</string>
     <string name="feed_filter_farm">ಫಾರ್ಮ್</string>
+    <string name="feed_filter_all_farms">ಎಲ್ಲಾ ಫಾರ್ಮ್‌ಗಳು</string>
     <string name="feed_filter_shed">ಶೆಡ್</string>
     <string name="feed_filter_all_sheds">ಎಲ್ಲಾ ಶೆಡ್‌ಗಳು</string>
     <string name="feed_filter_session">ಅವಧಿ</string>
@@ -20,6 +21,7 @@
     <string name="feed_workflow_experiment">ಪ್ರಯೋಗ</string>
     <string name="feed_filter_status">ಸ್ಥಿತಿ</string>
     <string name="feed_filter_all_statuses">ಎಲ್ಲಾ ಸ್ಥಿತಿಗಳು</string>
+    <string name="feed_status_rework">ಮರುಕೆಲಸ</string>
     <string name="feed_status_pending">ಬಾಕಿ</string>
     <string name="feed_status_awaiting">ಪರಿಶೀಲನೆ ಬಾಕಿ</string>
     <string name="feed_status_awaiting_chip">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
@@ -67,6 +69,18 @@
     <string name="feed_dist_water_captured">ನೀರಿನ ಪುರಾವೆ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
     <string name="feed_dist_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
     <string name="feed_dist_need_both">ಸಲ್ಲಿಸಲು ಎರಡೂ ಪುರಾವೆಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="feed_transport_title">ಮೇವು ಸಾಗಣೆ</string>
+    <string name="feed_transport_today">ಇಂದು · %1$s · 15:30ಕ್ಕೆ ಪ್ರಾರಂಭ</string>
+    <string name="feed_transport_date">%1$s · 15:30ಕ್ಕೆ ಪ್ರಾರಂಭ</string>
+    <string name="feed_transport_empty">ಇಂದಿಗೆ ಮೇವು ಸಾಗಣೆ ಕಾರ್ಯಗಳಿಲ್ಲ</string>
+    <string name="feed_transport_rework">ಮರುಕೆಲಸ: %1$s</string>
+    <string name="feed_transport_caption">ಈ ಶೆಡ್‌ಗಾಗಿ ಮೇವು ಸಾಗಣೆಯ ಒಂದು ಹೊಸ ಇನ್-ಆಪ್ ಕ್ಯಾಮೆರಾ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ. ಸಾಗಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ ಎಂದು ಪರಿಗಣಿಸುವ ಮೊದಲು ಪರಿಶೀಲಕರು ಅದನ್ನು ಪರಿಶೀಲಿಸುತ್ತಾರೆ.</string>
+    <string name="feed_transport_video_title">ಮೇವು ಸಾಗಣೆ ವೀಡಿಯೊ (ಅಗತ್ಯ)</string>
+    <string name="feed_transport_record_video">ಸಾಗಣೆ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_transport_video_uploading">ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="feed_transport_video_recorded">ಸಾಗಣೆ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
+    <string name="feed_transport_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
+    <string name="feed_transport_need_video">ಸಲ್ಲಿಸಲು ಸಾಗಣೆ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="feed_pack_complete_caption">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ. ಈ ಪ್ಯಾಕಿಂಗ್ ಪೂರ್ಣಗೊಂಡಿದೆ ಎಂದು ಎಣಿಸುವ ಮೊದಲು ಪರಿಶೀಲಕರು ಅದನ್ನು ಪರಿಶೀಲಿಸುತ್ತಾರೆ.</string>
     <string name="feed_pack_complete_video_title">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ (ಅಗತ್ಯ)</string>
     <string name="feed_pack_complete_record_video">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>

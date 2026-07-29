@@ -40,3 +40,22 @@ func TestMilkPreparationProofsRequireOneDistinctVideoPerApplicableStep(t *testin
 		t.Fatal("one video must not satisfy two preparation steps")
 	}
 }
+
+func TestMilkPreparationAnswersRequireSlackReplacementQuestions(t *testing.T) {
+	valid := MilkPreparationAnswers{
+		MorningMilkCollectedLitres: 4.5, EveningMilkCollectedLitres: 3,
+		GoatMilkQuantityLitres: 2, BoilingTemperatureC: 100, CooledTemperatureC: 38,
+		UHTMilkQuantityLitres: 8, CitricAcidGrams: 44,
+	}
+	if err := valid.Validate(true); err != nil {
+		t.Fatalf("valid answers rejected: %v", err)
+	}
+	valid.GoatMilkQuantityLitres = 0
+	if err := valid.Validate(true); err == nil {
+		t.Fatal("goat-milk preparation accepted without goat milk quantity")
+	}
+	withoutGoat := MilkPreparationAnswers{MorningMilkCollectedLitres: 4.5, EveningMilkCollectedLitres: 3, UHTMilkQuantityLitres: 8, CitricAcidGrams: 44}
+	if err := withoutGoat.Validate(false); err != nil {
+		t.Fatalf("valid UHT-only answers rejected: %v", err)
+	}
+}

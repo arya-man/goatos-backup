@@ -35,6 +35,36 @@ type MilkPreparationProofs struct {
 	CitricAcidMixingProofRef   string `json:"citric_acid_mixing_proof_ref"`
 }
 
+// MilkPreparationAnswers replaces the legacy Goat Milking/UHT/citric-acid sheet questions.
+// Morning and evening collection may legitimately be zero; preparation quantities must be
+// positive for every applicable proof-backed step.
+type MilkPreparationAnswers struct {
+	MorningMilkCollectedLitres float64 `json:"morning_milk_collected_litres"`
+	EveningMilkCollectedLitres float64 `json:"evening_milk_collected_litres"`
+	GoatMilkQuantityLitres     float64 `json:"goat_milk_quantity_litres,omitempty"`
+	BoilingTemperatureC        float64 `json:"boiling_temperature_c,omitempty"`
+	CooledTemperatureC         float64 `json:"cooled_temperature_c,omitempty"`
+	UHTMilkQuantityLitres      float64 `json:"uht_milk_quantity_litres"`
+	CitricAcidGrams            float64 `json:"citric_acid_grams"`
+}
+
+func (a MilkPreparationAnswers) Validate(goatMilkUsed bool) error {
+	if a.MorningMilkCollectedLitres < 0 || a.EveningMilkCollectedLitres < 0 {
+		return fmt.Errorf("milk collected cannot be negative")
+	}
+	if a.UHTMilkQuantityLitres <= 0 || a.CitricAcidGrams <= 0 {
+		return fmt.Errorf("UHT milk quantity and citric acid grams must be positive")
+	}
+	if goatMilkUsed {
+		if a.GoatMilkQuantityLitres <= 0 || a.BoilingTemperatureC <= 0 || a.CooledTemperatureC <= 0 {
+			return fmt.Errorf("goat milk quantity, boiling temperature, and cooled temperature must be positive")
+		}
+	} else if a.GoatMilkQuantityLitres != 0 || a.BoilingTemperatureC != 0 || a.CooledTemperatureC != 0 {
+		return fmt.Errorf("goat-milk answers are not applicable when goat_milk_used is false")
+	}
+	return nil
+}
+
 type MilkPreparationStepProof struct {
 	StepCode string `json:"step_code"`
 	ProofRef string `json:"proof_ref"`
@@ -89,6 +119,7 @@ type MilkPreparationSubmission struct {
 	PreparationDate time.Time
 	FeedingDate     time.Time
 	GoatMilkUsed    bool
+	Answers         MilkPreparationAnswers
 	Proofs          MilkPreparationProofs
 	SubmittedBy     string
 	SubmittedAt     time.Time
