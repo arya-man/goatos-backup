@@ -20,7 +20,7 @@ enum class WeighingSyncStatus { PENDING_LOCAL, PROOF_UPLOADING, READY_TO_SUBMIT,
         Index(value = ["scopeKey", "seq"]),
         Index(value = ["scopeKey", "normalizedPrimaryTag"]),
         Index(value = ["scopeKey", "normalizedSecondaryTag"]),
-        Index(value = ["campaignId", "animalId"], unique = true),
+        Index(value = ["campaignId", "campaignShedId", "animalId"], unique = true),
     ],
 )
 data class WeighingRosterRowEntity(
@@ -51,7 +51,7 @@ data class WeighingRosterRowEntity(
     indices = [
         Index(value = ["idempotencyKey"], unique = true),
         Index(value = ["scopeKey", "capturedAtMs"]),
-        Index(value = ["campaignId", "animalId"], unique = true),
+        Index(value = ["campaignId", "campaignShedId", "animalId"], unique = true),
         Index(value = ["campaignId", "workGroupId", "campaignShedId"]),
     ],
 )
