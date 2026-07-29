@@ -696,7 +696,7 @@ class SyncEngine(
     }
 
     private companion object {
-        const val SUCCESS_RECONCILE_LIMIT = 200
+        const val SUCCESS_RECONCILE_LIMIT = 20
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
