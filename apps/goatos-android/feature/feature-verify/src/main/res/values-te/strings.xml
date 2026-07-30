@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">ఈ పేజీ, స్థితి మరియు తేదీలో వీడియోలు లేవు</string>
+    <string name="verify_missed_open">మిస్ అయిన ధృవీకరణ వీడియోలను చూపండి</string>
+    <string name="verify_missed_before_today">ఈరోజుకు ముందు మిస్ అయినవి</string>
+    <string name="verify_date_previous">మునుపటి రోజు</string>
+    <string name="verify_date_next">తదుపరి రోజు</string>
     <string name="verify_module_vaccination">టీకా</string>
     <string name="verify_module_weighing">బరువు</string>
     <string name="verify_module_birth">జననం</string>

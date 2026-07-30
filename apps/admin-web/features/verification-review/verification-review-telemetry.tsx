@@ -1,6 +1,6 @@
 "use client";
 
-// Faro RUM event for the primary user action on /verification (TELEMETRY GUARDRAIL, AGENTS.md):
+// Faro RUM event for the primary user action on /actions (TELEMETRY GUARDRAIL, AGENTS.md):
 // the authority's rework/re-assign submit result. Route-change/error capture is already covered
 // globally (ObservabilityErrorBoundary in app/(admin)/layout.tsx + FaroProvider setView), so this
 // component only adds the per-action event the guard's admin_web marker check looks for

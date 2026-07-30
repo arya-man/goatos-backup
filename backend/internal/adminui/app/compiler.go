@@ -1100,6 +1100,8 @@ func permissionsForNav(id string) []string {
 		// four org tiers + admin + ceo_internal; park_head no longer holds it, so its nav item is
 		// disabled. Matches the /admin-web/counts/approvals route gate.
 		return []string{permissions.CountsApproveAccess}
+	case "verification-actions":
+		return []string{permissions.VerificationReview}
 	default:
 		return nil
 	}

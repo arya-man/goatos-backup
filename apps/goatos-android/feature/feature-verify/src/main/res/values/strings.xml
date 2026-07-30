@@ -23,6 +23,11 @@
     <string name="verify_queue_refresh">Refresh</string>
     <string name="verify_queue_empty">Queue clear</string>
     <string name="verify_queue_empty_subtitle">No pending videos to verify right now</string>
+    <string name="verify_queue_empty_date_subtitle">No videos in this page, status, and date</string>
+    <string name="verify_missed_open">Show missed verification videos</string>
+    <string name="verify_missed_before_today">Missed before today</string>
+    <string name="verify_date_previous">Previous day</string>
+    <string name="verify_date_next">Next day</string>
     <string name="verify_action_queue_empty">No submitted videos</string>
     <string name="verify_action_queue_empty_subtitle">Submitted vaccination videos will appear here for Director review</string>
     <string name="verify_queue_load_more">Load more</string>

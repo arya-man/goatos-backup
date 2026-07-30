@@ -573,7 +573,8 @@ Only these routes are current implemented product routes:
 /config
 /sops
 /goats/{goat_id}
-/verification               Verification — authority review (Admin / Data Ops authority screen)
+/actions                    Actions — cross-module verification evidence (Admin / Data Ops)
+/verification               Compatibility redirect to /actions
 /approvals                  Approvals — birth/death/shifting decision queue (top-level; moved off
                             mobile 2026-07-21; RBAC: director/head/manager/am + admin + ceo_internal)
 ```
@@ -582,22 +583,20 @@ Scope note (maintainer decision 2026-07-21): `/approvals` is a NEW top-level dec
 birth/death/shifting approval queue was removed from the mobile app and now lives ONLY here, gated
 server-side by `counts.approve_access` (the four org tiers + admin + ceo_internal; park_head no
 longer holds it). It renders from local literal copy until a backend `approvals` page contract
-lands (same documented exception as `/verification`).
+lands.
 
-`/verification` is the AUTHORITY act screen for the generic Verification vertical
+`/actions` is the AUTHORITY act screen for the generic Verification vertical
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
-Head/Director/CEO review the standalone Verifier's approve/reject media queue and
+authorized reviewers browse the standalone Verifier's due/approved/rejected media queue and
 act on the linked SOP task (rework / re-assign; penalty note is honestly
 disabled — no backend contract exists for it yet). It reads the real, merged
 `/verification/queue` contract (generated `AppApiComponents["schemas"]["Verification*"]`
 types in `lib/api/server.ts`, no hand-typed shapes) and acts through the EXISTING
 `/admin/tasks/{task_id}` `/rework` `/assign` routes.
-It has no backend page contract yet (`requireAdminWebPageContract` would throw),
-so it renders from local literal copy — documented exception in
-`context/frontend/admin-web-backend-ui-contract.md`. It is not in the sidebar
-yet (nav is backend-composed from department module grants; no nav-registry
-contribution exists for Verification yet, same current state as
-`/operations/dlq`).
+The backend `verification-review` page contract owns its title, table, drawer
+copy, and disabled reasons; the Verification registry owns the action-type and
+status filter options. It appears as Actions in the backend-composed Admin / Data
+Ops navigation and sends park plus top-bar date filters to the backend.
 
 Implemented top-level command route:
 

@@ -63,6 +63,12 @@ func navItem(id, label, href, icon, badgeKey string) domain.NavigationItem {
 	return domain.NavigationItem{ID: id, Label: label, Href: href, Icon: icon, BadgeKey: badgeKey, Enabled: true, Extra: map[string]string{}}
 }
 
+func navItemDomain(id, label, href, icon, badgeKey, module string) domain.NavigationItem {
+	item := navItem(id, label, href, icon, badgeKey)
+	item.Domain = module
+	return item
+}
+
 func navLeaf(id, label, href string, extra map[string]string) domain.NavigationItem {
 	if extra == nil {
 		extra = map[string]string{}
@@ -92,6 +98,9 @@ func navigation() domain.NavigationContract {
 			// ceo_internal). The nav contract is static — like /verification and /config, an
 			// unauthorized caller's decision/list calls fail closed at the route.
 			navItem("approvals", "Approvals", "/approvals", "gavel", "approvals_open_queue"),
+			// Evidence Actions is a peer decision surface directly below Approvals and before
+			// the vertical/module groups. It remains independently gated by verification.review.
+			navItemDomain("verification-actions", "Actions", "/actions", "clipboard-check", "", "admin.verification"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -162,6 +171,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/workflows/{row_id}", Label: "Workflow record", Match: "pattern"},
 		{Pattern: "/workflows", Label: "Workflows", Match: "exact"},
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
+		{Pattern: "/actions", Label: "Actions", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
@@ -197,8 +207,8 @@ func topBar() domain.TopBarContract {
 			Options: []domain.TopBarOption{},
 		},
 		DateRangeSelector: domain.TopBarControl{
-			Label: "Date range", Enabled: true,
-			Hint: "Point-in-time as-of date is live. Range chips are shown for mock parity but disabled until range semantics are backend-owned.",
+			Label: "Showing data for", Enabled: true,
+			Hint: "Select the Goat OS business date used by the current page. Actions shows verification evidence for that day.",
 			Options: []domain.TopBarOption{
 				{Key: "last_7_days", Label: "Last 7 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
 				{Key: "last_30_days", Label: "Last 30 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
@@ -235,7 +245,10 @@ func chromeCopy() map[string]string {
 		"scope.company_wide":            "company-wide",
 		"scope.no_parks_for_tenant":     "No parks available for this tenant.",
 		"date.as_of_fallback":           "As of",
-		"date.menu_aria":                "As-of date scope",
+		"date.menu_aria":                "Choose business date",
+		"date.previous_month":           "Previous month",
+		"date.next_month":               "Next month",
+		"date.today":                    "Today",
 		"date.data_prefix":              "data",
 		"date.disabled_badge":           "soon",
 		"theme.switch_to_dark":          "Switch to dark theme",
@@ -285,6 +298,8 @@ func pages() []domain.PageContract {
 		page("workflows", "/workflows", "/workflows", "Workflows", "Config → obligation → SOP → proof → verification → completion workflow records.", "command-lens",
 			[]domain.TableContract{table("workflow-catalog", "Workflow catalog", "/vaccination/action-center", []string{"workflow", "stage", "owner", "next_action", "status"}, "wf_row")}),
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
+		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason", "details"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Shed-wise Preventive Care (PC) vaccination: one row per shed with animal-level due/done, planned sessions, capacity, and merged status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -888,6 +903,60 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.empty_placeholder":          "—",
 			"section.work_board.aria":          "Action Center work board",
 			"error.unavailable_prefix":         "Workflow record unavailable",
+		}
+	case "verification-review":
+		return map[string]string{
+			"crumb":                         "Approvals",
+			"filter.action_type":            "Action type",
+			"filter.all_action_types":       "All action types",
+			"filter.apply":                  "Apply filters",
+			"filter.clear_all":              "Clear filters",
+			"action.open_details":           "Details",
+			"action.close":                  "Close",
+			"action.open_audit_log":         "Open Audit Log",
+			"pagination.next":               "Next page",
+			"state.queue_unavailable":       "Actions are unavailable",
+			"state.queue_unavailable_body":  "The verification queue could not be loaded from the backend.",
+			"state.empty":                   "No actions match the selected action type, status, park, and date.",
+			"drawer.eyebrow":                "Action details",
+			"drawer.aria":                   "Action details",
+			"drawer.close_label":            "Close action details",
+			"drawer.meta.status":            "Status",
+			"drawer.meta.reason":            "Verdict reason",
+			"drawer.meta.verified_by":       "Verified by",
+			"drawer.meta.verified_at":       "Verified at",
+			"drawer.meta.captured":          "Captured at",
+			"drawer.meta.operator":          "Operator",
+			"drawer.meta.shed":              "Shed",
+			"drawer.meta.park":              "Park",
+			"drawer.meta.source_module":     "Source module",
+			"drawer.meta.source_task":       "Source task",
+			"drawer.meta.source_submission": "Source submission",
+			"drawer.media.title":            "Proof videos and media",
+			"drawer.media.empty":            "No proof media is attached to this action.",
+			"drawer.media.open":             "Open video",
+			"drawer.note":                   "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
+			"feedback.done":                 "Done",
+			"feedback.failed":               "Action failed",
+			"rework.title":                  "Rework",
+			"rework.reason_label":           "Rework reason",
+			"rework.reason_placeholder":     "Why is this being sent back for rework?",
+			"rework.submit":                 "Request rework",
+			"rework.disabled_no_task":       "No linked SOP task is available for rework.",
+			"rework.disabled_not_rejected":  "Rework is available only for rejected actions.",
+			"reassign.title":                "Re-assign",
+			"reassign.assignee_label":       "New assignee",
+			"reassign.assignee_placeholder": "Select a staff position…",
+			"reassign.reason_label":         "Re-assign reason",
+			"reassign.reason_placeholder":   "Why is this being re-assigned?",
+			"reassign.submit":               "Re-assign task",
+			"reassign.disabled_no_task":     "No linked SOP task is available for reassignment.",
+			"reassign.disabled_no_roster":   "No staff positions are available in this park scope.",
+			"penalty.title":                 "Penalty note",
+			"penalty.reason_label":          "Penalty / escalation note",
+			"penalty.reason_placeholder":    "Log a penalty or escalation note",
+			"penalty.submit":                "Log penalty note",
+			"penalty.disabled":              "Penalty and escalation logging is not backed by an API yet.",
 		}
 	case "calendar":
 		return map[string]string{

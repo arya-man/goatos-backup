@@ -704,6 +704,62 @@ RETURNING location_id::text`, tenantID).Scan(&parkID)
 	}
 }
 
+func TestListQueueFetchesVerifierDisplayName_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	verifierUserID := "90000000-0000-4000-8000-000000000105"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, user_id, display_name, display_code, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, 'Jyothi Verifier', 'VER-105', 'active', 'verifier')`, tenantID, verifierUserID); err != nil {
+		t.Fatalf("insert verifier workforce member: %v", err)
+	}
+
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID:       tenantID,
+		Vertical:       "feed",
+		Module:         "feed_direction",
+		Category:       "feed_distribution",
+		Source:         domain.SourceRef{Module: "feed_direction", RefType: "feed_distribution_completion", RefID: tenantID},
+		MediaRefs:      []string{"proof-1"},
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "feed:distribution:verifier-display-name",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE verification_items
+SET status = 'approved', verified_by = $1::uuid, verified_at = now()
+WHERE tenant_id = $2::uuid AND item_id = $3::uuid`, verifierUserID, tenantID, created.Item.ItemID); err != nil {
+		t.Fatalf("approve verification item: %v", err)
+	}
+
+	items, err := repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		Category: "feed_distribution",
+		Status:   domain.StatusApproved,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListQueue returned %d items, want 1", len(items))
+	}
+	item := items[0]
+	if item.VerifiedBy == nil || *item.VerifiedBy != verifierUserID {
+		t.Fatalf("verified_by = %v, want %s", item.VerifiedBy, verifierUserID)
+	}
+	if item.VerifiedByName == nil || *item.VerifiedByName != "Jyothi Verifier" {
+		t.Fatalf("verified_by_name = %v, want Jyothi Verifier", item.VerifiedByName)
+	}
+}
+
 // isUUID is a simple check to detect if a string looks like a UUID (regression test for STATUS-003).
 func isUUID(s string) bool {
 	if len(s) != 36 {

@@ -22,7 +22,8 @@ func moduleKeySet(modules []domain.BootstrapModule) map[string]string {
 //     removed synthetic leadership module or Verification. Expanded drawer.
 //   - Park Head: Vaccination + Weighing, NO Counts/Feed/Breeding.
 //   - PC Director: Vaccination + Weighing, no Counts/Feed/Breeding.
-//   - Verifier: Verification only. Operator: department modules, never leadership.
+//   - Verifier: five evidence modules, never one synthetic Verification module.
+//     Operator: department modules, never leadership.
 func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 	const en = localization.DefaultTag
 
@@ -136,27 +137,33 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		}
 	})
 
-	t.Run("verifier sees verification only", func(t *testing.T) {
+	t.Run("verifier sees five backend composed evidence modules", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
 		modules := modulesFor(grants, []string{"vaccination"}, en)
 		keys := moduleKeySet(modules)
-		if _, ok := keys["verification"]; !ok {
-			t.Fatalf("verifier must see Verification; got %v", keys)
+		wantModules := []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health"}
+		if len(modules) != len(wantModules) {
+			t.Fatalf("verifier modules = %+v want %v", modules, wantModules)
 		}
-		if _, ok := keys["leadership"]; ok {
-			t.Fatalf("verifier must NOT see leadership; got %v", keys)
+		for i, key := range wantModules {
+			if modules[i].Key != key || keys[key] != moduleStatusAvailable {
+				t.Fatalf("verifier module[%d] = %+v want available %q", i, modules[i], key)
+			}
 		}
-		verify := modules[0]
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("verifier must NOT see the retired synthetic Verification module; got %v", keys)
+		}
+		vaccination := modules[0]
 		wantItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify"},
+			{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
-		if len(verify.NavItems) != len(wantItems) {
-			t.Fatalf("verifier nav items = %+v want %+v", verify.NavItems, wantItems)
+		if len(vaccination.NavItems) != len(wantItems) {
+			t.Fatalf("vaccination verifier nav items = %+v want %+v", vaccination.NavItems, wantItems)
 		}
 		for i := range wantItems {
-			if verify.NavItems[i] != wantItems[i] {
-				t.Fatalf("verifier nav item[%d]=%+v want %+v", i, verify.NavItems[i], wantItems[i])
+			if vaccination.NavItems[i] != wantItems[i] {
+				t.Fatalf("vaccination verifier nav item[%d]=%+v want %+v", i, vaccination.NavItems[i], wantItems[i])
 			}
 		}
 	})

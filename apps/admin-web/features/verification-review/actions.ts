@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { assignSopTask, getSopTask, requestSopTaskRework } from "@/lib/api/server";
 
-const PATHNAME = "/verification";
+const PATHNAME = "/actions";
 
 // A rework/re-assign on the source SOP task ripples across every screen that reads the
 // process-integrity model (same fan-out as features/process-integrity/actions.ts).

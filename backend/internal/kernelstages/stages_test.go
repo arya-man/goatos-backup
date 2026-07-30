@@ -20,6 +20,7 @@ var (
 	_ worker.StageRunner = (*ProcessedEventSweeperStage)(nil)
 	_ worker.StageRunner = (*IdempotencyKeySweeperStage)(nil)
 	_ worker.StageRunner = (*FeedTransportStage)(nil)
+	_ worker.StageRunner = (*FeedDirectionLifecycleStage)(nil)
 	_ worker.StageRunner = (*MilkFeedingStage)(nil)
 )
 
@@ -40,6 +41,7 @@ func TestStageNamesAreStableAndUnique(t *testing.T) {
 		(&SopReviewFanoutRetryStage{}).Name(),
 		(&DomainConsumerStage{}).Name(),
 		(&FeedTransportStage{}).Name(),
+		(&FeedDirectionLifecycleStage{}).Name(),
 		(&MilkFeedingStage{}).Name(),
 	}
 	seen := map[string]bool{}

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">इस पेज, स्थिति और तारीख में कोई वीडियो नहीं है</string>
+    <string name="verify_missed_open">छूटे हुए सत्यापन वीडियो दिखाएँ</string>
+    <string name="verify_missed_before_today">आज से पहले छूटे हुए</string>
+    <string name="verify_date_previous">पिछला दिन</string>
+    <string name="verify_date_next">अगला दिन</string>
     <string name="verify_module_vaccination">टीकाकरण</string>
     <string name="verify_module_weighing">वज़न</string>
     <string name="verify_module_birth">जन्म</string>

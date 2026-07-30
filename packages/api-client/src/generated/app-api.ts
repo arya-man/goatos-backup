@@ -6388,6 +6388,8 @@ export interface components {
             captured_at: string;
             /** Format: uuid */
             verified_by?: string;
+            /** @description Backend-owned display label for verified_by. Never a raw UUID. */
+            verified_by_name?: string;
             /** Format: date-time */
             verified_at?: string;
             /** Format: uuid */
@@ -6400,8 +6402,78 @@ export interface components {
         };
         VerificationQueueResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
+            filter_options: components["schemas"]["VerificationFilterOptions"];
+            drive_closures?: components["schemas"]["VerificationDriveClosure"][];
             next_cursor?: string;
             trace_id: string;
+        };
+        VerificationFilterOptions: {
+            /** @description Stable backend drawer-module key for the selected verification page. */
+            module_key?: string;
+            /** @description Backend-owned display label for the selected verifier module. */
+            module_label?: string;
+            /** @description Complete ordered cross-module action-type filter vocabulary from the verification registry, independent of current queue rows. */
+            action_types: components["schemas"]["VerificationActionTypeOption"][];
+            /** @description Complete ordered page-tab set for the selected verifier module, independent of current queue rows. */
+            pages: components["schemas"]["VerificationPageOption"][];
+            /** @description Ordered disjoint secondary tabs at verification-item grain. */
+            statuses: components["schemas"]["VerificationStatusOption"][];
+            parks: components["schemas"]["VerificationLocationOption"][];
+            sheds: components["schemas"]["VerificationLocationOption"][];
+            /** Format: date */
+            selected_business_date?: string;
+            /** @example Asia/Kolkata */
+            business_timezone: string;
+            missed_only: boolean;
+            has_missed: boolean;
+        };
+        VerificationActionTypeOption: {
+            key: string;
+            label: string;
+            /** @description Disjoint verification-item category predicate for this action type. */
+            category: string;
+            module_key: string;
+            module_label: string;
+        };
+        VerificationPageOption: {
+            key: string;
+            label: string;
+            /** @description Disjoint verification-item category filter owned by this page tab. */
+            category: string;
+        };
+        VerificationStatusOption: {
+            key: string;
+            label: string;
+            status: components["schemas"]["VerificationItemStatus"];
+        };
+        VerificationLocationOption: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+        };
+        VerificationDriveClosure: {
+            /** Format: uuid */
+            batch_id: string;
+            drive_key?: string;
+            drive_label?: string;
+            batch_label?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** Format: date */
+            start_date?: string;
+            /** Format: date */
+            end_date?: string;
+            total_count: number;
+            approved_count: number;
+            rejected_count: number;
+            pending_count: number;
+            video_count: number;
+            approved_videos: number;
+            rejected_videos: number;
+            pending_videos: number;
+            shed_count: number;
+            ready: boolean;
         };
         /** @enum {string} */
         VerificationDecision: "approved" | "rejected";
@@ -10784,6 +10856,12 @@ export interface operations {
                 module?: string;
                 /** @description Defaults to pending. */
                 status?: components["schemas"]["VerificationItemStatus"];
+                /** @description Asia/Kolkata capture date. Defaults to today's business date for the verifier queue. */
+                business_date?: string;
+                /** @description When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status. */
+                missed?: boolean;
+                park_id?: string;
+                shed_id?: string;
                 cursor?: string;
                 /** @description Defaults to 20, capped at 100. */
                 limit?: number;

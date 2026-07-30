@@ -46,12 +46,19 @@ type moduleNavContribution struct {
 // in the Android client (GoatOsShell.kt SOON_MODULES + a literal Vaccination row);
 // it is backend-owned here so a new module is a registry entry, not a client change.
 type moduleDefinition struct {
-	key           string // stable module id, also the department_module_grants.module_key
-	labelKey      string // i18n key in bootstrapLabels for the drawer row
-	landingHref   string // route opened when the drawer row is tapped
-	status        string // moduleStatusAvailable | moduleStatusSoon
-	priority      int    // drawer ordering; lower first
-	contributions []moduleNavContribution
+	key         string // stable module id, also the department_module_grants.module_key
+	labelKey    string // i18n key in bootstrapLabels for the drawer row
+	landingHref string // route opened when the drawer row is tapped
+	// reviewLandingHref/reviewContributions are the evidence-review lens contributed by
+	// this SAME operational module. A standalone verifier receives these pages instead of
+	// the operator/leadership pages; the drawer identity remains Vaccination, Weighing,
+	// Counts, Feed, or Health. This keeps verification reusable without a synthetic
+	// client-side module template.
+	reviewLandingHref   string
+	reviewContributions []moduleNavContribution
+	status              string // moduleStatusAvailable | moduleStatusSoon
+	priority            int    // drawer ordering; lower first
+	contributions       []moduleNavContribution
 }
 
 const (
@@ -72,11 +79,12 @@ const (
 var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: this is the module registry, not a hardcoded per-role template
 	// "vaccination" is the Preventive Care (PC) Vaccination module.
 	"vaccination": {
-		key:         "vaccination",
-		labelKey:    "module.vaccination",
-		landingHref: "/vaccination", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    1,
+		key:               "vaccination",
+		labelKey:          "module.vaccination",
+		landingHref:       "/vaccination",        //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/vaccination", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          1,
 		contributions: []moduleNavContribution{
 			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
@@ -85,32 +93,42 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/vaccination", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                     //nav-composition:ignore: registry entry
+		},
 	},
 	// "weighing" is its own Preventive Care vertical. It is listed beside
 	// Vaccination in the module drawer; its bottom bar is only weighing-owned
 	// destinations, not a Vaccination tab.
 	"weighing": {
-		key:         "weighing",
-		labelKey:    "module.weighing",
-		landingHref: "/weighing", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    2,
+		key:               "weighing",
+		labelKey:          "module.weighing",
+		landingHref:       "/weighing",        //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/weighing", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          2,
 		contributions: []moduleNavContribution{
 			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 2, requiredPermission: permissions.WeighingMonitor},                                                                  //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/weighing", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                  //nav-composition:ignore: registry entry
+		},
 	},
 	// "counts" is the Counts vertical: herd census plus the field events that move it.
 	// Birth and death are goat-lifecycle writes that feed the herd-register projection;
 	// shifting records an animal movement between sheds/parks.
 	"counts": {
-		key:         "counts",
-		labelKey:    "module.counts",
-		landingHref: "/counts", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    2,
+		key:               "counts",
+		labelKey:          "module.counts",
+		landingHref:       "/counts",        //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/counts", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          2,
 		contributions: []moduleNavContribution{
 			// The census page is Admin/CEO-only: field capture and tenant-wide population
 			// visibility are different authorities (maintainer decision 2026-07-18).
@@ -130,6 +148,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
 			// its bar is capture-only (birth_death + shifting, plus census for Admin/CEO).
 		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/counts", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                //nav-composition:ignore: registry entry
+		},
 	},
 	// "feed_direction" is the Feed vertical on the phone. Its bar is the two read surfaces an
 	// operator dispatches from: the generated feed sheet (Feed Direction) and the per-shed bag
@@ -139,27 +161,37 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 	// packing follows FeedPackingRead, so a park head who may draw this morning's bags sees the
 	// packing tab without inheriting the direction sheet.
 	"feed_direction": {
-		key:         "feed_direction",
-		labelKey:    "module.feed_direction",
-		landingHref: "/feed/direction", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    3,
+		key:               "feed_direction",
+		labelKey:          "module.feed_direction",
+		landingHref:       "/feed/direction", //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/feed",    //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          3,
 		contributions: []moduleNavContribution{
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
 		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/feed", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                              //nav-composition:ignore: registry entry
+		},
 	},
 	"aas_health": {
-		key:         "aas_health",
-		labelKey:    "module.health",
-		landingHref: "/health/adults", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    4,
+		key:               "aas_health",
+		labelKey:          "module.health",
+		landingHref:       "/health/adults", //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/health", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          4,
 		contributions: []moduleNavContribution{
 			{key: "health_adults", labelKey: "nav.health_adults", href: "/health/adults", priority: 1, requiredPermission: permissions.HealthRead}, //nav-composition:ignore: registry entry
 			{key: "health_kids", labelKey: "nav.health_kids", href: "/health/kids", priority: 2, requiredPermission: permissions.HealthRead},       //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                      //nav-composition:ignore: registry entry
+		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/health", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -170,19 +202,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref: "",
 		status:      moduleStatusSoon,
 		priority:    4,
-	},
-	// The cross-vertical verifier app is intentionally standalone. Verifiers review
-	// evidence; they never inherit operator capture or leadership action navigation.
-	"verification": {
-		key:         "verification",
-		labelKey:    "module.verification",
-		landingHref: "/verify", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    0,
-		contributions: []moduleNavContribution{
-			{key: "verify", labelKey: "nav.verify", href: "/verify", shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                         //nav-composition:ignore: registry entry
-		},
 	},
 }
 
@@ -195,11 +214,15 @@ var soonModuleKeys = []string{"breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A standalone verifier sees only the generic media-verification module.
-	// Leadership principals may also hold review permission, but they still land
-	// in their leadership module rather than the verifier-only app.
-	if isStandaloneVerifierPrincipal(grants) {
-		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
+	// A standalone verifier sees the review lens of each module that declares one.
+	// Leadership principals may also hold review permission, but they still land in
+	// their leadership module rather than the verifier-only evidence workspace.
+	if usesVerificationReviewLens(grants) {
+		keys := reviewableModuleKeys()
+		if len(keys) == 0 {
+			return []domain.BootstrapNavigationItem{}
+		}
+		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
 	}
 
 	// Leadership principals default to their curated module set. There is no synthetic
@@ -255,8 +278,12 @@ func grantsHaveAnyPermission(grants []domain.GrantSummary, required []string) bo
 // permittedContributions returns the module's nav items this principal may actually
 // reach. A module whose every item is gated away is not renderable for them.
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
-	out := make([]moduleNavContribution, 0, len(def.contributions))
-	for _, contrib := range def.contributions {
+	contributions := def.contributions
+	if usesVerificationReviewLens(grants) {
+		contributions = def.reviewContributions
+	}
+	out := make([]moduleNavContribution, 0, len(contributions))
+	for _, contrib := range contributions {
 		if !grantsHavePermission(grants, contrib.requiredPermission) {
 			continue
 		}
@@ -277,13 +304,38 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 // from them. Their access is decided by permission alone. Everyone else is limited to
 // the modules their department is granted.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
-	if isStandaloneVerifierPrincipal(grants) {
-		return []string{"verification"}
+	if usesVerificationReviewLens(grants) {
+		return reviewableModuleKeys()
 	}
 	if !isLeadershipPrincipal(grants) {
 		return grantedModules
 	}
 	return leadershipModuleKeys(grants)
+}
+
+// usesVerificationReviewLens selects the cross-module evidence workspace by authority,
+// not by a hardcoded role template. Leadership roles also hold verification.act and keep
+// their operational/action lens; a review-only principal receives module review pages.
+func usesVerificationReviewLens(grants []domain.GrantSummary) bool {
+	return grantsHavePermission(grants, permissions.VerificationReview) &&
+		!grantsHavePermission(grants, permissions.VerificationAct)
+}
+
+// reviewableModuleKeys derives the verifier drawer from module registry entries. Adding a
+// module's evidence lens is therefore one registry edit, not another per-role module array.
+func reviewableModuleKeys() []string {
+	defs := make([]moduleDefinition, 0, len(moduleNavRegistry))
+	for _, def := range moduleNavRegistry {
+		if def.status == moduleStatusAvailable && len(def.reviewContributions) > 0 {
+			defs = append(defs, def)
+		}
+	}
+	sort.SliceStable(defs, func(i, j int) bool { return defs[i].priority < defs[j].priority })
+	keys := make([]string, 0, len(defs))
+	for _, def := range defs {
+		keys = append(keys, def.key)
+	}
+	return keys
 }
 
 // leadershipModuleKeys is the curated drawer set for a leadership principal, before
@@ -391,6 +443,9 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		// page at /counts), and landing them on a route that 403s would be a
 		// self-inflicted dead end.
 		href := def.landingHref
+		if usesVerificationReviewLens(grants) {
+			href = def.reviewLandingHref
+		}
 		if len(items) > 0 && !navItemsContainHref(items, href) {
 			href = items[0].Href
 		}
@@ -508,7 +563,6 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.verify":           "Verify",
 		"nav.overview":         "Overview",
 		"nav.calendar":         "Calendar",
 		"nav.alerts":           "Alerts",
@@ -530,11 +584,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.health_adults":    "Adults",
 		"nav.health_kids":      "Kids",
 
-		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
 		"module.counts":         "Counts",
-		"module.feed_direction": "Feed direction",
+		"module.feed_direction": "Feed",
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
 		"queue.assigned":        "Assigned work",
@@ -542,7 +595,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.verify":           "सत्यापित करें",
 		"nav.overview":         "अवलोकन",
 		"nav.calendar":         "कैलेंडर",
 		"nav.alerts":           "अलर्ट",
@@ -564,11 +616,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.health_adults":    "वयस्क",
 		"nav.health_kids":      "बच्चे",
 
-		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
 		"module.counts":         "गिनती",
-		"module.feed_direction": "फ़ीड दिशा",
+		"module.feed_direction": "फ़ीड",
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
 		"queue.assigned":        "सौंपा गया काम",
@@ -576,7 +627,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.verify":           "ಪರಿಶೀಲಿಸಿ",
 		"nav.overview":         "ಅವಲೋಕನ",
 		"nav.calendar":         "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":           "ಎಚ್ಚರಿಕೆಗಳು",
@@ -598,11 +648,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.health_adults":    "ವಯಸ್ಕರು",
 		"nav.health_kids":      "ಮಕ್ಕಳು",
 
-		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಎಣಿಕೆ",
-		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
+		"module.feed_direction": "ಆಹಾರ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
@@ -610,7 +659,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.verify":           "ధృవీకరించండి",
 		"nav.overview":         "అవలోకనం",
 		"nav.calendar":         "క్యాలెండర్",
 		"nav.alerts":           "అలర్ట్లు",
@@ -632,11 +680,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.health_adults":    "పెద్దవి",
 		"nav.health_kids":      "పిల్లలు",
 
-		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",
 		"module.counts":         "లెక్కలు",
-		"module.feed_direction": "ఫీడ్ దిశ",
+		"module.feed_direction": "ఫీడ్",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
 		"queue.assigned":        "కేటాయించిన పని",

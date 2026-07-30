@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -93,6 +94,12 @@ func (r *fakeRepo) ListQueue(_ context.Context, params ports.ListQueueParams) ([
 		if params.ShedID != "" && (item.ShedID == nil || *item.ShedID != params.ShedID) {
 			continue
 		}
+		if params.CapturedFrom != nil && item.CapturedAt.Before(*params.CapturedFrom) {
+			continue
+		}
+		if params.CapturedBefore != nil && !item.CapturedAt.Before(*params.CapturedBefore) {
+			continue
+		}
 		if params.SubmissionScopedOnly && item.Source.SubmissionID == nil {
 			continue
 		}
@@ -121,6 +128,12 @@ func (r *fakeRepo) ListQueueFilterOptions(_ context.Context, params ports.ListQu
 		if params.Category != "" && item.Category != params.Category {
 			continue
 		}
+		if params.CapturedFrom != nil && item.CapturedAt.Before(*params.CapturedFrom) {
+			continue
+		}
+		if params.CapturedBefore != nil && !item.CapturedAt.Before(*params.CapturedBefore) {
+			continue
+		}
 		if item.ParkID != nil && !seenParks[*item.ParkID] {
 			seenParks[*item.ParkID] = true
 			label := *item.ParkID
@@ -139,6 +152,15 @@ func (r *fakeRepo) ListQueueFilterOptions(_ context.Context, params ports.ListQu
 				label = *item.ShedLabel
 			}
 			out.Sheds = append(out.Sheds, domain.LocationFilterOption{ID: *item.ShedID, Label: label})
+		}
+	}
+	if params.MissedBefore != nil {
+		for _, item := range r.items {
+			if item.TenantID == params.TenantID && item.Status == domain.StatusPending &&
+				(params.Category == "" || item.Category == params.Category) && item.CapturedAt.Before(*params.MissedBefore) {
+				out.HasMissed = true
+				break
+			}
 		}
 	}
 	return out, nil
@@ -423,12 +445,12 @@ func TestListQueueReturnsBackendLocationFilterOptions(t *testing.T) {
 	shedLabel := "Godel 1"
 	_, _ = svc.CreateItem(context.Background(), domain.CreateItem{
 		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
-		Source:        domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
-		MediaRefs:     []string{"proof-1"},
-		ParkID:        &parkID,
-		ShedID:        &shedID,
+		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+		MediaRefs:      []string{"proof-1"},
+		ParkID:         &parkID,
+		ShedID:         &shedID,
 		IdempotencyKey: "key-filter-options",
-		CapturedAt:    time.Now(),
+		CapturedAt:     time.Now(),
 	})
 	// The repository owns display labels; service/API must pass them through rather than making
 	// Android infer location names from ids.
@@ -449,12 +471,144 @@ func TestListQueueReturnsBackendLocationFilterOptions(t *testing.T) {
 	}
 }
 
+func TestListQueueReturnsBackendPageOptionsForSelectedModule(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, nil)
+	for _, def := range []domain.CategoryDefinition{
+		{
+			Vertical: "counts", Module: "counts", Category: "birth_evidence",
+			NavigationModule: "counts", NavigationModuleLabel: "Counts",
+			PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
+		},
+		{
+			Vertical: "counts", Module: "counts", Category: "death_evidence",
+			NavigationModule: "counts", NavigationModuleLabel: "Counts",
+			PageKey: "death", PageLabel: "Death", PageOrder: 2,
+		},
+		{
+			Vertical: "feed", Module: "feed", Category: "feed_packing",
+			NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+			PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 1,
+		},
+	} {
+		if err := svc.RegisterCategory(def); err != nil {
+			t.Fatalf("RegisterCategory(%q): %v", def.Category, err)
+		}
+	}
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant,
+		Category: "death_evidence",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue() error = %v", err)
+	}
+	if result.FilterOptions.ModuleKey != "counts" || result.FilterOptions.ModuleLabel != "Counts" {
+		t.Fatalf("module option = %+v", result.FilterOptions)
+	}
+	want := []domain.QueuePageOption{
+		{Key: "birth", Label: "Birth", Category: "birth_evidence"},
+		{Key: "death", Label: "Death", Category: "death_evidence"},
+	}
+	if !reflect.DeepEqual(result.FilterOptions.Pages, want) {
+		t.Fatalf("pages = %+v want %+v", result.FilterOptions.Pages, want)
+	}
+	wantActionTypes := []domain.QueueActionTypeOption{
+		{Key: "birth_evidence", Label: "Birth", Category: "birth_evidence", ModuleKey: "counts", ModuleLabel: "Counts"},
+		{Key: "death_evidence", Label: "Death", Category: "death_evidence", ModuleKey: "counts", ModuleLabel: "Counts"},
+		{Key: "feed_packing", Label: "Feed Packing", Category: "feed_packing", ModuleKey: "feed_direction", ModuleLabel: "Feed"},
+	}
+	if !reflect.DeepEqual(result.FilterOptions.ActionTypes, wantActionTypes) {
+		t.Fatalf("action types = %+v want %+v", result.FilterOptions.ActionTypes, wantActionTypes)
+	}
+}
+
 func TestListQueueRejectsInvalidStatus(t *testing.T) {
 	svc, _ := newTestService()
 	_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, Status: "bogus"})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_status" {
 		t.Fatalf("err = %v, want invalid_status", err)
+	}
+}
+
+func TestListQueueFiltersOneIndiaBusinessDateAndReturnsSecondaryTabs(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC) }
+	create := func(key string, capturedAt time.Time) {
+		_, err := svc.CreateItem(context.Background(), domain.CreateItem{
+			TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:    domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+			MediaRefs: []string{"proof-" + key}, IdempotencyKey: key, CapturedAt: capturedAt,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem(%s): %v", key, err)
+		}
+	}
+	create("previous-ist-day", time.Date(2026, 7, 29, 18, 20, 0, 0, time.UTC))
+	create("selected-ist-day", time.Date(2026, 7, 29, 19, 10, 0, 0, time.UTC))
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof", BusinessDate: "2026-07-30",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Item.ItemID == "" {
+		t.Fatalf("items = %+v, want one item captured on 2026-07-30 IST", result.Items)
+	}
+	wantStatuses := []domain.QueueStatusOption{
+		{Key: "due", Label: "Due", Status: domain.StatusPending},
+		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
+		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},
+	}
+	if !reflect.DeepEqual(result.FilterOptions.Statuses, wantStatuses) {
+		t.Fatalf("statuses = %+v, want %+v", result.FilterOptions.Statuses, wantStatuses)
+	}
+	if result.FilterOptions.SelectedBusinessDate != "2026-07-30" || result.FilterOptions.BusinessTimezone != "Asia/Kolkata" {
+		t.Fatalf("date options = %+v", result.FilterOptions)
+	}
+}
+
+func TestListQueueMissedModeReturnsOlderPendingAndSignalsBell(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC) }
+	for key, capturedAt := range map[string]time.Time{
+		"missed": time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC),
+		"today":  time.Date(2026, 7, 30, 2, 0, 0, 0, time.UTC),
+	} {
+		_, err := svc.CreateItem(context.Background(), domain.CreateItem{
+			TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:    domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+			MediaRefs: []string{"proof-" + key}, IdempotencyKey: key, CapturedAt: capturedAt,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem(%s): %v", key, err)
+		}
+	}
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof", MissedOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(result.Items) != 1 || !result.FilterOptions.MissedOnly || !result.FilterOptions.HasMissed {
+		t.Fatalf("missed result = %+v options=%+v", result.Items, result.FilterOptions)
+	}
+}
+
+func TestListQueueRejectsFutureOrConflictingDateScope(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC) }
+	for _, params := range []ports.ListQueueParams{
+		{TenantID: testTenant, BusinessDate: "2026-07-31"},
+		{TenantID: testTenant, BusinessDate: "2026-07-29", MissedOnly: true},
+		{TenantID: testTenant, Status: domain.StatusApproved, MissedOnly: true},
+	} {
+		if _, err := svc.ListQueue(context.Background(), params); err == nil {
+			t.Fatalf("ListQueue(%+v) error = nil", params)
+		}
 	}
 }
 

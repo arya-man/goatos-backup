@@ -4808,6 +4808,32 @@ paths:
           description: Defaults to pending.
           schema:
             $ref: "#/components/schemas/VerificationItemStatus"
+        - name: business_date
+          in: query
+          required: false
+          description: Asia/Kolkata capture date. Defaults to today's business date for the verifier queue.
+          schema:
+            type: string
+            format: date
+        - name: missed
+          in: query
+          required: false
+          description: When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status.
+          schema:
+            type: boolean
+            default: false
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
         - name: cursor
           in: query
           required: false
@@ -16488,6 +16514,9 @@ components:
         verified_by:
           type: string
           format: uuid
+        verified_by_name:
+          type: string
+          description: Backend-owned display label for verified_by. Never a raw UUID.
         verified_at:
           type: string
           format: date-time
@@ -16511,16 +16540,158 @@ components:
       additionalProperties: false
       required:
         - items
+        - filter_options
         - trace_id
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/VerificationQueueItem"
+        filter_options:
+          $ref: "#/components/schemas/VerificationFilterOptions"
+        drive_closures:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationDriveClosure"
         next_cursor:
           type: string
         trace_id:
           type: string
+    VerificationFilterOptions:
+      type: object
+      additionalProperties: false
+      required:
+        - action_types
+        - pages
+        - statuses
+        - parks
+        - sheds
+        - business_timezone
+        - missed_only
+        - has_missed
+      properties:
+        module_key:
+          type: string
+          description: Stable backend drawer-module key for the selected verification page.
+        module_label:
+          type: string
+          description: Backend-owned display label for the selected verifier module.
+        action_types:
+          type: array
+          description: Complete ordered cross-module action-type filter vocabulary from the verification registry, independent of current queue rows.
+          items:
+            $ref: "#/components/schemas/VerificationActionTypeOption"
+        pages:
+          type: array
+          description: Complete ordered page-tab set for the selected verifier module, independent of current queue rows.
+          items:
+            $ref: "#/components/schemas/VerificationPageOption"
+        statuses:
+          type: array
+          description: Ordered disjoint secondary tabs at verification-item grain.
+          items:
+            $ref: "#/components/schemas/VerificationStatusOption"
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationLocationOption"
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationLocationOption"
+        selected_business_date:
+          type: string
+          format: date
+        business_timezone:
+          type: string
+          example: Asia/Kolkata
+        missed_only:
+          type: boolean
+        has_missed:
+          type: boolean
+    VerificationActionTypeOption:
+      type: object
+      additionalProperties: false
+      required: [key, label, category, module_key, module_label]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        category:
+          type: string
+          description: Disjoint verification-item category predicate for this action type.
+        module_key:
+          type: string
+        module_label:
+          type: string
+    VerificationPageOption:
+      type: object
+      additionalProperties: false
+      required: [key, label, category]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        category:
+          type: string
+          description: Disjoint verification-item category filter owned by this page tab.
+    VerificationStatusOption:
+      type: object
+      additionalProperties: false
+      required: [key, label, status]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        status:
+          $ref: "#/components/schemas/VerificationItemStatus"
+    VerificationLocationOption:
+      type: object
+      additionalProperties: false
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+    VerificationDriveClosure:
+      type: object
+      additionalProperties: false
+      required:
+        - batch_id
+        - total_count
+        - approved_count
+        - rejected_count
+        - pending_count
+        - video_count
+        - approved_videos
+        - rejected_videos
+        - pending_videos
+        - shed_count
+        - ready
+      properties:
+        batch_id: { type: string, format: uuid }
+        drive_key: { type: string }
+        drive_label: { type: string }
+        batch_label: { type: string }
+        park_id: { type: string, format: uuid }
+        park_label: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        total_count: { type: integer }
+        approved_count: { type: integer }
+        rejected_count: { type: integer }
+        pending_count: { type: integer }
+        video_count: { type: integer }
+        approved_videos: { type: integer }
+        rejected_videos: { type: integer }
+        pending_videos: { type: integer }
+        shed_count: { type: integer }
+        ready: { type: boolean }
     VerificationDecision:
       type: string
       enum:

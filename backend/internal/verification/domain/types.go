@@ -55,30 +55,31 @@ type SourceRef struct {
 
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
-	ItemID        string
-	TenantID      string
-	Vertical      string
-	Module        string
-	Category      string
-	SubjectLabel  *string
-	Source        SourceRef
-	MediaRefs     []string // proof_artifact IDs; signed URLs resolved at read time.
-	Status        string
-	VerdictReason *string
-	OperatorID    *string
-	OperatorName  *string // backend-owned display label for OperatorID
-	ShedID        *string
-	ShedLabel     *string // backend-owned display label for ShedID
-	ParkID        *string
-	ParkLabel     *string // backend-owned display label for ParkID
-	CapturedAt    time.Time
-	VerifiedBy    *string
-	VerifiedAt    *time.Time
-	ClosedBy      *string
-	ClosedAt      *time.Time
-	RowVersion    int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ItemID         string
+	TenantID       string
+	Vertical       string
+	Module         string
+	Category       string
+	SubjectLabel   *string
+	Source         SourceRef
+	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
+	Status         string
+	VerdictReason  *string
+	OperatorID     *string
+	OperatorName   *string // backend-owned display label for OperatorID
+	ShedID         *string
+	ShedLabel      *string // backend-owned display label for ShedID
+	ParkID         *string
+	ParkLabel      *string // backend-owned display label for ParkID
+	CapturedAt     time.Time
+	VerifiedBy     *string
+	VerifiedByName *string // backend-owned display label for VerifiedBy
+	VerifiedAt     *time.Time
+	ClosedBy       *string
+	ClosedAt       *time.Time
+	RowVersion     int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // CreateItem is the input a producer supplies to enqueue one verification item.
@@ -169,9 +170,45 @@ type LocationFilterOption struct {
 	Label string `json:"label"`
 }
 
+// QueuePageOption is one backend-defined page tab within the selected verifier drawer module.
+// Categories are disjoint queue filters over verification-item grain; the UI never adds tabs.
+type QueuePageOption struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Category string `json:"category"`
+}
+
+// QueueStatusOption is one backend-defined secondary tab. Status filters are disjoint at
+// verification-item grain: pending (Due), approved, and rejected.
+type QueueStatusOption struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Status string `json:"status"`
+}
+
+// QueueActionTypeOption is one backend-registered verification action type exposed to
+// cross-module renderers such as admin-web. Category is the disjoint queue predicate; the
+// remaining fields are presentation and grouping metadata owned by the registry.
+type QueueActionTypeOption struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Category    string `json:"category"`
+	ModuleKey   string `json:"module_key"`
+	ModuleLabel string `json:"module_label"`
+}
+
 type QueueFilterOptions struct {
-	Parks []LocationFilterOption `json:"parks"`
-	Sheds []LocationFilterOption `json:"sheds"`
+	ModuleKey            string                  `json:"module_key,omitempty"`
+	ModuleLabel          string                  `json:"module_label,omitempty"`
+	ActionTypes          []QueueActionTypeOption `json:"action_types"`
+	Pages                []QueuePageOption       `json:"pages"`
+	Statuses             []QueueStatusOption     `json:"statuses"`
+	Parks                []LocationFilterOption  `json:"parks"`
+	Sheds                []LocationFilterOption  `json:"sheds"`
+	SelectedBusinessDate string                  `json:"selected_business_date,omitempty"`
+	BusinessTimezone     string                  `json:"business_timezone"`
+	MissedOnly           bool                    `json:"missed_only"`
+	HasMissed            bool                    `json:"has_missed"`
 }
 
 // MediaItem is one resolved, streamable media reference for display.

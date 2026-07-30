@@ -452,6 +452,26 @@ func (c WorkflowClock) ExpectedIssueInstant(feedDay string) (time.Time, error) {
 	return combineLocalTime(feedDay, -1, c.DirectionTime)
 }
 
+// ExpectedCorrectionInstant returns the D-1 correction cutoff for feedDay in
+// the India business calendar.
+func (c WorkflowClock) ExpectedCorrectionInstant(feedDay string) (time.Time, error) {
+	return combineLocalTime(feedDay, -1, c.CorrectionTime)
+}
+
+// ExpectedTransportInstant returns the D-1 transport cutoff for feedDay. A nil
+// result means the park has not authored a transport cutoff; it never means an
+// implicit zero-time deadline.
+func (c WorkflowClock) ExpectedTransportInstant(feedDay string) (*time.Time, error) {
+	if c.TransportTime == nil {
+		return nil, nil
+	}
+	instant, err := combineLocalTime(feedDay, -1, *c.TransportTime)
+	if err != nil {
+		return nil, err
+	}
+	return &instant, nil
+}
+
 // combineLocalTime parses a YYYY-MM-DD business date, shifts it by dayOffset days, and attaches an
 // "HH:MM:SS" local wall-clock time, all in Asia/Kolkata.
 func combineLocalTime(day string, dayOffset int, localTime string) (time.Time, error) {

@@ -111,7 +111,7 @@ Capability matrix (✅ yes · ❌ no · ~ partial/scoped):
 | Manage roster / operators | ❌ | ~ local | ❌ | ✅ | ✅ | ✅ |
 | Plan + own SOPs (weekly cadence) | ❌ | ❌ | ❌ | ~ park | ✅ | ✅ |
 | Publish SOP / protocol | ❌ | ❌ | ❌ | ❌ | ~ SOP | ✅ |
-| Mobile surface | Capture (own module) | Capture (vertical) | standalone Verifier section | read-only overview | read-only overview | read-only |
+| Mobile surface | Capture (own module) | Capture (vertical) | verifier-only five-module evidence workspace | read-only overview | read-only overview | read-only |
 | Web surface | — | roster/local | Verification queue | act + oversight | plan/act/config | everything |
 
 Hard rules: capture = ground only (Operator + Manager); verify = Verifier only

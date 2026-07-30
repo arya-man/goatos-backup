@@ -35,25 +35,53 @@ penalty, and action are the **authority's** job (Head/Director/CEO). "Double
 verification" = the verifier is a second, independent pass on top of the operator's
 own execution — the anti-fraud/quality gate.
 
-## Verifier APP scope (mobile, standalone)
-A verifier who opens the app sees **only** video verification — nothing else:
-- **A queue of pending media to verify**, separated into module tabs. Birth and
-  Death have distinct tabs: Death reads category `death_evidence`; Birth reads
+## Verifier APP scope (mobile, verifier-only workspace)
+
+Maintainer decision 2026-07-30, superseding both the synthetic standalone
+**Verification** drawer module and the Android-only Vaccination/Weighing rewrite:
+the backend composes exactly five verifier drawer modules — **Vaccination,
+Weighing, Counts, Feed, and Health**. Each module opens the same reusable media
+queue and renders backend-defined page tabs across the top:
+
+| drawer module | backend-defined page tabs |
+|---|---|
+| Vaccination | Vaccination |
+| Weighing | Weighing |
+| Counts | Birth, Death, Shifting, Milk Prep, Milk Feeding |
+| Feed | Feed Distribution, Feed Packing, Feed Transport |
+| Health | Adults, Kids |
+
+A verifier still sees **only** video verification — never the corresponding
+operator/leadership pages:
+
+- **A date-scoped media queue**, separated by the selected page's disjoint
+  backend category. After a first-level page such as Birth, Death, or Shifting
+  is selected, the backend supplies a second tab row: **Due / Approved /
+  Rejected**. These are disjoint verification-item buckets (`pending`,
+  `approved`, `rejected`); Android never recomputes or combines them. Death reads category `death_evidence`; Birth reads
   category `birth_evidence`. Each mother or child enters Birth verification as
   soon as every task in that subject's workflow is complete with video. One item
   at `workflow_id` grain carries only that mother or child's ordered proof bundle;
   siblings never block or share the verdict.
-  Other tabs cover vaccine, shifting, packing, and feed-direction evidence. The
-  verifier is assigned one or more categories.
+  Other active producers cover vaccination, shifting, milk preparation/feeding,
+  feed distribution/packing/transport evidence. Weighing and Health keep their
+  declared pages even when no producer has enqueued work yet; an empty page does
+  not fabricate evidence.
 - Per item: **play the video(s)**. Every task proof renders its backend-authored
   workflow task title immediately above the matching video. Question/value tasks
   also render the recorded operator answer; action-only tasks omit the answer.
   Android never derives either value from category or list position. Context includes shed/park/operator/
   timestamp from the capture metadata → **Approve** or **Reject + mandatory reason**.
-- **No capture, no ops, no roster, no config** — the standalone Verifier section
+- **No capture, no ops, no roster, no config** — the verifier-only workspace
   only. Tabs render backend-owned category queues; an empty tab does not fabricate
   verification work.
 - Bounded/paginated queue (~20), media via streamed signed URLs (scale rules apply).
+- The calendar selects an Asia/Kolkata `business_date` and may move backward to
+  historical dates. Approved and rejected rows retain their resolved proof
+  media, open in the same detail screen, and are view-only because their verdict
+  is already terminal. The bell is backed by an indexed backend `EXISTS` query:
+  it indicates whether the selected page/location has any pending item captured
+  before today's business-day start and toggles that bounded missed-only queue.
 
 ## Backend (generic — see verification-module-design.md)
 - Producers (vaccination, diagnosis, death, feed, …) emit `verification_item`
@@ -66,8 +94,18 @@ A verifier who opens the app sees **only** video verification — nothing else:
   (Park Head/Director/CEO/CxO) atomically closes the submission through
   `POST /verification/submissions/{submission_id}/close`; the verdict + reason feed
   the daily "SOP Video Double Verification" metrics (violations flagged, penalties).
-- Plug-and-play: a new vertical/module registers its category in the verification
-  type registry → its videos appear in the verifier queue automatically.
+- Plug-and-play: a vertical/module registers its category plus backend navigation
+  metadata (`navigation_module`, page key/label/order) in the verification type
+  registry → its videos appear under the correct drawer module and top tab.
+
+Operational read contract: row grain is one `verification_item`; page and status
+buckets are disjoint; `filter_options.has_missed` is a whole-filter boolean, not
+derived from the current page. Lists remain keyset-paginated by
+`(captured_at,item_id)`. Date predicates use bare `captured_at` with inclusive
+UTC start/exclusive UTC end bounds derived from the India business date, matching
+`verification_items_queue_idx`. This is a read-only extension of the existing
+verification state/evidence contract, so no domain event or leadership-assistant
+write/read mapping changes.
 
 ## Roles (truth table alignment)
 - **Capture** = ground operator only (mobile capture app). **Verify** = Verifier

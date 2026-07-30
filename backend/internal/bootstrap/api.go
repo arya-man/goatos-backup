@@ -481,23 +481,47 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityService.WithMediaResolver(verificationMedia)
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      "preventive_care",
-		Module:        "vaccination",
-		Category:      sopbridge.VaccinationVerificationCategory,
-		ExpectedMedia: []string{"video"},
+		Vertical: "preventive_care", Module: "vaccination", Category: sopbridge.VaccinationVerificationCategory,
+		ExpectedMedia: []string{"video"}, NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination",
+		PageKey: "vaccination", PageLabel: "Vaccination", PageOrder: 1,
 	}); err != nil {
 		pool.Close()
 		return nil, err
+	}
+	// Weighing and Health are declared in the same backend registry even before their
+	// producers enqueue verification items. Their verifier modules/pages therefore stay
+	// stable and empty instead of disappearing based on today's queue contents.
+	for _, def := range []verificationdomain.CategoryDefinition{
+		{
+			Vertical: "preventive_care", Module: "weighing", Category: "weighing_proof",
+			ExpectedMedia: []string{"video"}, NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
+			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
+		},
+		{
+			Vertical: "health", Module: "health", Category: "health_adults",
+			ExpectedMedia: []string{"video"}, NavigationModule: "aas_health", NavigationModuleLabel: "Health",
+			PageKey: "health_adults", PageLabel: "Adults", PageOrder: 1,
+		},
+		{
+			Vertical: "health", Module: "health", Category: "health_kids",
+			ExpectedMedia: []string{"video"}, NavigationModule: "aas_health", NavigationModuleLabel: "Health",
+			PageKey: "health_kids", PageLabel: "Kids", PageOrder: 2,
+		},
+	} {
+		if err := verificationService.RegisterCategory(def); err != nil {
+			pool.Close()
+			return nil, err
+		}
 	}
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
 	// that the verification service exists.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      countsdomain.VerificationVerticalShifting,
-		Module:        countsdomain.VerificationModuleShifting,
-		Category:      countsdomain.VerificationCategoryShifting,
-		ExpectedMedia: []string{"video"},
+		Vertical: countsdomain.VerificationVerticalShifting, Module: countsdomain.VerificationModuleShifting,
+		Category: countsdomain.VerificationCategoryShifting, ExpectedMedia: []string{"video"},
+		NavigationModule: "counts", NavigationModuleLabel: "Counts",
+		PageKey: "shifting", PageLabel: "Shifting", PageOrder: 3,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -508,11 +532,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// video (five with goat milk, two without), and all videos travel on one verifier item so one
 	// verdict completes or reworks the whole preparation attempt.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      countsdomain.VerificationVerticalMilkPreparation,
-		Module:        countsdomain.VerificationModuleMilkPreparation,
+		Vertical: countsdomain.VerificationVerticalMilkPreparation, Module: countsdomain.VerificationModuleMilkPreparation,
 		Category:      countsdomain.VerificationCategoryMilkPreparation,
 		ExpectedMedia: []string{"video", "video", "video", "video", "video"},
-		SLAHours:      24,
+		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
+		PageKey: "milk_preparation", PageLabel: "Milk Prep", PageOrder: 4,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -522,6 +546,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
 		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"}, SLAHours: 24,
+		NavigationModule: "counts", NavigationModuleLabel: "Counts",
+		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 5,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -533,10 +559,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// enqueue seam into the feed-direction service now that verificationService exists. The video +
 	// water proof travel on one item (photo_or_video covers the water proof, which may be a photo).
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      feeddirectiondomain.VerificationVerticalFeed,
-		Module:        feeddirectiondomain.VerificationModuleFeed,
-		Category:      feeddirectiondomain.VerificationCategoryFeed,
-		ExpectedMedia: []string{"video", "photo_or_video"},
+		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
+		Category:         feeddirectiondomain.VerificationCategoryFeed,
+		ExpectedMedia:    []string{"video", "photo_or_video"},
+		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+		PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -549,10 +576,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// distribution, but a DISTINCT category (feed_packing) and ref_type so the two feed gates never
 	// cross-fire. Register the category and wire the enqueue seam.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      feeddirectiondomain.VerificationVerticalFeed,
-		Module:        feeddirectiondomain.VerificationModuleFeed,
-		Category:      feeddirectiondomain.VerificationCategoryPacking,
-		ExpectedMedia: []string{"video"},
+		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
+		Category:         feeddirectiondomain.VerificationCategoryPacking,
+		ExpectedMedia:    []string{"video"},
+		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+		PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -562,6 +590,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},
+		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+		PageKey: "feed_transport", PageLabel: "Feed Transport", PageOrder: 3,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -574,21 +604,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// verification producer just like shifting and feed. Register the category and wire the enqueue
 	// seam into the tasks workflow service.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      tasksdomain.VerificationVerticalCounts,
-		Module:        tasksdomain.VerificationModuleCounts,
+		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
 		Category:      tasksdomain.VerificationCategoryDeathEvidence,
 		ExpectedMedia: []string{"video", "video"},
-		SLAHours:      24,
+		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
+		PageKey: "death", PageLabel: "Death", PageOrder: 2,
 	}); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical:      tasksdomain.VerificationVerticalCounts,
-		Module:        tasksdomain.VerificationModuleCounts,
+		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
 		Category:      tasksdomain.VerificationCategoryBirthEvidence,
 		ExpectedMedia: []string{"video"},
-		SLAHours:      24,
+		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
+		PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
 	}); err != nil {
 		pool.Close()
 		return nil, err

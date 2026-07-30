@@ -4,6 +4,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 )
@@ -21,10 +22,19 @@ type ListQueueParams struct {
 	Vertical string
 	Module   string
 	Status   string // defaults to domain.StatusPending in the app layer.
-	ParkID   string
-	ShedID   string
-	Cursor   *domain.Cursor
-	Limit    int
+	// BusinessDate is the requested Asia/Kolkata capture date (YYYY-MM-DD). MissedOnly selects
+	// pending items captured before today's business-day start; the two scopes are exclusive.
+	BusinessDate string
+	MissedOnly   bool
+	// CapturedFrom/CapturedBefore are app-normalized UTC instants. Repositories keep captured_at
+	// bare in predicates so verification_items_queue_idx remains usable.
+	CapturedFrom   *time.Time
+	CapturedBefore *time.Time
+	MissedBefore   *time.Time
+	ParkID         string
+	ShedID         string
+	Cursor         *domain.Cursor
+	Limit          int
 	// ParkIDs is applied only when ScopeRestricted is true. An empty ParkIDs slice with a
 	// restricted scope intentionally returns zero rows.
 	ParkIDs         []string

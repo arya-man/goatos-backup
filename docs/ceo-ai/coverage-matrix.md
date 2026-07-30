@@ -119,6 +119,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | SOP submission fanout retry worker (func:NewSopSubmissionFanoutRetryStage, func:SopSubmissionFanoutRetryStage.Run, func:SopSubmissionFanoutRetryStage.Name) | api + view:ops_exception_queue | Operational repair surface for submitted proof fanouts that failed before vaccination completions / verification rows materialized. Leadership does not call the worker directly; failures remain visible through `GET /admin/tasks/submission-fanouts/failed` / ops exception coverage, and the kernel worker retries them durably. |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
 | GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
+| Admin-web `/actions` | api + view:verification_queue_status | Cross-module evidence viewer over the already-covered verification queue. Action-type/status filters, details, and signed proof-video links add no new KPI or assistant tool. |
 | GET /verification/action-queue | api + view:verification_queue_status | Actionable proof exceptions |
 | GET /operations/audit | api + view:audit_activity_summary | Audit stream |
 | GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary; API tier executor wired (operations_audit_summary tool, via operationsaudit.Service.Summary) |

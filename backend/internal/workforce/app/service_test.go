@@ -184,7 +184,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 }
 
-func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
+func TestBootstrapVerifierGetsFiveModuleEvidenceNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
@@ -194,7 +194,7 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	want := []domain.BootstrapNavigationItem{
-		{Key: "verify", Label: "Verify", Href: "/verify"},
+		{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
@@ -205,8 +205,17 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
+	}
+	wantModuleKeys := []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health"}
+	if len(got.Modules) != len(wantModuleKeys) {
+		t.Fatalf("Modules=%#v want keys %#v", got.Modules, wantModuleKeys)
+	}
+	for i, key := range wantModuleKeys {
+		if got.Modules[i].Key != key {
+			t.Fatalf("Modules[%d].Key=%q want %q", i, got.Modules[i].Key, key)
+		}
 	}
 }
 
@@ -317,7 +326,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
-				{Key: "verify", Label: "Verify", Href: "/verify"},
+				{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -458,9 +467,9 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:   "verifier minimal",
+			name:   "verifier with five evidence modules expands",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
-			want:   domain.NavChromeMinimal,
+			want:   domain.NavChromeExpanded,
 		},
 	}
 	for _, tc := range tests {
@@ -747,7 +756,7 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 //	park_head     |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
 //	ceo_internal  |   x    |      x      |    x     |    x     | yes
 //	pc_director   |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
-//	verifier      |   -    |      -      |    -     |    -     | NO
+//	verifier      | review |    review   |  review  |    -     | evidence lens
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
@@ -757,7 +766,7 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		{permissions.RoleParkHead, nil},
 		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "milk_preparation", "milk_feeding"}},
 		{permissions.RolePCDirector, nil},
-		{permissions.RoleVerifier, nil},
+		{permissions.RoleVerifier, []string{"videos", "you"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.role, func(t *testing.T) {
@@ -813,7 +822,7 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
 		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleVerifier, nil},
+		{permissions.RoleVerifier, []string{"videos", "you"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.role, func(t *testing.T) {

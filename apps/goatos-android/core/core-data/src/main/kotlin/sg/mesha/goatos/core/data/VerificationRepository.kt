@@ -18,7 +18,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 
 /**
- * The standalone Verifier section's media queue (context/architecture/verifier-app-and-flow.md
+ * The verifier-only workspace's reusable media queue (context/architecture/verifier-app-and-flow.md
  * + context/architecture/verification-module-design.md). Offline-first
  * (docs/decisions/android-offline-first.md): Room is the UI's single source of truth via
  * [observeQueue], a cache-first Flow scoped by [category], backed by
@@ -30,6 +30,9 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 interface VerificationRepository {
     suspend fun queue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -40,6 +43,9 @@ interface VerificationRepository {
      *  (null data on a cold cache) and re-emits after every successful [refreshQueue]/[appendQueue]. */
     fun observeQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -49,6 +55,9 @@ interface VerificationRepository {
      *  leaves the cache untouched — the caller surfaces stale/offline, never a blank screen. */
     suspend fun refreshQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -58,6 +67,9 @@ interface VerificationRepository {
     suspend fun appendQueue(
         cursor: String,
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -105,12 +117,18 @@ class DefaultVerificationRepository(
 
     override suspend fun queue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         limit: Int?,
         cursor: String?,
     ): VerificationQueueResponseDto = api.listVerificationQueue(
         category = category,
+        status = status,
+        businessDate = businessDate,
+        missed = missed,
         parkId = parkId,
         shedId = shedId,
         cursor = cursor,
@@ -119,26 +137,29 @@ class DefaultVerificationRepository(
 
     override fun observeQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         limit: Int?,
     ): Flow<Resource<VerificationQueueResponseDto>> {
-        val key = scopeKey(category, parkId, shedId, limit)
+        val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
         return queueDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
-        val dto = queue(category, parkId, shedId, limit, cursor = null)
-        val key = scopeKey(category, parkId, shedId, limit)
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+        val dto = queue(category, status, businessDate, missed, parkId, shedId, limit, cursor = null)
+        val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
         queueDao.upsert(VerificationQueueCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         queueDao.enforceCacheBounds()
     }
 
-    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
         appendMutex.withLock {
-            val key = scopeKey(category, parkId, shedId, limit)
+            val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
             val currentEntity = queueDao.get(key)
             val current = readCachedJson<VerificationQueueResponseDto>(
                 json = json,
@@ -151,7 +172,7 @@ class DefaultVerificationRepository(
             if (current.nextCursor != cursor) {
                 throw VerificationQueueCursorException("verification queue cursor is stale or belongs to another category")
             }
-            val page = queue(category, parkId, shedId, limit, cursor)
+            val page = queue(category, status, businessDate, missed, parkId, shedId, limit, cursor)
             if (page.nextCursor == cursor) {
                 throw VerificationQueueCursorException("verification queue backend returned a non-advancing cursor")
             }
@@ -244,8 +265,24 @@ class DefaultVerificationRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    private fun scopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
-        cacheKey(VERIFY_QUEUE_CACHE_PREFIX, category, parkId, shedId, limit?.toString())
+    private fun scopeKey(
+        category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
+        parkId: String?,
+        shedId: String?,
+        limit: Int?,
+    ): String = cacheKey(
+        VERIFY_QUEUE_CACHE_PREFIX,
+        category,
+        status,
+        businessDate,
+        missed?.toString(),
+        parkId,
+        shedId,
+        limit?.toString(),
+    )
 
     private fun actionScopeKey(category: String?, limit: Int?): String =
         actionScopeKey(category, null, null, limit)
