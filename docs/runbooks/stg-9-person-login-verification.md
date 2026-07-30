@@ -35,7 +35,8 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
   AND scope_type = 'tenant'
 GROUP BY role, status
 ORDER BY role, status;
--- Expect: ceo_internal/active >= 5, operator/active >= 3, pc_director/active >= 1
+-- Expect at least: ceo_internal/active >= 5, operator/active >= 5,
+-- pc_director/active >= 1, growth_director/active >= 1, verifier/active >= 1
 ```
 
 ```sql

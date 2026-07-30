@@ -27,6 +27,7 @@ type Service interface {
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
+	ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error
 }
 
 type Handler struct {
@@ -64,6 +65,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/shed-observations", h.RecordShedObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 }
 
 type errorEnvelope struct {
@@ -102,6 +104,10 @@ type shedObservationRequest struct {
 
 type submitIndividualScopeRequest struct {
 	ScannedIdentifiers []string `json:"scanned_identifiers"`
+}
+
+type reopenScopeRequest struct {
+	Reason string `json:"reason"`
 }
 
 func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +260,22 @@ func (h *Handler) SubmitIndividualScope(w http.ResponseWriter, r *http.Request) 
 		req.ScannedIdentifiers,
 	)
 	h.respond(w, r, map[string]any{"status": "completed", "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) ReopenScope(w http.ResponseWriter, r *http.Request) {
+	var req reopenScopeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	err := h.service.ReopenScope(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+		r.Header.Get("Idempotency-Key"),
+		req.Reason,
+	)
+	h.respond(w, r, map[string]any{"status": "reopened", "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {

@@ -86,6 +86,7 @@
         "weighing.observation_accepted",
         "weighing.shed_observation_accepted",
         "weighing.shed_submission.completed",
+        "weighing.shed.reopened",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
         "vaccination.leave.changed"

@@ -17,6 +17,7 @@ const WEIGHING_ROLE_ROUTING_PATTERNS = [
   /\bleadershipWeighing\b/,
   /pc_director.*WEIGHING/i,
   /WEIGHING.*pc_director/i,
+  /director_growth/i,
 ];
 const hasWeighingRoleRouting = (line) => WEIGHING_ROLE_ROUTING_PATTERNS.some((pattern) => pattern.test(line));
 // hardcoded disabled/blocked reason literal — a disabled reason is backend-owned (golden rule).

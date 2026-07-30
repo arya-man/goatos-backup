@@ -9,8 +9,9 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | Role key | Current meaning | Current scope rule | Current users |
 | --- | --- | --- | --- |
 | `ceo_internal` | CEO/CXO/founder visibility and override | `tenant` | founder/builder cohort |
-| `operator` | Ground execution and scanning | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
-| `pc_director` | Preventive Care Director visibility/action plus vaccination/weighing execution | `tenant` when both parks are needed | Chandrakant, Dinakar |
+| `operator` | Ground execution and scanning for the modules explicitly granted to that person | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
+| `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant |
+| `growth_director` | Growth Director; Weighing visibility/action across parks | `tenant` when both parks are needed | Dinakar |
 | `verifier` | Video verification review | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
 
 ## Dormant Catalog Roles
@@ -27,17 +28,21 @@ Those rows are **catalog scaffolding only right now**:
 - if one is activated later, the change must update backend permissions,
   Android role handling, seed/runbook docs, and tests in the same commit
 
-`pc_director` is the current live role for Preventive Care Director. Business
-meaning is the same as "Director - Preventive Care", but the active code path is
-the legacy flat key `pc_director`. In the mobile app, this role can open
-Vaccination and Weighing execution cards, scan/capture, and submit because it
-holds `task.execute` and `weighing.execute`.
+`pc_director` is the current live role for Preventive Care Director. It can open
+Vaccination cards, scan/capture, submit, and use vaccination close flows. It must
+not get Weighing.
+
+`growth_director` is the current live role for Growth Director. It can open
+Weighing tasks across parks, scan/capture, submit, monitor videos, and reopen a
+completed weighing shed bucket. It must not get Vaccination.
 
 ## Hard Rule
 
-Real operators must never get tenant-scoped `operator` grants. If a director
-also needs to scan across both parks, use the `pc_director` role plus explicit
-task/shed assignment where the workflow requires an owner. Do not make the
+Real operators must never get tenant-scoped `operator` grants. Operators are
+park-scoped and module-scoped: a CBE weighing-only operator must not get
+Vaccination execution just because their role is `operator`. If a director needs
+to scan across both parks, use the director role for that feature:
+`pc_director` for Vaccination, `growth_director` for Weighing. Do not make the
 `operator` grant tenant-wide.
 
 Android must not decide this from role labels. `/app/bootstrap` owns nav and
@@ -47,3 +52,9 @@ feature flags:
 - `weighing_execute=true` means Weighing opens the field execution UI instead
   of the monitor/video display UI.
 - `false` means display/review/monitor only.
+
+FCM follows the same action hierarchy. Field completion flows upward to the
+owning director/CEO/review side; rework/reopen flows downward to the assigned
+operator and keeps the owning director/CEO in the loop. Vaccination uses PC
+Director as the owning director. Weighing uses Growth Director as the owning
+director.

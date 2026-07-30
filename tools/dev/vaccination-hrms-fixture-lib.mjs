@@ -85,6 +85,9 @@ export const OPERATOR_ROSTER_VERIFIERS_FIELD = "verifiers";
 export const OPERATOR_ROSTER_VERIFIER_ROLE = "verifier";
 export const OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER = "firebase_email_password";
 export const OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const GROWTH_DIRECTOR_ROLE_HINT = "growth_director";
+export const GROWTH_DIRECTOR_IS_WEIGHING_ONLY = true;
+export const GROWTH_DIRECTOR_HAS_ZERO_VACCINATION_CAPACITY = true;
 export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // A vaccination operator's app designation is its EXECUTION capability, not its HR
 // capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier

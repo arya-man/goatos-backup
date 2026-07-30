@@ -44,21 +44,21 @@ Field roles and vaccination capacity:
 | Amit Kumar | `Amit@2026` | operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
-| Chandrakant | `Chandrakant@2026` | **director** | Preventive Care | Vaccination, Weighing | **no** |
+| Chandrakant | `Chandrakant@2026` | `pc_director` | Preventive Care | Vaccination only | **no** |
 | Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
 | Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
 | Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing only | **no** |
-| Dinakar | `Dinakar@2026` | `pc_director`; business title Breeding and Growth Director | Breeding & Growth | Vaccination, Weighing | **no** |
+| Dinakar | `Dinakar@2026` | `growth_director`; business title Growth Director | Growth | Weighing only | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
 - Pramod and Kumar Sharath are weighing-only STG operator users.
-- Dinakar is a director user (`pc_director`), not an `operator` grant. He has
-  both-park director visibility and can execute Vaccination/Weighing scan and
-  submit flows because backend permissions expose `vaccination_execute` and
-  `weighing_execute` in `/app/bootstrap`. He does **not** add vaccination
-  operator capacity and does **not** get Counts.
+- Dinakar is a director user (`growth_director`), not an `operator` grant. He
+  has both-park Growth visibility and can execute Weighing scan/submit/reopen
+  flows because backend permissions expose `weighing_execute` in
+  `/app/bootstrap`. He does **not** get Vaccination, does **not** add vaccination
+  operator capacity, and does **not** get Counts.
 - Counts is temporarily inactive for operator module grants in STG.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
@@ -117,7 +117,8 @@ seed-stg-login-grants) every time STG is seeded: it materializes the ACTIVE
 grant directly for the UID-backed canonical accounts. Leadership/director
 visibility accounts may get tenant scope. Operator execution accounts get park
 scope only; no operator should ever have `scope_type='tenant'` in
-`user_scope_grants`. Director execution users use `pc_director`, not a
+`user_scope_grants`. Director execution users use `pc_director` for Vaccination
+or `growth_director` for Weighing, not a
 tenant-scoped `operator` shortcut. The command also binds
 Amit/Darshan/Sagar/Chandrakant onto their existing named `workforce_members`
 roster row with `department_id = preventive_care`, so the vaccination module
@@ -134,7 +135,7 @@ Guardrail: every STG seed/grant change that touches field users must pass
 an explicit park and blocks the old tenant-only operator seeding path. If a
 user needs to scan in CBE, grant CBE park scope plus weighing/vaccination task
 assignment; do not grant tenant scope as an operator shortcut. A director can
-have both-park visibility and scan via `pc_director`.
+have both-park visibility and scan via the feature-specific director role.
 
 ## Firebase App Distribution Requirement
 

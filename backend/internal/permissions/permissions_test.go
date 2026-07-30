@@ -28,7 +28,7 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, VaccinationOverviewRead, false},
 		{RolePCDirector, VaccinationVerify, true},
 		{RolePCDirector, TaskExecute, true},
-		{RolePCDirector, WeighingExecute, true},
+		{RolePCDirector, WeighingExecute, false},
 		{RolePCDirector, CalendarAction, true},
 		{RolePCDirector, ProcurementWrite, false},
 		{RolePCDirector, ProcurementReview, false},
@@ -57,6 +57,11 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, VerificationReview, false},
 		{RoleParkHead, VerificationReview, false},
 		{RolePCDirector, VerificationReview, false},
+		{RoleGrowthDirector, WeighingMonitor, true},
+		{RoleGrowthDirector, WeighingExecute, true},
+		{RoleGrowthDirector, TaskExecute, false},
+		{RoleGrowthDirector, VaccinationRead, false},
+		{RoleGrowthDirector, VaccinationCampaign, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {

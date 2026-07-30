@@ -276,6 +276,25 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
+    fun reopenAssignment(row: WeighingAssignmentUiRow) {
+        if (scopeKey != null || actionInFlight.value || !row.isClosed) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, "Need to scan more animals")) {
+                    is AppResult.Ok -> {
+                        message.value = "${row.label} reopened."
+                        refreshAssignments()
+                        refreshPlanner()
+                    }
+                    is AppResult.Err -> message.value = reopened.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
     fun createOrEditDefaultPlan() {
         if (scopeKey != null || actionInFlight.value) return
         val catalog = plannerCatalog.value

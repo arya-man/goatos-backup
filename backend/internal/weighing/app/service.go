@@ -261,6 +261,16 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 	return s.repo.SubmitIndividualScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), normalized)
 }
 
+func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
+		return ports.ErrInvalidArgument
+	}
+	return s.repo.ReopenScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason))
+}
+
 func normalizeProofArtifactIDs(primary string, ids []string) []string {
 	normalized := make([]string, 0, len(ids)+1)
 	seen := make(map[string]struct{}, len(ids)+1)

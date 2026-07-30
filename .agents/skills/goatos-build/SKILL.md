@@ -419,6 +419,10 @@ one product; this skill is the navigation layer.
   projection/read-model table, update the seed command, seed/projection test, or
   seed runbook in the same change. `make seed-migration-guard` enforces this
   coupling; see `docs/runbooks/initial-seed-migration-coupling.md`.
+- Role-catalog and `workforce_members.primary_role_hint` changes are seed-owned.
+  The live Growth Director role key is `growth_director` and it is Weighing-only;
+  do not spell it `director_growth`, do not merge it with `pc_director`, and do
+  not let HRMS roster seed create vaccination capacity from it.
 - New setup tables must declare their class: source/canonical, derived/read
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in

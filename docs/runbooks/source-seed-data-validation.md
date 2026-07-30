@@ -447,6 +447,13 @@ discarded are now genuinely consumed:
   park-only rehearsal reseed produces the CEO/CXO `ceo_internal` grants its own
   validation doc requires without depending on a hand-set environment variable.
 
+`growth_director` is the current app role key for the Growth Director surface.
+Migration `000057_growth_director_role.sql` adds it to `org_role_catalog` and
+the `workforce_members.primary_role_hint` check. Source/HRMS seeders must treat
+that as the Weighing director hint only: it grants no vaccination capacity,
+creates no `workforce_positions` execution seat, and does not replace
+`pc_director` for Preventive Care.
+
 Adding any new block to the contract now requires adding its consuming field in
 the same change; otherwise the seed refuses to start.
 

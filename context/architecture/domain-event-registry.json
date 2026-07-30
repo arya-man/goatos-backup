@@ -35,7 +35,8 @@
     "weighing.campaign_published",
     "weighing.observation_accepted",
     "weighing.shed_observation_accepted",
-    "weighing.shed_submission.completed"
+    "weighing.shed_submission.completed",
+    "weighing.shed.reopened"
   ],
   "events": [
     {
@@ -122,6 +123,30 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/weighing/adapters/postgres/shed_submission_event_integration_test.go",
+        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.reopened",
+      "producer": "weighing campaign shed reopen transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event.go",
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
         "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
       ],
       "surfaces": [
@@ -291,7 +316,7 @@
       "eventType": "counts.death.reported",
       "producer": "counts death approval-request submission",
       "producerFiles": [
-		"backend/internal/counts/domain/types.go",
+        "backend/internal/counts/domain/types.go",
         "backend/internal/counts/adapters/postgres/approval_repository.go"
       ],
       "consumers": [
@@ -308,13 +333,17 @@
         "backend/internal/eventwiring/workflows_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring, and internal/kernelstages.",
-	  "surfaces": ["backend", "frontend", "mobile"]
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "counts.death.rejected",
       "producer": "counts death approval rejection",
       "producerFiles": [
-		"backend/internal/counts/domain/types.go",
+        "backend/internal/counts/domain/types.go",
         "backend/internal/counts/adapters/postgres/approval_repository.go"
       ],
       "consumers": [
@@ -331,7 +360,11 @@
         "backend/internal/eventwiring/workflows_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by every domain-event bus composition.",
-      "surfaces": ["backend", "frontend", "mobile"]
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.exited",

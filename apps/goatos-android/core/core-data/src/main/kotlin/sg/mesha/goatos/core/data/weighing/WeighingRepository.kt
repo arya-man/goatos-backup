@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import java.util.UUID
 import java.time.Instant
@@ -201,6 +202,11 @@ interface WeighingRepository {
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
+    ): AppResult<Unit>
+    suspend fun reopenScope(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String = "",
     ): AppResult<Unit>
 }
 
@@ -424,6 +430,27 @@ class DefaultWeighingRepository(
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't submit weighing shed.", error)
+            }
+        }
+
+    override suspend fun reopenScope(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String,
+    ): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                val idempotencyKey = "weighing:reopen:$campaignId:$campaignShedId"
+                service.reopenWeighingScope(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeReopenRequestDto(reason = reason),
+                )
+                AppResult.Ok(Unit)
+            } catch (error: Throwable) {
+                AppResult.Err(error.message ?: "Couldn't reopen weighing shed.", error)
             }
         }
 

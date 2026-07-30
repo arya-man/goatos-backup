@@ -201,6 +201,7 @@ fun GoatOsShell(navState: NavState) {
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val visibleNavState = navState
         .withVerifierVideoNavigation()
+    val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
     val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
@@ -235,6 +236,7 @@ fun GoatOsShell(navState: NavState) {
             navController = navController,
             startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
+            canExecuteVaccination = canExecuteVaccination,
             canExecuteWeighing = canExecuteWeighing,
         )
     }

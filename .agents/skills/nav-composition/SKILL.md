@@ -34,6 +34,9 @@ Nav bar, **bottom-bar icons/labels**, and which **screens** a person sees are
   backend-owned bootstrap feature flag derived from permission constants. Example:
   `weighing_execute` chooses field execution vs monitor display for `/weighing`.
   Do not derive this from role labels in the app.
+- Feature ownership is split by director role: `pc_director` owns Vaccination;
+  `growth_director` owns Weighing. Do not use `director_growth` or give
+  `pc_director` Weighing affordances.
 
 ## BANNED (guard fails on these)
 - A fixed nav template array hardcoded per role/module
