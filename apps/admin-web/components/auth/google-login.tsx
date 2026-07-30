@@ -27,6 +27,8 @@ type GoogleAccountsID = {
     context?: "signin" | "signup" | "use";
     itp_support?: boolean;
     use_fedcm_for_prompt?: boolean;
+    use_fedcm_for_button?: boolean;
+    button_auto_select?: boolean;
   }): void;
   renderButton(
     parent: HTMLElement,
@@ -201,11 +203,14 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       // intermediate storage-access popup at accounts.google.com/gsi/transform.
       // That popup's own postMessage/close handshake with the opener can be left
       // hanging (blank white window) once we resolve the credential. itp_support
-      // tells GSI to manage that handshake properly so the popup closes itself;
-      // use_fedcm_for_prompt routes supporting browsers through FedCM instead of
-      // any popup at all.
+      // tells GSI to manage that handshake properly so the popup closes itself.
+      // The rendered button flow has its own FedCM switch; without it, clicking
+      // Continue with Google can still use the popup path even if prompt FedCM is
+      // enabled.
       itp_support: true,
       use_fedcm_for_prompt: true,
+      use_fedcm_for_button: true,
+      button_auto_select: false,
     });
     googleID.renderButton(buttonContainerRef.current, {
       type: "standard",
