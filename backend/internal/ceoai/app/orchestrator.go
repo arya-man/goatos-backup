@@ -46,7 +46,7 @@ func (c Config) withDefaults() Config {
 		c.MemoryTurns = 6
 	}
 	if c.ModelVersion == "" {
-		c.ModelVersion = "gemini-2.5-flash"
+		c.ModelVersion = "gemini-3.5-flash-lite"
 	}
 	if c.PromptVersion == "" {
 		c.PromptVersion = "v1"

@@ -48,7 +48,7 @@ type BudgetConfig struct {
 
 // DefaultBudgetConfig returns leadership-assistant defaults. These are
 // intentionally generous per request but bounded per day. Values are chosen for
-// gemini-2.5-flash-class pricing and are overridable from MESHA_AI_* env.
+// gemini-3.5-flash-lite-class pricing and are overridable from MESHA_AI_* env.
 func DefaultBudgetConfig() BudgetConfig {
 	return BudgetConfig{
 		MaxTokensPerRequest:         32_000,

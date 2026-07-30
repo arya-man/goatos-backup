@@ -185,7 +185,7 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "MESHA_VERTEX_MODEL"
-        value = "gemini-2.5-flash"
+        value = "gemini-3.5-flash-lite"
       }
 
       env {

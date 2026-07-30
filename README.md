@@ -340,7 +340,7 @@ config/secrets on-ramp so any developer can run the pieces that exist.
 ### Routing model (one paragraph)
 
 Every leadership question is planned server-side by **Vertex/Gemini**
-(`gemini-2.5-flash`, project `goatos-stg`, region `asia-south1`, authenticated
+(`gemini-3.5-flash-lite`, project `goatos-stg`, region `asia-south1`, authenticated
 via ADC — no key in env). The planner never touches the database; it only picks a
 read path in a governed hierarchy: **(1) Cube** — the governed metric layer, for
 official KPIs (active animals, vaccination due/overdue, compliance, mortality,
@@ -402,7 +402,7 @@ already healthy).
 | `MESHA_AI_PROVIDER` | AI provider (`vertex`) | config | env / example |
 | `MESHA_VERTEX_PROJECT` | Vertex project (`goatos-stg`) | config | env / example |
 | `MESHA_VERTEX_LOCATION` | Vertex region (`asia-south1`) | config | env / example |
-| `MESHA_VERTEX_MODEL` | Gemini model (`gemini-2.5-flash`) | config | env / example |
+| `MESHA_VERTEX_MODEL` | Gemini model (`gemini-3.5-flash-lite`) | config | env / example |
 | `MESHA_AI_MAX_STEPS` | bounded agent step loop | config | env / example |
 | `MESHA_AI_REVIEW` | enable self-review pass | config | env / example |
 | `MESHA_CUBE_URL` | Cube endpoint (local `127.0.0.1:4000`) | config | env / example |
