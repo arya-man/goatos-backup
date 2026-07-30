@@ -16,6 +16,9 @@ test("vaccination command board forwards top-bar park scope to the backend read"
     commandBoardSource,
     /vaccinationCurrentViewScope\(parseScope\(searchParams \?\? \{\}\)\)/,
   );
+  assert.match(commandBoardSource, /getVaccinationCommandBoard\(\{ parkId \}\)/);
+  assert.match(commandBoardSource, /driveOptions\.some\(\(drive\) => drive\.driveBatchId === selectedDriveBatchId\)/);
+  assert.match(commandBoardSource, /selectedDriveBatchId = driveOptions\[0\]\?\.driveBatchId/);
   assert.match(commandBoardSource, /getVaccinationCommandBoard\(\{ driveBatchId: selectedDriveBatchId, parkId \}\)/);
 });
 

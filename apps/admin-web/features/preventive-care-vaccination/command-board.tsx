@@ -35,7 +35,7 @@ interface VaccinationCommandBoardProps {
 async function VaccinationCommandBoardContent({ pageContract, searchParams, driveBatchId }: VaccinationCommandBoardProps) {
   let selectedDriveBatchId = driveBatchId;
   const { parkId } = vaccinationCurrentViewScope(parseScope(searchParams ?? {}));
-  let result = await getVaccinationCommandBoard({ driveBatchId: selectedDriveBatchId, parkId });
+  let result = await getVaccinationCommandBoard({ parkId });
   // telemetry: covered by parent /vaccination page-level Faro tracking
   if (!result.ok) {
     return (
@@ -50,8 +50,16 @@ async function VaccinationCommandBoardContent({ pageContract, searchParams, driv
     );
   }
 
-  if (!selectedDriveBatchId && result.data.driveOptions?.length) {
-    selectedDriveBatchId = result.data.driveOptions[0].driveBatchId;
+  const driveOptions = result.data.driveOptions ?? [];
+  const requestedDriveIsInScope = selectedDriveBatchId
+    ? driveOptions.some((drive) => drive.driveBatchId === selectedDriveBatchId)
+    : false;
+
+  if (!requestedDriveIsInScope) {
+    selectedDriveBatchId = driveOptions[0]?.driveBatchId;
+  }
+
+  if (selectedDriveBatchId) {
     const driveResult = await getVaccinationCommandBoard({ driveBatchId: selectedDriveBatchId, parkId });
     if (driveResult.ok) result = driveResult;
   }
