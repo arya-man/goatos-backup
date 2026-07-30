@@ -56,6 +56,7 @@ type queueItemResponse struct {
 	ParkLabel         *string            `json:"park_label,omitempty"` // backend-owned display label
 	CapturedAt        string             `json:"captured_at"`
 	VerifiedBy        *string            `json:"verified_by,omitempty"`
+	VerifiedByName    *string            `json:"verified_by_name,omitempty"` // backend-owned display label
 	VerifiedAt        *string            `json:"verified_at,omitempty"`
 	ClosedBy          *string            `json:"closed_by,omitempty"`
 	ClosedAt          *string            `json:"closed_at,omitempty"`
@@ -112,6 +113,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		ParkLabel:         row.Item.ParkLabel,
 		CapturedAt:        row.Item.CapturedAt.Format(rfc3339Nano),
 		VerifiedBy:        row.Item.VerifiedBy,
+		VerifiedByName:    row.Item.VerifiedByName,
 		VerifiedAt:        verifiedAt,
 		ClosedBy:          row.Item.ClosedBy,
 		ClosedAt:          closedAt,
@@ -165,12 +167,23 @@ func (h *Handler) listQueue(
 	if status == "" {
 		status = q.Get("status")
 	}
+	missedOnly := false
+	if raw := strings.TrimSpace(q.Get("missed")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.respondError(w, r, app.BadRequest("invalid_missed", "missed must be a boolean"))
+			return
+		}
+		missedOnly = parsed
+	}
 	params := ports.ListQueueParams{
 		TenantID:             tenantID(r),
 		Category:             q.Get("category"),
 		Vertical:             q.Get("vertical"),
 		Module:               q.Get("module"),
 		Status:               status,
+		BusinessDate:         q.Get("business_date"),
+		MissedOnly:           missedOnly,
 		ParkID:               q.Get("park_id"),
 		ShedID:               q.Get("shed_id"),
 		Cursor:               cursor,

@@ -27,7 +27,8 @@ import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.feature.verify.VerificationQueueRow
-import sg.mesha.goatos.feature.verify.VerifyModuleTab
+import sg.mesha.goatos.feature.verify.VerifyCategoryOption
+import sg.mesha.goatos.feature.verify.VerifyStatusOption
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
@@ -404,7 +405,17 @@ class ScreenshotTest {
     fun vaccination_verifier_queue() = shot("vaccination_verifier_queue") {
         VerifyQueueScreen(
             state = VerifyQueueUiState(
-                selectedModule = VerifyModuleTab.VACCINATION,
+                moduleKey = "vaccination",
+                moduleLabel = "Vaccination",
+                selectedCategory = "vaccination_proof",
+                categoryOptions = listOf(VerifyCategoryOption("vaccination_proof", "Vaccination")),
+                statusOptions = listOf(
+                    VerifyStatusOption("pending", "Due"),
+                    VerifyStatusOption("approved", "Approved"),
+                    VerifyStatusOption("rejected", "Rejected"),
+                ),
+                selectedBusinessDate = "2026-07-30",
+                hasMissed = true,
                 rows = listOf(
                     VerificationQueueRow(
                         id = "proof-1",
@@ -432,7 +443,16 @@ class ScreenshotTest {
     fun weighing_verifier_queue() = shot("weighing_verifier_queue") {
         VerifyQueueScreen(
             state = VerifyQueueUiState(
-                selectedModule = VerifyModuleTab.WEIGHING,
+                moduleKey = "weighing",
+                moduleLabel = "Weighing",
+                selectedCategory = "weighing_proof",
+                categoryOptions = listOf(VerifyCategoryOption("weighing_proof", "Weighing")),
+                statusOptions = listOf(
+                    VerifyStatusOption("pending", "Due"),
+                    VerifyStatusOption("approved", "Approved"),
+                    VerifyStatusOption("rejected", "Rejected"),
+                ),
+                selectedBusinessDate = "2026-07-30",
                 rows = listOf(
                     VerificationQueueRow(
                         id = "weighing-1",

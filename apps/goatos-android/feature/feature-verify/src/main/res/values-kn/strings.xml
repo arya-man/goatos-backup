@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">ಈ ಪುಟ, ಸ್ಥಿತಿ ಮತ್ತು ದಿನಾಂಕದಲ್ಲಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_missed_open">ತಪ್ಪಿದ ಪರಿಶೀಲನಾ ವೀಡಿಯೊಗಳನ್ನು ತೋರಿಸಿ</string>
+    <string name="verify_missed_before_today">ಇಂದಿಗಿಂತ ಮೊದಲು ತಪ್ಪಿದವು</string>
+    <string name="verify_date_previous">ಹಿಂದಿನ ದಿನ</string>
+    <string name="verify_date_next">ಮುಂದಿನ ದಿನ</string>
     <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
     <string name="verify_module_weighing">ತೂಕ</string>
     <string name="verify_module_birth">ಜನನ</string>

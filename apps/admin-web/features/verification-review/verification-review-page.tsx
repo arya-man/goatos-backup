@@ -3,66 +3,72 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Filter, ShieldCheck } from "lucide-react";
 
-import { Tag, type Tone } from "@/components/ui-primitives";
+import { Tag } from "@/components/ui-primitives";
+import { copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listStaffPositions, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDateTime, shortId } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { backendScope, parseScope } from "@/lib/scope";
-import { VERIFICATION_REVIEW_COPY as COPY } from "./copy";
+import { parseScope } from "@/lib/scope";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 
-const PATHNAME = "/verification";
-const STATUS_TABS: VerificationItemStatus[] = ["rejected", "approved", "pending"];
-// Only vaccination_proof is registered in the type registry today (backend/internal/bootstrap/api.go
-// RegisterCategory call, context/architecture/verification-module-design.md §2.3 "plug-and-play
-// registry"). This is a display default, not a hardcoded business rule — the category filter still
-// reads whatever categories are actually present on the fetched page.
-const KNOWN_CATEGORY_FALLBACK = "vaccination_proof";
+const PATHNAME = "/actions";
 
-export async function VerificationReviewPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function VerificationReviewPage({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const sp = searchParams ?? {};
-  const status = STATUS_TABS.find((s) => s === one(sp, "status")) ?? "rejected";
+  const status = verificationStatus(one(sp, "status"));
   const category = one(sp, "category")?.trim();
   const scope = parseScope(sp);
-  const { parkId } = backendScope(scope);
+  const selectedId = one(sp, "vi_row");
 
   const [queue, positions] = await Promise.all([
-    listVerificationQueue({ status, category, limit: 20, cursor: one(sp, "vi_cursor") }),
+    listVerificationQueue({
+      status,
+      category,
+      businessDate: scope.asOf,
+      parkId: scope.parkId,
+      limit: 20,
+      cursor: one(sp, "vi_cursor"),
+    }),
     listStaffPositions({ scope_type: "center", status: "active", limit: 500 }),
   ]);
   const authError = firstAuthRequiredError(queue);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const allItems = queue.ok ? queue.data.items : [];
-  // No park_id query param on /verification/queue yet (TODO in lib/api/server.ts) — narrow the
-  // already-fetched bounded page (max 20 rows) client-side by the top-bar park scope instead of a
-  // second unbounded fetch.
-  const items = parkId ? allItems.filter((item) => !item.park_id || item.park_id === parkId) : allItems;
-
-  const selectedId = one(sp, "vi_row");
+  const items = queue.ok ? queue.data.items : [];
+  const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
+  const statuses = queue.ok ? queue.data.filter_options.statuses : [];
+  const typeLabels = new Map(actionTypes.map((option) => [option.category, `${option.module_label} · ${option.label}`]));
+  const statusLabels = new Map(statuses.map((option) => [option.status, option.label]));
+  const statusLabelRecord = Object.fromEntries(statuses.map((option) => [option.status, option.label]));
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
-
-  const categories = Array.from(new Set(allItems.map((item) => item.category))).sort();
+  const columns = tableLabels(pageContract, "verification-actions");
+  const tableContract = table(pageContract, "verification-actions");
 
   return (
     <div className="screen on">
       <div className="phead">
         <div>
           <div className="crumb">
-            {COPY.crumb} / <b>{COPY.title}</b>
+            {copy(pageContract, "crumb")} / <b>{pageContract.title}</b>
           </div>
-          <h1>{COPY.title}</h1>
-          <div className="sub">{COPY.subtitle}</div>
+          <h1>{pageContract.title}</h1>
+          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
       </div>
 
       {queue.ok ? null : (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{COPY.error.queueUnavailable}</b>
+          <b>{copy(pageContract, "state.queue_unavailable")}</b>
           <div className="small" style={{ marginTop: 4 }}>
-            {COPY.error.queueUnavailableBody}
+            {copy(pageContract, "state.queue_unavailable_body")}
           </div>
           <div className="small muted" style={{ marginTop: 4 }}>
             {queue.error.code ?? queue.error.kind} · {queue.error.message}
@@ -70,55 +76,56 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
         </div>
       )}
 
-      <div className="grid g4" style={{ marginBottom: 16 }}>
-        <KPI label={COPY.kpi.rejectedInView} value={String(countStatus(items, "rejected"))} tone="dng" />
-        <KPI label={COPY.kpi.approvedInView} value={String(countStatus(items, "approved"))} tone="ok" />
-        <KPI label={COPY.kpi.noTaskHandle} value={String(items.filter((item) => !item.source.task_id).length)} tone="warn" />
-        <KPI label={COPY.kpi.rowsInView} value={String(items.length)} tone="info" />
-      </div>
-
-      <div className="subtabs" style={{ marginBottom: 12 }}>
-        {STATUS_TABS.map((key) => (
-          <Link key={key} href={hrefWith(sp, { status: key, vi_row: null, vi_cursor: null, va_status: null, va_code: null })} replace scroll={false} className={status === key ? "on" : ""}>
-            {COPY.statusTab[key]}
-          </Link>
-        ))}
-      </div>
+      {statuses.length ? (
+        <div className="subtabs" style={{ marginBottom: 12 }}>
+          {statuses.map((option) => (
+            <Link
+              key={option.key}
+              href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
+              replace
+              scroll={false}
+              className={status === option.status ? "on" : ""}
+            >
+              {option.label}
+            </Link>
+          ))}
+        </div>
+      ) : null}
 
       <div className="wftoolbar" style={{ marginBottom: 14 }}>
         <form action={PATHNAME} style={{ display: "contents" }}>
-          {hiddenInputs(sp, ["category", "vi_row", "va_status", "va_code"])}
-          <div className="fld" style={{ width: 220, marginBottom: 0 }}>
-            <label htmlFor="verification-category">{COPY.filter.categoryLabel}</label>
-            <select id="verification-category" name="category" defaultValue={category ?? ""}>
-              <option value="">{COPY.filter.categoryAll}</option>
-              {(categories.length ? categories : [KNOWN_CATEGORY_FALLBACK]).map((c) => (
-                <option key={c} value={c}>
-                  {c}
+          {hiddenInputs(sp, ["category", "vi_row", "vi_cursor", "va_status", "va_code"])}
+          <div className="fld" style={{ width: 260, marginBottom: 0 }}>
+            <label htmlFor="verification-action-type">{copy(pageContract, "filter.action_type")}</label>
+            <select id="verification-action-type" name="category" defaultValue={category ?? ""}>
+              <option value="">{copy(pageContract, "filter.all_action_types")}</option>
+              {actionTypes.map((option) => (
+                <option key={option.key} value={option.category}>
+                  {option.module_label} · {option.label}
                 </option>
               ))}
             </select>
           </div>
           <button type="submit" className="btn sm">
             <Filter className="ic" aria-hidden="true" />
-            {COPY.filter.categoryLabel}
+            {copy(pageContract, "filter.apply")}
           </button>
         </form>
-        <Link href={PATHNAME} replace scroll={false} className="lk small">
-          {COPY.filter.clearAll}
+        <Link href={hrefWith(sp, { category: null, status: null, vi_row: null, vi_cursor: null, va_status: null, va_code: null })} replace scroll={false} className="lk small">
+          {copy(pageContract, "filter.clear_all")}
         </Link>
       </div>
 
       <section className="card" style={{ minWidth: 0 }}>
         <div className="hd">
           <ShieldCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>{COPY.title}</h3>
+          <h3>{tableContract.title}</h3>
         </div>
         <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group">
           <table data-enh="1">
             <thead>
               <tr>
-                {COPY.table.columns.map((label) => (
+                {columns.map((label) => (
                   <th key={label}>{label}</th>
                 ))}
               </tr>
@@ -126,19 +133,36 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
             <tbody>
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={COPY.table.columns.length}>
+                  <td colSpan={columns.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {queue.ok ? COPY.error.empty : COPY.error.queueUnavailable}
+                      {queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
                     </div>
                   </td>
                 </tr>
               ) : (
-                items.map((item) => <QueueRow key={item.item_id} item={item} searchParams={sp} />)
+                items.map((item) => (
+                  <QueueRow
+                    key={item.item_id}
+                    item={item}
+                    actionTypeLabel={typeLabels.get(item.category) ?? item.category}
+                    statusLabel={statusLabels.get(item.status) ?? item.status}
+                    searchParams={sp}
+                    pageContract={pageContract}
+                  />
+                ))
               )}
             </tbody>
           </table>
         </div>
       </section>
+
+      {queue.ok && queue.data.next_cursor ? (
+        <div className="pager" style={{ marginTop: 12 }}>
+          <Link href={hrefWith(sp, { vi_cursor: queue.data.next_cursor, vi_row: null, va_status: null, va_code: null })} className="btn sm" replace scroll={false}>
+            {copy(pageContract, "pagination.next")}
+          </Link>
+        </div>
+      ) : null}
 
       <VerificationReviewDrawer
         items={items}
@@ -146,23 +170,34 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
         positions={positions.ok ? positions.data : null}
         searchParams={sp}
         feedback={feedback}
+        pageContract={pageContract}
+        statusLabels={statusLabelRecord}
       />
     </div>
   );
 }
 
-function QueueRow({ item, searchParams }: { item: VerificationQueueItem; searchParams: RouteSearchParams }) {
+function QueueRow({
+  item,
+  actionTypeLabel,
+  statusLabel,
+  searchParams,
+  pageContract,
+}: {
+  item: VerificationQueueItem;
+  actionTypeLabel: string;
+  statusLabel: string;
+  searchParams: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const href = hrefWith(searchParams, { vi_row: item.item_id, va_status: null, va_code: null });
   return (
     <tr>
-      <td>{item.category}</td>
+      <td>{actionTypeLabel}</td>
       <td>
         {item.vertical} / {item.module}
       </td>
       <td>
-        {/* Backend-owned "Subject" (subject_label): e.g. "Shed move · 12 animals" for a shifting_move
-            item, the vaccination subject for a vaccination_proof item. Aligns this cell with its
-            "Subject" column header; the operator/shed detail lives in the review drawer. */}
         {item.subject_label?.trim()
           ? item.subject_label
           : `${item.operator_name || (item.operator_id ? shortId(item.operator_id) : "—")} · ${item.shed_label || (item.shed_id ? shortId(item.shed_id) : "—")}`}
@@ -171,47 +206,23 @@ function QueueRow({ item, searchParams }: { item: VerificationQueueItem; searchP
         {fmtDateTime(item.captured_at)}
       </td>
       <td>
-        <Tag tone={item.status === "rejected" ? "dng" : item.status === "approved" ? "ok" : "warn"}>{item.status}</Tag>
+        <Tag tone={item.status === "rejected" ? "dng" : item.status === "approved" ? "ok" : "warn"}>{statusLabel}</Tag>
       </td>
       <td>
         <span className="muted small">{item.verdict_reason || "—"}</span>
       </td>
       <td>
         <LocalOverlayLink href={href} className="btn sm" scroll={false}>
-          Review
+          {copy(pageContract, "action.open_details")}
         </LocalOverlayLink>
       </td>
     </tr>
   );
 }
 
-function KPI({ label, value, tone }: { label: string; value: string; tone: Tone }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentForTone(tone) }} aria-hidden="true" />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-    </div>
-  );
-}
-
-function accentForTone(toneValue: Tone) {
-  switch (toneValue) {
-    case "ok":
-      return "#6fd043";
-    case "warn":
-      return "#f7c948";
-    case "dng":
-      return "#ff6b6b";
-    case "info":
-      return "#5da8ff";
-    default:
-      return "#7a8b78";
-  }
-}
-
-function countStatus(items: VerificationQueueItem[], status: VerificationItemStatus): number {
-  return items.filter((item) => item.status === status).length;
+function verificationStatus(value: string | undefined): VerificationItemStatus {
+  if (value === "approved" || value === "rejected") return value;
+  return "pending";
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {

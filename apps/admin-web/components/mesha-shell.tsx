@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+import { TopBarDatePicker } from "@/components/top-bar-date-picker";
+import { todayIso } from "@/lib/format";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -186,6 +188,8 @@ export function MeshaShell({
   const pcBadge = visibleBadge(navCounts.pc);
   const currentPageLabel = labelForPath(pathname, contract);
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
+  const dateScopeControl = contract.top_bar.date_range_selector;
+  const selectedAsOf = scope.asOf ?? todayIso();
   const actor = contract.top_bar.role_preview;
   const ceoAIChatCopy: CEOAIChatCopy = {
     title: shellCopy(contract, "ceo_ai.title"),
@@ -376,7 +380,17 @@ export function MeshaShell({
     overrides: Parameters<typeof scopeHref>[2] = {},
     extra: Record<string, string | undefined> = {},
   ): string {
-    return scopeHref(pathname, scope, overrides, { ...preserveVaccinationSchedule, ...extra });
+    // A top-bar scope change must not erase the current page's filters. Strip only
+    // the scope keys rebuilt by scopeHref and local-overlay row selectors, then
+    // carry the remaining page query through unchanged.
+    const pageFilters = Object.fromEntries(searchParams?.entries() ?? []);
+    for (const key of ["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain", "from"]) {
+      delete pageFilters[key];
+    }
+    for (const key of Object.keys(pageFilters)) {
+      if (key.endsWith("_row")) delete pageFilters[key];
+    }
+    return scopeHref(pathname, scope, overrides, { ...pageFilters, ...preserveVaccinationSchedule, ...extra });
   }
 
   return (
@@ -459,6 +473,21 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
+        <TopBarDatePicker
+          key={selectedAsOf}
+          label={dateScopeControl.label}
+          hint={dateScopeControl.hint}
+          selectedDate={selectedAsOf}
+          todayDate={todayIso()}
+          enabled={dateScopeControl.enabled}
+          calendarAriaLabel={shellCopy(contract, "date.menu_aria")}
+          previousMonthLabel={shellCopy(contract, "date.previous_month")}
+          nextMonthLabel={shellCopy(contract, "date.next_month")}
+          todayLabel={shellCopy(contract, "date.today")}
+          onSelectDate={(date) => {
+            router.replace(currentScopeHref({ asOf: date }), { scroll: false });
+          }}
+        />
         <button
           type="button"
           className="iconbtn"

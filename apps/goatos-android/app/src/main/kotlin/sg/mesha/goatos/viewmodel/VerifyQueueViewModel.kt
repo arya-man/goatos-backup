@@ -30,8 +30,10 @@ import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyScopeType
+import sg.mesha.goatos.feature.verify.VerifyStatusOption
 import sg.mesha.goatos.feature.verify.VerifyTone
-import sg.mesha.goatos.feature.verify.VerifyModuleTab
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 private const val VERIFY_QUEUE_PAGE_SIZE = 20
@@ -51,17 +53,24 @@ private data class VerifyCloseFlags(
     val closeErrorMessage: String? = null,
 )
 
+private data class VerifyQueueScope(
+    val category: String?,
+    val status: String,
+    val businessDate: String,
+    val missedOnly: Boolean,
+    val parkId: String?,
+    val shedId: String?,
+)
+
 /**
- * The standalone Verifier section's queue state holder (context/architecture/
+ * The verifier-only workspace's reusable queue state holder (context/architecture/
  * verifier-app-and-flow.md). Offline-first (docs/decisions/android-offline-first.md): [state]
  * is fed by [VerificationRepository.observeQueue], a cache-first Room Flow re-subscribed (via
  * [flatMapLatest]) whenever the category filter changes; [refresh] drives the network side of
  * stale-while-revalidate and [loadMore] appends the next ~20-row keyset page into the SAME
- * Room-backed scope (never an in-memory-only accumulation — mobile-guard rule). Category
- * options are derived from the distinct categories the backend has actually returned for THIS
- * verifier, never a client-hardcoded category enum (verification-module-design.md §2.3
- * plug-and-play registry) — only the raw category KEY crosses this boundary; the Compose layer
- * decides how to render an unrecognized key and always owns the "All" chrome string.
+ * Room-backed scope (never an in-memory-only accumulation — mobile-guard rule). Module identity
+ * and page options are rendered from backend registry metadata; Android sends only the selected
+ * page's raw category key back as a disjoint queue filter.
  */
 @HiltViewModel
 class VerifyQueueViewModel @Inject constructor(
@@ -72,12 +81,12 @@ class VerifyQueueViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
-    private val _selectedModule = MutableStateFlow(
-        when (savedStateHandle.get<String>("module")?.trim()?.lowercase()) {
-            "weighing" -> VerifyModuleTab.WEIGHING
-            else -> VerifyModuleTab.VACCINATION
-        },
+    private val _selectedCategory = MutableStateFlow(
+        savedStateHandle.get<String>("category")?.trim()?.takeIf { it.isNotEmpty() },
     )
+    private val _selectedStatus = MutableStateFlow(VerificationStatus.PENDING)
+    private val _selectedBusinessDate = MutableStateFlow(LocalDate.now(ZoneId.of("Asia/Kolkata")).toString())
+    private val _missedOnly = MutableStateFlow(false)
     private val _selectedParkId = MutableStateFlow<String?>(null)
     private val _selectedShedId = MutableStateFlow<String?>(null)
     private val _isRefreshing = MutableStateFlow(false)
@@ -87,22 +96,50 @@ class VerifyQueueViewModel @Inject constructor(
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorMessage = MutableStateFlow<String?>(null)
 
-    // flatMapLatest cancels the previous category's Room collection and starts a fresh one the
-    // moment _selectedCategory changes (same pattern as CalendarViewModel's _selectedDay).
+    private val selectedScope: StateFlow<VerifyQueueScope> = combine(
+        combine(_selectedCategory, _selectedStatus, _selectedBusinessDate, _missedOnly) { category, status, date, missed ->
+            arrayOf(category, status, date, missed.toString())
+        },
+        _selectedParkId,
+        _selectedShedId,
+    ) { primary, parkId, shedId ->
+        VerifyQueueScope(
+            category = primary[0],
+            status = primary[1].orEmpty(),
+            businessDate = primary[2].orEmpty(),
+            missedOnly = primary[3].toBoolean(),
+            parkId = parkId,
+            shedId = shedId,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        VerifyQueueScope(
+            category = _selectedCategory.value,
+            status = _selectedStatus.value,
+            businessDate = _selectedBusinessDate.value,
+            missedOnly = false,
+            parkId = null,
+            shedId = null,
+        ),
+    )
+
+    // flatMapLatest cancels the previous filter scope's Room collection immediately.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
-            Triple(module, parkId, shedId)
-        }.flatMapLatest { (module, parkId, shedId) ->
-            val category = categoryForModule(module)
-            if (category != null) {
-                if (isActionQueue) {
-                    repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
-                } else {
-                    repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
-                }
+        selectedScope.flatMapLatest { scope ->
+            if (isActionQueue) {
+                repo.observeActionQueue(category = scope.category, parkId = scope.parkId, shedId = scope.shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
             } else {
-                kotlinx.coroutines.flow.flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+                repo.observeQueue(
+                    category = scope.category,
+                    status = scope.status,
+                    businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+                    missed = scope.missedOnly,
+                    parkId = scope.parkId,
+                    shedId = scope.shedId,
+                    limit = VERIFY_QUEUE_PAGE_SIZE,
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
@@ -132,20 +169,30 @@ class VerifyQueueViewModel @Inject constructor(
 
     val state: StateFlow<VerifyQueueUiState> = combine(
         observedResource,
-        _selectedModule,
-        _selectedParkId,
-        _selectedShedId,
+        selectedScope,
         flags,
-    ) { resource, module, parkId, shedId, flags ->
+    ) { resource, scope, flags ->
         val items = resource.data?.items.orEmpty()
+        val filterOptions = resource.data?.filterOptions
         VerifyQueueUiState(
             rows = items.map { it.toRow() },
-            selectedModule = module,
+            moduleKey = filterOptions?.moduleKey.orEmpty(),
+            moduleLabel = filterOptions?.moduleLabel.orEmpty(),
             isActionQueue = isActionQueue,
-            parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, parkId),
-            selectedParkId = parkId,
-            shedOptions = locationOptions("All sheds", resource.data?.filterOptions?.sheds.orEmpty().map { it.id to it.label }, shedId),
-            selectedShedId = shedId,
+            categoryOptions = filterOptions?.pages.orEmpty().map { page ->
+                VerifyCategoryOption(value = page.category, label = page.label)
+            },
+            selectedCategory = scope.category,
+            statusOptions = filterOptions?.statuses.orEmpty().map { VerifyStatusOption(value = it.status, label = it.label) },
+            selectedStatus = scope.status,
+            selectedBusinessDate = filterOptions?.selectedBusinessDate ?: scope.businessDate,
+            businessTimezone = filterOptions?.businessTimezone ?: "Asia/Kolkata",
+            missedOnly = scope.missedOnly,
+            hasMissed = filterOptions?.hasMissed ?: false,
+            parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, scope.parkId),
+            selectedParkId = scope.parkId,
+            shedOptions = locationOptions("All sheds", resource.data?.filterOptions?.sheds.orEmpty().map { it.id to it.label }, scope.shedId),
+            selectedShedId = scope.shedId,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
             isOffline = flags.isOffline,
@@ -188,7 +235,11 @@ class VerifyQueueViewModel @Inject constructor(
     fun onEvent(event: VerifyQueueEvent) {
         when (event) {
             is VerifyQueueEvent.SelectCategory -> {
-                Unit
+                if (event.category == _selectedCategory.value) return
+                _selectedCategory.value = event.category
+                _selectedParkId.value = null
+                _selectedShedId.value = null
+                refresh()
             }
             is VerifyQueueEvent.SelectPark -> {
                 _selectedParkId.value = event.parkId
@@ -199,10 +250,21 @@ class VerifyQueueViewModel @Inject constructor(
                 _selectedShedId.value = event.shedId
                 refresh()
             }
-            is VerifyQueueEvent.SelectModule -> {
-                _selectedModule.value = event.module
-                _selectedParkId.value = null
-                _selectedShedId.value = null
+            is VerifyQueueEvent.SelectStatus -> {
+                if (event.status == _selectedStatus.value && !_missedOnly.value) return
+                _selectedStatus.value = event.status
+                _missedOnly.value = false
+                refresh()
+            }
+            is VerifyQueueEvent.SelectBusinessDate -> {
+                if (event.businessDate.isBlank()) return
+                _selectedBusinessDate.value = event.businessDate
+                _missedOnly.value = false
+                refresh()
+            }
+            VerifyQueueEvent.ToggleMissed -> {
+                _missedOnly.value = !_missedOnly.value
+                if (_missedOnly.value) _selectedStatus.value = VerificationStatus.PENDING
                 refresh()
             }
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
@@ -216,8 +278,9 @@ class VerifyQueueViewModel @Inject constructor(
         _isLoadingMore.value = false
         _isRefreshing.value = true
         try {
-            val category = categoryForModule(_selectedModule.value) ?: return@launch
-            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
+            val scope = currentScope()
+            val category = scope.category
+            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category ?: "all")
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
                     category = category,
@@ -228,8 +291,11 @@ class VerifyQueueViewModel @Inject constructor(
             } else {
                 repo.refreshQueue(
                     category = category,
-                    parkId = _selectedParkId.value,
-                    shedId = _selectedShedId.value,
+                    status = scope.status,
+                    businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+                    missed = scope.missedOnly,
+                    parkId = scope.parkId,
+                    shedId = scope.shedId,
                     limit = VERIFY_QUEUE_PAGE_SIZE,
                 )
             }
@@ -240,19 +306,32 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun loadMore() = viewModelScope.launch {
-        val category = categoryForModule(_selectedModule.value) ?: return@launch
+        val scope = currentScope()
+        val category = scope.category
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
             cursor = cursor,
             category = category,
-            parkId = _selectedParkId.value,
-            shedId = _selectedShedId.value,
+            status = scope.status,
+            businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+            missed = scope.missedOnly,
+            parkId = scope.parkId,
+            shedId = scope.shedId,
             limit = VERIFY_QUEUE_PAGE_SIZE,
         )
         _isOffline.value = result.isFailure
         _isLoadingMore.value = false
     }
+
+    private fun currentScope() = VerifyQueueScope(
+        category = _selectedCategory.value,
+        status = _selectedStatus.value,
+        businessDate = _selectedBusinessDate.value,
+        missedOnly = _missedOnly.value,
+        parkId = _selectedParkId.value,
+        shedId = _selectedShedId.value,
+    )
 
     private fun closeDrive(batchId: String) = viewModelScope.launch {
         val batchId = batchId.takeIf { it.isNotBlank() } ?: return@launch
@@ -321,22 +400,6 @@ class VerifyQueueViewModel @Inject constructor(
         }
     }
 
-    /** `value = null` ("All") always leads, followed by every distinct category the backend has
-     *  returned. `label = null` on the "All" entry tells the Screen to substitute its own
-     *  localized chrome string; every other label is the raw backend category key, humanized
-     *  client-side only as a display fallback until the backend ships a proper display label
-     *  per registry entry (verification-module-design.md §2.3). */
-    private fun categoryOptions(items: List<VerificationQueueItem>, selected: String?): List<VerifyCategoryOption> {
-        val seen = items.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
-        if (seen.isEmpty() && selected == null) return emptyList()
-        val options = mutableListOf(VerifyCategoryOption(value = null, label = null))
-        seen.forEach { options += VerifyCategoryOption(value = it, label = humanizeCategory(it)) }
-        if (selected != null && seen.none { it == selected }) {
-            options += VerifyCategoryOption(value = selected, label = humanizeCategory(selected))
-        }
-        return options
-    }
-
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
         // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
         // category-humanized name is the last-resort fallback so a non-vaccination row never
@@ -390,10 +453,6 @@ class VerifyQueueViewModel @Inject constructor(
 
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val WEIGHING_CATEGORY = "weighing_proof"
-private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
-    VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
-    VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
-}
 
 private fun locationOptions(
     allLabel: String,

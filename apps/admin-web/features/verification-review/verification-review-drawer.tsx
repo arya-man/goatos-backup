@@ -10,14 +10,14 @@ import { ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { VERIFICATION_REVIEW_COPY as COPY } from "./copy";
 import { reassignVerificationItemAction, reworkVerificationItemAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 
-const PATHNAME = "/verification";
+const PATHNAME = "/actions";
 
 function statusTone(status: VerificationQueueItem["status"]): Tone {
   if (status === "rejected") return "dng";
@@ -31,12 +31,16 @@ export function VerificationReviewDrawer({
   positions,
   searchParams,
   feedback,
+  pageContract,
+  statusLabels,
 }: {
   items: VerificationQueueItem[];
   initialSelectedId?: string;
   positions: PositionListResponse | null;
   searchParams: RouteSearchParams;
   feedback: { status?: string; code?: string };
+  pageContract: AdminUiPageContract;
+  statusLabels: Record<string, string>;
 }) {
   const initialItem = items.find((item) => item.item_id === initialSelectedId);
   const [activeId, setActiveId] = useState(initialItem?.item_id);
@@ -121,7 +125,7 @@ export function VerificationReviewDrawer({
       <button
         type="button"
         className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={COPY.drawer.closeLabel}
+        aria-label={copy(pageContract, "drawer.close_label")}
         aria-hidden={!drawerOpen}
         tabIndex={drawerOpen ? 0 : -1}
         onClick={closeDrawer}
@@ -134,6 +138,8 @@ export function VerificationReviewDrawer({
         open={drawerOpen}
         onClose={closeDrawer}
         closeButtonRef={closeButtonRef}
+        pageContract={pageContract}
+        statusLabel={statusLabels[item.status] ?? item.status}
       />
     </>
   );
@@ -147,6 +153,8 @@ function VerificationReviewDrawerPanel({
   open,
   onClose,
   closeButtonRef,
+  pageContract,
+  statusLabel,
 }: {
   item: VerificationQueueItem;
   positions: PositionListResponse | null;
@@ -155,26 +163,29 @@ function VerificationReviewDrawerPanel({
   open: boolean;
   onClose: () => void;
   closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  pageContract: AdminUiPageContract;
+  statusLabel: string;
 }) {
   const hasTask = Boolean(item.source.task_id);
   const isFlagged = item.status === "rejected";
-  const reworkDisabled = !hasTask;
+  const reworkDisabled = !hasTask || !isFlagged;
   const reassignDisabled = !hasTask || !positions || positions.items.length === 0;
+  const text = (key: string) => copy(pageContract, key);
 
   return (
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>
+      <aside className={`drawer${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <ShieldCheck className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">{COPY.drawer.eyebrow}</div>
+            <div className="mt">{text("drawer.eyebrow")}</div>
             <h2>
               {item.category} · {shortId(item.item_id)}
             </h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={COPY.drawer.closeLabel} onClick={onClose}>
+          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={text("drawer.close_label")} onClick={onClose}>
             <X className="ic" />
           </button>
         </div>
@@ -183,53 +194,58 @@ function VerificationReviewDrawerPanel({
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
             <div className={feedback.status === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 12 }}>
-              <b>{feedback.status === "success" ? "Done" : "Action failed"}</b>&nbsp;
+              <b>{feedback.status === "success" ? text("feedback.done") : text("feedback.failed")}</b>&nbsp;
               {feedback.code ?? ""}
             </div>
           ) : null}
 
           <div className="note" style={{ marginBottom: 12 }}>
-            {COPY.drawer.note}
+            {text("drawer.note")}
           </div>
 
           <div className="metagrid">
-            <Meta label={COPY.drawer.metaStatus}>
-              <Tag tone={statusTone(item.status)}>{item.status}</Tag>
+            <Meta label={text("drawer.meta.status")}>
+              <Tag tone={statusTone(item.status)}>{statusLabel}</Tag>
             </Meta>
-            <Meta label={COPY.drawer.metaReason}>{item.verdict_reason || "—"}</Meta>
-            <Meta label={COPY.drawer.metaVerifiedBy}>{item.verified_by ? shortId(item.verified_by) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaVerifiedAt}>{item.verified_at ? fmtDateTime(item.verified_at) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaCaptured}>{fmtDateTime(item.captured_at)}</Meta>
-            <Meta label={COPY.drawer.metaOperator}>{item.operator_id ? shortId(item.operator_id) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaShed}>{item.shed_id ? shortId(item.shed_id) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaPark}>{item.park_id ? shortId(item.park_id) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaSourceModule}>
+            <Meta label={text("drawer.meta.reason")}>{item.verdict_reason || "—"}</Meta>
+            <Meta label={text("drawer.meta.verified_by")}>
+              {item.verified_by_name || (item.verified_by ? shortId(item.verified_by) : "—")}
+            </Meta>
+            <Meta label={text("drawer.meta.verified_at")}>{item.verified_at ? fmtDateTime(item.verified_at) : "—"}</Meta>
+            <Meta label={text("drawer.meta.captured")}>{fmtDateTime(item.captured_at)}</Meta>
+            <Meta label={text("drawer.meta.operator")}>{item.operator_name || (item.operator_id ? shortId(item.operator_id) : "—")}</Meta>
+            <Meta label={text("drawer.meta.shed")}>{item.shed_label || (item.shed_id ? shortId(item.shed_id) : "—")}</Meta>
+            <Meta label={text("drawer.meta.park")}>{item.park_label || (item.park_id ? shortId(item.park_id) : "—")}</Meta>
+            <Meta label={text("drawer.meta.source_module")}>
               {item.vertical} / {item.module}
             </Meta>
-            <Meta label={COPY.drawer.metaSourceTask}>{item.source.task_id ? shortId(item.source.task_id) : "—"}</Meta>
-            <Meta label={COPY.drawer.metaSourceSubmission}>{item.source.submission_id ? shortId(item.source.submission_id) : "—"}</Meta>
+            <Meta label={text("drawer.meta.source_task")}>{item.source.task_id ? shortId(item.source.task_id) : "—"}</Meta>
+            <Meta label={text("drawer.meta.source_submission")}>{item.source.submission_id ? shortId(item.source.submission_id) : "—"}</Meta>
           </div>
 
           <section className="card" style={{ marginTop: 14 }}>
             <div className="hd">
-              <h3>{COPY.drawer.mediaTitle}</h3>
+              <h3>{text("drawer.media.title")}</h3>
             </div>
             <div className="bd">
               {item.media.length === 0 ? (
-                <div className="muted small">{COPY.drawer.mediaEmpty}</div>
+                <div className="muted small">{text("drawer.media.empty")}</div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {item.media.map((media) =>
-                    media.mime_type?.startsWith("video/") ? (
-                      <video key={media.proof_id} controls preload="metadata" style={{ width: "100%", borderRadius: 8, background: "#000" }}>
-                        <source src={media.download_url} type={media.mime_type} />
-                      </video>
-                    ) : (
-                      <a key={media.proof_id} href={media.download_url} target="_blank" rel="noreferrer" className="btn sm">
-                        {COPY.drawer.mediaOpen} · {shortId(media.proof_id)}
+                  {item.media.map((media) => (
+                    <div key={media.proof_id} style={{ display: "grid", gap: 8 }}>
+                      {media.label ? <b>{media.label}</b> : null}
+                      {media.answer ? <div className="small muted">{media.answer}</div> : null}
+                      {media.mime_type?.startsWith("video/") ? (
+                        <video controls preload="metadata" style={{ width: "100%", borderRadius: 8, background: "#000" }}>
+                          <source src={media.download_url} type={media.mime_type} />
+                        </video>
+                      ) : null}
+                      <a href={media.download_url} target="_blank" rel="noreferrer" className="btn sm">
+                        {text("drawer.media.open")} · {shortId(media.proof_id)}
                       </a>
-                    ),
-                  )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -237,20 +253,20 @@ function VerificationReviewDrawerPanel({
 
           <section className="card" style={{ marginTop: 14 }}>
             <div className="hd">
-              <h3>{COPY.rework.title}</h3>
+              <h3>{text("rework.title")}</h3>
             </div>
             <div className="bd">
               <form action={reworkVerificationItemAction} style={{ display: "grid", gap: 8 }}>
                 <input type="hidden" name="task_id" value={item.source.task_id ?? ""} />
                 <input type="hidden" name="return_to" value={returnTo} />
                 <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{COPY.rework.reasonLabel}</span>
-                  <textarea name="reason" rows={2} placeholder={COPY.rework.reasonPlaceholder} disabled={reworkDisabled} required />
+                  <span>{text("rework.reason_label")}</span>
+                  <textarea name="reason" rows={2} placeholder={text("rework.reason_placeholder")} disabled={reworkDisabled} required />
                 </label>
-                {!isFlagged ? <div className="note">{COPY.rework.disabledNotFlagged}</div> : null}
-                {reworkDisabled ? <div className="note">{COPY.rework.disabledNoTask}</div> : null}
-                <button type="submit" className="btn p" disabled={reworkDisabled} aria-disabled={reworkDisabled} title={reworkDisabled ? COPY.rework.disabledNoTask : undefined}>
-                  {COPY.rework.submit}
+                {!isFlagged ? <div className="note">{text("rework.disabled_not_rejected")}</div> : null}
+                {!hasTask ? <div className="note">{text("rework.disabled_no_task")}</div> : null}
+                <button type="submit" className="btn p" disabled={reworkDisabled} aria-disabled={reworkDisabled} title={reworkDisabled ? (!hasTask ? text("rework.disabled_no_task") : text("rework.disabled_not_rejected")) : undefined}>
+                  {text("rework.submit")}
                 </button>
               </form>
             </div>
@@ -258,17 +274,17 @@ function VerificationReviewDrawerPanel({
 
           <section className="card" style={{ marginTop: 14 }}>
             <div className="hd">
-              <h3>{COPY.reassign.title}</h3>
+              <h3>{text("reassign.title")}</h3>
             </div>
             <div className="bd">
               <form action={reassignVerificationItemAction} style={{ display: "grid", gap: 8 }}>
                 <input type="hidden" name="task_id" value={item.source.task_id ?? ""} />
                 <input type="hidden" name="return_to" value={returnTo} />
                 <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{COPY.reassign.assigneeLabel}</span>
+                  <span>{text("reassign.assignee_label")}</span>
                   <select name="assigned_to" disabled={reassignDisabled} required defaultValue="">
                     <option value="" disabled>
-                      {COPY.reassign.assigneePlaceholder}
+                      {text("reassign.assignee_placeholder")}
                     </option>
                     {(positions?.items ?? []).map((position) => (
                       <option key={position.position_id} value={position.workforce_member_id}>
@@ -278,20 +294,20 @@ function VerificationReviewDrawerPanel({
                   </select>
                 </label>
                 <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{COPY.reassign.reasonLabel}</span>
-                  <textarea name="reason" rows={2} placeholder={COPY.reassign.reasonPlaceholder} disabled={reassignDisabled} required />
+                  <span>{text("reassign.reason_label")}</span>
+                  <textarea name="reason" rows={2} placeholder={text("reassign.reason_placeholder")} disabled={reassignDisabled} required />
                 </label>
                 {reassignDisabled ? (
-                  <div className="note">{!hasTask ? COPY.reassign.disabledNoTask : COPY.reassign.disabledNoRoster}</div>
+                  <div className="note">{!hasTask ? text("reassign.disabled_no_task") : text("reassign.disabled_no_roster")}</div>
                 ) : null}
                 <button
                   type="submit"
                   className="btn"
                   disabled={reassignDisabled}
                   aria-disabled={reassignDisabled}
-                  title={reassignDisabled ? (!hasTask ? COPY.reassign.disabledNoTask : COPY.reassign.disabledNoRoster) : undefined}
+                  title={reassignDisabled ? (!hasTask ? text("reassign.disabled_no_task") : text("reassign.disabled_no_roster")) : undefined}
                 >
-                  {COPY.reassign.submit}
+                  {text("reassign.submit")}
                 </button>
               </form>
             </div>
@@ -299,17 +315,17 @@ function VerificationReviewDrawerPanel({
 
           <section className="card" style={{ marginTop: 14 }}>
             <div className="hd">
-              <h3>{COPY.penalty.title}</h3>
+              <h3>{text("penalty.title")}</h3>
             </div>
             <div className="bd">
               <div style={{ display: "grid", gap: 8 }}>
                 <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{COPY.penalty.reasonLabel}</span>
-                  <textarea name="penalty_note" rows={2} placeholder={COPY.penalty.reasonPlaceholder} disabled />
+                  <span>{text("penalty.reason_label")}</span>
+                  <textarea name="penalty_note" rows={2} placeholder={text("penalty.reason_placeholder")} disabled />
                 </label>
-                <div className="note">{COPY.penalty.disabled}</div>
-                <button type="button" className="btn" disabled aria-disabled title={COPY.penalty.disabled}>
-                  {COPY.penalty.submit}
+                <div className="note">{text("penalty.disabled")}</div>
+                <button type="button" className="btn" disabled aria-disabled title={text("penalty.disabled")}>
+                  {text("penalty.submit")}
                 </button>
               </div>
             </div>
@@ -317,11 +333,11 @@ function VerificationReviewDrawerPanel({
         </div>
 
         <div className="df">
-          <Link href={`/operations/audit?domain=preventive_care&module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
-            {COPY.action.openAuditLog}
+          <Link href={`/operations/audit?module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
+            {text("action.open_audit_log")}
           </Link>
           <button type="button" className="btn" onClick={onClose}>
-            {COPY.action.close}
+            {text("action.close")}
           </button>
         </div>
       </aside>

@@ -69,6 +69,31 @@ class VerifyDetailViewModelAnalyticsTest {
     }
 
     @Test
+    fun `historical approved detail reuses the exact queue cache scope`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "itemId" to "item-1",
+                    "category" to "birth_evidence",
+                    "status" to "approved",
+                    "businessDate" to "2026-07-29",
+                    "missed" to false,
+                ),
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(Triple("approved", "2026-07-29", false), repo.lastObservedScope)
+        assertEquals(Triple("approved", "2026-07-29", false), repo.lastRefreshedScope)
+    }
+
+    @Test
     fun `detail open and playback events include bounded proof watch analytics`() = runTest(dispatcher) {
         val analytics = RecordingAnalytics()
         val vm = VerifyDetailViewModel(
@@ -225,6 +250,8 @@ private class RecordingCrashReporter : CrashReporter {
 }
 
 private class FakeVerifyDetailRepository : VerificationRepository {
+    var lastObservedScope: Triple<String?, String?, Boolean?>? = null
+    var lastRefreshedScope: Triple<String?, String?, Boolean?>? = null
     private val item = VerificationQueueItem(
         itemId = "item-1",
         category = "vaccination_proof",
@@ -238,12 +265,17 @@ private class FakeVerifyDetailRepository : VerificationRepository {
     )
     private val response = VerificationQueueResponseDto(items = listOf(item))
 
-    override suspend fun queue(category: String?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = response
-    override fun observeQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
-        flowOf(Resource(data = response))
+    override suspend fun queue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = response
+    override fun observeQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> {
+        lastObservedScope = Triple(status, businessDate, missed)
+        return flowOf(Resource(data = response))
+    }
 
-    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
-    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
+        lastRefreshedScope = Triple(status, businessDate, missed)
+        return Result.success(Unit)
+    }
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
         flowOf(Resource(data = response))
 

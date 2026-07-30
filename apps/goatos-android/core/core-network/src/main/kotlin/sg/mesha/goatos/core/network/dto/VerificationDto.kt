@@ -68,6 +68,7 @@ data class VerificationQueueItem(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_label") val parkLabel: String? = null,
     @SerialName("verified_by") val verifiedBy: String? = null,
+    @SerialName("verified_by_name") val verifiedByName: String? = null,
     @SerialName("verified_at") val verifiedAt: String? = null,
     @SerialName("closed_by") val closedBy: String? = null,
     @SerialName("closed_at") val closedAt: String? = null,
@@ -91,8 +92,30 @@ data class VerificationQueueResponseDto(
 
 @Serializable
 data class VerificationFilterOptionsDto(
+    @SerialName("module_key") val moduleKey: String = "",
+    @SerialName("module_label") val moduleLabel: String = "",
+    @SerialName("pages") val pages: List<VerificationPageOptionDto> = emptyList(),
+    @SerialName("statuses") val statuses: List<VerificationStatusOptionDto> = emptyList(),
     @SerialName("parks") val parks: List<VerificationLocationOptionDto>? = null,
     @SerialName("sheds") val sheds: List<VerificationLocationOptionDto>? = null,
+    @SerialName("selected_business_date") val selectedBusinessDate: String? = null,
+    @SerialName("business_timezone") val businessTimezone: String = "Asia/Kolkata",
+    @SerialName("missed_only") val missedOnly: Boolean = false,
+    @SerialName("has_missed") val hasMissed: Boolean = false,
+)
+
+@Serializable
+data class VerificationPageOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("category") val category: String = "",
+)
+
+@Serializable
+data class VerificationStatusOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("status") val status: String = "",
 )
 
 @Serializable

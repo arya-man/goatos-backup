@@ -12,11 +12,16 @@ import (
 // vertical/module needs to appear in the verifier queue, admin-web screen, and mobile section; no
 // verification code changes per module.
 type CategoryDefinition struct {
-	Vertical      string
-	Module        string
-	Category      string
-	ExpectedMedia []string // e.g. ["video"]; informational — enforced by producer, not verification.
-	SLAHours      int
+	Vertical              string
+	Module                string
+	Category              string
+	ExpectedMedia         []string // e.g. ["video"]; informational — enforced by producer, not verification.
+	SLAHours              int
+	NavigationModule      string // backend drawer module key, e.g. counts or feed_direction
+	NavigationModuleLabel string // backend-owned display copy for the queue header
+	PageKey               string // stable page/tab key inside NavigationModule
+	PageLabel             string // backend-owned top-tab label
+	PageOrder             int
 }
 
 // Registry is a concurrency-safe, in-memory category registry populated at composition time.
@@ -35,8 +40,22 @@ func (r *Registry) Register(def CategoryDefinition) error {
 	def.Vertical = strings.TrimSpace(def.Vertical)
 	def.Module = strings.TrimSpace(def.Module)
 	def.Category = strings.TrimSpace(def.Category)
+	def.NavigationModule = strings.TrimSpace(def.NavigationModule)
+	def.NavigationModuleLabel = strings.TrimSpace(def.NavigationModuleLabel)
+	def.PageKey = strings.TrimSpace(def.PageKey)
+	def.PageLabel = strings.TrimSpace(def.PageLabel)
 	if def.Vertical == "" || def.Module == "" || def.Category == "" {
 		return fmt.Errorf("%w: vertical, module, and category are required", ErrInvalid)
+	}
+	pageFields := []string{def.NavigationModule, def.NavigationModuleLabel, def.PageKey, def.PageLabel}
+	pageFieldCount := 0
+	for _, value := range pageFields {
+		if value != "" {
+			pageFieldCount++
+		}
+	}
+	if pageFieldCount != 0 && pageFieldCount != len(pageFields) {
+		return fmt.Errorf("%w: verification navigation metadata must include module key, module label, page key, and page label", ErrInvalid)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

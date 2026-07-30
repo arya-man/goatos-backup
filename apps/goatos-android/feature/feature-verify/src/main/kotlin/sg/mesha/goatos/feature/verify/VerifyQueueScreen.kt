@@ -20,9 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -47,12 +52,18 @@ import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
 // VerifyQueueViewModel (:app), which owns every side effect this screen triggers.
 /**
- * The standalone Verifier section's queue (context/architecture/verifier-app-and-flow.md): a
- * verifier who opens the app sees ONLY this — a category-filtered queue of pending media to
+ * The verifier-only workspace's reusable queue (context/architecture/verifier-app-and-flow.md):
+ * every backend-composed drawer module opens this category-filtered queue of pending media to
  * verify. Row tap drills into [VerifyDetailScreen] (video playback + approve/reject). No
  * capture, no ops, no roster, no config — this + the detail screen are the entire section.
  */
@@ -99,26 +110,29 @@ data class VerifyDriveClosure(
     val ready: Boolean,
 )
 
-/** A category filter chip. [value] is the raw category key sent to the backend
- *  (`null` = every category this verifier is assigned, [label] then `null` so the Screen
- *  substitutes the localized "All" chrome string — the one label here that is NOT backend
- *  data); a non-null [value] always carries a non-null [label]. Built by the ViewModel from
- *  the distinct categories the backend has actually returned for this verifier — never a
- *  client-hardcoded category enum (categories are a plug-and-play registry per
- *  verification-module-design.md §2.3). */
+/** One backend-defined page tab. [value] is the disjoint raw category filter and [label] is
+ *  backend-owned display copy from the verification registry. */
 data class VerifyCategoryOption(val value: String?, val label: String?)
 
-data class VerifyLocationFilterOption(val value: String?, val label: String)
+/** One backend-defined disjoint secondary tab at verification-item grain. */
+data class VerifyStatusOption(val value: String, val label: String)
 
-enum class VerifyModuleTab { VACCINATION, WEIGHING }
+data class VerifyLocationFilterOption(val value: String?, val label: String)
 
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
-    val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
+    val moduleKey: String = "",
+    val moduleLabel: String = "",
     val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
+    val statusOptions: List<VerifyStatusOption> = emptyList(),
+    val selectedStatus: String = "pending",
+    val selectedBusinessDate: String = "",
+    val businessTimezone: String = "Asia/Kolkata",
+    val missedOnly: Boolean = false,
+    val hasMissed: Boolean = false,
     val parkOptions: List<VerifyLocationFilterOption> = emptyList(),
     val selectedParkId: String? = null,
     val shedOptions: List<VerifyLocationFilterOption> = emptyList(),
@@ -140,13 +154,15 @@ sealed interface VerifyQueueEvent {
     data class SelectCategory(val category: String?) : VerifyQueueEvent
     data class SelectPark(val parkId: String?) : VerifyQueueEvent
     data class SelectShed(val shedId: String?) : VerifyQueueEvent
+    data class SelectStatus(val status: String) : VerifyQueueEvent
+    data class SelectBusinessDate(val businessDate: String) : VerifyQueueEvent
+    data object ToggleMissed : VerifyQueueEvent
     /** [category] is the tapped row's OWN category (never the queue's filter selection) — the
      *  nav host threads it into the detail route so that screen re-observes the exact same Room
      *  cache scope this row came from, with no extra network call. */
     data class OpenItem(val itemId: String, val category: String) : VerifyQueueEvent
     data object Refresh : VerifyQueueEvent
     data object LoadMore : VerifyQueueEvent
-    data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
     data class CloseDrive(val batchId: String) : VerifyQueueEvent
 }
 
@@ -159,7 +175,8 @@ fun VerifyQueueScreen(
     RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
     val listState = rememberLazyListState()
     var selectedWeighingScope by remember { mutableStateOf<VerifyScopeType?>(null) }
-    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
+    var datePickerOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedCategory) {
         if (
             !state.hasMore ||
             state.isLoadingMore ||
@@ -179,19 +196,47 @@ fun VerifyQueueScreen(
             .fillMaxSize()
             .background(MeshaColors.PageBg),
     ) {
-        QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        if (state.selectedModule == VerifyModuleTab.WEIGHING) {
-            WeighingScopeTabs(
-                rows = state.rows,
-                selected = selectedWeighingScope,
-                onSelect = { selectedWeighingScope = it },
-            )
-        }
-        if (state.selectedModule == VerifyModuleTab.VACCINATION && state.categoryOptions.size > 1) {
+        QueueHeader(
+            state = state,
+            onRefresh = { onEvent(VerifyQueueEvent.Refresh) },
+            onMissed = { onEvent(VerifyQueueEvent.ToggleMissed) },
+        )
+        if (state.categoryOptions.isNotEmpty()) {
             CategoryFilterRow(
                 options = state.categoryOptions,
                 selected = state.selectedCategory,
                 onSelect = { onEvent(VerifyQueueEvent.SelectCategory(it)) },
+            )
+        }
+        if (!state.isActionQueue && state.statusOptions.isNotEmpty()) {
+            StatusFilterRow(
+                options = state.statusOptions,
+                selected = state.selectedStatus,
+                onSelect = { onEvent(VerifyQueueEvent.SelectStatus(it)) },
+            )
+            BusinessDateRow(
+                businessDate = state.selectedBusinessDate,
+                businessTimezone = state.businessTimezone,
+                missedOnly = state.missedOnly,
+                onPrevious = {
+                    state.selectedBusinessDate.toLocalDateOrNull()?.minusDays(1)?.let {
+                        onEvent(VerifyQueueEvent.SelectBusinessDate(it.toString()))
+                    }
+                },
+                onNext = {
+                    val today = LocalDate.now(ZoneId.of(state.businessTimezone))
+                    state.selectedBusinessDate.toLocalDateOrNull()?.plusDays(1)?.takeIf { !it.isAfter(today) }?.let {
+                        onEvent(VerifyQueueEvent.SelectBusinessDate(it.toString()))
+                    }
+                },
+                onOpenCalendar = { datePickerOpen = true },
+            )
+        }
+        if (state.moduleKey == "weighing") {
+            WeighingScopeTabs(
+                rows = state.rows,
+                selected = selectedWeighingScope,
+                onSelect = { selectedWeighingScope = it },
             )
         }
         if (state.parkOptions.size > 1) {
@@ -231,13 +276,13 @@ fun VerifyQueueScreen(
                 item {
                     EmptyState(
                         title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty else R.string.verify_queue_empty),
-                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_subtitle),
+                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_date_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Positive,
                     )
                 }
             } else {
-                if (state.selectedModule == VerifyModuleTab.WEIGHING) {
+                if (state.moduleKey == "weighing") {
                     val visibleRows = if (selectedWeighingScope != null) {
                         state.rows.filter { it.scopeType == selectedWeighingScope }
                     } else {
@@ -265,6 +310,29 @@ fun VerifyQueueScreen(
             }
             item { Spacer(Modifier.size(24.dp)) }
         }
+    }
+    if (datePickerOpen) {
+        val selectedMillis = state.selectedBusinessDate.toLocalDateOrNull()
+            ?.atStartOfDay(ZoneOffset.UTC)
+            ?.toInstant()
+            ?.toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = selectedMillis)
+        DatePickerDialog(
+            onDismissRequest = { datePickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        val selected = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                        val today = LocalDate.now(ZoneId.of(state.businessTimezone))
+                        if (!selected.isAfter(today)) onEvent(VerifyQueueEvent.SelectBusinessDate(selected.toString()))
+                    }
+                    datePickerOpen = false
+                }) { Text(stringResource(android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { datePickerOpen = false }) { Text(stringResource(android.R.string.cancel)) }
+            },
+        ) { DatePicker(state = pickerState) }
     }
 }
 
@@ -360,26 +428,6 @@ private fun DriveCloseCard(
 }
 
 @Composable
-private fun ModuleTabs(
-    selected: VerifyModuleTab,
-    onSelect: (VerifyModuleTab) -> Unit,
-) {
-    val tabs = listOf(
-        VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
-        VerifyModuleTab.WEIGHING to stringResource(R.string.verify_module_weighing),
-    )
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 10.dp),
-    ) {
-        items(tabs, key = { it.first.name }) { (tab, label) ->
-            CategoryChip(label = label, selected = tab == selected, onClick = { onSelect(tab) })
-        }
-    }
-}
-
-@Composable
 private fun WeighingScopeTabs(
     rows: List<VerificationQueueRow>,
     selected: VerifyScopeType?,
@@ -452,14 +500,9 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
 }
 
 @Composable
-private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
-    val eyebrow = when {
-        state.isActionQueue -> null
-        state.selectedModule == VerifyModuleTab.WEIGHING -> R.string.verify_module_weighing
-        else -> R.string.verify_module_vaccination
-    }
+private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMissed: () -> Unit) {
     MeshaScreenHeader(
-        eyebrow = eyebrow?.let { stringResource(it).uppercase() },
+        eyebrow = state.moduleLabel.takeIf { !state.isActionQueue && it.isNotBlank() }?.uppercase(),
         title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
         below = {
             SyncStatusIndicator(
@@ -471,6 +514,27 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
             )
         },
         actions = {
+            if (!state.isActionQueue) {
+                Box {
+                    IconButton(onClick = onMissed) {
+                        Icon(
+                            imageVector = MeshaIcons.Bell,
+                            contentDescription = stringResource(R.string.verify_missed_open),
+                            tint = if (state.missedOnly) MeshaColors.Brand else MeshaColors.Muted,
+                        )
+                    }
+                    if (state.hasMissed) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 8.dp, end = 8.dp)
+                                .size(9.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(MeshaColors.Danger),
+                        )
+                    }
+                }
+            }
             SyncIconButton(
                 isSyncing = state.isRefreshing,
                 onSync = onRefresh,
@@ -479,6 +543,70 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
         },
     )
 }
+
+@Composable
+private fun StatusFilterRow(
+    options: List<VerifyStatusOption>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        items(options, key = { it.value }) { option ->
+            CategoryChip(label = option.label, selected = option.value == selected, onClick = { onSelect(option.value) })
+        }
+    }
+}
+
+@Composable
+private fun BusinessDateRow(
+    businessDate: String,
+    businessTimezone: String,
+    missedOnly: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onOpenCalendar: () -> Unit,
+) {
+    val selected = businessDate.toLocalDateOrNull()
+    val today = LocalDate.now(ZoneId.of(businessTimezone))
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onPrevious, enabled = !missedOnly) {
+            Icon(MeshaIcons.ChevronLeft, contentDescription = stringResource(R.string.verify_date_previous), tint = MeshaColors.Muted)
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (missedOnly) MeshaColors.WarnX else MeshaColors.Surf2)
+                .border(1.dp, if (missedOnly) MeshaColors.Warn else MeshaColors.Hair, RoundedCornerShape(12.dp))
+                .clickable(onClick = onOpenCalendar)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(MeshaIcons.Calendar, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.size(7.dp))
+            Text(
+                text = if (missedOnly) stringResource(R.string.verify_missed_before_today) else selected?.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)).orEmpty(),
+                color = MeshaColors.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
+        IconButton(onClick = onNext, enabled = !missedOnly && selected != null && selected.isBefore(today)) {
+            Icon(MeshaIcons.Chevron, contentDescription = stringResource(R.string.verify_date_next), tint = MeshaColors.Muted)
+        }
+    }
+}
+
+private fun String.toLocalDateOrNull(): LocalDate? = runCatching { LocalDate.parse(this) }.getOrNull()
 
 @Composable
 private fun CategoryFilterRow(

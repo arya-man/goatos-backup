@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -99,6 +101,7 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.Vertical = strings.TrimSpace(params.Vertical)
 	params.Module = strings.TrimSpace(params.Module)
 	params.Status = strings.TrimSpace(params.Status)
+	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.ParkID = strings.TrimSpace(params.ParkID)
 	params.ShedID = strings.TrimSpace(params.ShedID)
 	if params.ParkID != "" && !uuidutil.IsUUIDString(params.ParkID) {
@@ -106,6 +109,32 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	}
 	if params.ShedID != "" && !uuidutil.IsUUIDString(params.ShedID) {
 		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID")
+	}
+	todayStart := biztime.BusinessDayStart(s.now())
+	params.MissedBefore = &todayStart
+	if params.MissedOnly {
+		if params.BusinessDate != "" {
+			return QueueResult{}, BadRequest("invalid_date_scope", "business_date and missed cannot be combined")
+		}
+		if params.Status != "" && params.Status != domain.StatusPending {
+			return QueueResult{}, BadRequest("invalid_missed_status", "missed verification items must use pending status")
+		}
+		params.Status = domain.StatusPending
+		params.CapturedBefore = &todayStart
+	} else if params.BusinessDate == "" && !params.IncludeAllStatuses {
+		params.BusinessDate = biztime.BusinessDate(s.now())
+	}
+	if params.BusinessDate != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", params.BusinessDate, biztime.DefaultLocation())
+		if err != nil {
+			return QueueResult{}, BadRequest("invalid_business_date", "business_date must be YYYY-MM-DD")
+		}
+		if parsed.After(todayStart) {
+			return QueueResult{}, BadRequest("future_business_date", "business_date cannot be in the future")
+		}
+		before := parsed.AddDate(0, 0, 1)
+		params.CapturedFrom = &parsed
+		params.CapturedBefore = &before
 	}
 	if params.Status == "" && !params.IncludeAllStatuses {
 		params.Status = domain.StatusPending
@@ -134,7 +163,80 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	if err != nil {
 		return QueueResult{}, mapRepoErr(err)
 	}
+	if options.Parks == nil {
+		options.Parks = []domain.LocationFilterOption{}
+	}
+	if options.Sheds == nil {
+		options.Sheds = []domain.LocationFilterOption{}
+	}
+	options.ActionTypes = s.actionTypeOptions()
+	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(params.Category)
+	options.Statuses = []domain.QueueStatusOption{
+		{Key: "due", Label: "Due", Status: domain.StatusPending},
+		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
+		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},
+	}
+	options.SelectedBusinessDate = params.BusinessDate
+	options.BusinessTimezone = biztime.DefaultTimezone
+	options.MissedOnly = params.MissedOnly
 	return QueueResult{Items: s.resolveMedia(ctx, params.TenantID, items), FilterOptions: options, NextCursor: next}, nil
+}
+
+// actionTypeOptions returns every registered verification page as a stable, cross-module filter
+// vocabulary. Unlike pageOptions, this list is intentionally independent of the selected category
+// and current queue rows so an empty page never makes an action type disappear from admin-web.
+func (s *Service) actionTypeOptions() []domain.QueueActionTypeOption {
+	definitions := s.registry.List()
+	sort.SliceStable(definitions, func(i, j int) bool {
+		if definitions[i].NavigationModuleLabel != definitions[j].NavigationModuleLabel {
+			return definitions[i].NavigationModuleLabel < definitions[j].NavigationModuleLabel
+		}
+		if definitions[i].PageOrder != definitions[j].PageOrder {
+			return definitions[i].PageOrder < definitions[j].PageOrder
+		}
+		return definitions[i].Category < definitions[j].Category
+	})
+	options := make([]domain.QueueActionTypeOption, 0, len(definitions))
+	for _, def := range definitions {
+		if def.NavigationModule == "" || def.NavigationModuleLabel == "" || def.PageLabel == "" {
+			continue
+		}
+		options = append(options, domain.QueueActionTypeOption{
+			Key: def.Category, Label: def.PageLabel, Category: def.Category,
+			ModuleKey: def.NavigationModule, ModuleLabel: def.NavigationModuleLabel,
+		})
+	}
+	return options
+}
+
+// pageOptions derives the selected module's complete top-tab set from the category registry,
+// including pages with no current queue rows. This keeps tab presence stable when a queue is
+// empty and makes the backend the sole owner of page keys, labels, ordering, and filters.
+func (s *Service) pageOptions(selectedCategory string) (string, string, []domain.QueuePageOption) {
+	selected, ok := s.registry.Get(selectedCategory)
+	if !ok || selected.NavigationModule == "" {
+		return "", "", []domain.QueuePageOption{}
+	}
+	definitions := s.registry.List()
+	sort.SliceStable(definitions, func(i, j int) bool {
+		if definitions[i].PageOrder == definitions[j].PageOrder {
+			return definitions[i].PageKey < definitions[j].PageKey
+		}
+		return definitions[i].PageOrder < definitions[j].PageOrder
+	})
+	pages := make([]domain.QueuePageOption, 0, len(definitions))
+	seen := make(map[string]struct{}, len(definitions))
+	for _, def := range definitions {
+		if def.NavigationModule != selected.NavigationModule || def.PageKey == "" {
+			continue
+		}
+		if _, exists := seen[def.PageKey]; exists {
+			continue
+		}
+		seen[def.PageKey] = struct{}{}
+		pages = append(pages, domain.QueuePageOption{Key: def.PageKey, Label: def.PageLabel, Category: def.Category})
+	}
+	return selected.NavigationModule, selected.NavigationModuleLabel, pages
 }
 
 func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {

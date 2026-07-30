@@ -655,12 +655,10 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 //
 // Maintainer decision 2026-07-27: the operator module-switcher drawer rollout is
 // ENABLED (it was previously pinned to minimal). Operators with >=2 granted
-// modules now get the same >=2->drawer treatment as leadership. A standalone
-// verifier is the only principal deliberately kept on minimal chrome.
+// modules now get the same >=2->drawer treatment as leadership. The verifier
+// workspace follows the same rule now that its five evidence modules are
+// backend-composed drawer entries.
 func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
-	if isStandaloneVerifierPrincipal(grants) {
-		return domain.NavChromeMinimal
-	}
 	available := 0
 	for _, m := range modules {
 		if m.Status == moduleStatusAvailable {

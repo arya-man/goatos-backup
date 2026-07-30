@@ -41,11 +41,15 @@ the drawer and bottom bars from the same registry described below.
 ## How it is built (shipped)
 - A **module registry** (`moduleNavRegistry` in
   `backend/internal/workforce/app/bootstrap_copy.go`) is the single source of truth.
-  Each entry is a `moduleDefinition` carrying **two things**:
+  Each entry is a `moduleDefinition` carrying **three things**:
   1. the module's **drawer identity** — `{ key, labelKey, landingHref, status,
      priority }`, the row a person taps to switch modules; and
   2. its **nav contributions** — the `{ key, labelKey, href, shared_key?, priority }`
-     items that make up that module's bottom bar.
+     items that make up that module's operational bottom bar; and
+  3. its optional **verification-review lens** — a review landing href plus
+     review contributions for the same drawer identity. A principal with
+     `verification.review` but not `verification.act` receives this lens, so no
+     client or role-specific module template is required.
   Drawer identity used to be hardcoded client-side (Android `GoatOsShell.kt` held a
   literal Vaccination row plus its own `SOON_MODULES` list). It is backend-owned now,
   so adding a module is a registry entry, not a client change.
@@ -139,7 +143,7 @@ authorities.** One registry entry then yields:
 | `admin` | yes | yes | yes | yes (3-item bar) |
 | `ceo_internal` | yes | yes | yes | yes (3-item bar) |
 | `pc_director` | — | — | — | **NO — all items gated + preventive-care leader** |
-| `verifier` | — | — | — | **NO — all items gated, module omitted** |
+| `verifier` | review-only | review-only | review-only | **YES — Counts evidence lens** |
 
 Operator lands on `/counts/birth-death` via the landing-href fallback, since the
 declared `/counts` landing is gated away from it. `pc_director` and `verifier` hold no
@@ -208,7 +212,7 @@ Leadership principals are still composed by leadership **tier**, not "all module
 | ceo_internal | Vaccination + Counts + Feed + Breeding(soon)     | expanded | all / multi-park |
 | pc_director  | Vaccination only                                 | minimal  | multi-park        |
 | park_head    | Vaccination + Feed                               | expanded | own park (grant scope) |
-| verifier     | Verification only                                | minimal  | n/a               |
+| verifier     | Vaccination + Weighing + Counts + Feed + Health  | expanded | assigned evidence scope |
 | operator     | department-granted modules                       | minimal  | grant scope       |
 
 Rules encoded (`bootstrap_copy.go`):
@@ -221,8 +225,9 @@ Rules encoded (`bootstrap_copy.go`):
   surfaces, and Counts/Feed/Breeding are not PC-Director surfaces. Feed is a built
   module (`feed_direction`/`feed_packing`), no longer a "soon" roadmap row.
   (park_head + Feed: maintainer decision 2026-07-25)
-- The **verification** module belongs to the verifier role. Vaccination leadership
-  uses the shared Vaccination module rather than a private leadership overview.
+- There is no synthetic **Verification** drawer module. A review-only principal
+  receives the five registry-derived module review lenses; Vaccination leadership
+  uses the operational Vaccination module rather than the verifier lens.
 - The Vaccination module lands on `/vaccination`. For CEO/CXO, the module's
   bottom bar is Overview (`/vaccination`) / Calendar (`/calendar`) / Alerts / You.
   For operators and preventive-care field leaders, the module's bottom bar is
@@ -231,8 +236,8 @@ Rules encoded (`bootstrap_copy.go`):
   to `/vaccination`, never `/leadership`.
 - `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =
   expanded drawer (CEO with Vaccination+Counts+Feed; Park Head with
-  Vaccination+Feed), a single available module = minimal bottom bar (PC Director,
-  verifier, single-module operators). "Soon" roadmap rows (Breeding) are only shown
+  Vaccination+Feed; Verifier with five evidence modules), a single available module
+  = minimal bottom bar (PC Director, single-module operators). "Soon" roadmap rows (Breeding) are only shown
   to a leadership tier that is actually offered them (CEO), never to a PC leader.
 - Park Head's single-park limit is **data scope** (his `user_scope_grant` /
   `scope_id`), not nav — the drawer change does not alter it.

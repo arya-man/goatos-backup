@@ -121,6 +121,55 @@ func TestActionCenterPublishesDriveCapacityBadgeCopy(t *testing.T) {
 	}
 }
 
+func TestActionsPageContractAndNavigation(t *testing.T) {
+	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
+	if bootstrap.TopBar.DateRangeSelector.Label != "Showing data for" {
+		t.Fatalf("top-bar date label must explain which day is rendered, got %q", bootstrap.TopBar.DateRangeSelector.Label)
+	}
+	for _, key := range []string{"date.menu_aria", "date.previous_month", "date.next_month", "date.today"} {
+		if bootstrap.Copy[key] == "" {
+			t.Fatalf("top-bar calendar copy %q must be backend-defined", key)
+		}
+	}
+	page := pageByRouteID(t, bootstrap.Pages, "verification-review")
+	if page.Href != "/actions" || page.Title != "Actions" {
+		t.Fatalf("actions page = %#v", page)
+	}
+	if got := page.Tables[0]; got.ID != "verification-actions" || got.DataSource != "/verification/queue" || got.RowClick.Param != "vi_row" {
+		t.Fatalf("actions table = %#v", got)
+	}
+	if page.Copy["crumb"] != "Approvals" {
+		t.Fatalf("Actions breadcrumb must be owned by Approvals, got %q", page.Copy["crumb"])
+	}
+	for _, key := range []string{
+		"filter.action_type", "filter.all_action_types", "state.empty",
+		"drawer.media.title", "drawer.media.open", "action.open_details",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("actions contract missing copy key %q", key)
+		}
+	}
+	actions := primaryNavByID(t, bootstrap.Navigation.Primary, "verification-actions")
+	if actions.Href != "/actions" || actions.Label != "Actions" {
+		t.Fatalf("actions nav = %#v", actions)
+	}
+	approvalsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "approvals")
+	actionsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "verification-actions")
+	if approvalsIndex < 0 || actionsIndex != approvalsIndex+1 {
+		t.Fatalf("Actions must sit immediately below Approvals and above grouped modules: approvals=%d actions=%d primary=%#v", approvalsIndex, actionsIndex, bootstrap.Navigation.Primary)
+	}
+	operator := NewService().Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Grants: []permissions.ActiveGrant{{
+			Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001",
+		}},
+	})
+	blocked := primaryNavByID(t, operator.Navigation.Primary, "verification-actions")
+	if blocked.Enabled || blocked.DisabledReason == "" {
+		t.Fatalf("operator actions nav must fail closed = %#v", blocked)
+	}
+}
+
 func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
 
@@ -606,7 +655,7 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 6 {
+	if len(resp.Navigation.Primary) != 7 {
 		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
 	}
 	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
@@ -751,6 +800,15 @@ func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) doma
 	}
 	t.Fatalf("missing primary nav item %q", id)
 	return domain.NavigationItem{}
+}
+
+func primaryNavIndex(items []domain.NavigationItem, id string) int {
+	for i, item := range items {
+		if item.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {

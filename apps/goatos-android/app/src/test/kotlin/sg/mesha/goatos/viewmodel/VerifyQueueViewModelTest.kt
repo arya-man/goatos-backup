@@ -29,12 +29,14 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
-import sg.mesha.goatos.feature.verify.VerifyModuleTab
+import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
+import sg.mesha.goatos.core.network.dto.VerificationPageOptionDto
+import sg.mesha.goatos.core.network.dto.VerificationStatusOptionDto
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 
 /**
  * Verifier feature segregation regressions. Each top-level feature must observe and refresh
- * only its backend category so Vaccination and Weighing videos cannot mix.
+ * only its backend-selected page category so videos from different module pages cannot mix.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class VerifyQueueViewModelTest {
@@ -47,34 +49,67 @@ class VerifyQueueViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `selecting weighing observes and refreshes only weighing proof`() = runTest(dispatcher) {
+    fun `counts route observes and refreshes only its backend page category`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo = repo, syncRepo = FakeVerifySyncRepository(), analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "shifting_move")),
+        )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        vm.onEvent(VerifyQueueEvent.SelectModule(VerifyModuleTab.WEIGHING))
-        advanceUntilIdle()
-
-        assertEquals(VerifyModuleTab.WEIGHING, vm.state.value.selectedModule)
-        assertEquals("weighing_proof", repo.observedCategories.last())
-        assertEquals("weighing_proof", repo.refreshedCategories.last())
+        assertEquals("shifting_move", vm.state.value.selectedCategory)
+        assertEquals("shifting_move", repo.observedCategories.last())
+        assertEquals("shifting_move", repo.refreshedCategories.last())
         assertFalse(vm.state.value.isRefreshing)
     }
 
     @Test
-    fun `refreshing the vaccination tab still clears isRefreshing after a real refresh`() = runTest(dispatcher) {
+    fun `selecting a backend page tab switches the category without a client module enum`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo = repo, syncRepo = FakeVerifySyncRepository(), analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "birth_evidence")),
+        )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        vm.onEvent(VerifyQueueEvent.Refresh)
+        vm.onEvent(VerifyQueueEvent.SelectCategory("death_evidence"))
         advanceUntilIdle()
 
         assertFalse(vm.state.value.isRefreshing)
-        assertEquals(2, repo.refreshQueueCalls) // once from init, once from this explicit Refresh
-        assertEquals(listOf("vaccination_proof", "vaccination_proof"), repo.refreshedCategories)
+        assertEquals("counts", vm.state.value.moduleKey)
+        assertEquals("Counts", vm.state.value.moduleLabel)
+        assertEquals("death_evidence", vm.state.value.selectedCategory)
+        assertEquals(listOf("birth_evidence", "death_evidence"), repo.refreshedCategories)
+    }
+
+    @Test
+    fun `secondary status date and missed filters switch the exact cached backend scope`() = runTest(dispatcher) {
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "shifting_move")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyQueueEvent.SelectStatus("approved"))
+        vm.onEvent(VerifyQueueEvent.SelectBusinessDate("2026-07-29"))
+        advanceUntilIdle()
+        assertEquals(Triple("approved", "2026-07-29", false), repo.refreshedScopes.last())
+
+        vm.onEvent(VerifyQueueEvent.ToggleMissed)
+        advanceUntilIdle()
+        assertEquals(Triple("pending", null, true), repo.refreshedScopes.last())
+        assertEquals("pending", vm.state.value.selectedStatus)
+        assertEquals(true, vm.state.value.missedOnly)
     }
 }
 
@@ -98,21 +133,45 @@ private class FakeVerifyQueueRepository : VerificationRepository {
         private set
     val observedCategories = mutableListOf<String?>()
     val refreshedCategories = mutableListOf<String?>()
+    val refreshedScopes = mutableListOf<Triple<String?, String?, Boolean?>>()
 
-    override suspend fun queue(category: String?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = error("unused")
+    override suspend fun queue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = error("unused")
 
-    override fun observeQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> {
+    override fun observeQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> {
         observedCategories += category
-        return flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+        return flowOf(
+            Resource(
+                data = VerificationQueueResponseDto(
+                    items = emptyList(),
+                    filterOptions = VerificationFilterOptionsDto(
+                        moduleKey = "counts",
+                        moduleLabel = "Counts",
+                        pages = listOf(
+                            VerificationPageOptionDto("birth", "Birth", "birth_evidence"),
+                            VerificationPageOptionDto("death", "Death", "death_evidence"),
+                        ),
+                        statuses = listOf(
+                            VerificationStatusOptionDto("due", "Due", "pending"),
+                            VerificationStatusOptionDto("approved", "Approved", "approved"),
+                            VerificationStatusOptionDto("rejected", "Rejected", "rejected"),
+                        ),
+                        selectedBusinessDate = businessDate,
+                        missedOnly = missed == true,
+                        hasMissed = true,
+                    ),
+                ),
+            ),
+        )
     }
 
-    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
         refreshQueueCalls++
         refreshedCategories += category
+        refreshedScopes += Triple(status, businessDate, missed)
         return Result.success(Unit)
     }
 
-    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = error("unused")
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit

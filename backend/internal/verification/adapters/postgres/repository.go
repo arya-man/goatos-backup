@@ -69,7 +69,8 @@ const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
-  COALESCE(wm_member.display_name, wm_user.display_name)::text, shed_loc.name::text, park_loc.name::text`
+  operator.display_name::text, verifier.display_name::text,
+  shed_loc.name::text, park_loc.name::text`
 
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -179,13 +180,36 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 		cursorCapturedAt = params.Cursor.CapturedAt
 		cursorItemID = params.Cursor.ItemID
 	}
+	// projection-review: producer grain is verification_items(item_id); the consumer matches that
+	// same item_id grain. Operator/verifier LATERAL, shed, and park label joins are each
+	// 0..1, so no joined side multiplies a queue row. This query computes no numerator/denominator.
 	rows, err := r.pool.Query(ctx, `
 SELECT `+itemColumnsWithLabels+`
 FROM verification_items vi
-LEFT JOIN workforce_members wm_member
-  ON vi.tenant_id = wm_member.tenant_id AND vi.operator_id = wm_member.workforce_member_id
-LEFT JOIN workforce_members wm_user
-  ON vi.tenant_id = wm_user.tenant_id AND vi.operator_id = wm_user.user_id
+LEFT JOIN LATERAL (
+  SELECT wm.display_name
+  FROM workforce_members wm
+  WHERE wm.tenant_id = vi.tenant_id
+    AND (wm.workforce_member_id = vi.operator_id OR wm.user_id = vi.operator_id)
+  ORDER BY
+    (wm.workforce_member_id = vi.operator_id) DESC,
+    (wm.status = 'active') DESC,
+    wm.updated_at DESC,
+    wm.workforce_member_id
+  LIMIT 1
+) operator ON true
+LEFT JOIN LATERAL (
+  SELECT wm.display_name
+  FROM workforce_members wm
+  WHERE wm.tenant_id = vi.tenant_id
+    AND (wm.workforce_member_id = vi.verified_by OR wm.user_id = vi.verified_by)
+  ORDER BY
+    (wm.workforce_member_id = vi.verified_by) DESC,
+    (wm.status = 'active') DESC,
+    wm.updated_at DESC,
+    wm.workforce_member_id
+  LIMIT 1
+) verifier ON true
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
 LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
 WHERE vi.tenant_id = $1::uuid
@@ -196,6 +220,8 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
   AND ($14 = '' OR vi.park_id = $14::uuid)
   AND ($15 = '' OR vi.shed_id = $15::uuid)
+  AND ($16::timestamptz IS NULL OR vi.captured_at >= $16::timestamptz)
+  AND ($17::timestamptz IS NULL OR vi.captured_at < $17::timestamptz)
   AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
   AND (
     NOT $10::boolean
@@ -219,6 +245,7 @@ LIMIT $11`,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
 		params.ParkID, params.ShedID,
+		params.CapturedFrom, params.CapturedBefore,
 	)
 	if err != nil {
 		return nil, err
@@ -252,10 +279,13 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
   AND (NOT $8::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $9::boolean OR vi.closed_at IS NULL)
+  AND ($10::timestamptz IS NULL OR vi.captured_at >= $10::timestamptz)
+  AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)
 GROUP BY vi.park_id, park_loc.name
 ORDER BY label, vi.park_id::text`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.SubmissionScopedOnly, params.OpenOnly,
+		params.CapturedFrom, params.CapturedBefore,
 	)
 	if err != nil {
 		return options, err
@@ -285,10 +315,13 @@ WHERE vi.tenant_id = $1::uuid
   AND ($8 = '' OR vi.park_id = $8::uuid)
   AND (NOT $9::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
+  AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
+  AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
 GROUP BY vi.shed_id, shed_loc.name
 ORDER BY label, vi.shed_id::text`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
+		params.CapturedFrom, params.CapturedBefore,
 	)
 	if err != nil {
 		return options, err
@@ -303,6 +336,28 @@ ORDER BY label, vi.shed_id::text`,
 	}
 	if err := shedRows.Err(); err != nil {
 		return options, err
+	}
+	if params.MissedBefore != nil {
+		err = r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.status = 'pending'
+    AND ($2 = '' OR vi.category = $2)
+    AND ($3 = '' OR vi.vertical = $3)
+    AND ($4 = '' OR vi.module = $4)
+    AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
+    AND ($7 = '' OR vi.park_id = $7::uuid)
+    AND ($8 = '' OR vi.shed_id = $8::uuid)
+    AND vi.captured_at < $9::timestamptz
+  LIMIT 1
+)`, params.TenantID, params.Category, params.Vertical, params.Module,
+			params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID, params.MissedBefore,
+		).Scan(&options.HasMissed)
+		if err != nil {
+			return options, err
+		}
 	}
 	return options, nil
 }
@@ -1643,7 +1698,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		sourceTaskID, sourceSubmissionID                                *string
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel                                                    *string
-		operatorName, shedLabel, parkLabel                              *string
+		operatorName, verifiedByName, shedLabel, parkLabel              *string
 		mediaJSON                                                       []byte
 		verifiedAt, closedAt                                            *time.Time
 	)
@@ -1653,7 +1708,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
-		&operatorName, &shedLabel, &parkLabel,
+		&operatorName, &verifiedByName, &shedLabel, &parkLabel,
 	); err != nil {
 		return domain.Item{}, err
 	}
@@ -1668,6 +1723,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.ParkID = parkID
 	item.ParkLabel = parkLabel
 	item.VerifiedBy = verifiedBy
+	item.VerifiedByName = verifiedByName
 	item.VerifiedAt = verifiedAt
 	item.ClosedBy = closedBy
 	item.ClosedAt = closedAt

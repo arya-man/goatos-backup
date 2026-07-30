@@ -1523,11 +1523,19 @@ export async function assignSopTask(taskId: string, body: AssignTaskRequest): Pr
 }
 
 // The Verifier's read-only media queue (GET /verification/queue, real generated app-api contract).
-// NOTE the contract has NO park_id query filter yet — the drawer/list below narrow the
-// already-fetched bounded page by the top-bar park scope client-side (small page, ~20 rows, never
-// a full-table read) until a park_id query param is added server-side.
 export async function listVerificationQueue(
-  params: { category?: string; vertical?: string; module?: string; status?: VerificationItemStatus; cursor?: string; limit?: number } = {},
+  params: {
+    category?: string;
+    vertical?: string;
+    module?: string;
+    status?: VerificationItemStatus;
+    businessDate?: string;
+    missed?: boolean;
+    parkId?: string;
+    shedId?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
 ): Promise<ApiResult<VerificationQueueResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1540,6 +1548,10 @@ export async function listVerificationQueue(
         vertical: params.vertical,
         module: params.module,
         status: params.status,
+        business_date: params.businessDate,
+        missed: params.missed,
+        park_id: params.parkId,
+        shed_id: params.shedId,
         cursor: params.cursor,
         limit: params.limit ?? 20,
       }),

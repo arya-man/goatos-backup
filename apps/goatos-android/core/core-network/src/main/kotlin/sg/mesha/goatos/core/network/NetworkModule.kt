@@ -384,6 +384,9 @@ interface AppApiService {
     @GET("verification/queue")
     suspend fun listVerificationQueue(
         @Query("category") category: String?,
+        @Query("status") status: String?,
+        @Query("business_date") businessDate: String?,
+        @Query("missed") missed: Boolean?,
         @Query("park_id") parkId: String?,
         @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
@@ -950,11 +953,14 @@ class RetrofitAppApi(
 
     override suspend fun listVerificationQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationQueue(category, parkId, shedId, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationQueue(category, status, businessDate, missed, parkId, shedId, cursor, limit)
 
     override suspend fun listVerificationActionQueue(
         category: String?,

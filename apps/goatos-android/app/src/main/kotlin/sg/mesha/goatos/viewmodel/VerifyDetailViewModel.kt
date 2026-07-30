@@ -77,6 +77,9 @@ class VerifyDetailViewModel @Inject constructor(
     private val isActionMode: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
     private val parkId: String? = savedStateHandle.get<String>("parkId")
     private val shedId: String? = savedStateHandle.get<String>("shedId")
+    private val status: String? = savedStateHandle.get<String>("status")
+    private val businessDate: String? = savedStateHandle.get<String>("businessDate")
+    private val missed: Boolean = savedStateHandle.get<Boolean>("missed") ?: false
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
@@ -85,7 +88,15 @@ class VerifyDetailViewModel @Inject constructor(
         if (isActionMode) {
             repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
         } else {
-            repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+            repo.observeQueue(
+                category = category,
+                status = status,
+                businessDate = businessDate,
+                missed = missed,
+                parkId = parkId,
+                shedId = shedId,
+                limit = VERIFY_DETAIL_PAGE_SIZE,
+            )
         }
 
     // Cache-first: the tapped row's category scope Room cache already holds this item's full
@@ -134,7 +145,15 @@ class VerifyDetailViewModel @Inject constructor(
         val result = if (isActionMode) {
             repo.refreshActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
         } else {
-            repo.refreshQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+            repo.refreshQueue(
+                category = category,
+                status = status,
+                businessDate = businessDate,
+                missed = missed,
+                parkId = parkId,
+                shedId = shedId,
+                limit = VERIFY_DETAIL_PAGE_SIZE,
+            )
         }
         _flags.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
     }

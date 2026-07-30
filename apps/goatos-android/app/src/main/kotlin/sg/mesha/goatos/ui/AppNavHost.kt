@@ -353,17 +353,16 @@ object Routes {
      * not the access control: `/app/counts/approvals` requires the same permission server-side.
      */
 
-    // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). A verifier's
-    // bootstrap nav contains ONLY this — see MeshaIcons.forNavKey/GoatOsShell.navItemLabel's
-    // "verify" key mapping. VERIFY is the queue; VERIFY_DETAIL drills to one item's video +
-    // approve/reject, threading both the item id AND its category (the detail VM re-observes
-    // that SAME category's Room cache scope rather than adding a second network call).
+    // Verifier evidence workspace. The backend composes five drawer modules; these are the
+    // fixed client-hosted roots those modules may reference. Page tabs themselves come from
+    // verification.filter_options.pages and therefore require no client enum.
     const val VERIFY = "/verify"
     const val VERIFY_VACCINATION = "/verify/vaccination"
     const val VERIFY_WEIGHING = "/verify/weighing"
+    const val VERIFY_COUNTS = "/verify/counts"
+    const val VERIFY_FEED = "/verify/feed"
+    const val VERIFY_HEALTH = "/verify/health"
     const val VERIFY_ACTION = "/verify/action"
-    const val VERIFY_ACTION_VACCINATION = "/verify/action/vaccination"
-    const val VERIFY_ACTION_WEIGHING = "/verify/action/weighing"
     const val VERIFY_DETAIL = "/verify/item"
     const val VERIFY_ACTION_DETAIL = "/verify/action/item"
     const val VERIFY_ITEM_ARG = "itemId"
@@ -372,6 +371,9 @@ object Routes {
     const val VERIFY_MODULE_ARG = "module"
     const val VERIFY_PARK_ARG = "parkId"
     const val VERIFY_SHED_ARG = "shedId"
+    const val VERIFY_STATUS_ARG = "status"
+    const val VERIFY_DATE_ARG = "businessDate"
+    const val VERIFY_MISSED_ARG = "missed"
 
     fun verifyDetailRoute(
         itemId: String,
@@ -379,6 +381,9 @@ object Routes {
         actionMode: Boolean = false,
         parkId: String? = null,
         shedId: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean = false,
     ): String {
         val args = listOfNotNull(
             VERIFY_ITEM_ARG to itemId,
@@ -386,6 +391,9 @@ object Routes {
             VERIFY_ACTION_ARG to actionMode.toString(),
             parkId?.takeIf { it.isNotBlank() }?.let { VERIFY_PARK_ARG to it },
             shedId?.takeIf { it.isNotBlank() }?.let { VERIFY_SHED_ARG to it },
+            status?.takeIf { it.isNotBlank() }?.let { VERIFY_STATUS_ARG to it },
+            businessDate?.takeIf { it.isNotBlank() && !missed }?.let { VERIFY_DATE_ARG to it },
+            VERIFY_MISSED_ARG to missed.toString(),
         )
         val base = if (actionMode) VERIFY_ACTION_DETAIL else VERIFY_DETAIL
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -1765,92 +1773,47 @@ fun AppNavHost(
         // Approvals page, gated to the four org tiers + admin + ceo_internal. There is no mobile
         // route, screen, or nav entry for approvals any more.
 
-        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md): a
-        // verifier's bootstrap nav contains ONLY VERIFY, so this is their entire app. A row
-        // drills to VERIFY_DETAIL with both the item id and ITS category threaded through, so
-        // the detail VM re-observes that exact Room cache scope (no second network round trip).
-        composable(
-            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false }),
-        ) { entry ->
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = state.isActionQueue,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = state.isActionQueue,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = state.isActionQueue,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
+        listOf(
+            Triple(Routes.VERIFY_VACCINATION, "vaccination", "vaccination_proof"),
+            Triple(Routes.VERIFY_WEIGHING, "weighing", "weighing_proof"),
+            Triple(Routes.VERIFY_COUNTS, "counts", "birth_evidence"),
+            Triple(Routes.VERIFY_FEED, "feed_direction", "feed_distribution"),
+            Triple(Routes.VERIFY_HEALTH, "aas_health", "health_adults"),
+        ).forEach { (route, module, initialCategory) ->
+            composable(
+                route = "$route?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}" +
+                    "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
+                    "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+                arguments = listOf(
+                    navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = module },
+                    navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; defaultValue = initialCategory },
+                    navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) {
+                val vm: VerifyQueueViewModel = hiltViewModel()
+                val state by vm.state.collectAsStateWithLifecycle()
+                VerifyQueueScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            is VerifyQueueEvent.OpenItem ->
+                                navController.navigate(
+                                    Routes.verifyDetailRoute(
+                                        itemId = event.itemId,
+                                        category = event.category,
+                                        actionMode = false,
+                                        parkId = state.selectedParkId,
+                                        shedId = state.selectedShedId,
+                                        status = state.selectedStatus,
+                                        businessDate = state.selectedBusinessDate,
+                                        missed = state.missedOnly,
+                                    ),
+                                ) { launchSingleTop = true }
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
         }
 
         composable(
@@ -1880,75 +1843,23 @@ fun AppNavHost(
         }
 
         composable(
-            route = "${Routes.VERIFY_ACTION_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = true,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_ACTION_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = true,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
             route = "${Routes.VERIFY_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
                 "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
                 "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
                 "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
-                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}" +
+                "&${Routes.VERIFY_STATUS_ARG}={${Routes.VERIFY_STATUS_ARG}}" +
+                "&${Routes.VERIFY_DATE_ARG}={${Routes.VERIFY_DATE_ARG}}" +
+                "&${Routes.VERIFY_MISSED_ARG}={${Routes.VERIFY_MISSED_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
                 navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_STATUS_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_DATE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_MISSED_ARG) { type = NavType.BoolType; defaultValue = false },
             ),
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
@@ -1974,13 +1885,19 @@ fun AppNavHost(
                 "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
                 "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
                 "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
-                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}" +
+                "&${Routes.VERIFY_STATUS_ARG}={${Routes.VERIFY_STATUS_ARG}}" +
+                "&${Routes.VERIFY_DATE_ARG}={${Routes.VERIFY_DATE_ARG}}" +
+                "&${Routes.VERIFY_MISSED_ARG}={${Routes.VERIFY_MISSED_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
                 navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_STATUS_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_DATE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_MISSED_ARG) { type = NavType.BoolType; defaultValue = false },
             ),
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
@@ -2111,9 +2028,10 @@ private val supportedRootDestinations = setOf(
 	Routes.VERIFY,
     Routes.VERIFY_VACCINATION,
     Routes.VERIFY_WEIGHING,
+    Routes.VERIFY_COUNTS,
+    Routes.VERIFY_FEED,
+    Routes.VERIFY_HEALTH,
     Routes.VERIFY_ACTION,
-    Routes.VERIFY_ACTION_VACCINATION,
-    Routes.VERIFY_ACTION_WEIGHING,
     Routes.YOU,
     Routes.ALERTS,
     Routes.TIMETABLE,

@@ -532,6 +532,9 @@ interface AppApi {
      *  `breeding`/…, `null` = every category this verifier is assigned). Per contracts/openapi/app-api.yaml. */
     suspend fun listVerificationQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         cursor: String? = null,
@@ -1220,6 +1223,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun listVerificationQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         cursor: String?,

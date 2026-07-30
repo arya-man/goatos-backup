@@ -162,6 +162,73 @@ func newLifecycleService(now time.Time) (*Service, *fakeConfigRepo, *fakeCountsR
 	return svc, config, counts, store
 }
 
+func TestAdvanceScheduledLifecycleFreezesRowsAndResumesFromDurableState(t *testing.T) {
+	transportTime := "15:45:00"
+	svc, _, _, store := newLifecycleService(istInstant(2026, 7, 29, 6))
+	svc.schedule = &fakeScheduleReader{
+		parks: []string{testPark},
+		clocks: []domain.WorkflowClock{{
+			Workflow:       domain.WorkflowNormal,
+			DirectionTime:  "07:00:00",
+			CorrectionTime: "14:00:00",
+			TransportTime:  &transportTime,
+		}},
+	}
+
+	beforeIssue, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 6))
+	if err != nil {
+		t.Fatalf("advance before issue: %v", err)
+	}
+	if len(beforeIssue) != 0 || len(store.headers) != 0 {
+		t.Fatalf("before issue cutoff reports=%d headers=%d, want no durable work", len(beforeIssue), len(store.headers))
+	}
+
+	issued, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 7))
+	if err != nil {
+		t.Fatalf("advance at issue: %v", err)
+	}
+	if len(issued) != 1 || issued[0].Header.State != domain.IssueStateIssued {
+		t.Fatalf("issue reports = %+v, want one issued transition", issued)
+	}
+	header := store.headers[issueKey(testPark, "2026-07-30", domain.WorkflowNormal)]
+	if header == nil || len(store.cells[header.IssueID]) == 0 {
+		t.Fatal("scheduled issue did not freeze generated rows")
+	}
+	issuedAt := header.IssuedAt
+
+	retry, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 8))
+	if err != nil {
+		t.Fatalf("advance issue retry: %v", err)
+	}
+	if len(retry) != 0 || !header.IssuedAt.Equal(issuedAt) {
+		t.Fatalf("issue retry repeated a durable transition: reports=%+v issued_at=%s", retry, header.IssuedAt)
+	}
+
+	amended, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 14))
+	if err != nil {
+		t.Fatalf("advance at correction: %v", err)
+	}
+	if len(amended) != 1 || header.State != domain.IssueStateAmended {
+		t.Fatalf("correction reports=%+v state=%q, want one amended transition", amended, header.State)
+	}
+
+	locked, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 16))
+	if err != nil {
+		t.Fatalf("advance after transport: %v", err)
+	}
+	if len(locked) != 1 || header.State != domain.IssueStateLocked {
+		t.Fatalf("transport reports=%+v state=%q, want one locked transition", locked, header.State)
+	}
+
+	lockedRetry, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 17))
+	if err != nil {
+		t.Fatalf("advance locked retry: %v", err)
+	}
+	if len(lockedRetry) != 0 {
+		t.Fatalf("locked retry repeated a transition: %+v", lockedRetry)
+	}
+}
+
 func istInstant(y int, m time.Month, d, h int) time.Time {
 	return time.Date(y, m, d, h, 0, 0, 0, biztime.DefaultLocation())
 }

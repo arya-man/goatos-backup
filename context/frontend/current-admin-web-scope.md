@@ -457,18 +457,19 @@ These are the only current implemented admin-web product routes:
 /config
 /sops
 /goats/{goat_id}
-/verification              Verification — authority review (Admin / Data Ops authority screen)
+/actions                   Actions — top-level cross-module verification evidence below Approvals
+/verification              Compatibility redirect to /actions
 ```
 
-`/verification` is a new Admin / Data Ops authority screen, same tier as
-`/config` and `/sops`: the Head/Director/CEO act surface for the generic
-Verification vertical's flagged (rejected) media items — see
-`context/architecture/verification-module-design.md`. It acts on the linked SOP
-task via the existing `/admin/tasks/{task_id}` rework/assign routes; it does not
-write the verifier's approve/reject verdict itself. Not yet nav-registered
-(reachable by direct route only, same as `/operations/dlq`); local literal copy
-until the backend page contract lands (documented exception in
-`context/frontend/admin-web-backend-ui-contract.md`).
+`/actions` is a backend-composed top-level authority screen immediately below
+`/approvals` and above the Preventive Care/module groups. It browses the generic Verification vertical by
+registry-backed action type and disjoint Due/Approved/Rejected status, then opens
+same-page details with proof playback and signed video links. Linked SOP-task
+rework/reassignment continues through the existing `/admin/tasks/{task_id}`
+routes; the page does not write verifier verdicts. The `verification-review`
+page contract owns presentation copy/table anatomy and the top-level nav item;
+the shared top-bar date selector supplies its `business_date` filter.
+`/verification` redirects for compatibility.
 
 Implemented top-level command route:
 
