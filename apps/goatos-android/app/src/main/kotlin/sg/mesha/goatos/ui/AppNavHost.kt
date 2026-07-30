@@ -68,6 +68,11 @@ import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
 import sg.mesha.goatos.feature.feed.FeedTransportScreen
 import sg.mesha.goatos.feature.feed.FeedTransportSubmitStatus
+import sg.mesha.goatos.feature.health.HealthDetailScreen
+import sg.mesha.goatos.feature.health.AddHealthCaseEvent
+import sg.mesha.goatos.feature.health.AddHealthCaseScreen
+import sg.mesha.goatos.feature.health.HealthListEvent
+import sg.mesha.goatos.feature.health.HealthListScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
@@ -109,9 +114,14 @@ import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
 import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.AdultHealthViewModel
+import sg.mesha.goatos.viewmodel.AddHealthCaseViewModel
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
+import sg.mesha.goatos.viewmodel.HealthDetailViewModel
+import sg.mesha.goatos.viewmodel.HealthListViewModel
+import sg.mesha.goatos.viewmodel.KidsHealthViewModel
 import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -176,6 +186,16 @@ object Routes {
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
     const val TIMETABLE = "/timetable"
+
+    const val HEALTH_ADULTS = "/health/adults"
+    const val HEALTH_KIDS = "/health/kids"
+    const val HEALTH_AGE_BAND_ARG = "healthAgeBand"
+    const val HEALTH_ADD = "/health/cases/add/{$HEALTH_AGE_BAND_ARG}"
+    const val HEALTH_SUBMISSION_NOTICE = "healthSubmissionNotice"
+    fun healthAddRoute(ageBand: String): String = "/health/cases/add/${Uri.encode(ageBand)}"
+    const val HEALTH_SESSION_ARG = "healthSessionId"
+    const val HEALTH_DETAIL = "/health/work-items/{$HEALTH_SESSION_ARG}"
+    fun healthDetailRoute(healthSessionId: String): String = "/health/work-items/${Uri.encode(healthSessionId)}"
 
     /**
      * Counts module. All four arrive as the counts module's backend-composed `nav_items`, so all
@@ -781,6 +801,74 @@ fun AppNavHost(
                 },
                 )
             }
+        }
+
+        composable(Routes.HEALTH_ADULTS) { backStackEntry ->
+            val vm: AdultHealthViewModel = hiltViewModel()
+            val notice = remember(backStackEntry) {
+                backStackEntry.savedStateHandle.remove<String>(Routes.HEALTH_SUBMISSION_NOTICE)
+            }
+            HealthListDestination(
+                vm = vm,
+                onOpen = { navController.navigate(Routes.healthDetailRoute(it)) { launchSingleTop = true } },
+                onAdd = { navController.navigate(Routes.healthAddRoute("adult")) { launchSingleTop = true } },
+                onBack = {},
+                submissionNotice = notice,
+            )
+        }
+
+        composable(Routes.HEALTH_KIDS) { backStackEntry ->
+            val vm: KidsHealthViewModel = hiltViewModel()
+            val notice = remember(backStackEntry) {
+                backStackEntry.savedStateHandle.remove<String>(Routes.HEALTH_SUBMISSION_NOTICE)
+            }
+            HealthListDestination(
+                vm = vm,
+                onOpen = { navController.navigate(Routes.healthDetailRoute(it)) { launchSingleTop = true } },
+                onAdd = { navController.navigate(Routes.healthAddRoute("kid")) { launchSingleTop = true } },
+                onBack = {},
+                submissionNotice = notice,
+            )
+        }
+
+        composable(
+            route = Routes.HEALTH_ADD,
+            arguments = listOf(navArgument(Routes.HEALTH_AGE_BAND_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: AddHealthCaseViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.returnToList, state.message) {
+                if (state.returnToList) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.HEALTH_SUBMISSION_NOTICE,
+                        state.message,
+                    )
+                    vm.onEvent(AddHealthCaseEvent.NavigationHandled)
+                    navController.popBackStack()
+                }
+            }
+            AddHealthCaseScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        AddHealthCaseEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.HEALTH_DETAIL,
+            arguments = listOf(navArgument(Routes.HEALTH_SESSION_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: HealthDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            HealthDetailScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onComplete = vm::complete,
+            )
         }
 
         composable(Routes.WEIGHING_VIDEOS) {
@@ -1961,6 +2049,39 @@ private fun WorkflowListDestination(
     )
 }
 
+@Composable
+private fun HealthListDestination(
+    vm: HealthListViewModel,
+    onOpen: (String) -> Unit,
+    onAdd: () -> Unit,
+    onBack: () -> Unit,
+    submissionNotice: String?,
+) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val rows = vm.rows.collectAsLazyPagingItems()
+    val refreshState = rows.loadState.refresh
+    LaunchedEffect(refreshState) {
+        when (refreshState) {
+            is LoadState.Loading -> vm.onRowsLoading()
+            is LoadState.Error -> vm.onLoadFailed(refreshState.error)
+            is LoadState.NotLoading -> vm.onRowsLoaded()
+        }
+    }
+    HealthListScreen(
+        state = state.copy(submissionNotice = submissionNotice),
+        rows = rows,
+        onEvent = { event ->
+            when (event) {
+                HealthListEvent.Refresh -> { vm.onEvent(event); rows.refresh() }
+                HealthListEvent.Back -> onBack()
+                HealthListEvent.AddNew -> onAdd()
+                is HealthListEvent.OpenItem -> onOpen(event.healthSessionId)
+                else -> vm.onEvent(event)
+            }
+        },
+    )
+}
+
 /**
  * Cold start must never land on a route the backend did not expose to this principal, and it
  * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item.
@@ -2010,6 +2131,8 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_SHIFTING,
     Routes.COUNTS_MILK_PREPARATION,
     Routes.COUNTS_MILK_FEEDING,
+    Routes.HEALTH_ADULTS,
+    Routes.HEALTH_KIDS,
 )
 
 private fun executionRoutePattern(base: String): String =

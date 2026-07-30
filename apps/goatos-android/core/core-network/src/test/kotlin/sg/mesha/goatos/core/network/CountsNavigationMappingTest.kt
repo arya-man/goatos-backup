@@ -1,12 +1,11 @@
 package sg.mesha.goatos.core.network
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Test
 
-class CountsNavigationDisabledTest {
+class CountsNavigationMappingTest {
     @Test
-    fun `counts is removed from every bootstrap navigation surface`() {
+    fun `counts is preserved from every backend bootstrap navigation surface`() {
         val state = BootstrapDto(
             navChrome = "expanded",
             visibleNavigation = listOf(
@@ -30,8 +29,8 @@ class CountsNavigationDisabledTest {
             ),
         ).toNavState()
 
-        assertFalse(state.modules.any { it.key == "counts" })
-        assertFalse(state.items.any { it.href.startsWith("/counts") })
-        assertEquals("/weighing", state.items.single().href)
+        assertEquals(listOf("counts", "weighing"), state.modules.map { it.key })
+        assertEquals(listOf("/counts"), state.modules.first().navItems.map { it.href })
+        assertEquals(listOf("/counts"), state.items.map { it.href })
     }
 }

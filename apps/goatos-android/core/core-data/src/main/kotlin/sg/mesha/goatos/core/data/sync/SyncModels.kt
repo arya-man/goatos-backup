@@ -41,6 +41,25 @@ data class SyncQueueItem(
 }
 
 /**
+ * A locally durable Health case-open write that has not reached the backend yet.
+ *
+ * This is intentionally separate from a Health treatment session: the backend remains the owner
+ * of session ids, treatment steps, and action-summary totals. The Health list may render this
+ * model as a pending report, but it must never manufacture a canonical work item from it.
+ */
+data class PendingHealthCaseOpen(
+    val outboxItemId: String,
+    val goatId: String,
+    val goatDisplayId: String,
+    val diseaseKey: String,
+    val diseaseName: String,
+    val ageBand: String,
+    val startDate: String,
+    val syncStatus: SyncItemStatus,
+    val lastError: String?,
+)
+
+/**
  * The public sync-status snapshot — **the UI integration point**. The sync-status overlay
  * (built by a separate agent against [SyncRepository.observeStatus]) renders this directly:
  * a connectivity/sync bar (`online` + pending/in-flight/failed counts) plus a sync-status

@@ -215,6 +215,10 @@ var protectedRoutes = []Route{
 	// given overlays, Overlays.kt DataGapsSheet/DosesGivenSheet).
 	{OperationID: "appVaccinationGaps", Method: "GET", Pattern: "/app/vaccination/gaps", Permissions: []string{AppBootstrap}},
 	{OperationID: "appVaccinationCoverage", Method: "GET", Pattern: "/app/vaccination/coverage", Permissions: []string{AppBootstrap}},
+	{OperationID: "openAppHealthCase", Method: "POST", Pattern: "/app/health/cases", Permissions: []string{HealthDiagnose}},
+	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
+	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
+	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{ProtocolWrite}},

@@ -24,6 +24,20 @@ Two facts drive it:
    **Verifier** screen can be common across modules under different verticals.
    Shared items appear once (deduped), not duplicated per module.
 
+## Health-department operator module set (maintainer decision 2026-07-30)
+
+An operator whose active workforce department is `health` receives exactly these
+operational modules from `department_module_grants`:
+
+| department | role | composed modules |
+|---|---|---|
+| `health` | `operator` | Health (`aas_health`) + Counts + Feed (`feed_direction`) + Vaccination |
+
+This is a department-scoped grant rule, not a fixed operator navigation template and not
+a grant to operators in every department. Each module still contributes only the pages
+allowed by the operator's permissions; `/app/bootstrap` composes and permission-filters
+the drawer and bottom bars from the same registry described below.
+
 ## How it is built (shipped)
 - A **module registry** (`moduleNavRegistry` in
   `backend/internal/workforce/app/bootstrap_copy.go`) is the single source of truth.

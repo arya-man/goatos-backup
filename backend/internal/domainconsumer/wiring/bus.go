@@ -11,6 +11,8 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -47,6 +49,7 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, queryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	healthRepo := healthpg.NewRepository(pool, queryTimeout)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -63,6 +66,7 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	// every bus so approved births/deaths always open their follow-up work.
 	eventwiring.RegisterWorkflowConsumers(bus,
 		eventwiring.NewWorkflowConsumerService(pool, queryTimeout, logger), logger)
+	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")

@@ -7,6 +7,28 @@ import (
 	"testing"
 )
 
+func TestHealthDepartmentReceivesHealthModuleByDefault(t *testing.T) {
+	modules := defaultDepartmentModules["health"]
+	want := map[string]bool{
+		"aas_health":     true,
+		"counts":         true,
+		"feed_direction": true,
+		"vaccination":    true,
+	}
+	if len(modules) != len(want) {
+		t.Fatalf("health default modules = %v, want exactly Health + Counts + Feed + Vaccination", modules)
+	}
+	for _, module := range modules {
+		if !want[module] {
+			t.Fatalf("health default modules = %v, unexpected module %q", modules, module)
+		}
+		delete(want, module)
+	}
+	if len(want) != 0 {
+		t.Fatalf("health default modules = %v, missing %v", modules, want)
+	}
+}
+
 func TestValidateStrictRosterRejectsUnresolvedAndMissingOwners(t *testing.T) {
 	mappings := []rosterMappingRow{{center: "CPT", position: "Preventive Care Manager"}}
 	st := stats{MappingRows: 1, PositionSlotsDefined: 1, AssignmentsUnresolved: 1}

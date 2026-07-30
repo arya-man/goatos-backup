@@ -110,6 +110,67 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `health completion drains once with the stored stable key`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            OutboxEntity(
+                id = "health-row",
+                opType = OutboxOpType.HEALTH_TREATMENT_COMPLETE.name,
+                groupKey = "health-session-1",
+                idempotencyKey = "health-complete:health-session-1",
+                payloadJson = syncJson.encodeToString(
+                    HealthTreatmentCompletePayload("health-session-1"),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi()
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-row")?.status)
+        assertEquals(listOf("health-session-1" to "health-complete:health-session-1"), api.healthCompleteCalls)
+    }
+
+    @Test
+    fun `opening a health case drains through the production dispatcher`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            OutboxEntity(
+                id = "health-open-row",
+                opType = "HEALTH_CASE_OPEN",
+                groupKey = "goat-1",
+                idempotencyKey = "health-case:stable-key",
+                payloadJson = """{"goat_id":"goat-1","disease_key":"pneumonia","age_band":"adult","start_date":"2026-07-30"}""",
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+
+        val api = ScriptedAppApi()
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-open-row")?.status)
+        assertEquals("health-case:stable-key", api.healthOpenCalls.single().first)
+        assertEquals("goat-1", api.healthOpenCalls.single().second.goatId)
+        assertEquals("pneumonia", api.healthOpenCalls.single().second.diseaseKey)
+    }
+
+    @Test
     fun `retry after a transport failure reuses the SAME idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit(idempotencyKey = "stable-key"))

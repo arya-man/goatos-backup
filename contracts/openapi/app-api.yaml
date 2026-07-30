@@ -5731,6 +5731,143 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/health/cases:
+    post:
+      tags: [Health]
+      operationId: openHealthCase
+      summary: Diagnose a goat and open the configured disease treatment course.
+      description: >-
+        Snapshots the currently published disease/age protocol and creates its bounded daily
+        treatment sessions. duration_days is disease-configured; missing source duration is
+        normalized to three days at protocol publication. Critical cull/isolation/movement text is
+        materialized only as a guarded handoff and never directly mutates goat lifecycle/location.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenHealthCaseRequest"
+      responses:
+        "201":
+          description: Treatment course opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenHealthCaseResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/work-items:
+    get:
+      tags: [Health]
+      operationId: listHealthWorkItems
+      summary: List one day's Adult or Kids Health treatment sessions.
+      description: >-
+        Returns a keyset page capped at 20 treatment sessions. Summary buckets are whole-filter
+        aggregates and do not change with page size. Date markers and filter options are
+        backend-owned. Approved-death sessions are canceled and omitted from future actionable
+        days; death reports hold sessions until the review resolves.
+      parameters:
+        - name: age_band
+          in: query
+          required: true
+          schema: { type: string, enum: [adult, kid] }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { type: string, enum: [scheduled, due, in_progress, completed, rework, held, canceled_death] }
+        - name: disease_key
+          in: query
+          schema: { type: string }
+        - name: park_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: shed_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: session
+          in: query
+          schema: { type: string, enum: [morning, afternoon, evening, unscheduled] }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 512 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 20 }
+      responses:
+        "200":
+          description: One Room-friendly page and whole-filter metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthWorkItemPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/work-items/{health_session_id}:
+    get:
+      tags: [Health]
+      operationId: getHealthWorkItem
+      summary: Get one treatment session and its snapshotted action rows.
+      parameters:
+        - name: health_session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Treatment session detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthWorkItemDetail"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/work-items/{health_session_id}/complete:
+    post:
+      tags: [Health]
+      operationId: completeHealthWorkItem
+      summary: Complete one Health treatment session and record its medicines.
+      description: >-
+        Atomically completes pending medication/action rows and creates one immutable medicine
+        administration per configured medication step. Guarded critical rows are not executed by
+        this command. Idempotency-Key makes offline retries safe.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: health_session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteHealthWorkItemRequest"
+      responses:
+        "200":
+          description: Session completed or exact replay returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteHealthWorkItemResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/counts/approvals:
     get:
       tags:
@@ -17022,6 +17159,137 @@ components:
           format: date-time
         idempotent_replay:
           type: boolean
+    OpenHealthCaseRequest:
+      type: object
+      additionalProperties: false
+      required: [goat_id, disease_key, age_band, start_date]
+      properties:
+        goat_id: { type: string, format: uuid }
+        disease_key: { type: string, minLength: 1 }
+        age_band: { type: string, enum: [adult, kid] }
+        start_date: { type: string, format: date }
+    OpenHealthCaseResponse:
+      type: object
+      additionalProperties: false
+      required: [case_id, first_session_id, session_count, duration_days, idempotent_replay]
+      properties:
+        case_id: { type: string, format: uuid }
+        first_session_id: { type: string, format: uuid }
+        session_count: { type: integer, minimum: 1 }
+        duration_days: { type: integer, minimum: 1, maximum: 90 }
+        idempotent_replay: { type: boolean }
+    HealthWorkItem:
+      type: object
+      additionalProperties: false
+      required: [health_session_id, case_id, goat_id, goat_display_id, disease_key, disease_name,
+        age_band, day_no, duration_days, business_date, session, due_at, status, park_id, park_label,
+        shed_id, shed_label, step_count, medication_count, has_critical_step]
+      properties:
+        health_session_id: { type: string, format: uuid }
+        case_id: { type: string, format: uuid }
+        goat_id: { type: string, format: uuid }
+        goat_display_id: { type: string }
+        disease_key: { type: string }
+        disease_name: { type: string }
+        age_band: { type: string, enum: [adult, kid] }
+        day_no: { type: integer, minimum: 1 }
+        duration_days: { type: integer, minimum: 1, maximum: 90 }
+        business_date: { type: string, format: date }
+        session: { type: string, enum: [morning, afternoon, evening, unscheduled] }
+        due_at: { type: string, format: date-time }
+        status: { type: string, enum: [scheduled, due, in_progress, completed, rework, held, canceled_death] }
+        park_id: { type: [string, "null"], format: uuid }
+        park_label: { type: string }
+        shed_id: { type: [string, "null"], format: uuid }
+        shed_label: { type: string }
+        step_count: { type: integer, minimum: 0 }
+        medication_count: { type: integer, minimum: 0 }
+        has_critical_step: { type: boolean }
+    HealthSummary:
+      type: object
+      additionalProperties: false
+      required: [total, due, scheduled, in_progress, completed, rework, held, canceled_death]
+      properties:
+        total: { type: integer, minimum: 0 }
+        due: { type: integer, minimum: 0 }
+        scheduled: { type: integer, minimum: 0 }
+        in_progress: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+        rework: { type: integer, minimum: 0 }
+        held: { type: integer, minimum: 0 }
+        canceled_death: { type: integer, minimum: 0 }
+    HealthDateMarker:
+      type: object
+      additionalProperties: false
+      required: [date, count]
+      properties:
+        date: { type: string, format: date }
+        count: { type: integer, minimum: 0 }
+    HealthFilterOption:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+    HealthFilterOptions:
+      type: object
+      additionalProperties: false
+      required: [diseases, parks, sheds]
+      properties:
+        diseases: { type: array, items: { $ref: "#/components/schemas/HealthFilterOption" } }
+        parks: { type: array, items: { $ref: "#/components/schemas/HealthFilterOption" } }
+        sheds: { type: array, items: { $ref: "#/components/schemas/HealthFilterOption" } }
+    HealthWorkItemPage:
+      type: object
+      additionalProperties: false
+      required: [items, summary, date_markers, filter_options, next_cursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/HealthWorkItem" } }
+        summary: { $ref: "#/components/schemas/HealthSummary" }
+        date_markers: { type: array, items: { $ref: "#/components/schemas/HealthDateMarker" } }
+        filter_options: { $ref: "#/components/schemas/HealthFilterOptions" }
+        next_cursor: { type: [string, "null"] }
+    HealthTreatmentStep:
+      type: object
+      additionalProperties: false
+      required: [step_id, day_no, session, seq, record_type, medicine_name, dosage_text,
+        dosage_denominator, medicine_route, instruction, critical_action_type, status]
+      properties:
+        step_id: { type: string, format: uuid }
+        day_no: { type: integer, minimum: 1 }
+        session: { type: string }
+        seq: { type: integer, minimum: 1 }
+        record_type: { type: string, enum: [action, medication, critical_action] }
+        medicine_name: { type: [string, "null"] }
+        dosage_text: { type: [string, "null"] }
+        dosage_denominator: { type: [string, "null"] }
+        medicine_route: { type: [string, "null"] }
+        instruction: { type: [string, "null"] }
+        critical_action_type: { type: [string, "null"] }
+        status: { type: string, enum: [pending, completed, guarded] }
+    HealthWorkItemDetail:
+      allOf:
+        - $ref: "#/components/schemas/HealthWorkItem"
+        - type: object
+          required: [steps]
+          properties:
+            steps: { type: array, items: { $ref: "#/components/schemas/HealthTreatmentStep" } }
+    CompleteHealthWorkItemRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        proof_ref: { type: string }
+    CompleteHealthWorkItemResponse:
+      type: object
+      additionalProperties: false
+      required: [health_session_id, status, completed_at, medication_count, idempotent_replay]
+      properties:
+        health_session_id: { type: string, format: uuid }
+        status: { type: string, enum: [completed] }
+        completed_at: { type: string, format: date-time }
+        medication_count: { type: integer, minimum: 0 }
+        idempotent_replay: { type: boolean }
     RecordBirthEventRequest:
       description: >-
         The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it

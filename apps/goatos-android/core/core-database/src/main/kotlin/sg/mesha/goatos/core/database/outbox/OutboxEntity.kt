@@ -136,6 +136,10 @@ enum class OutboxOpType {
      */
     WORKFLOW_ACTION_ANSWER,
     WORKFLOW_ACTION_COMPLETE,
+    /** Opens one disease course for a goat with a stable SavedStateHandle-persisted key. */
+    HEALTH_CASE_OPEN,
+    /** One idempotent Health treatment-session completion. */
+    HEALTH_TREATMENT_COMPLETE,
     WEIGHING_ANIMAL_OBSERVATION,
     WEIGHING_SHED_OBSERVATION,
 }

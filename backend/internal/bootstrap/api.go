@@ -47,6 +47,9 @@ import (
 	feeddirectionverificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
@@ -400,6 +403,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
 	// a payload at submit time without applying it.
 	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	healthRepo := healthpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	healthService := healthapp.NewService(healthRepo)
+	healthHandler := healthhttp.NewHandler(healthService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -689,6 +695,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
+	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then
@@ -806,6 +813,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
+	healthhttp.Register(protectedMux, healthHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

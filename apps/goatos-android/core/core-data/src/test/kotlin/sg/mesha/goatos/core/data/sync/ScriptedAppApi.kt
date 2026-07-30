@@ -16,6 +16,10 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
 
 /**
  * Test double for [AppApi]: delegates to [FakeAppApi] by default (via Kotlin interface
@@ -32,6 +36,12 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
     var closeVerificationSubmissionFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var closeVaccinationBatchFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
+    var completeHealthWorkItemFn: (suspend (String, String, HealthCompleteRequestDto) -> HealthCompleteResponseDto)? = null
+    var openHealthCaseFn: (suspend (String, HealthOpenCaseRequestDto) -> HealthOpenCaseResponseDto)? = null
+    val healthOpenCalls: MutableList<Pair<String, HealthOpenCaseRequestDto>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, HealthOpenCaseRequestDto>>()
+    val healthCompleteCalls: MutableList<Pair<String, String>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
 
     /** (itemId, header Idempotency-Key) for every [submitVerificationVerdict] call — same
      *  same-key-on-retry assertion shape as [submitCalls]. */
@@ -122,6 +132,25 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         closeBatchCalls += batchId to idempotencyKey
         return closeVaccinationBatchFn?.invoke(batchId, idempotencyKey)
             ?: delegate.closeVaccinationBatch(batchId, idempotencyKey)
+    }
+
+    override suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto {
+        healthCompleteCalls += healthSessionId to idempotencyKey
+        return completeHealthWorkItemFn?.invoke(healthSessionId, idempotencyKey, request)
+            ?: delegate.completeHealthWorkItem(healthSessionId, idempotencyKey, request)
+    }
+
+    override suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto {
+        healthOpenCalls += idempotencyKey to request
+        return openHealthCaseFn?.invoke(idempotencyKey, request)
+            ?: delegate.openHealthCase(idempotencyKey, request)
     }
 
     override suspend fun uploadProofBlob(
