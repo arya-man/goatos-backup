@@ -5,6 +5,11 @@
 > access additions. The original 10-person contract (5 SSO leadership + 4 field
 > + 1 verifier) lives in the canonical runbook.
 
+Current live RBAC roles are documented in
+`docs/runbooks/current-active-rbac-roles.md`. Do not grant dormant catalog roles
+such as `director_preventive_care` or `director_breeding` in STG until backend
+permissions, Android role handling, seed docs, and tests are updated together.
+
 ## Canonical STG Personnel Rule + Weighing Addendum
 
 10 STG people total: **5 Mesha leadership (Google SSO **and** Firebase email/
@@ -101,8 +106,10 @@ materializes into a real, active `user_scope_grants` row on a runtime sign-in
 claim event, which admin-web SSO and mobile logins do not reliably trigger on
 a fresh STG seed. Run `make seed-stg-9-person-login` (backend/cmd/
 seed-stg-login-grants) every time STG is seeded: it materializes the ACTIVE
-grant directly for the 10 UID-backed canonical accounts (this file's 4 field
-users plus the 5 `ceo_internal` leadership accounts) and binds
+grant directly for the UID-backed canonical accounts. Leadership/director
+visibility accounts may get tenant scope. Operator execution accounts get park
+scope only; no operator should ever have `scope_type='tenant'` in
+`user_scope_grants`. The command also binds
 Amit/Darshan/Sagar/Chandrakant onto their existing named `workforce_members`
 roster row with `department_id = preventive_care`, so the vaccination module
 renders immediately. Verify with `make verify-stg-9-person-login` and the
@@ -112,6 +119,13 @@ verifier row is seeded through `auth_pending_email_grants` by the CPT roster
 seed; without her Firebase UID committed to `seed-stg-login-grants`, her active
 verifier `user_scope_grants` row is materialized on first verified sign-in by
 `/auth/session-events`.
+
+Guardrail: every STG seed/grant change that touches field users must pass
+`make stg-operator-scope-guard`. That guard blocks `operator` accounts without
+an explicit park and blocks the old tenant-only operator seeding path. If a
+user needs to scan in CBE, grant CBE park scope plus weighing/vaccination task
+assignment; do not grant tenant scope as an operator shortcut. A director can
+still have both-park visibility separately.
 
 ## Firebase App Distribution Requirement
 

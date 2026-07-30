@@ -189,6 +189,7 @@ run_backend() {
   step "backend-foundations-guard" make backend-foundations-guard
   step "test-execution-integrity-guard" make test-execution-integrity-guard
   step "operator-cap-fail-closed-guard" make operator-cap-fail-closed-guard
+  step "stg-operator-scope-guard" make stg-operator-scope-guard
   step "cascade-event-wiring-guard" make cascade-event-wiring-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'

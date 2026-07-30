@@ -114,7 +114,9 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
+	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -478,6 +480,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      weighingdomain.VerificationVerticalWeighing,
+		Module:        weighingdomain.VerificationModuleWeighing,
+		Category:      weighingdomain.VerificationCategoryWeighing,
+		ExpectedMedia: []string{"video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	weighingService.WithVerificationEnqueuer(weighingverificationbridge.New(verificationService))
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now

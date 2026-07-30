@@ -80,6 +80,17 @@
       "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
     },
     {
+      "id": "stg-operator-scope",
+      "script": "tools/agent-hooks/check-stg-operator-scope.mjs",
+      "makeTarget": "stg-operator-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-stg-operator-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-stg-operator-scope.mjs --self-test",
+      "owningDoc": "docs/runbooks/stg-operator-login-credentials.md",
+      "requiredInCI": true,
+      "ciStep": "stg-operator-scope-guard",
+      "notes": "Blocks STG login seed regressions where real operator/director field accounts get tenant-scope grants. Operators/directors must declare ParkCode and the seeder must materialize park-scoped grants while revoking stale tenant grants."
+    },
+    {
       "id": "cascade-event-wiring",
       "script": "tools/agent-hooks/check-cascade-event-wiring.mjs",
       "makeTarget": "cascade-event-wiring-guard",

@@ -18,7 +18,8 @@
 //  1. Upserts the pending email grant (auth_pending_email_grants) — belt and
 //     suspenders: keeps the claim path working too, and gives a visible audit
 //     trail, exactly like seed-dev-email-grants already does.
-//  2. Directly inserts/confirms the ACTIVE tenant-scope user_scope_grants row,
+//  2. Directly inserts/confirms the ACTIVE user_scope_grants row: tenant scope
+//     for leadership, park scope for park staff/operators,
 //     keyed by platformauth.StableSubjectID(issuer, firebase_uid) — the same
 //     derivation the backend uses at request time (jwt.go) — so login works
 //     immediately, without waiting for a claim event.
@@ -132,8 +133,15 @@ func main() {
 			continue
 		}
 
-		if err := materializeTenantGrant(ctx, pool, tenantID, userID, acct.Role); err != nil {
-			res.err = fmt.Errorf("materialize tenant grant: %w", err)
+		scopeType, scopeID, err := resolveGrantScope(ctx, pool, tenantID, acct)
+		if err != nil {
+			res.err = fmt.Errorf("resolve grant scope: %w", err)
+			results = append(results, res)
+			continue
+		}
+
+		if err := materializeScopeGrant(ctx, pool, tenantID, userID, acct.Role, scopeType, scopeID); err != nil {
+			res.err = fmt.Errorf("materialize %s grant: %w", scopeType, err)
 			results = append(results, res)
 			continue
 		}
@@ -215,7 +223,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
 		os.Exit(1)
 	}
-	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant and mobile profile\n", len(results))
+	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE scoped grant and mobile profile\n", len(results))
 }
 
 func envOrDefault(key, def string) string {
@@ -231,6 +239,18 @@ func envOrDefault(key, def string) string {
 // materialization route for anyone who signs in before this command re-runs.
 func upsertPendingEmailGrant(ctx context.Context, pool *pgxpool.Pool, tenantID string, acct Account, source string) error {
 	email := authallow.NormalizeEmail(acct.Email)
+	if acct.ParkCode != "" {
+		_, err := pool.Exec(ctx, `
+UPDATE auth_pending_email_grants
+SET status = 'revoked', valid_to = COALESCE(valid_to, now()), updated_at = now()
+WHERE tenant_id = $1
+  AND normalized_email = $2
+  AND role = $3
+  AND scope_type = 'tenant'
+  AND status = 'active'
+  AND valid_to IS NULL`, tenantID, email, acct.Role)
+		return err
+	}
 	var pendingGrantID string
 	return pool.QueryRow(ctx, `
 INSERT INTO auth_pending_email_grants (
@@ -247,11 +267,24 @@ DO UPDATE SET
 RETURNING pending_grant_id::text`, tenantID, email, acct.Role, source).Scan(&pendingGrantID)
 }
 
-// materializeTenantGrant is the fix: insert the ACTIVE user_scope_grants row
-// directly (mirrors seed-dev-grant's insert+idempotency shape) instead of
+// materializeScopeGrant inserts the ACTIVE user_scope_grants row directly
+// (mirrors seed-dev-grant's insert+idempotency shape) instead of
 // waiting for the claim event that admin-web/mobile logins do not reliably
 // trigger during a fresh STG seed.
-func materializeTenantGrant(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role string) error {
+func materializeScopeGrant(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role, scopeType, scopeID string) error {
+	if scopeType != "tenant" {
+		if _, err := pool.Exec(ctx, `
+UPDATE user_scope_grants
+SET status = 'revoked', valid_to = COALESCE(valid_to, now())
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND role = $3
+  AND scope_type = 'tenant'
+  AND status = 'active'
+  AND valid_to IS NULL`, tenantID, userID, role); err != nil {
+			return fmt.Errorf("revoke stale tenant grant: %w", err)
+		}
+	}
 	var grantID string
 	err := pool.QueryRow(ctx, `
 SELECT grant_id::text
@@ -259,14 +292,14 @@ FROM user_scope_grants
 WHERE tenant_id = $1
   AND user_id = $2
   AND role = $3
-  AND scope_type = 'tenant'
-  AND scope_id = $1
+  AND scope_type = $4
+  AND scope_id = $5
   AND status = 'active'
   AND valid_from <= now()
   AND (valid_to IS NULL OR valid_to > now())
 ORDER BY valid_from DESC, grant_id DESC
 LIMIT 1
-`, tenantID, userID, role).Scan(&grantID)
+`, tenantID, userID, role, scopeType, scopeID).Scan(&grantID)
 	if err == nil {
 		return nil // already active — idempotent no-op
 	}
@@ -275,9 +308,30 @@ LIMIT 1
 	}
 	return pool.QueryRow(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
-VALUES ($1, $2, $3, 'tenant', $1, 'active', now())
+VALUES ($1, $2, $3, $4, $5, 'active', now())
 RETURNING grant_id::text
-`, tenantID, userID, role).Scan(&grantID)
+`, tenantID, userID, role, scopeType, scopeID).Scan(&grantID)
+}
+
+func resolveGrantScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, acct Account) (string, string, error) {
+	if strings.TrimSpace(acct.ParkCode) == "" {
+		return "tenant", tenantID, nil
+	}
+	var parkID string
+	err := pool.QueryRow(ctx, `
+SELECT location_id::text
+FROM locations
+WHERE tenant_id = $1
+  AND location_type = 'park'
+  AND location_code = $2
+  AND status = 'active'`, tenantID, acct.ParkCode).Scan(&parkID)
+	if isNoRows(err) {
+		return "", "", fmt.Errorf("park %q not found for %s", acct.ParkCode, acct.DisplayName)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return "park", parkID, nil
 }
 
 func lookupDepartmentID(ctx context.Context, pool *pgxpool.Pool, tenantID, code string) (string, error) {
