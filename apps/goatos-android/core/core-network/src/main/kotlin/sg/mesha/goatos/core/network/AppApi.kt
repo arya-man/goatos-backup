@@ -86,6 +86,7 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
@@ -408,6 +409,13 @@ interface AppApi {
         campaignShedId: String,
         idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
+    )
+
+    suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
     )
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
@@ -1078,6 +1086,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         campaignShedId: String,
         idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
+    ) = Unit
+
+    override suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
     ) = Unit
 
     override suspend fun verifyAppTask(

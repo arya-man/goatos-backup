@@ -581,6 +581,7 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
     showProtocolAdherenceCard: Boolean = false,
+    canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
@@ -697,6 +698,10 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
+                            if (!canExecuteVaccination) {
+                                Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
                             if (selected?.canOpen == false) {
                                 Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
@@ -753,6 +758,7 @@ fun AppNavHost(
                             )
                         }
                     },
+                    onReopenAssignment = vm::reopenAssignment,
                 )
             } else {
                 LeadershipWeighingScreen(
@@ -881,6 +887,10 @@ fun AppNavHost(
                     onEvent = { event ->
                         when (event) {
                             is ShedsEvent.OpenShedRecord -> {
+                                if (!canExecuteVaccination) {
+                                    Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                    return@ShedsScreen
+                                }
                                 // A leadership oversight read (canOpenShed=false) is read-only:
                                 // block the click here so CEO/Director/Park Head never navigate
                                 // into the operator scan/execute loop. Operators reach sheds via

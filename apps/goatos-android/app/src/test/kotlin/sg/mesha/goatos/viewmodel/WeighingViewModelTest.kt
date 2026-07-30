@@ -531,6 +531,13 @@ class WeighingViewModelTest {
         ): AppResult<Unit> =
             AppResult.Ok(Unit)
 
+        override suspend fun reopenScope(
+            campaignId: String,
+            campaignShedId: String,
+            reason: String,
+        ): AppResult<Unit> =
+            AppResult.Ok(Unit)
+
         override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) {}
     }
 

@@ -228,6 +228,12 @@ data class WeighingObservationResponseDto(
     @SerialName("observation") val observation: WeighingObservationDto = WeighingObservationDto(),
     @SerialName("trace_id") val traceId: String? = null,
 )
+
+@Serializable
+data class WeighingScopeReopenRequestDto(
+    @SerialName("reason") val reason: String = "",
+)
+
 @kotlinx.serialization.Serializable
 data class WeighingScopeSubmitRequestDto(
     @kotlinx.serialization.SerialName("scanned_identifiers")

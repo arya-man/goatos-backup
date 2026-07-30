@@ -101,6 +101,7 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
@@ -294,6 +295,14 @@ interface AppApiService {
         @Path("campaign_shed_id") campaignShedId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: WeighingScopeSubmitRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen")
+    suspend fun reopenWeighingScope(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeReopenRequestDto,
     )
 
     @POST("admin/tasks/{task_id}/verify")
@@ -780,6 +789,13 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
     ) = service.submitWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    ) = service.reopenWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
 
     override suspend fun verifyAppTask(
         taskId: String,

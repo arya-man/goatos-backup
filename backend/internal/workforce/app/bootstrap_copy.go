@@ -267,17 +267,25 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 //   - CEO/CXO (ceo_internal) is whole-org: Vaccination plus Counts, plus the
 //     roadmap "soon" modules (Feed direction, Breeding).
 //   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
-//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
-//     are not preventive-care surfaces, so they never appear. Park Head is further
-//     limited to his own park by his grant scope (data scope), not by nav.
+//     preventive care: ONLY the shared Vaccination module. Counts, Feed, Weighing,
+//     and Breeding are not preventive-care surfaces, so they never appear. Park
+//     Head is further limited to his own park by his grant scope (data scope), not
+//     by nav.
+//   - Growth Director is specialty-scoped to Weighing only.
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
 		return []string{"vaccination", "weighing", "counts", "feed_direction", "breeding"}
 	}
-	// PC Director / Park Head: preventive-care specialty verticals.
-	return []string{"vaccination", "weighing"}
+	keys := make([]string, 0, 2)
+	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
+		keys = append(keys, "vaccination")
+	}
+	if hasRole(grants, permissions.RoleGrowthDirector) {
+		keys = append(keys, "weighing")
+	}
+	return keys
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -300,15 +308,24 @@ func hasPermission(grants []domain.GrantSummary, permission string) bool {
 }
 
 func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
-	return hasRole(grants, permissions.RoleCEOInternal) || hasRole(grants, permissions.RolePCDirector)
+	return hasRole(grants, permissions.RoleCEOInternal)
 }
 
-func canExecuteVaccination(grants []domain.GrantSummary) bool {
-	return hasPermission(grants, permissions.TaskExecute)
+func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.TaskExecute) && canUseModule(grants, grantedModules, "vaccination")
 }
 
-func canExecuteWeighing(grants []domain.GrantSummary) bool {
-	return hasPermission(grants, permissions.WeighingExecute)
+func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+}
+
+func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
+	for _, key := range candidateModuleKeys(grants, grantedModules) {
+		if key == module {
+			return true
+		}
+	}
+	return false
 }
 
 // countAvailableModules counts modules the principal can actually render: known,

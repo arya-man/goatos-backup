@@ -253,6 +253,7 @@ fun WeighingScreen(
     onRemoveShedVideo: (String) -> Unit = {},
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
     onTogglePlannerShed: (String) -> Unit = {},
     onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
@@ -383,7 +384,11 @@ fun WeighingScreen(
                     )
                 }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
-                    AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
+                    AssignmentRow(
+                        row = row,
+                        onOpen = { onOpenAssignment(row) },
+                        onReopen = { onReopenAssignment(row) },
+                    )
                 }
             }
 
@@ -777,7 +782,11 @@ private fun PlannerSummaryRow(label: String, value: String) {
 }
 
 @Composable
-private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
+private fun AssignmentRow(
+    row: WeighingAssignmentUiRow,
+    onOpen: () -> Unit,
+    onReopen: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -788,7 +797,7 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onOpen)
+                .clickable(onClick = if (row.isClosed) onReopen else onOpen)
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
@@ -810,17 +819,15 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!row.isClosed) {
-                Text(
-                    text = assignmentAction(),
-                    color = MeshaColors.BrandD,
-                    style = MeshaType.cta,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clickable(onClick = onOpen)
-                        .padding(top = 2.dp),
-                )
-            }
+            Text(
+                text = if (row.isClosed) "Reopen" else assignmentAction(),
+                color = MeshaColors.BrandD,
+                style = MeshaType.cta,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = if (row.isClosed) onReopen else onOpen)
+                    .padding(top = 2.dp),
+            )
         }
     }
 }

@@ -193,18 +193,18 @@ Leadership principals are still composed by leadership **tier**, not "all module
 |--------------|--------------------------------------------------|----------|-------------------|
 | ceo_internal | Vaccination + Counts + Feed + Breeding(soon)     | expanded | all / multi-park |
 | pc_director  | Vaccination only                                 | minimal  | multi-park        |
-| park_head    | Vaccination + Feed                               | expanded | own park (grant scope) |
+| growth_director | Weighing only                                | minimal  | multi-park        |
+| park_head    | Vaccination only                                 | minimal  | own park (grant scope) |
 | verifier     | Verification only                                | minimal  | n/a               |
 | operator     | department-granted modules                       | minimal  | grant scope       |
 
 Rules encoded (`bootstrap_copy.go`):
 
 - `leadershipModuleKeys(grants)` returns the tier's set: CEO gets
-  `{vaccination, counts, feed_direction, breeding}`; Park Head gets
-  `{vaccination, feed_direction}` (park operations include feed, but NOT Counts —
-  a park head does not run the birth/death/shifting capture or approval surfaces);
-  the PC Director gets `{vaccination}` only. Counts and Breeding are not park-head
-  surfaces, and Counts/Feed/Breeding are not PC-Director surfaces. Feed is a built
+  `{vaccination, weighing, counts, feed_direction, breeding}`; PC Director and
+  Park Head get `{vaccination}`; Growth Director gets `{weighing}`.
+  Counts, Feed, Breeding, and Weighing are not PC-Director surfaces. Vaccination,
+  Counts, Feed, and Breeding are not Growth-Director surfaces. Feed is a built
   module (`feed_direction`/`feed_packing`), no longer a "soon" roadmap row.
   (park_head + Feed: maintainer decision 2026-07-25)
 - The **verification** module belongs to the verifier role. Vaccination leadership

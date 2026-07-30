@@ -50,6 +50,7 @@ const (
 	legacyVaccinationSourceModule  = "vaccination"
 	legacyVaccinationSourceRefType = "sop_submission"
 	positionPCDirector             = "pc_director"
+	positionGrowthDirector         = "growth_director"
 	positionCEOInternal            = "ceo_internal"
 )
 

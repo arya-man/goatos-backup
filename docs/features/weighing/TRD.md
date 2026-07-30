@@ -640,12 +640,12 @@ role:
 | Capability | Actors |
 |---|---|
 | `weighing.plan` | CEO/CXO only |
-| `weighing.monitor` | CEO/CXO, preventive director, relevant park leadership |
-| `weighing.execute` | Operator and `pc_director` field execution users |
+| `weighing.monitor` | CEO/CXO and Growth Director |
+| `weighing.execute` | Operator and `growth_director` field execution users |
 | `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
 
-Dinakar has monitoring/review plus execution capability. He is not a planner and
-does not add field-operator capacity.
+Dinakar uses `growth_director` for monitoring/review plus execution capability.
+He is not a planner and does not add field-operator capacity.
 
 RBAC must be enforced in backend query predicates, not only by sidebar
 visibility. Every route that accepts `campaign_id`, `work_group_id`,

@@ -334,6 +334,12 @@ manifest, and the exact-source first step in `make
 seed-vaccination-source-full`. The complete contract is
 `docs/runbooks/source-seed-data-validation.md`.
 
+Role catalog changes are seed-contract changes too. `growth_director` is the
+Weighing director role key and must not be spelled `director_growth`, collapsed
+into `pc_director`, or used to create vaccination operator capacity. Keep
+director module ownership explicit: PC Director owns Vaccination, Growth
+Director owns Weighing.
+
 Vaccination matrix schedule metadata is part of that same contract.
 `route_site` must be authored as protocol metadata (`subcutaneous` for the
 current seed matrix), not as an operator/SOP form field and not as a

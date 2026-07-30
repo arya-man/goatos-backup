@@ -95,11 +95,15 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 	tests := []struct {
 		name                   string
 		role                   string
+		modules                []string
 		wantVaccinationExecute bool
 		wantWeighingExecute    bool
 	}{
-		{name: "operator executes vaccination and weighing", role: permissions.RoleOperator, wantVaccinationExecute: true, wantWeighingExecute: true},
-		{name: "pc director executes vaccination and weighing", role: permissions.RolePCDirector, wantVaccinationExecute: true, wantWeighingExecute: true},
+		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true},
+		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false},
+		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true},
+		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false},
+		{name: "growth director executes weighing only", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true},
 		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false},
 		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false},
 	}
@@ -108,7 +112,7 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 			svc := NewService(&fakeRepo{
 				profile:        profile("active"),
 				grants:         []domain.GrantSummary{grantWithRole(tc.role)},
-				grantedModules: []string{"vaccination", "weighing"},
+				grantedModules: tc.modules,
 			})
 			got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
 			if err != nil {
@@ -212,8 +216,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("NavChrome=%q want %q (park_head has vaccination + weighing + feed)", got.NavChrome, domain.NavChromeExpanded)
+	if got.NavChrome != domain.NavChromeMinimal {
+		t.Fatalf("NavChrome=%q want %q (park_head is vaccination-only)", got.NavChrome, domain.NavChromeMinimal)
 	}
 }
 
@@ -275,17 +279,18 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 }
 
 // TestIsLeadershipPrincipal covers every valid workforce grant role (see
-// validRole in service.go): ceo_internal, park_head, and pc_director are
-// leadership tiers. Verifier owns the standalone verification app; operator
-// owns field execution. Neither is leadership navigation.
+// validRole in service.go): ceo_internal, park_head, pc_director, and
+// growth_director are leadership tiers. Verifier owns the standalone
+// verification app; operator owns field execution. Neither is leadership
+// navigation.
 func TestIsLeadershipPrincipal(t *testing.T) {
 	tests := []struct {
 		role string
 		want bool
 	}{
 		{role: permissions.RoleCEOInternal, want: true},
-		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RolePCDirector, want: true},
+		{role: permissions.RoleGrowthDirector, want: true},
 		{role: permissions.RoleParkHead, want: true},
 		{role: permissions.RoleVerifier, want: false},
 		{role: permissions.RoleOperator, want: false},
@@ -449,16 +454,16 @@ func TestNavChromeFor(t *testing.T) {
 			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:           "pc director with preventive care verticals expands",
+			name:           "pc director with preventive care verticals stays minimal",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
 			grantedModules: []string{"vaccination", "weighing", "counts"},
-			want:           domain.NavChromeExpanded,
+			want:           domain.NavChromeMinimal,
 		},
 		{
-			name:           "park head with vaccination + weighing + feed gets expanded",
+			name:           "park head with vaccination + weighing + feed stays minimal",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
 			grantedModules: []string{"vaccination", "weighing", "counts", "feed_direction"},
-			want:           domain.NavChromeExpanded,
+			want:           domain.NavChromeMinimal,
 		},
 		{
 			name:           "operator minimal",
@@ -580,15 +585,33 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("pc director gets separate weighing module", func(t *testing.T) {
+	t.Run("pc director gets vaccination module only", func(t *testing.T) {
 		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)}
 		modules := modulesFor(directorGrants, nil, "")
-		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeExpanded {
-			t.Fatalf("pc director chrome=%q want expanded", chrome)
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeMinimal {
+			t.Fatalf("pc director chrome=%q want minimal", chrome)
 		}
 		keys := moduleKeySet(modules)
-		if keys["vaccination"] != moduleStatusAvailable || keys["weighing"] != moduleStatusAvailable {
-			t.Fatalf("pc director must get vaccination and weighing modules; got %v", keys)
+		if keys["vaccination"] != moduleStatusAvailable {
+			t.Fatalf("pc director must get vaccination module; got %v", keys)
+		}
+		if _, ok := keys["weighing"]; ok {
+			t.Fatalf("pc director must not get weighing module; got %v", keys)
+		}
+	})
+
+	t.Run("growth director gets weighing module only", func(t *testing.T) {
+		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)}
+		modules := modulesFor(directorGrants, nil, "")
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeMinimal {
+			t.Fatalf("growth director chrome=%q want minimal", chrome)
+		}
+		keys := moduleKeySet(modules)
+		if keys["weighing"] != moduleStatusAvailable {
+			t.Fatalf("growth director must get weighing module; got %v", keys)
+		}
+		if _, ok := keys["vaccination"]; ok {
+			t.Fatalf("growth director must not get vaccination module; got %v", keys)
 		}
 	})
 
@@ -600,10 +623,10 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("park head with weighing and feed gets expanded nav chrome", func(t *testing.T) {
+	t.Run("park head stays vaccination-only even when extra modules are granted", func(t *testing.T) {
 		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "weighing", "counts", "feed_direction"}, ""))
-		if chrome != domain.NavChromeExpanded {
-			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeExpanded)
+		if chrome != domain.NavChromeMinimal {
+			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeMinimal)
 		}
 	})
 }

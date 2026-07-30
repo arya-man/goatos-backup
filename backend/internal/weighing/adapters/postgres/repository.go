@@ -1169,6 +1169,67 @@ WHERE cs.tenant_id=$1::uuid
 	return tx.Commit(ctx)
 }
 
+func (r *Repository) ReopenScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey, reason string) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	fingerprint := idempotencyFingerprint(map[string]any{
+		"campaign_id":      campaignID,
+		"campaign_shed_id": campaignShedID,
+		"reopened_by":      actorID,
+		"reason":           reason,
+	})
+	if _, resourceType, _, ok, err := r.idempotencyResource(ctx, tx, tenantID, "weighing.scope_reopened", idempotencyKey, fingerprint); err != nil || ok {
+		if err != nil {
+			return err
+		}
+		if resourceType != "weighing_campaign_shed" {
+			return ports.ErrIdempotencyConflict
+		}
+		return tx.Commit(ctx)
+	}
+	result, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds cs
+SET status='in_progress', completed_at=NULL, updated_at=now()
+FROM weighing_campaigns campaign
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.campaign_shed_id=$3::uuid
+  AND cs.status='completed'
+  AND campaign.tenant_id=cs.tenant_id
+  AND campaign.campaign_id=cs.campaign_id`, tenantID, campaignID, campaignShedID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE weighing_campaigns
+SET status='in_progress', completed_at=NULL, updated_at=now(), row_version=row_version+1
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status='completed'`, tenantID, campaignID); err != nil {
+		return err
+	}
+	if err := r.enqueueShedReopened(ctx, tx, tenantID, campaignShedID, actorID, reason); err != nil {
+		return err
+	}
+	if err := r.recordIdempotency(ctx, tx, tenantID, "weighing.scope_reopened", idempotencyKey, fingerprint, "weighing_campaign_shed", campaignShedID, map[string]any{
+		"campaign_id":      campaignID,
+		"campaign_shed_id": campaignShedID,
+		"reopened_by":      actorID,
+		"reason":           reason,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func rosterAnimalIDs(rows []domain.ExpectedAnimal) []string {
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {

@@ -370,6 +370,12 @@ vaccination/protocol/SOP/HRMS/grant tables, or app-visible projection tables mus
 be paired with the seed command, test/E2E, or runbook update that handles the new
 schema. See `docs/runbooks/initial-seed-migration-coupling.md`.
 
+Migration `000057_growth_director_role.sql` is the closeout example for a
+role-catalog/HRMS-hint migration: `growth_director` is added so Weighing can have
+its own director execution gate. It must remain separate from `pc_director`; a
+vaccination source reseed must not infer vaccination execution from the Growth
+Director hint.
+
 For local/dev rehearsals, the one-command source path is:
 
 ```bash

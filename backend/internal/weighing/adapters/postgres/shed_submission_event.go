@@ -8,6 +8,7 @@ import (
 )
 
 const eventWeighingShedSubmissionCompleted = "weighing.shed_submission.completed"
+const eventWeighingShedReopened = "weighing.shed.reopened"
 
 type weighingShedSubmissionCompletedPayload struct {
 	TenantID       string    `json:"tenant_id"`
@@ -17,6 +18,19 @@ type weighingShedSubmissionCompletedPayload struct {
 	ShedID         string    `json:"shed_id"`
 	ShedLabel      string    `json:"shed_label"`
 	CompletedAt    time.Time `json:"completed_at"`
+}
+
+type weighingShedReopenedPayload struct {
+	TenantID       string    `json:"tenant_id"`
+	CampaignID     string    `json:"campaign_id"`
+	CampaignShedID string    `json:"campaign_shed_id"`
+	ParkID         string    `json:"park_id"`
+	ShedID         string    `json:"shed_id"`
+	ShedLabel      string    `json:"shed_label"`
+	OperatorID     string    `json:"operator_id"`
+	ReopenedBy     string    `json:"reopened_by"`
+	Reason         string    `json:"reason,omitempty"`
+	ReopenedAt     time.Time `json:"reopened_at"`
 }
 
 func (r *Repository) enqueueShedSubmissionCompleted(
@@ -60,6 +74,57 @@ WHERE cs.tenant_id=$1::uuid
 		eventWeighingShedSubmissionCompleted,
 		payload.CampaignID,
 		eventWeighingShedSubmissionCompleted+":"+campaignShedID,
+		"",
+		payload,
+	)
+}
+
+func (r *Repository) enqueueShedReopened(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID string,
+	campaignShedID string,
+	actorID string,
+	reason string,
+) error {
+	payload := weighingShedReopenedPayload{
+		TenantID:       tenantID,
+		CampaignShedID: campaignShedID,
+		ReopenedBy:     actorID,
+		Reason:         reason,
+	}
+	if err := tx.QueryRow(ctx, `
+SELECT
+  cs.campaign_id::text,
+  wc.park_id::text,
+  cs.location_id::text,
+  cs.display_name,
+  cs.operator_user_id::text,
+  now()
+FROM weighing_campaign_sheds cs
+JOIN weighing_campaigns wc
+  ON wc.tenant_id=cs.tenant_id
+ AND wc.campaign_id=cs.campaign_id
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_shed_id=$2::uuid`,
+		tenantID, campaignShedID,
+	).Scan(
+		&payload.CampaignID,
+		&payload.ParkID,
+		&payload.ShedID,
+		&payload.ShedLabel,
+		&payload.OperatorID,
+		&payload.ReopenedAt,
+	); err != nil {
+		return err
+	}
+	return r.enqueue(
+		ctx,
+		tx,
+		tenantID,
+		eventWeighingShedReopened,
+		payload.CampaignID,
+		eventWeighingShedReopened+":"+campaignShedID,
 		"",
 		payload,
 	)

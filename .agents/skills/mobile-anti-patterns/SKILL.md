@@ -101,6 +101,12 @@ backend action key, not from role-label code. Concretely:
   assignment cards can open the weighing scan/capture route.
 - `false` means render display/review/monitor surfaces only.
 
+Current director split:
+- `pc_director` is Preventive Care Director: Vaccination only.
+- `growth_director` is Growth Director: Weighing only.
+- Operators are park-scoped and module-scoped; never infer execution from the
+  `operator` role alone.
+
 Do not add helpers like `is<Vertical>LeadershipRole(roleLabel)` to choose scan vs
 display screens. If a new feature needs a component switch that the fixed Android
 nav graph cannot infer from route alone, add a backend-owned feature flag derived

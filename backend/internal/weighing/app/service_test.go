@@ -32,18 +32,22 @@ const (
 func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	service := NewService(&fakeRepo{})
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	director := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	pcDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	cmd := validCreate()
 
 	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
 		t.Fatalf("CEO create errored: %v", err)
 	}
-	if _, err := service.CreateCampaign(context.Background(), director, cmd); err == nil {
-		t.Fatal("director created weighing campaign; want forbidden")
+	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); err == nil {
+		t.Fatal("growth director created weighing campaign; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), director, "", 20); err != nil {
-		t.Fatalf("director monitor errored: %v", err)
+	if _, err := service.ListCampaigns(context.Background(), pcDirector, "", 20); err == nil {
+		t.Fatal("pc director monitored weighing; want forbidden")
+	}
+	if _, err := service.ListCampaigns(context.Background(), growthDirector, "", 20); err != nil {
+		t.Fatalf("growth director monitor errored: %v", err)
 	}
 	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
@@ -51,11 +55,11 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
-		t.Fatalf("director read execution roster errored: %v", err)
+	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
+		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
-		t.Fatalf("director leadership videos read errored: %v", err)
+	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
+		t.Fatalf("growth director leadership videos read errored: %v", err)
 	}
 	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err == nil {
 		t.Fatal("operator read leadership videos; want forbidden")
@@ -65,10 +69,10 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("operator execute errored: %v", err)
 	}
-	if _, err := service.RecordAnimalObservation(context.Background(), director, domain.RecordAnimalObservation{
+	if _, err := service.RecordAnimalObservation(context.Background(), growthDirector, domain.RecordAnimalObservation{
 		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
 	}); err != nil {
-		t.Fatalf("director execute errored: %v", err)
+		t.Fatalf("growth director execute errored: %v", err)
 	}
 }
 
@@ -106,7 +110,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 		t.Fatalf("repo calls operator=(%q,%d) monitor=%d, want operator-scoped pagination", repo.operatorUserID, repo.operatorCalls, repo.monitorCalls)
 	}
 
-	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
 	if err != nil {
 		t.Fatalf("monitor list campaigns: %v", err)
@@ -372,6 +376,29 @@ func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestReopenScopeRequiresMonitorRole(t *testing.T) {
+	service := NewService(&fakeRepo{})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		role string
+		want error
+	}{
+		{name: "operator cannot reopen", role: permissions.RoleOperator, want: ports.ErrForbidden},
+		{name: "pc director cannot reopen weighing", role: permissions.RolePCDirector, want: ports.ErrForbidden},
+		{name: "growth director can reopen", role: permissions.RoleGrowthDirector},
+		{name: "ceo can reopen", role: permissions.RoleCEOInternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{tc.role}}
+			err := service.ReopenScope(ctx, actor, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "reopen:"+tc.role, "missed tags")
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("ReopenScope() error=%v want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
 	service := NewService(repo)
@@ -392,7 +419,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	service := NewService(repo)
 	ctx := context.Background()
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RolePCDirector}}
+	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RoleGrowthDirector}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	campaign, err := service.CreateCampaign(ctx, ceo, domain.CreateCampaign{
@@ -617,6 +644,9 @@ func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObser
 	return domain.Observation{}, nil
 }
 func (f fakeRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
+	return nil
+}
+func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
 	return nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
@@ -892,6 +922,9 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
 func (r *scenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
+	return nil
+}
+func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
 	return nil
 }
 

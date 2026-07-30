@@ -28,5 +28,6 @@ type Repository interface {
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
+	ReopenScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey, reason string) error
 	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error
 }

@@ -299,4 +299,23 @@ func init() {
 			rolePermissions[key] = set
 		}
 	}
+
+	// Growth Director is the first production use of a vertical-specific director
+	// role on mobile. Keep it intentionally narrow: it owns weighing execution and
+	// monitoring, not Preventive Care vaccination, even though the generic Director
+	// tier still has vaccination-era read/planning permissions for the broader org
+	// catalog. Future vertical directors should get the same explicit permission
+	// composition instead of relying on role names in Android.
+	rolePermissions[RoleGrowthDirector] = map[string]struct{}{
+		GoatRead: {}, GoatWriteHealth: {},
+		LocationsRead: {},
+		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {},
+		WeighingMonitor: {}, WeighingExecute: {},
+		CalendarRead: {}, CalendarAction: {},
+		ProcurementRead: {},
+		RosterRead:      {}, RosterManage: {},
+		VerificationAct: {},
+	}
 }
