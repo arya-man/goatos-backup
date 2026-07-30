@@ -116,7 +116,9 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
 import sg.mesha.goatos.core.network.TelemetryInterceptor
 import sg.mesha.goatos.rfid.BtHidScanSource
+import sg.mesha.goatos.rfid.DefaultRfidInputTransform
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
+import sg.mesha.goatos.rfid.RfidInputTransform
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
@@ -254,6 +256,10 @@ object AppModule {
     @Singleton
     fun provideRfidReaderPort(@ApplicationContext context: Context): RfidReaderPort =
         KeyboardWedgeRfidReader(context)
+
+    @Provides
+    @Singleton
+    fun provideRfidInputTransform(transform: DefaultRfidInputTransform): RfidInputTransform = transform
 
     @Provides
     @Singleton

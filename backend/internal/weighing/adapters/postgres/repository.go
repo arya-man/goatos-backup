@@ -125,7 +125,7 @@ SET park_id=$3::uuid,
     operator_user_id=$8::uuid,
     updated_at=now(),
     row_version=row_version+1
-WHERE tenant_id=$1::uuid
+WHERE weighing_campaigns.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status <> 'completed'
   AND status <> 'canceled'`,
@@ -143,7 +143,7 @@ WHERE tenant_id=$1::uuid
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds
 SET status='canceled', updated_at=now()
-WHERE tenant_id=$1::uuid
+WHERE weighing_campaigns.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed', 'canceled')
   AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
@@ -284,10 +284,13 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 	}
 	operatorFilter := strings.TrimSpace(operatorUserID)
 	rows, err := r.pool.Query(ctx, `
-SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text,
+SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text, weighing_campaigns.park_id::text, COALESCE(park.name, '') AS park_name, period_start_date::text, period_end_date::text,
   start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text,
   created_at, updated_at, row_version
 FROM weighing_campaigns
+LEFT JOIN locations park
+       ON park.tenant_id=weighing_campaigns.tenant_id
+      AND park.location_id=weighing_campaigns.park_id
 WHERE tenant_id=$1::uuid
   AND (
     $6::uuid IS NULL
@@ -314,7 +317,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	ids := make([]string, 0, limit+1)
 	for rows.Next() {
 		var c domain.Campaign
-		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion); err != nil {
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion); err != nil {
 			return domain.CampaignPage{}, err
 		}
 		out = append(out, c)

@@ -49,6 +49,8 @@ import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
+import sg.mesha.goatos.rfid.RfidInputTransform
+import sg.mesha.goatos.rfid.PassthroughRfidInputTransform
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import java.time.Instant
@@ -83,6 +85,7 @@ class ScanViewModel @Inject constructor(
     private val tasksRepository: TasksRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
+    private val rfidInputTransform: RfidInputTransform = PassthroughRfidInputTransform,
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
@@ -487,11 +490,12 @@ class ScanViewModel @Inject constructor(
     /** Hardware tag read (keyboard-wedge): match the tag against the FULL roster (R50-007: via bounded
      *  Room query, not just the loaded page in state.value.roster.firstOrNull) and fold into draft overlay.
      *  A PENDING match is marked DONE; SKIPPED/unknown only pushes an informational feed row. */
-    private fun onTagRead(tag: String, capturedAtMs: Long) {
+    private fun onTagRead(rawTag: String, capturedAtMs: Long) {
         if (!canAcceptScanInput()) return
+        val id = shedId ?: return
+        val tag = rfidInputTransform.vaccination(rawTag, id)
         val target = normalize(tag)
         if (target.isEmpty()) return
-        val id = shedId ?: return
         viewModelScope.launch {
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
             val dbRow = repo.findScanRosterByTag(id, taskId, target) ?: run {

@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDayTabUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
@@ -101,6 +102,7 @@ class WeighingViewModel @Inject constructor(
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
     private val plannerSelections = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val selectedAssignmentParkId = MutableStateFlow<String?>(null)
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
@@ -149,8 +151,12 @@ class WeighingViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
-        combine(assignments, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { availableAssignments, loading, isPlanner, catalog, selections ->
-            WeighingRootState(availableAssignments, loading, isPlanner, catalog, selections)
+        combine(assignments, selectedAssignmentParkId) { availableAssignments, selectedParkId ->
+            AssignmentParkSelection(availableAssignments, selectedParkId)
+        }.let { assignmentSelection ->
+            combine(assignmentSelection, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { selection, loading, isPlanner, catalog, planner ->
+                WeighingRootState(selection.assignments, loading, isPlanner, catalog, planner, selection.selectedParkId)
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
 
     private val readerConnectionState: StateFlow<ScanReaderConnection> =
@@ -180,6 +186,7 @@ class WeighingViewModel @Inject constructor(
                 isPlanner = root.plannerMode,
                 catalog = root.catalog,
                 selections = root.selections,
+                selectedParkId = root.selectedParkId,
                 localScans = capture.scans,
                 proofs = capture.proofs,
                 readerConnection = capture.readerConnection,
@@ -293,6 +300,10 @@ class WeighingViewModel @Inject constructor(
                 actionInFlight.value = false
             }
         }
+    }
+
+    fun selectAssignmentPark(parkId: String?) {
+        selectedAssignmentParkId.value = parkId?.takeIf { it.isNotBlank() }
     }
 
     fun createOrEditDefaultPlan() {
@@ -1057,6 +1068,7 @@ class WeighingViewModel @Inject constructor(
         isPlanner: Boolean,
         catalog: WeighingPlannerCatalog?,
         selections: Map<String, String>,
+        selectedParkId: String?,
         localScans: List<WeighingRosterRowEntity>,
         proofs: List<ProofCaptureRow>,
         readerConnection: ScanReaderConnection?,
@@ -1090,7 +1102,10 @@ class WeighingViewModel @Inject constructor(
             weightInput = weight,
             animalCountInput = animalCount,
             message = currentMessage,
-            assignments = availableAssignments.map { it.toUiRow() },
+            assignments = availableAssignments
+                .filter { selectedParkId == null || it.parkId == selectedParkId }
+                .map { it.toUiRow() },
+            parkFilters = availableAssignments.toParkFilters(selectedParkId),
             loading = loading,
             category = category,
             plannerMode = isPlanner,
@@ -1338,6 +1353,8 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
         campaignId = campaignId,
         tenantId = tenantId,
+        parkId = parkId,
+        parkLabel = parkName.ifBlank { parkId.take(8) },
         workGroupId = workGroupId,
         campaignShedId = campaignShedId,
         expectedLocationId = expectedLocationId,
@@ -1348,6 +1365,17 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         expectedCount = expectedCount,
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
     )
+
+private fun List<WeighingAssignment>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =
+    distinctBy { it.parkId }
+        .filter { it.parkId.isNotBlank() }
+        .map {
+            WeighingParkFilterUiRow(
+                parkId = it.parkId,
+                label = it.parkName.ifBlank { it.parkId.take(8) },
+                selected = it.parkId == selectedParkId,
+            )
+        }
 
 private fun String.readableWeighingPeriodLabel(): String {
     val parts = split(" - ")
@@ -1420,6 +1448,12 @@ private data class WeighingRootState(
     val plannerMode: Boolean = false,
     val catalog: WeighingPlannerCatalog? = null,
     val selections: Map<String, String> = emptyMap(),
+    val selectedParkId: String? = null,
+)
+
+private data class AssignmentParkSelection(
+    val assignments: List<WeighingAssignment>,
+    val selectedParkId: String?,
 )
 
 private data class WeighingCaptureState(

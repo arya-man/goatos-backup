@@ -739,6 +739,7 @@ fun AppNavHost(
                     onCreateOrEditTask = vm::createOrEditDefaultPlan,
                     onTogglePlannerShed = vm::togglePlannerShed,
                     onPlannerShedCategory = vm::setPlannerShedCategory,
+                    onSelectPark = vm::selectAssignmentPark,
                     onRefresh = vm::refresh,
                     onOpenAssignment = { assignment ->
                         if (assignment.status.isClosedWeighingAssignmentStatus()) {

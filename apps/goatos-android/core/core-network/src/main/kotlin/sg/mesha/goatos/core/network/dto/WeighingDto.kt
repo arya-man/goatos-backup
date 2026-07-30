@@ -32,6 +32,7 @@ data class WeighingCampaignDto(
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("tenant_id") val tenantId: String = "",
     @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
     @SerialName("period_start_date") val periodStartDate: String = "",
     @SerialName("period_end_date") val periodEndDate: String = "",
     @SerialName("start_business_date") val startBusinessDate: String = "",
