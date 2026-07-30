@@ -36,6 +36,7 @@ type Campaign struct {
 	CampaignID        string         `json:"campaign_id"`
 	TenantID          string         `json:"tenant_id"`
 	ParkID            string         `json:"park_id"`
+	ParkName          string         `json:"park_name"`
 	PeriodStartDate   string         `json:"period_start_date"`
 	PeriodEndDate     string         `json:"period_end_date"`
 	StartBusinessDate string         `json:"start_business_date"`

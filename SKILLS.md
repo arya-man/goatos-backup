@@ -156,6 +156,18 @@ side effect of the new vertical. If a shared utility must change, prove
 Vaccination parity with focused tests and screenshots before touching the new
 vertical UI.
 
+For physical-phone role and RFID scan testing, load this runbook before changing
+Android scan handling, role gates, or local seed data:
+
+```text
+docs/runbooks/phone-qa-throwaway-rbac.md
+```
+
+That runbook is the source for the disposable `goatos-phone-qa` database,
+the two-parks/two-sheds phone scenario, the five physical RFID mapping, and the
+rule that Vaccination may transform input only in the local dev build while
+Weighing remains raw free-flow.
+
 ## STG Deploy Routing
 
 When the user says "deploy STG", "push to STG", "promote STG", "ship to

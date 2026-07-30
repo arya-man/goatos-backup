@@ -317,7 +317,7 @@ WHERE tenant_id=$2::uuid AND campaign_shed_id=$3::uuid`,
 	t.Log("OneToMany PageBoundary ScopeHierarchy StatusMatrix: shed-level operator auth stays on the exact campaign_shed_id bucket and does not leak through the campaign owner, sibling shed rows, paging boundaries, or terminal campaign statuses")
 }
 
-func TestListCampaignsForOperatorPagesOverAssignedShedRowsBeforeLimit(t *testing.T) {
+func TestListCampaignsForOperatorParkNameOneToManyPaginationScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -342,10 +342,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Other Operator Newer Sh
 	if len(page.Items) != 1 || page.Items[0].CampaignID != repoCampaign {
 		t.Fatalf("operator page=%+v, want assigned older campaign despite newer unassigned first page", page.Items)
 	}
+	if page.Items[0].ParkName != "CBE" {
+		t.Fatalf("operator campaign park name=%q, want CBE", page.Items[0].ParkName)
+	}
 	if len(page.Items[0].Sheds) != 2 {
 		t.Fatalf("operator campaign sheds=%+v, want only assigned fixture sheds", page.Items[0].Sheds)
 	}
-	t.Log("OneToMany ScopeHierarchy StatusMatrix: operator campaign listing pages over matching campaign_shed rows before limit and keeps canceled/status-filtered sibling assignments out of the operator scope")
+	t.Log("OneToMany Pagination ScopeHierarchy StatusMatrix: operator campaign listing pages over matching campaign_shed rows before limit, keeps canceled/status-filtered sibling assignments out of the operator scope, and carries the park label for director chips")
 }
 
 func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T) {

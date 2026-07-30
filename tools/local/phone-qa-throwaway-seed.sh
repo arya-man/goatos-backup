@@ -8,6 +8,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 today_sql="(now() AT TIME ZONE 'Asia/Kolkata')::date"
+scan_park="${GOATOS_PHONE_QA_SCAN_PARK:-CBE}"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 
@@ -21,6 +22,11 @@ esac
 case "${GOATOS_ENV:-}" in
   local|dev|test) ;;
   *) die "GOATOS_ENV must be local/dev/test for this seed" ;;
+esac
+
+case "$scan_park" in
+  CBE|CPT) ;;
+  *) die "GOATOS_PHONE_QA_SCAN_PARK must be CBE or CPT" ;;
 esac
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "SELECT 1" >/dev/null
@@ -237,11 +243,432 @@ SET display_name = EXCLUDED.display_name,
     status = CASE WHEN weighing_campaign_sheds.status = 'completed' THEN 'pending' ELSE weighing_campaign_sheds.status END,
     updated_at = now();
 
+-- Phone QA matrix:
+--   CBE has 5 real-RFID goats split 2 + 3 across two sheds.
+--   CPT has 5 separate synthetic-tag goats split 2 + 3 across two sheds.
+-- Goat identity stays honest: goat_identifiers is unique by (tenant_id, normalized_value),
+-- so the same physical RFID is never assigned to two goats. Weighing remains free-flow,
+-- so the same physical RFID text may still be scanned into any weighing shed bucket.
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, state_region, status, display_order, updated_at)
+VALUES
+  ('91000000-0000-4000-8000-000000000201', '${tenant_id}'::uuid, 'shed', 'CBE-GODEL-1-1-2', 'CBE - Godel 1 Parts 1-2', '91000000-0000-4000-8000-000000000101', 'Karnataka', 'active', 30, now()),
+  ('91000000-0000-4000-8000-000000000203', '${tenant_id}'::uuid, 'shed', 'CBE-GODEL-1-3-5', 'CBE - Godel 1 Parts 3-5', '91000000-0000-4000-8000-000000000101', 'Karnataka', 'active', 35, now()),
+  ('91000000-0000-4000-8000-000000000202', '${tenant_id}'::uuid, 'shed', 'CPT-MANDELA-2-1-2', 'CPT - Mandela 2 Parts 1-2', '92000000-0000-4000-8000-000000000101', 'Karnataka', 'active', 40, now()),
+  ('92000000-0000-4000-8000-000000000203', '${tenant_id}'::uuid, 'shed', 'CPT-MANDELA-2-3-5', 'CPT - Mandela 2 Parts 3-5', '92000000-0000-4000-8000-000000000101', 'Karnataka', 'active', 45, now())
+ON CONFLICT (location_id) DO UPDATE
+SET location_code = EXCLUDED.location_code,
+    name = EXCLUDED.name,
+    parent_location_id = EXCLUDED.parent_location_id,
+    status = 'active',
+    display_order = EXCLUDED.display_order,
+    updated_at = now();
+
+INSERT INTO location_operational_attributes (tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination, usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes)
+VALUES
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', true, true, true, true, false, false, false, 30, 'Phone QA CBE 2-animal shed'),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', true, true, true, true, false, false, false, 35, 'Phone QA CBE 3-animal shed'),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', true, true, true, true, false, false, false, 40, 'Phone QA CPT 2-animal shed'),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', true, true, true, true, false, false, false, 45, 'Phone QA CPT 3-animal shed')
+ON CONFLICT (location_id) DO UPDATE
+SET usable_for_vaccination = true,
+    usable_for_sop = true,
+    notes = EXCLUDED.notes,
+    display_order = EXCLUDED.display_order,
+    updated_at = now();
+
+UPDATE goats
+SET park_id = CASE
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002','91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005')
+        THEN '91000000-0000-4000-8000-000000000101'::uuid
+      ELSE park_id
+    END,
+    shed_id = CASE
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002')
+        THEN '91000000-0000-4000-8000-000000000201'::uuid
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005')
+        THEN '91000000-0000-4000-8000-000000000203'::uuid
+      ELSE shed_id
+    END,
+    current_location_id = CASE
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002')
+        THEN '91000000-0000-4000-8000-000000000201'::uuid
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005')
+        THEN '91000000-0000-4000-8000-000000000203'::uuid
+      ELSE current_location_id
+    END,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND goat_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '91000000-0000-4000-8000-000000001004',
+    '91000000-0000-4000-8000-000000001005'
+  );
+
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, health_status, custodian_party_id, current_location_id, farm_id, park_id, shed_id, dob, origin_type, entry_date)
+VALUES
+  ('92000000-0000-4000-8000-000000001001', '${tenant_id}'::uuid, 'G-920001', 'female', 'kid', 'alive', 'K2', 'healthy', '91000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000100', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', DATE '2026-05-15', 'birth', DATE '2026-05-15'),
+  ('92000000-0000-4000-8000-000000001002', '${tenant_id}'::uuid, 'G-920002', 'male', 'kid', 'alive', 'K2', 'healthy', '91000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000100', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', DATE '2026-05-16', 'birth', DATE '2026-05-16'),
+  ('92000000-0000-4000-8000-000000001003', '${tenant_id}'::uuid, 'G-920003', 'female', 'kid', 'alive', 'K2', 'healthy', '91000000-0000-4000-8000-000000000301', '92000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000100', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', DATE '2026-05-17', 'birth', DATE '2026-05-17'),
+  ('92000000-0000-4000-8000-000000001004', '${tenant_id}'::uuid, 'G-920004', 'female', 'kid', 'alive', 'K2', 'healthy', '91000000-0000-4000-8000-000000000301', '92000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000100', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', DATE '2026-05-18', 'birth', DATE '2026-05-18'),
+  ('92000000-0000-4000-8000-000000001005', '${tenant_id}'::uuid, 'G-920005', 'male', 'kid', 'alive', 'K2', 'healthy', '91000000-0000-4000-8000-000000000301', '92000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000100', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', DATE '2026-05-19', 'birth', DATE '2026-05-19')
+ON CONFLICT (goat_id) DO UPDATE
+SET lifecycle_status = 'alive',
+    management_stage = 'K2',
+    health_status = 'healthy',
+    current_location_id = EXCLUDED.current_location_id,
+    farm_id = EXCLUDED.farm_id,
+    park_id = EXCLUDED.park_id,
+    shed_id = EXCLUDED.shed_id,
+    updated_at = now();
+
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
+VALUES
+  ('92000000-0000-4000-8000-000000002001', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001001', 'temporary_tag', 'QA-CPT-0001', 'QA-CPT-0001', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cpt-1', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002002', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001002', 'temporary_tag', 'QA-CPT-0002', 'QA-CPT-0002', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cpt-2', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001003', 'temporary_tag', 'QA-CPT-0003', 'QA-CPT-0003', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cpt-3', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001004', 'temporary_tag', 'QA-CPT-0004', 'QA-CPT-0004', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cpt-4', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002005', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001005', 'temporary_tag', 'QA-CPT-0005', 'QA-CPT-0005', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cpt-5', 'seed-v1', 1.0)
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id = EXCLUDED.goat_id,
+    identifier_value = EXCLUDED.identifier_value,
+    is_primary_for_goat = EXCLUDED.is_primary_for_goat,
+    status = 'active',
+    updated_at = now();
+
+UPDATE obligation_batches
+SET estimated_targets = 10,
+    planned_quantity = 10,
+    scope_type = 'tenant',
+    scope_id = '${tenant_id}'::uuid,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND batch_id = '91000000-0000-4000-8000-000000000701';
+
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, window_start, window_end, status, sop_task_id, idempotency_key, sequence)
+VALUES
+  ('92000000-0000-4000-8000-000000003001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001001', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-1', 1),
+  ('92000000-0000-4000-8000-000000003002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001002', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-2', 1),
+  ('92000000-0000-4000-8000-000000003003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001003', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-3', 1),
+  ('92000000-0000-4000-8000-000000003004', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001004', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-4', 1),
+  ('92000000-0000-4000-8000-000000003005', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001005', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-5', 1)
+ON CONFLICT (obligation_id) DO UPDATE
+SET batch_id = EXCLUDED.batch_id,
+    status = 'due',
+    scope_type = EXCLUDED.scope_type,
+    scope_id = EXCLUDED.scope_id,
+    sop_task_id = EXCLUDED.sop_task_id,
+    due_at = now(),
+    updated_at = now();
+
+UPDATE obligation_instances
+SET scope_id = CASE
+      WHEN target_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002')
+        THEN '91000000-0000-4000-8000-000000000201'::uuid
+      WHEN target_id IN ('91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005')
+        THEN '91000000-0000-4000-8000-000000000203'::uuid
+      ELSE scope_id
+    END,
+    status = 'due',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND obligation_id IN (
+    '91000000-0000-4000-8000-000000003001',
+    '91000000-0000-4000-8000-000000003002',
+    '91000000-0000-4000-8000-000000003003',
+    '91000000-0000-4000-8000-000000003004',
+    '91000000-0000-4000-8000-000000003005'
+  );
+
+INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
+VALUES
+  ('91000000-0000-4000-8000-000000000801', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'CBE - Godel 1 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
+  ('91000000-0000-4000-8000-000000000803', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 'CBE - Godel 1 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3),
+  ('91000000-0000-4000-8000-000000000802', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 'CPT - Mandela 2 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
+  ('91000000-0000-4000-8000-000000000804', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 'CPT - Mandela 2 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3)
+ON CONFLICT (assignment_id) DO UPDATE
+SET planned_date = EXCLUDED.planned_date,
+    operator_id = EXCLUDED.operator_id,
+    park_id = EXCLUDED.park_id,
+    shed_id = EXCLUDED.shed_id,
+    physical_shed = EXCLUDED.physical_shed,
+    animal_count = EXCLUDED.animal_count,
+    total_doses = EXCLUDED.total_doses,
+    updated_at = now();
+
+DELETE FROM vaccination_drive_assignment_members
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND assignment_id IN (
+    '91000000-0000-4000-8000-000000000801',
+    '91000000-0000-4000-8000-000000000802',
+    '91000000-0000-4000-8000-000000000803',
+    '91000000-0000-4000-8000-000000000804'
+  );
+
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+SELECT '${tenant_id}'::uuid,
+       CASE
+         WHEN oi.scope_id = '91000000-0000-4000-8000-000000000201' THEN '91000000-0000-4000-8000-000000000801'::uuid
+         WHEN oi.scope_id = '91000000-0000-4000-8000-000000000203' THEN '91000000-0000-4000-8000-000000000803'::uuid
+         WHEN oi.scope_id = '91000000-0000-4000-8000-000000000202' THEN '91000000-0000-4000-8000-000000000802'::uuid
+         ELSE '91000000-0000-4000-8000-000000000804'::uuid
+       END,
+       oi.obligation_id,
+       oi.target_id
+FROM obligation_instances oi
+WHERE oi.tenant_id = '${tenant_id}'::uuid
+  AND oi.batch_id = '91000000-0000-4000-8000-000000000701'
+  AND oi.target_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '91000000-0000-4000-8000-000000001004',
+    '91000000-0000-4000-8000-000000001005',
+    '92000000-0000-4000-8000-000000001001',
+    '92000000-0000-4000-8000-000000001002',
+    '92000000-0000-4000-8000-000000001003',
+    '92000000-0000-4000-8000-000000001004',
+    '92000000-0000-4000-8000-000000001005'
+  )
+ON CONFLICT (tenant_id, obligation_id) DO UPDATE
+SET assignment_id = EXCLUDED.assignment_id;
+
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, updated_at)
+VALUES
+  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'CBE - Godel 1 Parts 1-2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000803', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', 'shed', 'CBE - Godel 1 Parts 3-5', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'CPT - Mandela 2 Parts 1-2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000804', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', 'shed', 'CPT - Mandela 2 Parts 3-5', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now())
+ON CONFLICT (campaign_shed_id) DO UPDATE
+SET location_id = EXCLUDED.location_id,
+    display_name = EXCLUDED.display_name,
+    expected_animal_count = 0,
+    weighing_category = 'individual_animal',
+    operator_user_id = EXCLUDED.operator_user_id,
+    status = CASE WHEN weighing_campaign_sheds.status = 'completed' THEN 'pending' ELSE weighing_campaign_sheds.status END,
+    updated_at = now();
+
+COMMIT;
+SQL
+
+if [ "$scan_park" = "CPT" ]; then
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
+VALUES
+  ('91000000-0000-4000-8000-000000002201', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001001', 'temporary_tag', 'QA-CBE-0001', 'QA-CBE-0001', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-1', 'seed-v1', 1.0),
+  ('91000000-0000-4000-8000-000000002202', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001002', 'temporary_tag', 'QA-CBE-0002', 'QA-CBE-0002', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-2', 'seed-v1', 1.0),
+  ('91000000-0000-4000-8000-000000002203', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001003', 'temporary_tag', 'QA-CBE-0003', 'QA-CBE-0003', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-3', 'seed-v1', 1.0),
+  ('91000000-0000-4000-8000-000000002204', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001004', 'temporary_tag', 'QA-CBE-0004', 'QA-CBE-0004', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-4', 'seed-v1', 1.0),
+  ('91000000-0000-4000-8000-000000002205', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001005', 'temporary_tag', 'QA-CBE-0005', 'QA-CBE-0005', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-5', 'seed-v1', 1.0)
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id = EXCLUDED.goat_id,
+    identifier_value = EXCLUDED.identifier_value,
+    is_primary_for_goat = EXCLUDED.is_primary_for_goat,
+    status = 'active',
+    updated_at = now();
+
+UPDATE goat_identifiers
+SET goat_id = CASE normalized_value
+      WHEN '901007000504418' THEN '92000000-0000-4000-8000-000000001001'::uuid
+      WHEN '901007000504332' THEN '92000000-0000-4000-8000-000000001002'::uuid
+      WHEN '901007000504407' THEN '92000000-0000-4000-8000-000000001003'::uuid
+      WHEN '901007000504419' THEN '92000000-0000-4000-8000-000000001004'::uuid
+      WHEN '901007000504392' THEN '92000000-0000-4000-8000-000000001005'::uuid
+      ELSE goat_id
+    END,
+    identifier_type = 'animal_identifier_1',
+    is_primary_for_goat = true,
+    status = 'active',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND normalized_value IN (
+    '901007000504418',
+    '901007000504332',
+    '901007000504407',
+    '901007000504419',
+    '901007000504392'
+  );
+
+COMMIT;
+SQL
+fi
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+
+-- Final phone-test matrix:
+--   CBE/Godel 1:     plain shed, 2 goats, real physical RFIDs.
+--   CBE/Yashoda 1:   partition Parts 1-3, 3 goats, real physical RFIDs.
+--   CPT/Mandela 2:   plain shed, 2 goats, transformed CPT-<RFID> identifiers.
+--   CPT/Castro 1:    partition Parts 1-3, 3 goats, transformed CPT-<RFID> identifiers.
+-- The Android dev build rewrites vaccination reads for CPT shed IDs only. Weighing keeps raw RFID.
+UPDATE locations
+SET location_code = CASE location_id
+      WHEN '91000000-0000-4000-8000-000000000201' THEN 'CBE-GODEL-1'
+      WHEN '91000000-0000-4000-8000-000000000203' THEN 'CBE-YASHODA-1'
+      WHEN '91000000-0000-4000-8000-000000000202' THEN 'CPT-MANDELA-2'
+      WHEN '92000000-0000-4000-8000-000000000203' THEN 'CPT-CASTRO-1'
+      ELSE location_code
+    END,
+    name = CASE location_id
+      WHEN '91000000-0000-4000-8000-000000000201' THEN 'Godel 1'
+      WHEN '91000000-0000-4000-8000-000000000203' THEN 'Yashoda 1'
+      WHEN '91000000-0000-4000-8000-000000000202' THEN 'Mandela 2'
+      WHEN '92000000-0000-4000-8000-000000000203' THEN 'Castro 1'
+      ELSE name
+    END,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND location_id IN (
+    '91000000-0000-4000-8000-000000000201',
+    '91000000-0000-4000-8000-000000000203',
+    '91000000-0000-4000-8000-000000000202',
+    '92000000-0000-4000-8000-000000000203'
+  );
+
+UPDATE goats
+SET park_id = CASE
+      WHEN goat_id::text LIKE '91000000-0000-4000-8000-000000001%' THEN '91000000-0000-4000-8000-000000000101'::uuid
+      WHEN goat_id::text LIKE '92000000-0000-4000-8000-000000001%' THEN '92000000-0000-4000-8000-000000000101'::uuid
+      ELSE park_id
+    END,
+    shed_id = CASE
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002') THEN '91000000-0000-4000-8000-000000000201'::uuid
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005') THEN '91000000-0000-4000-8000-000000000203'::uuid
+      WHEN goat_id IN ('92000000-0000-4000-8000-000000001001','92000000-0000-4000-8000-000000001002') THEN '91000000-0000-4000-8000-000000000202'::uuid
+      WHEN goat_id IN ('92000000-0000-4000-8000-000000001003','92000000-0000-4000-8000-000000001004','92000000-0000-4000-8000-000000001005') THEN '92000000-0000-4000-8000-000000000203'::uuid
+      ELSE shed_id
+    END,
+    current_location_id = CASE
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001001','91000000-0000-4000-8000-000000001002') THEN '91000000-0000-4000-8000-000000000201'::uuid
+      WHEN goat_id IN ('91000000-0000-4000-8000-000000001003','91000000-0000-4000-8000-000000001004','91000000-0000-4000-8000-000000001005') THEN '91000000-0000-4000-8000-000000000203'::uuid
+      WHEN goat_id IN ('92000000-0000-4000-8000-000000001001','92000000-0000-4000-8000-000000001002') THEN '91000000-0000-4000-8000-000000000202'::uuid
+      WHEN goat_id IN ('92000000-0000-4000-8000-000000001003','92000000-0000-4000-8000-000000001004','92000000-0000-4000-8000-000000001005') THEN '92000000-0000-4000-8000-000000000203'::uuid
+      ELSE current_location_id
+    END,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND goat_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '91000000-0000-4000-8000-000000001004',
+    '91000000-0000-4000-8000-000000001005',
+    '92000000-0000-4000-8000-000000001001',
+    '92000000-0000-4000-8000-000000001002',
+    '92000000-0000-4000-8000-000000001003',
+    '92000000-0000-4000-8000-000000001004',
+    '92000000-0000-4000-8000-000000001005'
+  );
+
+DELETE FROM goat_identifiers
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND normalized_value IN ('QA-CPT-0001','QA-CPT-0002','QA-CPT-0003','QA-CPT-0004','QA-CPT-0005');
+
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
+VALUES
+  ('92000000-0000-4000-8000-000000002101', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001001', 'animal_identifier_1', 'CPT-901007000504418', 'CPT-901007000504418', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'cpt-rfid-1', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002102', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001002', 'animal_identifier_1', 'CPT-901007000504332', 'CPT-901007000504332', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'cpt-rfid-2', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002103', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001003', 'animal_identifier_1', 'CPT-901007000504407', 'CPT-901007000504407', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'cpt-rfid-3', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002104', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001004', 'animal_identifier_1', 'CPT-901007000504419', 'CPT-901007000504419', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'cpt-rfid-4', 'seed-v1', 1.0),
+  ('92000000-0000-4000-8000-000000002105', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001005', 'animal_identifier_1', 'CPT-901007000504392', 'CPT-901007000504392', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'cpt-rfid-5', 'seed-v1', 1.0)
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id = EXCLUDED.goat_id,
+    identifier_value = EXCLUDED.identifier_value,
+    identifier_type = EXCLUDED.identifier_type,
+    is_primary_for_goat = true,
+    status = 'active',
+    updated_at = now();
+
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+VALUES
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001001', '91000000-0000-4000-8000-000000000201', 'whole', 'Godel 1', now()),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001002', '91000000-0000-4000-8000-000000000201', 'whole', 'Godel 1', now()),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001003', '91000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Yashoda 1', now()),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001004', '91000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Yashoda 1', now()),
+  ('${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001005', '91000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Yashoda 1', now()),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001001', '91000000-0000-4000-8000-000000000202', 'whole', 'Mandela 2', now()),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001002', '91000000-0000-4000-8000-000000000202', 'whole', 'Mandela 2', now()),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001003', '92000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Castro 1', now()),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001004', '92000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Castro 1', now()),
+  ('${tenant_id}'::uuid, '92000000-0000-4000-8000-000000001005', '92000000-0000-4000-8000-000000000203', 'Parts 1-3', 'Castro 1', now())
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now();
+
+UPDATE obligation_instances oi
+SET scope_id = g.shed_id,
+    updated_at = now()
+FROM goats g
+WHERE oi.tenant_id = '${tenant_id}'::uuid
+  AND g.tenant_id = oi.tenant_id
+  AND g.goat_id = oi.target_id
+  AND oi.batch_id = '91000000-0000-4000-8000-000000000701'
+  AND oi.target_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '91000000-0000-4000-8000-000000001004',
+    '91000000-0000-4000-8000-000000001005',
+    '92000000-0000-4000-8000-000000001001',
+    '92000000-0000-4000-8000-000000001002',
+    '92000000-0000-4000-8000-000000001003',
+    '92000000-0000-4000-8000-000000001004',
+    '92000000-0000-4000-8000-000000001005'
+  );
+
+UPDATE vaccination_drive_assignments
+SET physical_shed = CASE assignment_id
+      WHEN '91000000-0000-4000-8000-000000000801' THEN 'Godel 1'
+      WHEN '91000000-0000-4000-8000-000000000803' THEN 'Yashoda 1'
+      WHEN '91000000-0000-4000-8000-000000000802' THEN 'Mandela 2'
+      WHEN '91000000-0000-4000-8000-000000000804' THEN 'Castro 1'
+      ELSE physical_shed
+    END,
+    partition_label = CASE assignment_id
+      WHEN '91000000-0000-4000-8000-000000000801' THEN 'whole'
+      WHEN '91000000-0000-4000-8000-000000000803' THEN 'Parts 1-3'
+      WHEN '91000000-0000-4000-8000-000000000802' THEN 'whole'
+      WHEN '91000000-0000-4000-8000-000000000804' THEN 'Parts 1-3'
+      ELSE partition_label
+    END,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND assignment_id IN (
+    '91000000-0000-4000-8000-000000000801',
+    '91000000-0000-4000-8000-000000000802',
+    '91000000-0000-4000-8000-000000000803',
+    '91000000-0000-4000-8000-000000000804'
+  );
+
+UPDATE weighing_campaign_sheds
+SET display_name = CASE campaign_shed_id
+      WHEN '92000000-0000-4000-8000-000000000801' THEN 'Godel 1'
+      WHEN '92000000-0000-4000-8000-000000000803' THEN 'Yashoda 1 · Parts 1-3'
+      WHEN '92000000-0000-4000-8000-000000000802' THEN 'Mandela 2'
+      WHEN '92000000-0000-4000-8000-000000000804' THEN 'Castro 1 · Parts 1-3'
+      ELSE display_name
+    END,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND campaign_shed_id IN (
+    '92000000-0000-4000-8000-000000000801',
+    '92000000-0000-4000-8000-000000000802',
+    '92000000-0000-4000-8000-000000000803',
+    '92000000-0000-4000-8000-000000000804'
+  );
+
 COMMIT;
 SQL
 
 cat <<EOF
 Seeded throwaway phone QA DB on ${DATABASE_URL%%\?*}
+Vaccination RFID setup: CBE raw RFID, CPT uses CPT-<RFID> for local dev scan transform.
 
 Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
   CEO QA            90000000-0000-4000-8000-000000000101  ceo_internal       all modules + PA card
@@ -253,8 +680,13 @@ Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
   Kumar Sharath     90000000-0000-4000-8000-000000000203  operator/CBE       spare CBE operator
 
 Physical RFIDs:
-  CBE/Godel:    901007000504418, 901007000504332, 901007000504407
-  CPT/Mandela:  901007000504419, 901007000504392
+  CBE vaccination:
+    Godel 1 / whole: 901007000504418, 901007000504332
+    Yashoda 1 / Parts 1-3: 901007000504407, 901007000504419, 901007000504392
+  CPT vaccination:
+    Mandela 2 / whole: CPT-901007000504418, CPT-901007000504332
+    Castro 1 / Parts 1-3: CPT-901007000504407, CPT-901007000504419, CPT-901007000504392
+  Weighing free-flow can scan these same five physical RFIDs in any CBE/CPT shed bucket.
 
 Weighing stays free-flow: expected_animal_count=0 and no weighing_expected_animals rows are seeded.
 EOF

@@ -70,6 +70,8 @@ data class WeighingScopeState(
 data class WeighingAssignment(
     val campaignId: String,
     val tenantId: String,
+    val parkId: String,
+    val parkName: String,
     val workGroupId: String,
     val campaignShedId: String,
     val expectedLocationId: String,
@@ -873,6 +875,8 @@ private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
             WeighingAssignment(
                 campaignId = campaignId,
                 tenantId = tenantId,
+                parkId = parkId,
+                parkName = parkName,
                 workGroupId = shed.campaignShedId,
                 campaignShedId = shed.campaignShedId,
                 expectedLocationId = shed.locationId,

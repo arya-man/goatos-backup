@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,6 +86,7 @@ data class WeighingUiState(
     val plannerWeekLabel: String = "",
     val plannerPeriodLabel: String = "",
     val plannerDayTabs: List<WeighingDayTabUiRow> = emptyList(),
+    val parkFilters: List<WeighingParkFilterUiRow> = emptyList(),
     val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
     val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
@@ -205,6 +207,8 @@ data class WeighingRosterUiRow(
 data class WeighingAssignmentUiRow(
     val campaignId: String,
     val tenantId: String,
+    val parkId: String,
+    val parkLabel: String,
     val workGroupId: String,
     val campaignShedId: String,
     val expectedLocationId: String,
@@ -221,6 +225,12 @@ data class WeighingAssignmentUiRow(
             status.equals("Submitted", ignoreCase = true) ||
             status.equals("Done", ignoreCase = true)
 }
+
+data class WeighingParkFilterUiRow(
+    val parkId: String,
+    val label: String,
+    val selected: Boolean,
+)
 
 data class WeighingDraftUiRow(
     val id: String,
@@ -254,6 +264,7 @@ fun WeighingScreen(
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onSelectPark: (String?) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
     onTogglePlannerShed: (String) -> Unit = {},
     onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
@@ -382,6 +393,14 @@ fun WeighingScreen(
                         periodLabel = state.assignments.firstOrNull()?.periodLabel ?: state.plannerPeriodLabel,
                         tabs = state.plannerDayTabs,
                     )
+                }
+                if (state.parkFilters.size > 1) {
+                    item {
+                        WeighingParkFilters(
+                            filters = state.parkFilters,
+                            onSelect = onSelectPark,
+                        )
+                    }
                 }
                 items(state.assignments, key = { it.campaignShedId }) { row ->
                     AssignmentRow(
@@ -778,6 +797,51 @@ private fun PlannerSummaryRow(label: String, value: String) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun WeighingParkFilters(
+    filters: List<WeighingParkFilterUiRow>,
+    onSelect: (String?) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val anySelected = filters.any { it.selected }
+        WeighingFilterPill(
+            label = "All parks",
+            selected = !anySelected,
+            onClick = { onSelect(null) },
+        )
+        filters.forEach { option ->
+            WeighingFilterPill(
+                label = option.label,
+                selected = option.selected,
+                onClick = { onSelect(option.parkId) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeighingFilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MeshaColors.Brand else MeshaColors.Surf2
+    val edge = if (selected) MeshaColors.Brand else MeshaColors.Hair
+    val fg = if (selected) MeshaColors.PageBg else MeshaColors.Ink
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(bg)
+            .border(1.dp, edge, RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
     }
 }
 

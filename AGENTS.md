@@ -24,6 +24,21 @@ When the user says "my local DB" or "local frontend/backend", treat that as:
 Chrome -> 127.0.0.1:3300 -> 127.0.0.1:8080 -> 127.0.0.1:5433/goatos
 ```
 
+For physical Android phone scan/RBAC testing, do not mutate the normal local DB.
+Use the reset-first throwaway database and runbook:
+
+```text
+Database: postgres://postgres:goatos@127.0.0.1:15544/goatos?sslmode=disable
+Docker DB container: goatos-phone-qa
+Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
+```
+
+The phone still reaches the laptop API through `adb reverse tcp:8080 tcp:8080`.
+Only the backend process behind `127.0.0.1:8080` changes database target. The
+fixture intentionally maps five physical vaccination RFIDs into ten goat
+identities across CBE and CPT while preserving the production uniqueness rule on
+`goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
+
 ## Fast Lane for Tiny Fixes
 
 When the maintainer asks to make a small, low-risk fix and land it on `main`,
