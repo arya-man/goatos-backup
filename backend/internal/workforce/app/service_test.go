@@ -91,6 +91,39 @@ func TestBootstrapAllowsActiveProfileGrantCapabilityDevice(t *testing.T) {
 	}
 }
 
+func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
+	tests := []struct {
+		name                   string
+		role                   string
+		wantVaccinationExecute bool
+		wantWeighingExecute    bool
+	}{
+		{name: "operator executes vaccination and weighing", role: permissions.RoleOperator, wantVaccinationExecute: true, wantWeighingExecute: true},
+		{name: "pc director executes vaccination and weighing", role: permissions.RolePCDirector, wantVaccinationExecute: true, wantWeighingExecute: true},
+		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false},
+		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewService(&fakeRepo{
+				profile:        profile("active"),
+				grants:         []domain.GrantSummary{grantWithRole(tc.role)},
+				grantedModules: []string{"vaccination", "weighing"},
+			})
+			got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("Bootstrap() error=%v", err)
+			}
+			if got.FeatureFlags["vaccination_execute"] != tc.wantVaccinationExecute {
+				t.Fatalf("vaccination_execute=%v want %v", got.FeatureFlags["vaccination_execute"], tc.wantVaccinationExecute)
+			}
+			if got.FeatureFlags["weighing_execute"] != tc.wantWeighingExecute {
+				t.Fatalf("weighing_execute=%v want %v", got.FeatureFlags["weighing_execute"], tc.wantWeighingExecute)
+			}
+		})
+	}
+}
+
 func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile:        profile("active"),

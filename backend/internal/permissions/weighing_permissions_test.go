@@ -15,7 +15,7 @@ func TestWeighingRolePermissions(t *testing.T) {
 	if !RolesAuthorize([]string{RoleOperator}, []string{WeighingExecute}, false) {
 		t.Fatal("operator should execute weighing")
 	}
-	if RolesAuthorize([]string{RolePCDirector}, []string{WeighingExecute}, false) {
-		t.Fatal("director must not execute weighing")
+	if !RolesAuthorize([]string{RolePCDirector}, []string{WeighingExecute}, false) {
+		t.Fatal("pc director should execute weighing")
 	}
 }

@@ -53,12 +53,13 @@ accepted.
 | Actor | Product authority |
 |---|---|
 | CEO/CXO | Create and monitor weekly weighing tasks across farms/sheds. |
-| Preventive Director | Review and monitor weighing tasks, similar to Chandrakant-style director supervision. Dinakar belongs here for v1, but he does not create tasks. |
+| Preventive Director | Review/monitor weighing tasks and execute scan/submit when assigned operational work. Dinakar belongs here for v1, but he does not create or publish tasks. |
 | Operator | Execute assigned weighing work on Android. Amit is the v1 operator. |
 | System | Builds shed/partition work groups, rolls unfinished work forward, records scans/proofs, updates progress/read models, and raises delayed-work visibility. |
 
-V1 must not treat Dinakar as a field operator or add his capacity to the daily
-execution calculation. Dinakar is supervisor/reviewer scope only.
+V1 must not add Dinakar to field-operator capacity. Dinakar is a director
+persona with execution permission, so he may scan/submit assigned work, but he
+does not contribute to the operator capacity model.
 
 ## 3. Core product model
 
@@ -112,10 +113,11 @@ director/preventive director, and the operator.
 Sidebar visibility is backend-contract and capability driven:
 
 - CEO/CXO sees planner and monitoring entry points.
-- Preventive director/Dinakar sees monitoring and review entry points only.
+- Preventive director/Dinakar sees monitoring/review entry points and field
+  execution entry points when `weighing.execute` is present.
 - Amit/operator sees execution-only entry points for assigned open work.
-- Dinakar must never appear as task creator, execution assignee,
-  execution-capacity contributor, or scan/submit actor.
+- Dinakar must never appear as task creator/publisher or execution-capacity
+  contributor unless a later planning role explicitly grants that.
 - Users without `weighing.plan`, `weighing.monitor`, or `weighing.execute` see
   no Weighing sidebar entry and cannot deep-link into Weighing routes.
 
@@ -583,8 +585,8 @@ acceptance includes these visible outcomes:
 
 - CEO/CXO can create a weekly kids-only weighing task by selecting kid
   sheds/partitions.
-- Preventive director/Dinakar can review and monitor weighing tasks but cannot
-  create, publish, or edit the task plan in v1.
+- Preventive director/Dinakar can review, monitor, scan, and submit assigned
+  weighing work, but cannot create, publish, or edit the task plan in v1.
 - Adult monthly weighing is not available in v1: adult sheds are excluded from
   the weekly lane and cannot be added as manual exceptions.
 - Leadership can mark each selected kid shed/partition as individual animal
@@ -632,8 +634,9 @@ acceptance includes these visible outcomes:
 - Missing Herd Register animals are not a V1 execution concept. Future analytics
   may compare captured bucket evidence to canonical herd truth, but that must
   not become a mobile submit gate.
-- The v1 operator capacity calculation counts Amit only. Dinakar is a
-  preventive-director reviewer/supervisor.
+- The v1 operator capacity calculation counts field operators only. Dinakar is
+  a preventive-director executor/reviewer and is not counted as operator
+  capacity.
 - Per-animal media is mandatory for completed `individual_animal` rows.
   Shed/partition proof is mandatory for completed `per_shed_partition` rows.
   Generic SOP blobs or mobile-only transient references are insufficient for

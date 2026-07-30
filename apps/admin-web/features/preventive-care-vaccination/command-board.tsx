@@ -5,7 +5,7 @@ import { copy } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { CommandBoardView } from "./command-board-view";
-import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds/shed-scope";
+import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 
 interface VaccinationCommandBoardSkeletonProps {
   pageContract: AdminUiPageContract;

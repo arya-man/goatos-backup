@@ -503,9 +503,11 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
-	// A leadership oversight read (app route, no operator scope) is read-only: the client
-	// renders the shed list but must not open a shed into the operator scan/execute loop.
-	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
+	// A leadership oversight read (app route, no operator scope) is read-only unless
+	// the role also has explicit capture authority. PC Director is tenant-scoped for
+	// park visibility but can execute vaccination work in STG, so its shed click must
+	// stay open while CEO/Park Head remain oversight-only.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) && !h.canExecuteTasks(r) {
 		page.ViewerReadOnly = true
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
@@ -747,6 +749,15 @@ var leadershipExecutionRoles = map[string]bool{
 func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
 	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		if leadershipExecutionRoles[g.Role] {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) canExecuteTasks(r *http.Request) bool {
+	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if permissions.RoleHasPermission(g.Role, permissions.TaskExecute) {
 			return true
 		}
 	}

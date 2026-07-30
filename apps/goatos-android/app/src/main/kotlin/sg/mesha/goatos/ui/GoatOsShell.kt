@@ -199,10 +199,9 @@ fun GoatOsShell(navState: NavState) {
     // and process death (see ShellModuleViewModel).
     val moduleVm: ShellModuleViewModel = hiltViewModel()
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
-    val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)
     val visibleNavState = navState
-        .withLeadershipWeighingNavigation(leadershipWeighing)
         .withVerifierVideoNavigation()
+    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
@@ -236,7 +235,7 @@ fun GoatOsShell(navState: NavState) {
             navController = navController,
             startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
-            leadershipWeighing = leadershipWeighing,
+            canExecuteWeighing = canExecuteWeighing,
         )
     }
 
@@ -258,32 +257,6 @@ fun GoatOsShell(navState: NavState) {
             onDismiss = { showLanguage = false },
         )
     }
-}
-
-internal fun isWeighingLeadershipRole(roleLabel: String): Boolean {
-    val role = roleLabel.trim().lowercase().replace('-', '_').replace(' ', '_')
-    return role in setOf("ceo", "ceo_internal", "cxo", "director", "pc_director", "preventive_care_director")
-}
-
-internal fun NavState.withLeadershipWeighingNavigation(enabled: Boolean): NavState {
-    if (!enabled) return this
-    val weighingModule = modules.firstOrNull { it.key.equals("weighing", ignoreCase = true) } ?: return this
-    val leadershipItems = listOf(
-        NavItem(key = "weighing", label = "Weighing", href = Routes.WEIGHING),
-        NavItem(key = "videos", label = "Videos", href = Routes.WEIGHING_VIDEOS),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
-        NavItem(key = "you", label = "You", href = Routes.YOU),
-    )
-    return copy(
-        items = if (items == weighingModule.navItems) leadershipItems else items,
-        modules = modules.map { module ->
-            if (module.key.equals("weighing", ignoreCase = true)) {
-                module.copy(href = Routes.WEIGHING, navItems = leadershipItems)
-            } else {
-                module
-            }
-        },
-    )
 }
 
 internal fun NavState.withVerifierVideoNavigation(): NavState {
