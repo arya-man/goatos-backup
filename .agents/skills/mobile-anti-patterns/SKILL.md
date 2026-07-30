@@ -92,6 +92,20 @@ The mobile UI must NOT gate visibility by role (`role ==`); render the backend-c
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
+Execution affordances follow the same rule. When a backend permission means
+"execute" (`task.execute`, `weighing.execute`, or a future vertical execute
+permission), mobile should learn that from `/app/bootstrap.feature_flags` or a
+backend action key, not from role-label code. Concretely:
+- `vaccination_execute=true` means a Vaccination shed card can open Scan -> Submit.
+- `weighing_execute=true` means `/weighing` renders the field execution UI and
+  assignment cards can open the weighing scan/capture route.
+- `false` means render display/review/monitor surfaces only.
+
+Do not add helpers like `is<Vertical>LeadershipRole(roleLabel)` to choose scan vs
+display screens. If a new feature needs a component switch that the fixed Android
+nav graph cannot infer from route alone, add a backend-owned feature flag derived
+from the permission table and pin it with a backend bootstrap test.
+
 Status and row action are part of that same contract. Android and admin-web must render
 backend `workState`, `sopStatus`, `proofStatus`, `verificationStatus`, counts, summaries, and
 `primaryActionKey`; they must not invent cross-surface vaccination states or decide locally that

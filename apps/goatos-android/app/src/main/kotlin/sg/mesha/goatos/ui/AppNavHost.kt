@@ -581,7 +581,7 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
     showProtocolAdherenceCard: Boolean = false,
-    leadershipWeighing: Boolean = false,
+    canExecuteWeighing: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -723,41 +723,41 @@ fun AppNavHost(
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
-            if (leadershipWeighing) {
+            if (canExecuteWeighing) {
+                WeighingScreen(
+                    state = state,
+                    onScanInputChange = vm::onScanInputChange,
+                    onScanSubmit = vm::submitTypedScan,
+                    onWeightChange = vm::onWeightInputChange,
+                    onRecordIndividual = vm::recordIndividual,
+                    onRecordShedPartition = vm::recordShedPartition,
+                    onCreateOrEditTask = vm::createOrEditDefaultPlan,
+                    onTogglePlannerShed = vm::togglePlannerShed,
+                    onPlannerShedCategory = vm::setPlannerShedCategory,
+                    onRefresh = vm::refresh,
+                    onOpenAssignment = { assignment ->
+                        if (assignment.status.isClosedWeighingAssignmentStatus()) {
+                            Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
+                        } else {
+                            navController.navigate(
+                                Routes.weighingScanRoute(
+                                    campaignId = assignment.campaignId,
+                                    workGroupId = assignment.workGroupId,
+                                    campaignShedId = assignment.campaignShedId,
+                                    category = assignment.category,
+                                    tenantId = assignment.tenantId,
+                                    expectedLocationId = assignment.expectedLocationId,
+                                    expectedLocationLabel = assignment.expectedLocationLabel,
+                                    scanTitle = assignment.label,
+                                ),
+                            )
+                        }
+                    },
+                )
+            } else {
                 LeadershipWeighingScreen(
                     state = state,
                     onRefresh = vm::refresh,
-                )
-            } else {
-                WeighingScreen(
-                state = state,
-                onScanInputChange = vm::onScanInputChange,
-                onScanSubmit = vm::submitTypedScan,
-                onWeightChange = vm::onWeightInputChange,
-                onRecordIndividual = vm::recordIndividual,
-                onRecordShedPartition = vm::recordShedPartition,
-                onCreateOrEditTask = vm::createOrEditDefaultPlan,
-                onTogglePlannerShed = vm::togglePlannerShed,
-                onPlannerShedCategory = vm::setPlannerShedCategory,
-                onRefresh = vm::refresh,
-                onOpenAssignment = { assignment ->
-                    if (assignment.status.isClosedWeighingAssignmentStatus()) {
-                        Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
-                    } else {
-                        navController.navigate(
-                            Routes.weighingScanRoute(
-                                campaignId = assignment.campaignId,
-                                workGroupId = assignment.workGroupId,
-                                campaignShedId = assignment.campaignShedId,
-                                category = assignment.category,
-                                tenantId = assignment.tenantId,
-                                expectedLocationId = assignment.expectedLocationId,
-                                expectedLocationLabel = assignment.expectedLocationLabel,
-                                scanTitle = assignment.label,
-                            ),
-                        )
-                    }
-                },
                 )
             }
         }

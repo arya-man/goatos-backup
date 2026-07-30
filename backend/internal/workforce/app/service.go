@@ -402,6 +402,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":           hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":          hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card": canViewProtocolAdherenceCard(grants),
+			"vaccination_execute":     canExecuteVaccination(grants),
+			"weighing_execute":        canExecuteWeighing(grants),
 		},
 		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
 		Modules:                 bootstrapModules,

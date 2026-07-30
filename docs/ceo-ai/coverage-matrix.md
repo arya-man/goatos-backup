@@ -66,6 +66,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
 | Weighing shed-level operator assignments (`weighing_campaign_sheds.operator_user_id`) | api | Assistant coverage stays on `GET /weighing/campaigns`: leadership sees the campaign, selected shed buckets, per-shed owner/status, and progress rollups there. Operator-scoped mobile filtering and write authorization are execution behavior, not a separate CEO AI tool, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. |
 | func:ListCampaignsForOperator, func:ListScopeRosterForOperator | EXCLUDED | Operator-only execution read helpers for mobile shed buckets and individual rosters. They exist to keep `/app/weighing/campaigns` and `/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster` scoped before pagination/row return. Leadership assistant coverage remains `GET /weighing/campaigns`; no MCP/Toolbox, Cube, or `ceo_ai` SQL fallback surface is added. |
+| func:New, func:EnqueueWeighingVerification, func:WithVerificationEnqueuer | EXCLUDED | Internal weighing proof-video enqueue bridge. It moves already-captured weighing videos into the existing Verification workstream and adds no new CEO assistant read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or leadership KPI. Leadership visibility remains through the existing weighing monitor/video APIs and verification surfaces. |
 | POST /weighing/campaigns, /weighing/campaigns/{campaign_id}/publish | EXCLUDED | Leadership write/publish workflow, not a read metric. Result remains visible through `GET /weighing/campaigns`. |
 | POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations | EXCLUDED | Operator write-flow submissions with mandatory proof; leadership sees progress/review state through `/weighing/campaigns`. |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
@@ -277,6 +278,17 @@ correctness fixes to existing vaccination paths. They add NO new leadership KPI,
 table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
 leadership assistant read surface is unchanged. No coverage-matrix mapping is
 required; this is an explicit documented exclusion.
+
+## Explicit exclusion: weighing verification enqueue bridge (2026-07-30)
+
+The weighing verification bridge
+(`backend/internal/weighing/adapters/verificationbridge/enqueue.go`) and its
+service wiring functions (`func:New`, `func:EnqueueWeighingVerification`,
+`func:WithVerificationEnqueuer`) only enqueue already-captured weighing proof
+videos into the existing Verification workstream. They add no new CEO assistant
+read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or leadership KPI.
+Leadership visibility remains through the existing weighing monitor/video APIs
+and verification surfaces, so this is an explicit documented exclusion.
 
 ## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
 

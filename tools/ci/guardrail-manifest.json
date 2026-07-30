@@ -588,9 +588,9 @@
       "realCheck": "node tools/agent-hooks/check-mobile-contract-ownership.mjs",
       "selfTest": "node tools/agent-hooks/check-mobile-contract-ownership.mjs --self-test",
       "owningDoc": ".agents/skills/mobile-anti-patterns/SKILL.md",
-      "requiredInCI": false,
+      "requiredInCI": true,
       "ciStep": "mobile-contract-ownership-guard",
-      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
+      "notes": "Required in Android local CI: backend bootstrap/nav/feature_flags own mobile visibility and execution affordances."
     },
     {
       "id": "kernel-worker-retirement-gate",

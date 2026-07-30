@@ -641,11 +641,11 @@ role:
 |---|---|
 | `weighing.plan` | CEO/CXO only |
 | `weighing.monitor` | CEO/CXO, preventive director, relevant park leadership |
-| `weighing.execute` | Operator, Amit in v1 |
+| `weighing.execute` | Operator and `pc_director` field execution users |
 | `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
 
-Dinakar has monitoring/review capability only, not planning, creation, publish,
-edit, or execution capacity.
+Dinakar has monitoring/review plus execution capability. He is not a planner and
+does not add field-operator capacity.
 
 RBAC must be enforced in backend query predicates, not only by sidebar
 visibility. Every route that accepts `campaign_id`, `work_group_id`,
@@ -660,7 +660,8 @@ Sidebar:
 - Add Weighing for CEO/CXO, preventive director, and operator personas.
 - Show create/edit/publish actions only to CEO/CXO with `weighing.plan`.
 - Show review/monitoring surfaces to preventive director/Dinakar with
-  `weighing.monitor`, without create/edit/publish controls.
+  `weighing.monitor`, and field execution surfaces when `weighing.execute` is
+  present, without create/edit/publish controls.
 
 Leadership screen:
 
@@ -1038,8 +1039,8 @@ specifics:
 - CEO/CXO and preventive director receive delayed/open summary notifications
   when a campaign rolls beyond the planned week or has unresolved review-needed
   animals.
-- Dinakar receives reviewer/supervisor notifications, not task creation,
-  publish/edit, or operator execution assignments.
+- Dinakar receives reviewer/supervisor notifications and execution assignments
+  when explicitly assigned, not task creation or publish/edit notifications.
 
 Notification durability contract:
 
@@ -1047,8 +1048,8 @@ Notification durability contract:
   proof-upload-failed, and leadership summary notifications are created as
   durable notification requests from backend/domain events.
 - Recipient resolution reads active role grants/profile truth. Dinakar receives
-  monitoring/review notifications, not task creation, planning, publish, or
-  operator execution pushes.
+  monitoring/review and explicit execution pushes, not task creation, planning,
+  publish, or edit pushes.
 - A failed FCM/send does not change campaign/work-group state. It retries through
   the shared notification dispatcher and becomes visible in DLQ/repair tooling if
   exhausted.
@@ -1107,8 +1108,9 @@ Minimum tests before implementation is considered done:
   finished rows today and rolls the unfinished rows forward.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
   after 2026-08-01.
-- Dinakar can review/monitor but cannot create, publish, or edit weighing tasks
-  and is not counted as operator capacity.
+- Dinakar can review/monitor and execute assigned weighing work, but cannot
+  create, publish, or edit weighing tasks and is not counted as operator
+  capacity.
 - The assigned shed operator can execute only their own shed buckets.
 - Wrong-shed animal scan records in same table with mismatch status.
 - Expected animal shifted to another shed is not shown as an ordinary miss; if

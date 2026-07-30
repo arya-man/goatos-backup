@@ -106,7 +106,7 @@ grants.
 | CPT | Sagar Mahoor | Operator | Preventive Care | `sagarmahoor143@gmail.com` | Vaccination, Weighing |
 | CBE | Pramod | Operator | Weighing Operations | `pramodsahu616285@gmail.com` | Weighing only |
 | CBE | Kumar Sharath | Operator | Weighing Operations | `kumarsharath95279@gmail.com` | Weighing only |
-| CBE | Dinakar | Operator | Breeding and Growth Director | `babureddy315@gmail.com` | Weighing only |
+| Both | Dinakar | `pc_director` | Breeding and Growth Director | `babureddy315@gmail.com` | Vaccination, Weighing |
 
 Eshwar remains intentionally excluded from this STG weighing grant until his
 exact email/Firebase UID/access requirement is confirmed.
@@ -116,16 +116,16 @@ The seed must:
 1. Preserve existing Firebase identities and workforce rows.
 2. Match by permanent Firebase UID, not mutable display name.
 3. Append or reactivate the required operator/director scope grants.
-4. Grant `vaccination` and `weighing` to Preventive Care, and `weighing` only
-   to Weighing Operations and Breeding & Growth.
+4. Grant `vaccination` and `weighing` to Preventive Care / director users, and
+   `weighing` only to Weighing Operations operators.
 5. Bind operator access to the listed park and its assigned sheds.
 6. Never grant a real operator tenant scope. Operator execution belongs to a
    park plus assigned shed/task buckets: Amit/Darshan/Sagar -> CPT;
-   Pramod/Kumar Sharath/Dinakar -> CBE. Director visibility may span both parks,
-   but scanning/execution still needs explicit operator-style park/task
-   assignment. Run `make stg-operator-scope-guard` after any seed/grant edit.
-7. Keep Dinakar weighing-only in the app until a dedicated weighing-director
-   role exists; using `pc_director` would also expose Preventive Care modules.
+   Pramod/Kumar Sharath -> CBE. Director visibility may span both parks, and
+   `pc_director` may scan/submit where the backend assigns executable work. Run
+   `make stg-operator-scope-guard` after any seed/grant edit.
+7. Dinakar uses `pc_director`, not an `operator` grant. He can see both parks and
+   can execute Vaccination/Weighing, but he does not add operator capacity.
 8. Leave all unrelated users, roles, departments, parks, sheds, and grants
    unchanged.
 9. Fail before writing if Pramod, Kumar Sharath, or Dinakar lacks a confirmed

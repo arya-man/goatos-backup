@@ -280,6 +280,7 @@ run_android_guards() {
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "mobile-contract-ownership-guard" make mobile-contract-ownership-guard
   step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard

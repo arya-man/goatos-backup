@@ -51,8 +51,8 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err == nil {
-		t.Fatal("director read execution roster; want forbidden")
+	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
+		t.Fatalf("director read execution roster errored: %v", err)
 	}
 	if _, err := service.GetLeadershipShedVideos(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
 		t.Fatalf("director leadership videos read errored: %v", err)
@@ -67,8 +67,8 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), director, domain.RecordAnimalObservation{
 		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
-	}); err == nil {
-		t.Fatal("director executed weighing observation; want forbidden")
+	}); err != nil {
+		t.Fatalf("director execute errored: %v", err)
 	}
 }
 
@@ -486,8 +486,8 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 
 	if _, err := service.RecordAnimalObservation(ctx, director, domain.RecordAnimalObservation{
 		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
-	}); !errors.Is(err, ports.ErrForbidden) {
-		t.Fatalf("director execute err = %v, want forbidden", err)
+	}); err != nil {
+		t.Fatalf("director execute err = %v, want allowed", err)
 	}
 }
 

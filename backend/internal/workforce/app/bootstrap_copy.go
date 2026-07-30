@@ -290,8 +290,25 @@ func hasRole(grants []domain.GrantSummary, role string) bool {
 	return false
 }
 
+func hasPermission(grants []domain.GrantSummary, permission string) bool {
+	for _, g := range grants {
+		if permissions.RoleHasPermission(g.Role, permission) {
+			return true
+		}
+	}
+	return false
+}
+
 func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
 	return hasRole(grants, permissions.RoleCEOInternal) || hasRole(grants, permissions.RolePCDirector)
+}
+
+func canExecuteVaccination(grants []domain.GrantSummary) bool {
+	return hasPermission(grants, permissions.TaskExecute)
+}
+
+func canExecuteWeighing(grants []domain.GrantSummary) bool {
+	return hasPermission(grants, permissions.WeighingExecute)
 }
 
 // countAvailableModules counts modules the principal can actually render: known,
