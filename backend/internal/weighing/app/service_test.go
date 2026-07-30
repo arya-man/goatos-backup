@@ -134,6 +134,66 @@ func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 	}
 }
 
+func TestRecordAnimalObservationEnqueuesVerifierItem(t *testing.T) {
+	repo := &animalObservationRepo{}
+	enqueuer := &captureVerificationEnqueuer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-freeflow-1",
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+	if enqueuer.received.Category != domain.VerificationRefTypeAnimal {
+		t.Fatalf("ref_type=%q, want %q", enqueuer.received.Category, domain.VerificationRefTypeAnimal)
+	}
+	if got := enqueuer.received.MediaRefs; len(got) != 1 || got[0] != proofOne {
+		t.Fatalf("media refs=%v, want [%s]", got, proofOne)
+	}
+	if enqueuer.received.OperatorID != testOp || enqueuer.received.ShedID != testShed {
+		t.Fatalf("operator/shed=%q/%q, want %q/%q", enqueuer.received.OperatorID, enqueuer.received.ShedID, testOp, testShed)
+	}
+}
+
+func TestRecordShedObservationEnqueuesVerifierItemWithAllProofs(t *testing.T) {
+	repo := &shedObservationRepo{}
+	enqueuer := &captureVerificationEnqueuer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:   "00000000-0000-4000-8000-000000000801",
+		WeightKg:         250,
+		AnimalCount:      10,
+		ProofArtifactID:  proofOne,
+		ProofArtifactIDs: []string{proofOne, proofTwo},
+		IdempotencyKey:   "shed-lumpsum-1",
+	}); err != nil {
+		t.Fatalf("record shed observation: %v", err)
+	}
+
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+	if enqueuer.received.Category != domain.VerificationRefTypeShed {
+		t.Fatalf("ref_type=%q, want %q", enqueuer.received.Category, domain.VerificationRefTypeShed)
+	}
+	if got := enqueuer.received.MediaRefs; len(got) != 2 || got[0] != proofOne || got[1] != proofTwo {
+		t.Fatalf("media refs=%v, want [%s %s]", got, proofOne, proofTwo)
+	}
+}
+
 func TestPerShedCategoryRoutesToShedObservationOnly(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
@@ -473,6 +533,49 @@ func (r *shedCaptureRepo) RecordShedObservation(_ context.Context, cmd domain.Re
 	return domain.Observation{
 		WeightKg:         cmd.WeightKg,
 		AverageWeightKg:  cmd.AverageWeightKg,
+		ProofArtifactID:  cmd.ProofArtifactID,
+		ProofArtifactIDs: append([]string(nil), cmd.ProofArtifactIDs...),
+	}, nil
+}
+
+type captureVerificationEnqueuer struct {
+	calls    int
+	received VerificationEnqueueRequest
+}
+
+func (e *captureVerificationEnqueuer) EnqueueWeighingVerification(_ context.Context, in VerificationEnqueueRequest) error {
+	e.calls++
+	e.received = in
+	return nil
+}
+
+type animalObservationRepo struct {
+	fakeRepo
+}
+
+func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+	return domain.Observation{
+		ObservationID:      "00000000-0000-4000-8000-000000000901",
+		CampaignID:         cmd.CampaignID,
+		CampaignShedID:     cmd.CampaignShedID,
+		WeightKg:           cmd.WeightKg,
+		ProofArtifactID:    cmd.ProofArtifactID,
+		ExpectedLocationID: testShed,
+	}, nil
+}
+
+type shedObservationRepo struct {
+	fakeRepo
+}
+
+func (r *shedObservationRepo) RecordShedObservation(_ context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
+	return domain.Observation{
+		ObservationID:    "00000000-0000-4000-8000-000000000902",
+		CampaignID:       cmd.CampaignID,
+		CampaignShedID:   cmd.CampaignShedID,
+		WeightKg:         cmd.WeightKg,
+		AverageWeightKg:  cmd.AverageWeightKg,
+		AnimalCount:      cmd.AnimalCount,
 		ProofArtifactID:  cmd.ProofArtifactID,
 		ProofArtifactIDs: append([]string(nil), cmd.ProofArtifactIDs...),
 	}, nil

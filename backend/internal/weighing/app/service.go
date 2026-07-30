@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -12,11 +14,35 @@ import (
 )
 
 type Service struct {
-	repo ports.Repository
+	repo     ports.Repository
+	enqueuer VerificationEnqueuer
 }
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
+}
+
+type VerificationEnqueuer interface {
+	EnqueueWeighingVerification(ctx context.Context, in VerificationEnqueueRequest) error
+}
+
+type VerificationEnqueueRequest struct {
+	TenantID       string
+	Category       string
+	ObservationID  string
+	CampaignID     string
+	CampaignShedID string
+	MediaRefs      []string
+	OperatorID     string
+	ShedID         string
+	SubjectLabel   string
+	CapturedAt     time.Time
+	IdempotencyKey string
+}
+
+func (s *Service) WithVerificationEnqueuer(enqueuer VerificationEnqueuer) *Service {
+	s.enqueuer = enqueuer
+	return s
 }
 
 func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error) {
@@ -137,7 +163,14 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	return s.repo.RecordAnimalObservation(ctx, cmd)
+	obs, err := s.repo.RecordAnimalObservation(ctx, cmd)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
+		return domain.Observation{}, err
+	}
+	return obs, nil
 }
 
 func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error) {
@@ -165,7 +198,41 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 			return domain.Observation{}, ports.ErrInvalidArgument
 		}
 	}
-	return s.repo.RecordShedObservation(ctx, cmd)
+	obs, err := s.repo.RecordShedObservation(ctx, cmd)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	mediaRefs := obs.ProofArtifactIDs
+	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
+		mediaRefs = []string{obs.ProofArtifactID}
+	}
+	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, "lump-sum shed weight"); err != nil {
+		return domain.Observation{}, err
+	}
+	return obs, nil
+}
+
+func (s *Service) enqueueVerification(ctx context.Context, tenantID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
+	if s.enqueuer == nil {
+		return nil
+	}
+	category := domain.VerificationRefTypeAnimal
+	if obs.AnimalCount > 0 || len(mediaRefs) > 1 {
+		category = domain.VerificationRefTypeShed
+	}
+	return s.enqueuer.EnqueueWeighingVerification(ctx, VerificationEnqueueRequest{
+		TenantID:       tenantID,
+		Category:       category,
+		ObservationID:  obs.ObservationID,
+		CampaignID:     campaignID,
+		CampaignShedID: campaignShedID,
+		MediaRefs:      mediaRefs,
+		OperatorID:     operatorID,
+		ShedID:         obs.ExpectedLocationID,
+		SubjectLabel:   label,
+		CapturedAt:     obs.AcceptedAt,
+		IdempotencyKey: fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID),
+	})
 }
 
 func isPositiveFinite(value float64) bool {

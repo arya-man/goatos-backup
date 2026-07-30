@@ -55,6 +55,9 @@ type Account struct {
 	FirebaseUID string
 	// Role is a permissions.RoleXxx constant.
 	Role string
+	// ParkCode is required for operator mobile execution accounts. Directors may
+	// stay tenant-scoped for both-park leadership visibility.
+	ParkCode string
 	// DepartmentCode is the HR department code (departments.code) this
 	// person's existing workforce_members roster row should be bound to.
 	// Empty for the 5 ceo_internal leadership accounts, which have no
@@ -89,6 +92,7 @@ var stgLoginAccounts = []Account{
 		Email:                  "amit797069@gmail.com",
 		FirebaseUID:            "kjVehMX54kddXdGkG4lyF7cslG13",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Amit Kumar",
 	},
@@ -97,6 +101,7 @@ var stgLoginAccounts = []Account{
 		Email:                  "darshantalawar033@gmail.com",
 		FirebaseUID:            "0HTcWFuGMJSB5KqxsrPzDf9LOeH3",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Darshan Talwar",
 	},
@@ -105,6 +110,7 @@ var stgLoginAccounts = []Account{
 		Email:                  "sagarmahoor143@gmail.com",
 		FirebaseUID:            "P4rMyrwkLuV1vTUwq2ORqHAaX843",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Sagar Mahoor",
 	},

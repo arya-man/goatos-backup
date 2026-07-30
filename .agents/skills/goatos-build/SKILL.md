@@ -179,6 +179,11 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- STG operator grants are park-scoped, never tenant-scoped. Leadership/director
+  visibility may get tenant scope, but field execution accounts (`operator`,
+  weighing operators) must declare a park and materialize `user_scope_grants`
+  with `scope_type='park'`. Run `make stg-operator-scope-guard` for any STG
+  login, Firebase, workforce, or operator grant change.
 - Operator drive assignments are generated metadata, not obligation membership.
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's

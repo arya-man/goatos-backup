@@ -8,6 +8,11 @@ location, or any other feature. Staging is not cleaned before this seed.
 Every write must be an idempotent insert/upsert scoped to the records declared
 here; unrelated existing rows must remain unchanged.
 
+Use only the live roles in `docs/runbooks/current-active-rbac-roles.md`.
+Composite catalog roles such as `director_breeding` and
+`director_preventive_care` are dormant scaffolding today; do not grant them for
+this STG weighing seed.
+
 Do not run this seed as part of a local or production migration. Run it
 explicitly against staging after verifying the active Google Cloud project,
 database target, tenant, and operator.
@@ -114,11 +119,16 @@ The seed must:
 4. Grant `vaccination` and `weighing` to Preventive Care, and `weighing` only
    to Weighing Operations and Breeding & Growth.
 5. Bind operator access to the listed park and its assigned sheds.
-6. Keep Dinakar weighing-only in the app until a dedicated weighing-director
+6. Never grant a real operator tenant scope. Operator execution belongs to a
+   park plus assigned shed/task buckets: Amit/Darshan/Sagar -> CPT;
+   Pramod/Kumar Sharath/Dinakar -> CBE. Director visibility may span both parks,
+   but scanning/execution still needs explicit operator-style park/task
+   assignment. Run `make stg-operator-scope-guard` after any seed/grant edit.
+7. Keep Dinakar weighing-only in the app until a dedicated weighing-director
    role exists; using `pc_director` would also expose Preventive Care modules.
-7. Leave all unrelated users, roles, departments, parks, sheds, and grants
+8. Leave all unrelated users, roles, departments, parks, sheds, and grants
    unchanged.
-8. Fail before writing if Pramod, Kumar Sharath, or Dinakar lacks a confirmed
+9. Fail before writing if Pramod, Kumar Sharath, or Dinakar lacks a confirmed
    Firebase UID or if a requested park/shed cannot be resolved uniquely.
 
 ## Staging verification
