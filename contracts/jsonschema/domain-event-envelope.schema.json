@@ -46,6 +46,12 @@
         "goat.location.changed",
         "goat.stage_changed",
         "goat.health.changed",
+        "health.protocol.published",
+        "health.case.opened",
+        "health.case.death_held",
+        "health.case.death_resumed",
+        "health.case.closed_dead",
+        "health.treatment.completed",
         "goat.reproductive.changed",
         "goat.identity.changed",
         "goat.shifted",
@@ -122,7 +128,9 @@
         "weighing",
         "vaccination_batch",
         "park",
-        "absence"
+        "absence",
+        "health_protocol_version",
+        "health_case"
       ]
     },
     "aggregate_id": {
@@ -151,7 +159,8 @@
         "weighing_campaign_shed",
         "weighing_observation",
         "vaccination_batch",
-        "notification_request"
+        "notification_request",
+        "health_protocol_version"
       ]
     },
     "subject_id": {

@@ -150,6 +150,18 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
 		},
 	},
+	"aas_health": {
+		key:         "aas_health",
+		labelKey:    "module.health",
+		landingHref: "/health/adults", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    4,
+		contributions: []moduleNavContribution{
+			{key: "health_adults", labelKey: "nav.health_adults", href: "/health/adults", priority: 1, requiredPermission: permissions.HealthRead}, //nav-composition:ignore: registry entry
+			{key: "health_kids", labelKey: "nav.health_kids", href: "/health/kids", priority: 2, requiredPermission: permissions.HealthRead},       //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                      //nav-composition:ignore: registry entry
+		},
+	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
 	// client no longer needs its own hardcoded coming-soon list.
 	"breeding": {
@@ -278,20 +290,20 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 // permission filtering. Leadership is org-level (not department-scoped), so the set
 // is decided by leadership TIER, not by department_module_grants:
 //
-//   - CEO/CXO (ceo_internal) is whole-org: Vaccination, Weighing, Counts, built Feed,
-//     plus the roadmap "soon" Breeding module.
+//   - CEO/CXO (ceo_internal) is whole-org: Vaccination, Weighing, Counts, built Feed and
+//     Health, plus the roadmap "soon" Breeding module.
 //   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
-//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
-//     are not preventive-care surfaces, so they never appear. Park Head is further
+//     preventive care: Vaccination, Weighing, and Health. Counts, Feed, and Breeding
+//     are not preventive-care surfaces. Park Head is further
 //     limited to his own park by his grant scope (data scope), not by nav.
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"vaccination", "weighing", "counts", "feed_direction", "breeding"}
+		return []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "breeding"}
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
-	return []string{"vaccination", "weighing"}
+	return []string{"vaccination", "weighing", "aas_health"}
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -515,6 +527,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.weighing":         "Weighing",
 		"nav.videos":           "Videos",
 		"nav.you":              "You",
+		"nav.health_adults":    "Adults",
+		"nav.health_kids":      "Kids",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
@@ -522,6 +536,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.counts":         "Counts",
 		"module.feed_direction": "Feed direction",
 		"module.breeding":       "Breeding",
+		"module.health":         "Health",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -546,6 +561,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.weighing":         "वजन",
 		"nav.videos":           "वीडियो",
 		"nav.you":              "आप",
+		"nav.health_adults":    "वयस्क",
+		"nav.health_kids":      "बच्चे",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
@@ -553,6 +570,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.counts":         "गिनती",
 		"module.feed_direction": "फ़ीड दिशा",
 		"module.breeding":       "प्रजनन",
+		"module.health":         "स्वास्थ्य",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -577,6 +595,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.weighing":         "ತೂಕ",
 		"nav.videos":           "ವೀಡಿಯೊಗಳು",
 		"nav.you":              "ನೀವು",
+		"nav.health_adults":    "ವಯಸ್ಕರು",
+		"nav.health_kids":      "ಮಕ್ಕಳು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
@@ -584,6 +604,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.counts":         "ಎಣಿಕೆ",
 		"module.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
+		"module.health":         "ಆರೋಗ್ಯ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -608,6 +629,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.weighing":         "బరువు",
 		"nav.videos":           "వీడియోలు",
 		"nav.you":              "మీరు",
+		"nav.health_adults":    "పెద్దవి",
+		"nav.health_kids":      "పిల్లలు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
@@ -615,6 +638,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.counts":         "లెక్కలు",
 		"module.feed_direction": "ఫీడ్ దిశ",
 		"module.breeding":       "సంతానోత్పత్తి",
+		"module.health":         "ఆరోగ్యం",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",

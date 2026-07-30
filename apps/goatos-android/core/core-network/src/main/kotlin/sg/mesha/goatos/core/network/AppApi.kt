@@ -9,6 +9,12 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
@@ -902,6 +908,31 @@ interface AppApi {
         idempotencyKey: String,
         request: WorkflowActionCompleteRequestDto,
     ): WorkflowActionWriteResponseDto
+
+    suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String? = null,
+        diseaseKey: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
+        session: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): HealthWorkItemPageDto
+
+    suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto
+
+    suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto
+
+    suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto
 }
 
 /**
@@ -1444,6 +1475,38 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: WorkflowActionCompleteRequestDto,
     ): WorkflowActionWriteResponseDto =
         WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
+
+    override suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String?,
+        diseaseKey: String?,
+        parkId: String?,
+        shedId: String?,
+        session: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthWorkItemPageDto = HealthWorkItemPageDto()
+
+    override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
+        HealthWorkItemDetailDto(healthSessionId = healthSessionId)
+
+    override suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto = HealthOpenCaseResponseDto(
+        caseId = "case-${request.goatId}",
+        firstSessionId = "health-${request.goatId}",
+    )
+
+    override suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto = HealthCompleteResponseDto(
+        healthSessionId = healthSessionId,
+        status = "completed",
+    )
 }
 
 /**
@@ -1453,7 +1516,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
  */
 fun BootstrapDto.toNavState(): NavState {
     val enabledModules = modules
-        .filterNot { it.key.equals(COUNTS_MODULE_KEY, ignoreCase = true) }
         .map { module ->
         NavModule(
             key = module.key,
@@ -1461,12 +1523,10 @@ fun BootstrapDto.toNavState(): NavState {
             href = module.href,
             status = NavModuleStatus.from(module.status),
             navItems = module.navItems
-                .filterNot { it.isCountsNavigation() }
                 .map { it.toNavItem() },
         )
     }
     val enabledItems = visibleNavigation
-        .filterNot { it.isCountsNavigation() }
         .map { it.toNavItem() }
         .ifEmpty { enabledModules.firstOrNull()?.navItems.orEmpty() }
     return NavState(
@@ -1478,8 +1538,3 @@ fun BootstrapDto.toNavState(): NavState {
 }
 
 private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)
-
-private fun NavItemDto.isCountsNavigation(): Boolean =
-    key.startsWith(COUNTS_MODULE_KEY, ignoreCase = true) || href.startsWith("/counts")
-
-private const val COUNTS_MODULE_KEY = "counts"

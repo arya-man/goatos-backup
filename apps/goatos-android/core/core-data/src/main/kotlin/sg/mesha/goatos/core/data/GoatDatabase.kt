@@ -52,6 +52,14 @@ import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.HealthPageMetaDao
+import sg.mesha.goatos.core.data.cache.HealthPageMetaEntity
+import sg.mesha.goatos.core.data.cache.HealthRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.HealthRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDao
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailDao
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
@@ -143,6 +151,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
  * RFID uniqueness to the selected shed bucket so duplicate tags across buckets remain valid.
  * v24 (see [MIGRATION_23_24]) adds filter-scoped Feed Transport pages without replacing the
  * existing date-only cache, preserving every previously installed Room migration path.
+ * v25 (see [MIGRATION_24_25]) adds Health's filter-scoped treatment worklist, page metadata,
+ * keyset cursor, and bounded detail cache.
  */
 @Database(
     entities = [
@@ -193,8 +203,12 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingRosterRowEntity::class,
         WeighingObservationEntity::class,
         WeighingShedObservationEntity::class,
+        HealthWorkItemEntity::class,
+        HealthRemoteKeyEntity::class,
+        HealthPageMetaEntity::class,
+        HealthWorkItemDetailEntity::class,
     ],
-    version = 24,
+    version = 25,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -226,6 +240,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v23 (see [MIGRATION_22_23]) relaxes Weighing RFID uniqueness from campaign-wide to
     // selected shed-bucket-wide, matching the free-flow bucket model.
     // v24 (see [MIGRATION_23_24]) adds scoped Feed Transport items and remote keys.
+    // v25 (see [MIGRATION_24_25]) adds the Health Room SSOT.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -273,6 +288,10 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun workflowRemoteKeyDao(): WorkflowRemoteKeyDao
     abstract fun workflowChipsCacheDao(): WorkflowChipsCacheDao
     abstract fun workflowDetailCacheDao(): WorkflowDetailCacheDao
+    abstract fun healthWorkItemDao(): HealthWorkItemDao
+    abstract fun healthRemoteKeyDao(): HealthRemoteKeyDao
+    abstract fun healthPageMetaDao(): HealthPageMetaDao
+    abstract fun healthWorkItemDetailDao(): HealthWorkItemDetailDao
     abstract fun weighingRosterDao(): WeighingRosterDao
     abstract fun weighingObservationDao(): WeighingObservationDao
     abstract fun weighingShedObservationDao(): WeighingShedObservationDao

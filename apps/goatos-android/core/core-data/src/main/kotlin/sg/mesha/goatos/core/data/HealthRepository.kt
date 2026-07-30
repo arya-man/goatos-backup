@@ -1,0 +1,197 @@
+package sg.mesha.goatos.core.data
+
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.LoadType
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.PagingState
+import androidx.paging.RemoteMediator
+import androidx.paging.map
+import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.data.cache.HealthPageMetaEntity
+import sg.mesha.goatos.core.data.cache.HealthRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemEntity
+import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
+
+const val HEALTH_PAGE_SIZE = 20
+private const val HEALTH_MAX_MEMORY_ROWS = HEALTH_PAGE_SIZE * 3
+private const val HEALTH_RETAINED_SCOPES = 12
+private const val HEALTH_RETAINED_DETAILS = 80
+
+data class HealthFilters(
+    val ageBand: String,
+    val date: String,
+    val status: String = "",
+    val diseaseKey: String = "",
+    val parkId: String = "",
+    val shedId: String = "",
+    val session: String = "",
+) {
+    val scopeKey: String
+        get() = listOf(ageBand, date, status, diseaseKey, parkId, shedId, session)
+            .joinToString("|") { it.trim().lowercase() }
+}
+
+interface HealthRepository {
+    fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>>
+    fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?>
+    fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?>
+    suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit>
+    suspend fun refreshDetail(healthSessionId: String): Result<Unit>
+    suspend fun markCompleted(healthSessionId: String)
+}
+
+class DefaultHealthRepository(
+    private val api: AppApi,
+    private val database: GoatDatabase,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val clock: () -> Long = { System.currentTimeMillis() },
+) : HealthRepository {
+
+    @OptIn(ExperimentalPagingApi::class)
+    override fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>> = Pager(
+        config = PagingConfig(
+            pageSize = HEALTH_PAGE_SIZE,
+            initialLoadSize = HEALTH_PAGE_SIZE,
+            prefetchDistance = 3,
+            enablePlaceholders = false,
+            maxSize = HEALTH_MAX_MEMORY_ROWS,
+        ),
+        remoteMediator = HealthRemoteMediator(filters, api, database, json, clock),
+        pagingSourceFactory = { database.healthWorkItemDao().pagingSource(filters.scopeKey) },
+    ).flow.map { page ->
+        page.map { json.decodeFromString<HealthWorkItemDto>(it.dtoJson) }
+    }.flowOn(Dispatchers.Default)
+
+    override fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?> =
+        database.healthPageMetaDao().observe(filters.scopeKey).map { entity ->
+            entity?.let { runCatching { json.decodeFromString<HealthWorkItemPageDto>(it.dtoJson) }.getOrNull() }
+        }.flowOn(Dispatchers.Default)
+
+    override fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?> =
+        database.healthWorkItemDetailDao().observe(healthSessionId).map { entity ->
+            entity?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
+        }.flowOn(Dispatchers.Default)
+
+    override suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit> = runCatching {
+        val filters = HealthFilters(ageBand = ageBand, date = date)
+        val page = api.listHealthWorkItems(
+            ageBand = ageBand,
+            date = date,
+            status = null,
+            diseaseKey = null,
+            parkId = null,
+            shedId = null,
+            session = null,
+            cursor = null,
+            limit = 1,
+        )
+        database.healthPageMetaDao().upsert(
+            HealthPageMetaEntity(filters.scopeKey, json.encodeToString(page.copy(items = emptyList())), clock()),
+        )
+    }
+
+    override suspend fun refreshDetail(healthSessionId: String): Result<Unit> = runCatching {
+        val detail = api.getHealthWorkItem(healthSessionId)
+        database.healthWorkItemDetailDao().upsert(
+            HealthWorkItemDetailEntity(healthSessionId, json.encodeToString(detail), clock()),
+        )
+        database.healthWorkItemDetailDao().deleteOldestBeyond(HEALTH_RETAINED_DETAILS)
+    }
+
+    override suspend fun markCompleted(healthSessionId: String) {
+        val now = clock()
+        database.withTransaction {
+            val dao = database.healthWorkItemDao()
+            val rows = dao.findAll(healthSessionId).mapNotNull { row ->
+                runCatching { json.decodeFromString<HealthWorkItemDto>(row.dtoJson) }.getOrNull()
+                    ?.copy(status = "completed")
+                    ?.let { row.copy(dtoJson = json.encodeToString(it), updatedAt = now) }
+            }
+            if (rows.isNotEmpty()) dao.upsertAll(rows)
+
+            val detailDao = database.healthWorkItemDetailDao()
+            val detailRow = detailDao.get(healthSessionId)
+            val completedDetail = detailRow?.let { row ->
+                runCatching { json.decodeFromString<HealthWorkItemDetailDto>(row.dtoJson) }.getOrNull()
+                    ?.copy(status = "completed")
+                    ?.let { row.copy(dtoJson = json.encodeToString(it), updatedAt = now) }
+            }
+            if (completedDetail != null) detailDao.upsert(completedDetail)
+        }
+    }
+}
+
+@OptIn(ExperimentalPagingApi::class)
+private class HealthRemoteMediator(
+    private val filters: HealthFilters,
+    private val api: AppApi,
+    private val database: GoatDatabase,
+    private val json: Json,
+    private val clock: () -> Long,
+) : RemoteMediator<Int, HealthWorkItemEntity>() {
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState<Int, HealthWorkItemEntity>,
+    ): MediatorResult = try {
+        if (loadType == LoadType.PREPEND) return MediatorResult.Success(endOfPaginationReached = true)
+        val key = filters.scopeKey
+        val cursor = when (loadType) {
+            LoadType.REFRESH -> null
+            LoadType.APPEND -> {
+                val remote = database.healthRemoteKeyDao().get(key)
+                if (remote?.endReached == true) return MediatorResult.Success(true)
+                remote?.nextCursor
+            }
+            LoadType.PREPEND -> null
+        }
+        val response = api.listHealthWorkItems(
+            ageBand = filters.ageBand,
+            date = filters.date,
+            status = filters.status.ifBlank { null },
+            diseaseKey = filters.diseaseKey.ifBlank { null },
+            parkId = filters.parkId.ifBlank { null },
+            shedId = filters.shedId.ifBlank { null },
+            session = filters.session.ifBlank { null },
+            cursor = cursor,
+            limit = HEALTH_PAGE_SIZE,
+        )
+        val now = clock()
+        database.withTransaction {
+            val itemDao = database.healthWorkItemDao()
+            if (loadType == LoadType.REFRESH) {
+                itemDao.deleteScope(key)
+                database.healthRemoteKeyDao().delete(key)
+            }
+            val base = if (loadType == LoadType.APPEND) itemDao.count(key) else 0
+            itemDao.upsertAll(response.items.mapIndexed { index, item ->
+                HealthWorkItemEntity(key, item.healthSessionId, base + index, json.encodeToString(item), now)
+            })
+            database.healthRemoteKeyDao().upsert(
+                HealthRemoteKeyEntity(key, response.nextCursor, response.nextCursor == null, now),
+            )
+            database.healthPageMetaDao().upsert(
+                HealthPageMetaEntity(key, json.encodeToString(response.copy(items = emptyList())), now),
+            )
+            itemDao.deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+            database.healthRemoteKeyDao().deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+        }
+        MediatorResult.Success(response.nextCursor == null)
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (t: Throwable) {
+        MediatorResult.Error(t)
+    }
+}

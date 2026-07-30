@@ -287,6 +287,24 @@ data class WorkflowActionCompletePayload(
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
 )
 
+@Serializable
+data class HealthTreatmentCompletePayload(
+    @SerialName("health_session_id") val healthSessionId: String,
+    @SerialName("proof_ref") val proofRef: String = "",
+)
+
+@Serializable
+data class HealthCaseOpenPayload(
+    @SerialName("goat_id") val goatId: String,
+    @SerialName("disease_key") val diseaseKey: String,
+    @SerialName("age_band") val ageBand: String,
+    @SerialName("start_date") val startDate: String,
+    /** Local-only labels used while this write is waiting in the outbox. SyncEngine sends only
+     * the canonical fields above to the backend. Defaults preserve already-queued payloads. */
+    @SerialName("goat_display_id") val goatDisplayId: String = "",
+    @SerialName("disease_name") val diseaseName: String = "",
+)
+
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_PACKING_COMPLETE] —
  * the verifier-GATED packing flow. Simpler than [FeedDistributionCompletePayload]: only ONE

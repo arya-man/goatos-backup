@@ -10,17 +10,19 @@ import (
 )
 
 func TestLatestOutboxValidatorCoversProducedAggregateTypes(t *testing.T) {
-	body, err := os.ReadFile("000055_restore_weighing_outbox_validator.sql")
+	body, err := os.ReadFile("000061_health_workflows.sql")
 	if err != nil {
 		t.Fatalf("read latest validator migration: %v", err)
 	}
 	sql := string(body)
 	required := map[string][]string{
-		"vaccination_batch": {"obligation_batches", "batch_id"},
-		"verification_item": {"verification_items", "item_id"},
-		"weighing":          {"weighing_campaigns", "weighing_observations", "weighing_shed_observations"},
-		"absence":           {"workforce_absences", "absence_id"},
-		"park":              {"locations", "location_id"},
+		"vaccination_batch":       {"obligation_batches", "batch_id"},
+		"verification_item":       {"verification_items", "item_id"},
+		"weighing":                {"weighing_campaigns", "weighing_observations", "weighing_shed_observations"},
+		"absence":                 {"workforce_absences", "absence_id"},
+		"park":                    {"locations", "location_id"},
+		"health_protocol_version": {"health_protocol_versions", "health_protocol_version_id"},
+		"health_case":             {"health_cases", "health_case_id"},
 	}
 
 	for aggregateType, needles := range required {
@@ -34,6 +36,40 @@ func TestLatestOutboxValidatorCoversProducedAggregateTypes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHealthDepartmentGrantHasForwardMigration(t *testing.T) {
+	body, err := os.ReadFile("000062_health_department_module_grant.sql")
+	if err != nil {
+		t.Fatalf("read Health department grant migration: %v", err)
+	}
+	sql := string(body)
+	for _, needle := range []string{"department_module_grants", "d.code = 'health'", "'aas_health'", "ON CONFLICT"} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("Health department grant migration is missing %q", needle)
+		}
+	}
+}
+
+func TestHealthDepartmentOperationalModulesHaveForwardMigration(t *testing.T) {
+	body, err := os.ReadFile("000063_health_department_operational_modules.sql")
+	if err != nil {
+		t.Fatalf("read Health department operational module migration: %v", err)
+	}
+	sql := string(body)
+	for _, needle := range []string{
+		"department_module_grants",
+		"d.code = 'health'",
+		"'feed_direction'",
+		"'vaccination'",
+		"ON CONFLICT",
+		"DO UPDATE",
+		"status = 'active'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("Health department operational module migration is missing %q", needle)
+		}
 	}
 }
 

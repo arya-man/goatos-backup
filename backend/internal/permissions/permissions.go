@@ -9,9 +9,15 @@ const (
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
 
-	GoatRead                  = "goat.read"
-	GoatWriteIdentity         = "goat.write_identity"
-	GoatWriteHealth           = "goat.write_health"
+	GoatRead          = "goat.read"
+	GoatWriteIdentity = "goat.write_identity"
+	GoatWriteHealth   = "goat.write_health"
+	// HealthRead renders backend-owned disease-course work. HealthDiagnose opens a configured
+	// course; HealthExecute records the operator's treatment session. They are deliberately
+	// narrower than the admin goat health-status write.
+	HealthRead                = "health.read"
+	HealthDiagnose            = "health.diagnose"
+	HealthExecute             = "health.execute"
 	LocationsRead             = "locations.read"
 	LocationsWrite            = "locations.write"
 	LocationsReview           = "locations.review"
@@ -243,6 +249,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedPackingRead:       {},
 		FeedDirectionComplete: {},
 		VerificationAct:       {},
+		HealthRead:            {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
@@ -255,6 +262,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
+		HealthRead:      {}, HealthDiagnose: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -269,6 +277,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead:          {},
 		FeedPackingRead:       {},
 		FeedDirectionComplete: {},
+		HealthRead:            {}, HealthExecute: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
@@ -299,6 +308,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionComplete: {},
 		VerificationReview:    {},
 		VerificationAct:       {},
+		HealthRead:            {}, HealthDiagnose: {}, HealthExecute: {},
 	},
 }
 

@@ -1187,10 +1187,13 @@ type importStats struct {
 //   - preventive_care -> vaccination: the PC seats run the vaccination drives. This is the
 //     grant that keeps the existing vaccination operator working after mig 000002 removed
 //     the hardcoded grantedModules = ["vaccination"].
-//   - preventive_care, health -> counts: Counts carries birth/death capture, and the
-//     maintainer-approved rule is that field operators record birth and death from the app
-//     (docs/runbooks/android-dev-device.md). Health/Kidding seats are the ones present at a
-//     kidding or a death, and PC seats are in the sheds daily.
+//   - health -> aas_health + counts + feed_direction + vaccination: maintainer decision
+//     2026-07-30. Health/Kidding operators own the Adult/Kids Health worklists and also perform
+//     Counts, Feed, and Vaccination work. This is a department grant, not a blanket expansion of
+//     every operator. aas_health is the backend module key whose display label is "Health".
+//   - preventive_care -> counts: Counts carries birth/death capture, and the maintainer-approved
+//     rule is that field operators record birth and death from the app
+//     (docs/runbooks/android-dev-device.md). PC seats are in the sheds daily.
 //   - preventive_care -> feed_direction: maintainer decision 2026-07-22 — field operators now
 //     see the Feed vertical on the phone (they dispatch and pack what the direction says). The
 //     matching protocol.read / feed_packing.read grants were added to RoleOperator in the same
@@ -1203,7 +1206,7 @@ type importStats struct {
 // skipped by the INSERT ... SELECT below, never an error.
 var defaultDepartmentModules = map[string][]string{
 	"preventive_care": {"vaccination", "counts", "feed_direction"},
-	"health":          {"counts"},
+	"health":          {"aas_health", "counts", "feed_direction", "vaccination"},
 	"feed":            {"feed_direction"},
 	"breeding":        {"breeding"},
 }

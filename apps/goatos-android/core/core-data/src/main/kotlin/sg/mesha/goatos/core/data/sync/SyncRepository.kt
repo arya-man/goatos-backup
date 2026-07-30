@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,6 +72,13 @@ import java.util.UUID
  */
 interface SyncRepository {
     fun observeStatus(): StateFlow<SyncStatus>
+
+    /**
+     * Active, locally durable Health reports that do not have backend-created treatment sessions
+     * yet. Lightweight fakes default to an empty stream; production projects these directly from
+     * Room's outbox so an offline report remains visible after navigation or process recreation.
+     */
+    fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> = flowOf(emptyList())
 
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
@@ -421,6 +429,26 @@ interface SyncRepository {
         proofOutboxItemId: String? = null,
     ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
 
+    /** Opens a Health disease course. The goat is the ordering group and the caller persists one
+     * idempotency key for the draft so a retry cannot create a duplicate disease episode. */
+    suspend fun enqueueHealthCaseOpen(
+        goatId: String,
+        diseaseKey: String,
+        ageBand: String,
+        startDate: String,
+        idempotencyKey: String,
+        goatDisplayId: String = "",
+        diseaseName: String = "",
+    ): AppResult<String> = AppResult.Err("health case sync is not configured")
+
+    /** Enqueues one Health session completion. The session id is both the ordering group and the
+     * stable idempotency identity, preventing duplicate medicine administration rows on retry. */
+    suspend fun enqueueHealthTreatmentComplete(
+        healthSessionId: String,
+        idempotencyKey: String,
+        proofRef: String = "",
+    ): AppResult<String> = AppResult.Err("health treatment sync is not configured")
+
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
      *  retry affordance. */
@@ -528,6 +556,11 @@ class DefaultSyncRepository(
     }
 
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
+
+    override fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> =
+        store.observeActive()
+            .map { rows -> projectPendingHealthCaseOpens(rows, syncJson) }
+            .distinctUntilChanged()
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
         store.observeById(itemId)
@@ -1069,6 +1102,43 @@ class DefaultSyncRepository(
         ),
     )
 
+    override suspend fun enqueueHealthTreatmentComplete(
+        healthSessionId: String,
+        idempotencyKey: String,
+        proofRef: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_TREATMENT_COMPLETE,
+        groupKey = healthSessionId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofRef = proofRef),
+        ),
+    )
+
+    override suspend fun enqueueHealthCaseOpen(
+        goatId: String,
+        diseaseKey: String,
+        ageBand: String,
+        startDate: String,
+        idempotencyKey: String,
+        goatDisplayId: String,
+        diseaseName: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_CASE_OPEN,
+        groupKey = goatId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthCaseOpenPayload(
+                goatId = goatId,
+                diseaseKey = diseaseKey,
+                ageBand = ageBand,
+                startDate = startDate,
+                goatDisplayId = goatDisplayId,
+                diseaseName = diseaseName,
+            ),
+        ),
+    )
+
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
         try {
             store.findById(itemId) ?: throw NoSuchElementException("Outbox item not found: $itemId")
@@ -1170,7 +1240,48 @@ class DefaultSyncRepository(
 }
 
 private fun requestFingerprint(opType: OutboxOpType, groupKey: String, payloadJson: String): String {
-    val envelope = "${opType.name}\u0000$groupKey\u0000$payloadJson"
+    val fingerprintPayload = canonicalOutboxFingerprintPayload(opType, payloadJson, syncJson)
+    val envelope = "${opType.name}\u0000$groupKey\u0000$fingerprintPayload"
     val bytes = MessageDigest.getInstance("SHA-256").digest(envelope.toByteArray(Charsets.UTF_8))
     return bytes.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
 }
+
+/** UI-only Health labels must not change the identity of the canonical case-open command. */
+internal fun canonicalOutboxFingerprintPayload(
+    opType: OutboxOpType,
+    payloadJson: String,
+    json: kotlinx.serialization.json.Json,
+): String {
+    if (opType != OutboxOpType.HEALTH_CASE_OPEN) return payloadJson
+    return runCatching {
+        val payload = json.decodeFromString<HealthCaseOpenPayload>(payloadJson)
+        json.encodeToString(payload.copy(goatDisplayId = "", diseaseName = ""))
+    }.getOrDefault(payloadJson)
+}
+
+/** Pure projection used by the production outbox-backed Health pending-report read path. */
+internal fun projectPendingHealthCaseOpens(
+    rows: List<OutboxEntity>,
+    json: kotlinx.serialization.json.Json,
+): List<PendingHealthCaseOpen> = rows.asSequence()
+    .filter { it.opType == OutboxOpType.HEALTH_CASE_OPEN.name }
+    .mapNotNull { row ->
+        val payload = runCatching { json.decodeFromString<HealthCaseOpenPayload>(row.payloadJson) }
+            .getOrNull() ?: return@mapNotNull null
+        val status = runCatching { SyncItemStatus.valueOf(row.status) }
+            .getOrNull() ?: return@mapNotNull null
+        PendingHealthCaseOpen(
+            outboxItemId = row.id,
+            goatId = payload.goatId,
+            goatDisplayId = payload.goatDisplayId.ifBlank { payload.goatId },
+            diseaseKey = payload.diseaseKey,
+            diseaseName = payload.diseaseName.ifBlank {
+                payload.diseaseKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+            },
+            ageBand = payload.ageBand,
+            startDate = payload.startDate,
+            syncStatus = status,
+            lastError = row.lastError,
+        )
+    }
+    .toList()

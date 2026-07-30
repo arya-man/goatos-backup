@@ -22,6 +22,12 @@ import retrofit2.http.PUT
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
@@ -600,6 +606,37 @@ interface AppApiService {
         @Body request: WorkflowActionCompleteRequestDto,
     ): WorkflowActionWriteResponseDto
 
+    @GET("app/health/work-items")
+    suspend fun listHealthWorkItems(
+        @Query("age_band") ageBand: String,
+        @Query("date") date: String,
+        @Query("status") status: String?,
+        @Query("disease_key") diseaseKey: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("session") session: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): HealthWorkItemPageDto
+
+    @POST("app/health/cases")
+    suspend fun openHealthCase(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto
+
+    @GET("app/health/work-items/{health_session_id}")
+    suspend fun getHealthWorkItem(
+        @Path("health_session_id") healthSessionId: String,
+    ): HealthWorkItemDetailDto
+
+    @POST("app/health/work-items/{health_session_id}/complete")
+    suspend fun completeHealthWorkItem(
+        @Path("health_session_id") healthSessionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto
+
     @GET("goats/search")
     suspend fun searchGoats(
         @Query("q") q: String?,
@@ -1141,6 +1178,35 @@ class RetrofitAppApi(
         request: WorkflowActionCompleteRequestDto,
     ): WorkflowActionWriteResponseDto =
         service.completeWorkflowAction(workflowId, actionId, idempotencyKey, request)
+
+    override suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String?,
+        diseaseKey: String?,
+        parkId: String?,
+        shedId: String?,
+        session: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthWorkItemPageDto = service.listHealthWorkItems(
+        ageBand, date, status, diseaseKey, parkId, shedId, session, cursor, limit,
+    )
+
+    override suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto = service.openHealthCase(idempotencyKey, request)
+
+    override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
+        service.getHealthWorkItem(healthSessionId)
+
+    override suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto =
+        service.completeHealthWorkItem(healthSessionId, idempotencyKey, request)
 
     override suspend fun searchGoats(
         q: String?,

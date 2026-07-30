@@ -296,6 +296,12 @@ func init() {
 			for permission := range perms {
 				set[permission] = struct{}{}
 			}
+			if vertical == VerticalHealth {
+				set[HealthRead] = struct{}{}
+				if tier == TierManager || tier == TierHead || tier == TierDirector {
+					set[HealthDiagnose] = struct{}{}
+				}
+			}
 			rolePermissions[key] = set
 		}
 	}

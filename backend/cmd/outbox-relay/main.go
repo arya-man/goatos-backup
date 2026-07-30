@@ -19,6 +19,8 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
@@ -161,6 +163,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
 		countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+		healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -180,6 +183,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,
 			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
+		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

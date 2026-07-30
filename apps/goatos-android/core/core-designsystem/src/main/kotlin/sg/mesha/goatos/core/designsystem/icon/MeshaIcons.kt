@@ -217,6 +217,11 @@ object MeshaIcons {
         "M4 4.5h6.5v6.5H4zM13.5 4.5H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z",
     )
 
+    val Health: ImageVector = strokeIcon(
+        "health",
+        "M8 3.5h8v4.5h4.5v8H16v4.5H8V16H3.5V8H8z",
+    )
+
     /**
      * Maps a backend nav-item OR module key to its mock icon. Keys are the stable backend
      * identifiers from `moduleNavRegistry` (bootstrap_copy.go); an unknown key falls back to
@@ -245,6 +250,7 @@ object MeshaIcons {
         "milk_preparation" -> MilkPreparation
         "milk_feeding" -> MilkFeeding
         "breeding" -> Goat
+        "aas_health", "health_adults", "health_kids" -> Health
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md) — its
         // one job is a video-verification queue, so the Video glyph is its nav icon.
         "verify", "verification", "video_verification" -> Video

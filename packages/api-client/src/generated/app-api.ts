@@ -2224,6 +2224,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/health/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Diagnose a goat and open the configured disease treatment course.
+         * @description Snapshots the currently published disease/age protocol and creates its bounded daily treatment sessions. duration_days is disease-configured; missing source duration is normalized to three days at protocol publication. Critical cull/isolation/movement text is materialized only as a guarded handoff and never directly mutates goat lifecycle/location.
+         */
+        post: operations["openHealthCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/health/work-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one day's Adult or Kids Health treatment sessions.
+         * @description Returns a keyset page capped at 20 treatment sessions. Summary buckets are whole-filter aggregates and do not change with page size. Date markers and filter options are backend-owned. Approved-death sessions are canceled and omitted from future actionable days; death reports hold sessions until the review resolves.
+         */
+        get: operations["listHealthWorkItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/health/work-items/{health_session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one treatment session and its snapshotted action rows. */
+        get: operations["getHealthWorkItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/health/work-items/{health_session_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete one Health treatment session and record its medicines.
+         * @description Atomically completes pending medication/action rows and creates one immutable medicine administration per configured medication step. Guarded critical rows are not executed by this command. Idempotency-Key makes offline retries safe.
+         */
+        post: operations["completeHealthWorkItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/approvals": {
         parameters: {
             query?: never;
@@ -6581,6 +6658,120 @@ export interface components {
             awaiting_verification: boolean;
             /** Format: date-time */
             completed_at: string | null;
+            idempotent_replay: boolean;
+        };
+        OpenHealthCaseRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            disease_key: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            /** Format: date */
+            start_date: string;
+        };
+        OpenHealthCaseResponse: {
+            /** Format: uuid */
+            case_id: string;
+            /** Format: uuid */
+            first_session_id: string;
+            session_count: number;
+            duration_days: number;
+            idempotent_replay: boolean;
+        };
+        HealthWorkItem: {
+            /** Format: uuid */
+            health_session_id: string;
+            /** Format: uuid */
+            case_id: string;
+            /** Format: uuid */
+            goat_id: string;
+            goat_display_id: string;
+            disease_key: string;
+            disease_name: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            day_no: number;
+            duration_days: number;
+            /** Format: date */
+            business_date: string;
+            /** @enum {string} */
+            session: "morning" | "afternoon" | "evening" | "unscheduled";
+            /** Format: date-time */
+            due_at: string;
+            /** @enum {string} */
+            status: "scheduled" | "due" | "in_progress" | "completed" | "rework" | "held" | "canceled_death";
+            /** Format: uuid */
+            park_id: string | null;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string | null;
+            shed_label: string;
+            step_count: number;
+            medication_count: number;
+            has_critical_step: boolean;
+        };
+        HealthSummary: {
+            total: number;
+            due: number;
+            scheduled: number;
+            in_progress: number;
+            completed: number;
+            rework: number;
+            held: number;
+            canceled_death: number;
+        };
+        HealthDateMarker: {
+            /** Format: date */
+            date: string;
+            count: number;
+        };
+        HealthFilterOption: {
+            key: string;
+            label: string;
+        };
+        HealthFilterOptions: {
+            diseases: components["schemas"]["HealthFilterOption"][];
+            parks: components["schemas"]["HealthFilterOption"][];
+            sheds: components["schemas"]["HealthFilterOption"][];
+        };
+        HealthWorkItemPage: {
+            items: components["schemas"]["HealthWorkItem"][];
+            summary: components["schemas"]["HealthSummary"];
+            date_markers: components["schemas"]["HealthDateMarker"][];
+            filter_options: components["schemas"]["HealthFilterOptions"];
+            next_cursor: string | null;
+        };
+        HealthTreatmentStep: {
+            /** Format: uuid */
+            step_id: string;
+            day_no: number;
+            session: string;
+            seq: number;
+            /** @enum {string} */
+            record_type: "action" | "medication" | "critical_action";
+            medicine_name: string | null;
+            dosage_text: string | null;
+            dosage_denominator: string | null;
+            medicine_route: string | null;
+            instruction: string | null;
+            critical_action_type: string | null;
+            /** @enum {string} */
+            status: "pending" | "completed" | "guarded";
+        };
+        HealthWorkItemDetail: components["schemas"]["HealthWorkItem"] & {
+            steps: components["schemas"]["HealthTreatmentStep"][];
+        };
+        CompleteHealthWorkItemRequest: {
+            proof_ref?: string;
+        };
+        CompleteHealthWorkItemResponse: {
+            /** Format: uuid */
+            health_session_id: string;
+            /** @enum {string} */
+            status: "completed";
+            /** Format: date-time */
+            completed_at: string;
+            medication_count: number;
             idempotent_replay: boolean;
         };
         /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. For this birth route the server ignores child identifiers from the app and generates one provisional identifier per child from the canonical park code (`CBE-` or `CPT-`) plus five deterministic digits. One request fans out according to litter_size, so Twins creates two distinct canonical goats and Triplets creates three. The app never scans a child RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
@@ -11172,6 +11363,132 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    openHealthCase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenHealthCaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Treatment course opened. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenHealthCaseResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthWorkItems: {
+        parameters: {
+            query: {
+                age_band: "adult" | "kid";
+                date?: string;
+                status?: "scheduled" | "due" | "in_progress" | "completed" | "rework" | "held" | "canceled_death";
+                disease_key?: string;
+                park_id?: string;
+                shed_id?: string;
+                session?: "morning" | "afternoon" | "evening" | "unscheduled";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One Room-friendly page and whole-filter metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthWorkItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthWorkItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                health_session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Treatment session detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthWorkItemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeHealthWorkItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                health_session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteHealthWorkItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Session completed or exact replay returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteHealthWorkItemResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -35,7 +35,13 @@
     "weighing.campaign_published",
     "weighing.observation_accepted",
     "weighing.shed_observation_accepted",
-    "weighing.shed_submission.completed"
+    "weighing.shed_submission.completed",
+    "health.protocol.published",
+    "health.case.opened",
+    "health.case.death_held",
+    "health.case.death_resumed",
+    "health.case.closed_dead",
+    "health.treatment.completed"
   ],
   "events": [
     {
@@ -299,6 +305,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "CountsDeathReportedHandler opens the death workflow immediately from the still-live goat's canonical park/shed facts. The event and counts_approval_requests insert commit atomically; migration 000035 backfills pending pre-existing death requests."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Holds every incomplete treatment work item while the death report is under review."
         }
       ],
       "owningDoc": "docs/decisions/birth-death-workflows.md",
@@ -322,6 +333,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "CountsDeathRejectedHandler cancels the staged death workflow and clears its proof refs. The rejection applies no identity/count effect, so the goat remains alive."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Restores held Health sessions; past sessions become due and future sessions return to scheduled."
         }
       ],
       "owningDoc": "docs/decisions/birth-death-workflows.md",
@@ -348,6 +364,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "GoatExitedWorkflowHandler.HandleEvent filters exit_reason=died and releases the approval-prepared pair of death videos to the generic Verify queue. The counts approval transaction first proves both videos, moves the internal review action to in_review, applies the guarded exit/count change, and emits goat.exited atomically. Sold/culled/transferred exits release nothing."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Filters exit_reason=died, closes open Health cases, and cancels every incomplete future session while retaining completed medicine history."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -858,6 +879,60 @@
         "frontend",
         "mobile"
       ]
+    },
+    {
+      "eventType": "health.protocol.published",
+      "producer": "strict Health SOP snapshot import transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/protocol_import.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.opened",
+      "producer": "Health diagnosis/course open transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.death_held",
+      "producer": "Health counts.death.reported consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.death_resumed",
+      "producer": "Health counts.death.rejected consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.closed_dead",
+      "producer": "Health goat.exited consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.treatment.completed",
+      "producer": "Health treatment-session completion transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
     }
   ],
   "allowedHerdMutationWriters": [

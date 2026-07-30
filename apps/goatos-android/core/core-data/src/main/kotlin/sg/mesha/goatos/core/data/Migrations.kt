@@ -665,3 +665,33 @@ val MIGRATION_23_24: Migration = object : Migration(23, 24) {
         )
     }
 }
+
+/** v24 -> v25: Health list/detail Room SSOT. All list rows are scoped by the complete filter set. */
+val MIGRATION_24_25: Migration = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_work_items` " +
+                "(`scopeKey` TEXT NOT NULL, `healthSessionId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `healthSessionId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_health_work_items_scopeKey_sortIndex` " +
+                "ON `health_work_items` (`scopeKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_remote_keys` " +
+                "(`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_page_meta` " +
+                "(`scopeKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_work_item_details` " +
+                "(`healthSessionId` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`healthSessionId`))",
+        )
+    }
+}

@@ -16,6 +16,8 @@ import (
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
@@ -60,6 +62,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
 	countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+	healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
 	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -88,6 +91,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	tasksapp.NewIdentifierAddedWorkflowHandler(workflowService).Register(bus)
 	tasksapp.NewDeathVerificationHandler(workflowService, nil).Register(bus)
 	tasksapp.NewBirthVerificationHandler(workflowService, nil).Register(bus)
+	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {
 		logger.Info("kernelstages_domain_event_handlers_registered")

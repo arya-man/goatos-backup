@@ -44,6 +44,7 @@ data class GoatSearchItemDto(
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String = "",
+    @SerialName("age_band") val ageBand: String? = null,
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("location_path") val locationPath: GoatLocationPathDto = GoatLocationPathDto(),

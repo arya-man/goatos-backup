@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationAnswersDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
@@ -259,6 +260,8 @@ class SyncEngine(
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
+        OutboxOpType.HEALTH_CASE_OPEN -> dispatchHealthCaseOpen(item)
+        OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
     }
@@ -734,6 +737,30 @@ class SyncEngine(
             item.idempotencyKey,
             WorkflowActionCompleteRequestDto(
                 proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthTreatmentComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthTreatmentCompletePayload>(item.payloadJson)
+        val response = api.completeHealthWorkItem(
+            healthSessionId = payload.healthSessionId,
+            idempotencyKey = item.idempotencyKey,
+            request = HealthCompleteRequestDto(proofRef = payload.proofRef),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthCaseOpen(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthCaseOpenPayload>(item.payloadJson)
+        val response = api.openHealthCase(
+            idempotencyKey = item.idempotencyKey,
+            request = sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto(
+                goatId = payload.goatId,
+                diseaseKey = payload.diseaseKey,
+                ageBand = payload.ageBand,
+                startDate = payload.startDate,
             ),
         )
         return syncJson.encodeToString(response)
