@@ -195,6 +195,7 @@ class WeighingRepositoryTest {
                 campaignShedId: String,
                 cursor: String?,
                 observationsCursor: String?,
+                includeRoster: Boolean,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
                 items = listOf(
@@ -255,6 +256,7 @@ class WeighingRepositoryTest {
                 campaignShedId: String,
                 cursor: String?,
                 observationsCursor: String?,
+                includeRoster: Boolean,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
                 items = listOf(
@@ -299,6 +301,7 @@ class WeighingRepositoryTest {
                 campaignShedId: String,
                 cursor: String?,
                 observationsCursor: String?,
+                includeRoster: Boolean,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
                 items = listOf(rosterDto(campaignId, campaignShedId, "animal-open", "TAG-OPEN", 1)),
@@ -340,6 +343,7 @@ class WeighingRepositoryTest {
                 campaignShedId: String,
                 cursor: String?,
                 observationsCursor: String?,
+                includeRoster: Boolean,
                 limit: Int,
             ): WeighingRosterResponseDto {
                 requested += cursor to limit
@@ -382,16 +386,19 @@ class WeighingRepositoryTest {
     fun `refresh scope drains the observations cursor after the roster cursor is exhausted`() = runTest {
         val rosterCursors = mutableListOf<String?>()
         val observationCursors = mutableListOf<String?>()
+        val includeRosterRequests = mutableListOf<Boolean>()
         val api = object : AppApi by FakeAppApi() {
             override suspend fun getWeighingRoster(
                 campaignId: String,
                 campaignShedId: String,
                 cursor: String?,
                 observationsCursor: String?,
+                includeRoster: Boolean,
                 limit: Int,
             ): WeighingRosterResponseDto {
                 rosterCursors += cursor
                 observationCursors += observationsCursor
+                includeRosterRequests += includeRoster
                 // Roster finishes on the FIRST page; observations need a second.
                 return if (observationsCursor == null) {
                     WeighingRosterResponseDto(
@@ -413,7 +420,7 @@ class WeighingRepositoryTest {
                     )
                 } else {
                     WeighingRosterResponseDto(
-                        items = emptyList(),
+                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-obs-restarted", "WG-RFID-7009", 9)),
                         observations = listOf(
                             WeighingAcceptedObservationDto(
                                 observationId = "observation-page-2",
@@ -443,9 +450,11 @@ class WeighingRepositoryTest {
         repository.refreshScope("campaign-1", "group-1", "campaign-shed-1", maxRows = WEIGHING_PAGE_SIZE * 2)
 
         // The second call is driven purely by the observations cursor: the roster
-        // cursor was already null. Before the fix this list was [null] only.
+        // cursor was already null, so it must not restart roster page 1.
         assertEquals(listOf(null, "obs-page-2"), observationCursors)
         assertEquals(listOf(null, null), rosterCursors)
+        assertEquals(listOf(true, false), includeRosterRequests)
+        assertEquals(1, repository.observeScope(scopeKey, windowSize = 20).first().totalExpected)
     }
 
     @Test

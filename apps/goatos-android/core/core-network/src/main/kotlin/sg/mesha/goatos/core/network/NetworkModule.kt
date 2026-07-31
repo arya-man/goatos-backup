@@ -250,6 +250,7 @@ interface AppApiService {
         @Path("campaign_shed_id") campaignShedId: String,
         @Query("cursor") cursor: String?,
         @Query("observations_cursor") observationsCursor: String?,
+        @Query("include_roster") includeRoster: Boolean,
         @Query("limit") limit: Int,
     ): WeighingRosterResponseDto
 
@@ -765,8 +766,9 @@ class RetrofitAppApi(
         campaignShedId: String,
         cursor: String?,
         observationsCursor: String?,
+        includeRoster: Boolean,
         limit: Int,
-    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, observationsCursor, limit)
+    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, observationsCursor, includeRoster, limit)
 
     override suspend fun getWeighingLeadershipShedVideos(
         campaignId: String,

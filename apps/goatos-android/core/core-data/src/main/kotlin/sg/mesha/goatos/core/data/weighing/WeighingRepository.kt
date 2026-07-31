@@ -389,6 +389,7 @@ class DefaultWeighingRepository(
             // exhausted, and the loop stays bounded by safetyLimit on either stream.
             var cursor: String? = null
             var observationsCursor: String? = null
+            var includeRoster = true
             do {
                 val remainingRows = safetyLimit - rows.size
                 val remainingObservations = safetyLimit - accepted.size
@@ -397,9 +398,12 @@ class DefaultWeighingRepository(
                     campaignShedId = campaignShedId,
                     cursor = cursor,
                     observationsCursor = observationsCursor,
+                    includeRoster = includeRoster,
                     limit = minOf(WEIGHING_PAGE_SIZE, maxOf(remainingRows, remainingObservations)),
                 )
-                rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+                if (includeRoster) {
+                    rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
+                }
                 response.observations.forEach { observation ->
                     accepted[observation.observationId] = observation
                 }
@@ -409,6 +413,7 @@ class DefaultWeighingRepository(
                 observationsCursor = response.nextObservationsCursor?.takeIf { it.isNotBlank() && it != observationsCursor }
                 if (rows.size >= safetyLimit) cursor = null
                 if (accepted.size >= safetyLimit) observationsCursor = null
+                includeRoster = cursor != null
             } while (cursor != null || observationsCursor != null)
             val publishAccepted: suspend () -> Unit = {
                 rosterDao.replaceScope(key, rows)

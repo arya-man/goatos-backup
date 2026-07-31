@@ -246,6 +246,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close one Weighing scope after verification-approved evidence. */
+        post: operations["closeWeighingScope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly abandon one Weighing scope that will not be completed. */
+        post: operations["abandonWeighingScope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close every verified open scope in one Weighing campaign. */
+        post: operations["closeWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/process-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Calendar and Control Tower process state for Weighing. */
+        get: operations["getWeighingProcessState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/devices/register": {
         parameters: {
             query?: never;
@@ -5596,6 +5664,51 @@ export interface components {
             status: "completed";
             trace_id?: string;
         };
+        WeighingCloseRequest: {
+            reason: string;
+            idempotency_key?: string;
+        };
+        WeighingCloseResult: {
+            /** Format: uuid */
+            campaign_id: string;
+            /** Format: uuid */
+            campaign_shed_id?: string;
+            /** Format: uuid */
+            closed_by?: string;
+            /** Format: date-time */
+            closed_at: string;
+            not_accepted_count: number;
+            not_accepted?: string[];
+        };
+        WeighingCloseResponse: {
+            close: components["schemas"]["WeighingCloseResult"];
+            trace_id?: string;
+        };
+        WeighingProcessStateDayMarker: {
+            /** Format: date */
+            business_date: string;
+            open_count: number;
+            delayed_count: number;
+        };
+        WeighingProcessStateSummary: {
+            scheduled: number;
+            delayed: number;
+            completed: number;
+            closed: number;
+            canceled: number;
+            open_total: number;
+            total: number;
+        };
+        WeighingProcessState: {
+            /** @enum {string} */
+            grain: "weighing_work_item";
+            /** Format: date */
+            from_business_date: string;
+            /** Format: date */
+            to_business_date: string;
+            day_markers: components["schemas"]["WeighingProcessStateDayMarker"][];
+            summary: components["schemas"]["WeighingProcessStateSummary"];
+        };
         WeighingObservationResponse: {
             observation: components["schemas"]["WeighingObservation"];
             trace_id?: string;
@@ -7023,6 +7136,8 @@ export interface operations {
                 cursor?: string;
                 /** @description Opaque observations cursor returned as next_observations_cursor by the previous page. Paginates the observations array independently of items, on a keyset of (accepted_at, observation_id) scoped to this campaign_shed_id; it does not advance in lockstep with the roster cursor. */
                 observations_cursor?: string;
+                /** @description Set false for observation-only continuation pages after the roster cursor is exhausted. */
+                include_roster?: boolean;
             };
             header?: never;
             path: {
@@ -7176,6 +7291,138 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeWeighingScope: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeighingCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Scope closed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCloseResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    abandonWeighingScope: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+                campaign_shed_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeighingCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Scope abandoned or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCloseResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeighingCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Campaign closed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCloseResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWeighingProcessState: {
+        parameters: {
+            query?: {
+                campaign_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing process state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingProcessState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

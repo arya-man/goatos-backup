@@ -52,10 +52,10 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
 		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
 	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
@@ -449,7 +449,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
-	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", "", 50)
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", "", 50, true)
 	if err != nil {
 		t.Fatalf("operator roster read: %v", err)
 	}
@@ -626,10 +626,10 @@ func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, stri
 func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
 }
-func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
-func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int) (domain.RosterPage, error) {
+func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
 func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
@@ -788,7 +788,7 @@ func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.P
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int, _ bool) (domain.RosterPage, error) {
 	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
@@ -818,13 +818,13 @@ func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, 
 	}
 	return domain.RosterPage{Items: out}, nil
 }
-func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
 	for _, shed := range r.campaign.Sheds {
 		if shed.CampaignShedID == campaignShedID {
 			if shed.OperatorUserID != operatorUserID {
 				return domain.RosterPage{}, ports.ErrForbidden
 			}
-			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, observationsCursor, limit)
+			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, observationsCursor, limit, includeRoster)
 		}
 	}
 	return domain.RosterPage{}, ports.ErrNotFound

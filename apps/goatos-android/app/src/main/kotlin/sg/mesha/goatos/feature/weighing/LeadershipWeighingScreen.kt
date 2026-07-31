@@ -128,6 +128,21 @@ private fun LeadershipAssignmentCard(
                                 onClick = onReopen,
                             ),
                     )
+                } else {
+                    Text(
+                        text = "Close",
+                        color = MeshaColors.BrandD,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable(
+                                role = Role.Button,
+                                onClick = { onClose("closed from mobile leadership") },
+                            ),
+                    )
                 }
             }
             Text(
