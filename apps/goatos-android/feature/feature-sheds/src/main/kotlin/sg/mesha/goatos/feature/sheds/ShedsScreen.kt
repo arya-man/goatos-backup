@@ -431,9 +431,6 @@ fun ShedsScreen(
             }
             if (showParkGroupSelector) {
                 visibleParkGroups.forEach { group ->
-                    item(key = "park-header-${group.parkId}") {
-                        ParkGroupHeader(group)
-                    }
                     items(group.rows, key = { it.id }) { row ->
                         ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
                     }
