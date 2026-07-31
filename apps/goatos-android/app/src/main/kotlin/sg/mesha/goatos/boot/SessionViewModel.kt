@@ -1,6 +1,7 @@
 package sg.mesha.goatos.boot
 
 import android.content.Context
+import android.util.Log
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.ViewModel
@@ -84,6 +85,9 @@ class SessionViewModel @Inject constructor(
     private val appApi: AppApi,
     private val relauncher: SessionRelauncher,
 ) : ViewModel() {
+    private companion object {
+        const val TAG = "GoatOSSession"
+    }
 
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
     private val devSessionReady = MutableStateFlow(authMode != AuthMode.DEV_BEARER)
@@ -195,6 +199,7 @@ class SessionViewModel @Inject constructor(
         val token = authRepository.currentIdToken()
         if (token.isNullOrBlank()) {
             analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "no_token_issued"))
+            logWarning("Firebase sign-in returned no ID token email=${authRepository.currentEmail().orEmpty()} uid=${authRepository.currentFirebaseUid().orEmpty()}")
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -204,6 +209,15 @@ class SessionViewModel @Inject constructor(
             }
             return
         }
+        val email = authRepository.currentEmail()?.ifBlank { null }
+        val firebaseUid = authRepository.currentFirebaseUid()?.ifBlank { null }
+        val identityProps = buildMap {
+            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+        }
+        analytics.track(AnalyticsEvents.LOGIN_SESSION_READY, identityProps)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, email)
+        logInfo("Firebase session ready email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         runCatching {
             appApi.recordAuthSessionEvent(
                 AuthSessionEventRequestDto(
@@ -212,7 +226,11 @@ class SessionViewModel @Inject constructor(
                 ),
             )
         }.onFailure { t ->
-            analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"))
+            analytics.track(
+                AnalyticsEvents.LOGIN_FAILURE,
+                identityProps + mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"),
+            )
+            logWarning("Goat OS session event failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", t)
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -228,7 +246,8 @@ class SessionViewModel @Inject constructor(
         // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
         // WorkManager's enqueue does disk I/O on the calling thread, so hop off Main.
         withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
-        analytics.track(AnalyticsEvents.LOGIN_SUCCESS)
+        analytics.track(AnalyticsEvents.LOGIN_SUCCESS, identityProps)
+        logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
     }
 
@@ -247,7 +266,32 @@ class SessionViewModel @Inject constructor(
 
     private fun reportAuthFailure(error: Throwable) {
         val (reason, detail) = classifyAuthError(error)
+        val email = authRepository.currentEmail()?.ifBlank { null }
+        val firebaseUid = authRepository.currentFirebaseUid()?.ifBlank { null }
+        analytics.track(
+            AnalyticsEvents.LOGIN_FAILURE,
+            buildMap {
+                put(AnalyticsEvents.Params.REASON, reason.name.lowercase())
+                email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+            },
+        )
+        logWarning("Firebase login failed reason=${reason.name} email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", error)
         _uiState.update { it.copy(isLoading = false, errorReason = reason, errorDetail = detail) }
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun logWarning(message: String, throwable: Throwable? = null) {
+        runCatching {
+            if (throwable == null) {
+                Log.w(TAG, message)
+            } else {
+                Log.w(TAG, message, throwable)
+            }
+        }
     }
 }
 
