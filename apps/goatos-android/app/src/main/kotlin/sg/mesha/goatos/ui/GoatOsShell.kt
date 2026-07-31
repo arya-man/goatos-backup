@@ -201,15 +201,16 @@ fun GoatOsShell(navState: NavState) {
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val visibleNavState = navState
         .withVerifierVideoNavigation()
-    val isOperatorProfile = profile.roleLabel.substringBefore("·").trim().equals("operator", ignoreCase = true)
-    val hasWeighingModule = visibleNavState.availableModules().any { module ->
-        module.key.equals("weighing", ignoreCase = true) ||
-            module.href.equals(Routes.WEIGHING, ignoreCase = true) ||
-            module.navItems.any { it.href.equals(Routes.WEIGHING, ignoreCase = true) }
-    }
     val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
-    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true ||
-        (isOperatorProfile && hasWeighingModule)
+    // Backend-owned, never inferred. `weighing_execute` is compiled by the backend from
+    // the real grant + module truth (workforce/app/bootstrap_copy.go canExecuteWeighing:
+    // WeighingExecute permission AND the weighing module granted).
+    //
+    // This used to fall back to parsing the DISPLAY label -- roleLabel.substringBefore("·")
+    // == "operator" -- which is exactly the role-name-string inference AGENTS.md bans: it
+    // makes an authorization decision out of copy that exists to be shown to a human, so a
+    // label tweak or a translation silently grants or revokes execution.
+    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }

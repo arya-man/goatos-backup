@@ -1935,7 +1935,7 @@ private fun executionNavArguments() = listOf(
 
 private fun String.isClosedWeighingAssignmentStatus(): Boolean =
     when (trim().lowercase()) {
-        "completed", "accepted", "submitted", "done" -> true
+        "completed", "closed", "canceled", "cancelled" -> true
         else -> false
     }
 

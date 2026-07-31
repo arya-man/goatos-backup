@@ -9,8 +9,10 @@
 // See context/repo-audits/weighing-implementation-do-not-reopen-ledger.md (A-6, B-4, C-3)
 // and docs/features/weighing/TRD.md.
 //
-// Fails on seven failure modes inside weighing backend code
-// (backend/internal/weighing/**, backend/migrations/postgres/*weighing*.sql):
+// Fails on TEN failure modes across weighing backend code
+// (backend/internal/weighing/**, backend/migrations/postgres/*weighing*.sql),
+// the Android weighing write-request DTOs (apps/goatos-android/**), and the
+// weighing UI surfaces (Android Compose screens + admin-web weighing pages):
 //   1. vaccination-or-herd-roster-read-in-write-path — an observation write/submit function
 //      joins/reads a vaccination_* table, sop_submissions*, protocol_rules, or a herd-roster
 //      membership/ownership assertion before accepting a scan.
@@ -31,15 +33,38 @@
 //   5. clinical-state-read-in-write-path — a write/submit function reads goats.health_status /
 //      goats.lifecycle_status or a clinical-defer vocabulary to decide whether to accept a
 //      scan. Weighing must never gate a measurement on clinical state.
+//   8. animal-id-required-precondition — a Go struct field tag or validator-library call makes
+//      `AnimalID` a required/non-empty precondition anywhere in the weighing module (not just the
+//      hand-written `if AnimalID == ""` shape mode 4 already covers). Free-flow must accept a scan
+//      with no resolved animal_id at all.
+//   9. android-write-request-carries-animal-id — a Kotlin `data class` under
+//      `apps/goatos-android/**` named `Weighing*RequestDto` (the observation WRITE request shape,
+//      e.g. `WeighingAnimalObservationRequestDto`, `WeighingShedObservationRequestDto`) declares an
+//      `animal_id`/`animalId` field. The write request must carry only `scanned_identifier` (plus
+//      weight/proof/location); resolving to an animal is a backend-only, best-effort concern.
+//  10. expected-denominator-progress-in-ui — a weighing UI surface (Android Compose screens under
+//      `apps/goatos-android/**/feature/weighing/**`, or admin-web pages under
+//      `apps/admin-web/features/weighing/**` / `apps/admin-web/app/(admin)/weighing/**`) renders or
+//      computes a ratio against an expected/roster count (`x/expectedCount`-shaped division, a
+//      literal `N/N`, or a literal `/100`). Weighing has no expected-animal denominator; progress
+//      is reported only as plain counts.
 //
 // Modes:
-//   (default)     scan the real weighing backend tree + weighing migrations.
-//   --self-test   run adversarial good/bad fixtures for all seven failure modes and exit.
+//   (default)     scan the real weighing backend tree + weighing migrations + Android/admin-web
+//                 weighing surfaces.
+//   --self-test   run adversarial good/bad fixtures for all ten failure modes and exit.
 //
 // Blind spots (native Grep/Read must still catch these): dynamically built SQL strings
 // (string concatenation/fmt.Sprintf assembling table names), reflection-based query builders,
-// and any new write-path function not listed in WRITE_FN_NAMES below (extend the list when a
-// new observation-accepting function is added).
+// any new write-path function not listed in WRITE_FN_NAMES below (extend the list when a
+// new observation-accepting function is added), and — for mode 9 specifically — a future write
+// request DTO that is NOT named `Weighing*RequestDto` (e.g. reusing a shared/generic request
+// shape, or embedding the field via a base class/interface rather than a literal property in the
+// class body). This guard only parses literal Kotlin `data class` bodies textually; it does not
+// resolve Kotlin type inheritance, so a field inherited from a shared base type would not be seen.
+// Mode 10 is a textual heuristic over ratio-shaped expressions and literal `/100`/`N/N`; a
+// denominator computed indirectly (e.g. via an intermediate variable whose name does not contain
+// "expected") would not be caught by name-matching alone.
 
 import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -341,6 +366,123 @@ export function findingsForMigrationSource(rel, sql) {
   return findings;
 }
 
+// Failure mode 8: a struct tag / validator-library call making AnimalID a
+// required precondition, distinct from mode 4's hand-written `if AnimalID ==
+// ""` shape. Scanned across the WHOLE weighing Go source (not just the
+// extracted write-path function bodies), because command/DTO struct
+// definitions usually live in a separate `domain` file from the repository
+// method that uses them.
+const FORBIDDEN_REQUIRE_ANIMAL_ID_RE =
+  /AnimalID\s+\*?string\s+`[^`]*\bvalidate:"[^"]*\brequired\b[^"]*"[^`]*`|validator\.(?:Var|Struct)\([^)]*AnimalID[^)]*"[^"]*\brequired\b|require(?:d)?\.(?:NotEmpty|NotZero)\([^)]*\.?AnimalID\b/;
+
+export function findingsForGoSourceStructTags(rel, source) {
+  const findings = [];
+  const body = stripComments(source);
+  if (FORBIDDEN_REQUIRE_ANIMAL_ID_RE.test(body)) {
+    findings.push({
+      rule: "animal-id-required-precondition",
+      message: `${rel}: a struct tag or validator call makes AnimalID a required/non-empty precondition — weighing free-flow must accept an observation with no resolved animal_id at all (maintainer decision 2026-07-31)`,
+    });
+  }
+  return findings;
+}
+
+// Failure mode 9: the Android weighing WRITE REQUEST DTO must not carry an
+// animal_id field. Scoped deliberately narrow: only a Kotlin `data class`
+// whose name matches `Weighing...RequestDto` (the write-request naming
+// convention already used by `WeighingAnimalObservationRequestDto` /
+// `WeighingShedObservationRequestDto` / `WeighingScopeSubmitRequestDto`), so
+// this does NOT fire on `WeighingObservationDto` (the read/response shape,
+// which legitimately carries a nullable `animal_id` resolved server-side),
+// on `WeighingRosterRowDto` (a read DTO), on a Room `@Entity` (a different
+// annotation/file shape entirely), or on any Vaccination DTO (different name
+// prefix). See the header blind-spot note for what this narrow scope misses.
+const WEIGHING_REQUEST_DTO_CLASS_RE = /data class (Weighing\w*RequestDto)\b\s*\(/g;
+const ANIMAL_ID_FIELD_RE = /@SerialName\("animal_id"\)|\bval\s+animalId\b/;
+
+function extractKotlinClassCtorBody(source, openParenIndex) {
+  // openParenIndex points at the `(` immediately after the class name. Walk
+  // forward counting paren depth (ignoring parens inside string literals is
+  // unnecessary here: DTO constructors do not embed string literals containing
+  // parens) to find the matching close paren.
+  let depth = 0;
+  for (let i = openParenIndex; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) return source.slice(openParenIndex + 1, i);
+    }
+  }
+  return source.slice(openParenIndex + 1);
+}
+
+export function findingsForKotlinWeighingRequestDto(rel, source) {
+  const findings = [];
+  let m;
+  WEIGHING_REQUEST_DTO_CLASS_RE.lastIndex = 0;
+  while ((m = WEIGHING_REQUEST_DTO_CLASS_RE.exec(source)) !== null) {
+    const className = m[1];
+    const ctorBody = extractKotlinClassCtorBody(source, m.index + m[0].length - 1);
+    if (ANIMAL_ID_FIELD_RE.test(ctorBody)) {
+      findings.push({
+        rule: "android-write-request-carries-animal-id",
+        message: `${rel}: ${className} declares an animal_id/animalId field — the Android weighing WRITE REQUEST must send only scanned_identifier (plus weight/proof/location); animal_id resolution is backend-only`,
+      });
+    }
+  }
+  return findings;
+}
+
+// Failure mode 10: weighing UI surfaces must not render/compute a ratio
+// against an expected/roster denominator. Deliberately scoped to weighing UI
+// paths only (Android Compose weighing screens, admin-web weighing pages).
+const FORBIDDEN_NN_LITERAL_RE = /\bN\s*\/\s*N\b/;
+const FORBIDDEN_SLASH_100_RE = /\/\s*100\b(?!\s*[%.\w])|["'`]\s*\/\s*100\b/;
+// The precise, low-false-positive shape: a division where the RIGHT-HAND side
+// token contains "expected" (covers `x / totalExpected`, `x/expectedCount`,
+// `{completedCount} / {row.expectedCount}` in JSX/TSX, and the Kotlin
+// `individualResolved.toFloat() / totalExpected.toFloat()` shape).
+const FORBIDDEN_EXPECTED_DENOMINATOR_RE = /\/\s*[{$]*\s*\w*\.?\w*[Ee]xpected\w*/;
+
+export function findingsForWeighingUiSource(rel, source) {
+  const findings = [];
+  const body = stripComments(source);
+  if (FORBIDDEN_NN_LITERAL_RE.test(body)) {
+    findings.push({
+      rule: "expected-denominator-progress-in-ui",
+      message: `${rel}: a literal N/N progress token — weighing has no expected-animal denominator; render a plain count instead`,
+    });
+  }
+  if (FORBIDDEN_SLASH_100_RE.test(body)) {
+    findings.push({
+      rule: "expected-denominator-progress-in-ui",
+      message: `${rel}: a literal /100-style progress token — weighing has no fixed expected total; render a plain count instead`,
+    });
+  }
+  if (FORBIDDEN_EXPECTED_DENOMINATOR_RE.test(body)) {
+    findings.push({
+      rule: "expected-denominator-progress-in-ui",
+      message: `${rel}: a ratio computed/rendered against an expected/roster-named denominator — weighing progress must be reported as counts only, never as a fraction of an expected/roster count (maintainer decision 2026-07-31)`,
+    });
+  }
+  return findings;
+}
+
+function isWeighingAndroidKotlin(rel) {
+  return rel.startsWith("apps/goatos-android/") && rel.endsWith(".kt") && !rel.includes("/build/");
+}
+
+function isWeighingUiSurface(rel) {
+  if (rel.includes("/build/") || rel.includes("/.next/")) return false;
+  const isAndroidWeighingScreen =
+    rel.startsWith("apps/goatos-android/") && /\/feature\/weighing\//.test(rel) && rel.endsWith(".kt");
+  const isAdminWebWeighingPage =
+    (rel.startsWith("apps/admin-web/features/weighing/") || rel.startsWith("apps/admin-web/app/(admin)/weighing/")) &&
+    (rel.endsWith(".tsx") || rel.endsWith(".ts"));
+  return isAndroidWeighingScreen || isAdminWebWeighingPage;
+}
+
 function isWeighingGo(rel) {
   return rel.startsWith(`${WEIGHING_DIR}/`) && rel.endsWith(".go");
 }
@@ -363,24 +505,43 @@ function walk(dir, matcher, out) {
   return out;
 }
 
+const ANDROID_DIR = "apps/goatos-android";
+const ADMIN_WEB_DIR = "apps/admin-web";
+
 function run() {
   const goFiles = walk(resolve(repo, WEIGHING_DIR), isWeighingGo, []);
   const migrationFiles = walk(resolve(repo, MIGRATIONS_DIR), isWeighingMigration, []);
+  const androidKotlinFiles = walk(resolve(repo, ANDROID_DIR), isWeighingAndroidKotlin, []);
+  const uiFiles = [
+    ...walk(resolve(repo, ANDROID_DIR), isWeighingUiSurface, []),
+    ...walk(resolve(repo, ADMIN_WEB_DIR), isWeighingUiSurface, []),
+  ];
   const problems = [];
   for (const rel of goFiles) {
     const source = readFileSync(resolve(repo, rel), "utf8");
     for (const f of findingsForGoSource(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+    for (const f of findingsForGoSourceStructTags(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
   }
   for (const rel of migrationFiles) {
     const source = readFileSync(resolve(repo, rel), "utf8");
     for (const f of findingsForMigrationSource(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+  }
+  for (const rel of androidKotlinFiles) {
+    const source = readFileSync(resolve(repo, rel), "utf8");
+    for (const f of findingsForKotlinWeighingRequestDto(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+  }
+  for (const rel of uiFiles) {
+    const source = readFileSync(resolve(repo, rel), "utf8");
+    for (const f of findingsForWeighingUiSource(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
   }
   if (problems.length > 0) {
     console.error("weighing-free-flow guard failed:");
     for (const p of problems) console.error(`- ${p}`);
     process.exit(1);
   }
-  console.log(`weighing-free-flow guard: ok (${goFiles.length} weighing Go files, ${migrationFiles.length} weighing migrations)`);
+  console.log(
+    `weighing-free-flow guard: ok (${goFiles.length} weighing Go files, ${migrationFiles.length} weighing migrations, ${androidKotlinFiles.length} Android Kotlin files scanned for write-request DTOs, ${uiFiles.length} weighing UI files)`,
+  );
 }
 
 function selfTest() {
@@ -686,7 +847,128 @@ CREATE UNIQUE INDEX weighing_observations_scanned_identifier_idx ON public.weigh
     throw new Error("self-test failed: mode 3 false positive on bucket-scoped unique index");
   }
 
-  console.log("weighing-free-flow guard: self-test passed (7/7 failure modes + 3 demonstrated bypasses)");
+  // Mode 8: AnimalID required via a struct tag / validator call.
+  const badStruct8 = `
+package domain
+
+type RecordAnimalObservation struct {
+  AnimalID string ` + "`json:\"animal_id\" validate:\"required\"`" + `
+  ScannedIdentifier string
+}
+`;
+  const goodStruct8 = `
+package domain
+
+type RecordAnimalObservation struct {
+  AnimalID string ` + "`json:\"animal_id\"`" + `
+  ScannedIdentifier string ` + "`json:\"scanned_identifier\" validate:\"required\"`" + `
+}
+`;
+  const findings8 = findingsForGoSourceStructTags("fake.go", badStruct8);
+  if (!findings8.some((f) => f.rule === "animal-id-required-precondition")) {
+    throw new Error(`self-test failed: mode 8 not flagged. got: ${JSON.stringify(findings8)}`);
+  }
+  if (findingsForGoSourceStructTags("fake.go", goodStruct8).length) {
+    throw new Error("self-test failed: mode 8 false positive on a plain AnimalID tag with required only on ScannedIdentifier");
+  }
+  if (findingsForGoSourceStructTags("fake.go", goodStruct8).some((f) => f.rule === "animal-id-required-precondition")) {
+    throw new Error("self-test failed: mode 8 false positive on good struct");
+  }
+
+  // Mode 9: Android weighing WRITE REQUEST DTO carrying animal_id.
+  const badDto9 = `
+package sg.mesha.goatos.core.network.dto
+
+@Serializable
+data class WeighingAnimalObservationRequestDto(
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("animal_id") val animalId: String,
+    @SerialName("scanned_identifier") val scannedIdentifier: String,
+    @SerialName("weight_kg") val weightKg: Double,
+)
+`;
+  const findings9 = findingsForKotlinWeighingRequestDto("fake.kt", badDto9);
+  if (!findings9.some((f) => f.rule === "android-write-request-carries-animal-id")) {
+    throw new Error(`self-test failed: mode 9 not flagged. got: ${JSON.stringify(findings9)}`);
+  }
+  // GOOD: the real write-request shape (no animal_id).
+  const goodDto9 = `
+package sg.mesha.goatos.core.network.dto
+
+@Serializable
+data class WeighingAnimalObservationRequestDto(
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("scanned_identifier") val scannedIdentifier: String,
+    @SerialName("weight_kg") val weightKg: Double,
+    @SerialName("proof_artifact_id") val proofArtifactId: String,
+)
+`;
+  if (findingsForKotlinWeighingRequestDto("fake.kt", goodDto9).length) {
+    throw new Error("self-test failed: mode 9 false positive on the real free-flow write request (no animal_id)");
+  }
+  // GOOD: the READ/response DTO legitimately carries a resolved animal_id — must NOT fire.
+  const goodResponseDto9 = `
+@Serializable
+data class WeighingObservationDto(
+    @SerialName("observation_id") val observationId: String = "",
+    @SerialName("animal_id") val animalId: String? = null,
+)
+`;
+  if (findingsForKotlinWeighingRequestDto("fake.kt", goodResponseDto9).length) {
+    throw new Error("self-test failed: mode 9 false positive on the read/response DTO (class name does not end in RequestDto)");
+  }
+  // GOOD: a Vaccination request DTO with animal_id must NOT fire (different prefix entirely, but
+  // prove the class-name anchor actually requires the Weighing prefix).
+  const goodVaccinationDto9 = `
+@Serializable
+data class VaccinationCompletionRequestDto(
+    @SerialName("animal_id") val animalId: String,
+)
+`;
+  if (findingsForKotlinWeighingRequestDto("fake.kt", goodVaccinationDto9).length) {
+    throw new Error("self-test failed: mode 9 false positive on a non-Weighing (Vaccination) request DTO");
+  }
+
+  // Mode 10: expected-denominator progress in weighing UI.
+  const badKotlinUi10 = `
+val progress: Float get() = when {
+  isShedPartition -> if (shedCompleted > 0) 1f else 0f
+  visibleRows.isNotEmpty() -> individualCompleted.toFloat() / visibleRows.size.toFloat()
+  totalExpected <= 0 -> 0f
+  else -> individualResolved.toFloat() / totalExpected.toFloat()
+}
+`;
+  const findings10a = findingsForWeighingUiSource("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt", badKotlinUi10);
+  if (!findings10a.some((f) => f.rule === "expected-denominator-progress-in-ui")) {
+    throw new Error(`self-test failed: mode 10 (Kotlin expected ratio) not flagged. got: ${JSON.stringify(findings10a)}`);
+  }
+  const badTsxUi10 = `
+<div className="v">{campaign.individualCompleted}<span>/{campaign.individualExpected}</span></div>
+`;
+  const findings10b = findingsForWeighingUiSource("apps/admin-web/features/weighing/page.tsx", badTsxUi10);
+  if (!findings10b.some((f) => f.rule === "expected-denominator-progress-in-ui")) {
+    throw new Error(`self-test failed: mode 10 (TSX expected ratio) not flagged. got: ${JSON.stringify(findings10b)}`);
+  }
+  const badLiteral10 = `const label = complete ? "100/100" : "N/N";`;
+  const findings10c = findingsForWeighingUiSource("apps/admin-web/features/weighing/page.tsx", badLiteral10);
+  if (!findings10c.some((f) => f.rule === "expected-denominator-progress-in-ui")) {
+    throw new Error(`self-test failed: mode 10 (literal N/N and /100) not flagged. got: ${JSON.stringify(findings10c)}`);
+  }
+  // GOOD: a plain count-only subtitle, ignoring an unused expected parameter — must NOT fire.
+  const goodKotlinUi10 = `
+private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
+    "$visibleCount captured rows"
+`;
+  if (findingsForWeighingUiSource("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt", goodKotlinUi10).length) {
+    throw new Error("self-test failed: mode 10 false positive on a plain count-only subtitle");
+  }
+  // GOOD: an ordinary division that has nothing to do with an expected/roster count.
+  const goodDivisionUi10 = `val perAnimalKg = totalWeightKg / animalCount`;
+  if (findingsForWeighingUiSource("apps/admin-web/features/weighing/page.tsx", goodDivisionUi10).length) {
+    throw new Error("self-test failed: mode 10 false positive on an unrelated division");
+  }
+
+  console.log("weighing-free-flow guard: self-test passed (10/10 failure modes + 3 demonstrated bypasses)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file
@@ -694,7 +976,11 @@ CREATE UNIQUE INDEX weighing_observations_scanned_identifier_idx ON public.weigh
 // process with WEIGHING_GUARD_TEST_REPO pointed at it, and asserts the real process exit code —
 // not just the in-process finding text. This is the required proof that `process.exit(1)` (not
 // just console.error) actually fires for each failure mode, and that a clean tree exits 0.
-function runOneExitCodeCase(label, { goSource, migrationSource }, expectFailure) {
+function runOneExitCodeCase(
+  label,
+  { goSource, migrationSource, androidDtoSource, androidUiSource, adminWebUiSource },
+  expectFailure,
+) {
   const dir = mkdtempSync(join(tmpdir(), "weighing-free-flow-guard-exitcode-"));
   try {
     const goDir = join(dir, "backend/internal/weighing/adapters/postgres");
@@ -703,6 +989,21 @@ function runOneExitCodeCase(label, { goSource, migrationSource }, expectFailure)
     mkdirSync(migDir, { recursive: true });
     writeFileSync(join(goDir, "fixture_repo.go"), goSource ?? "package postgres\n");
     writeFileSync(join(migDir, "000900_fixture_weighing.sql"), migrationSource ?? "-- +goose Up\n-- +goose Down\n");
+    if (androidDtoSource) {
+      const dtoDir = join(dir, "apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/dto");
+      mkdirSync(dtoDir, { recursive: true });
+      writeFileSync(join(dtoDir, "WeighingDto.kt"), androidDtoSource);
+    }
+    if (androidUiSource) {
+      const uiDir = join(dir, "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/feature/weighing");
+      mkdirSync(uiDir, { recursive: true });
+      writeFileSync(join(uiDir, "WeighingScreen.kt"), androidUiSource);
+    }
+    if (adminWebUiSource) {
+      const webDir = join(dir, "apps/admin-web/features/weighing");
+      mkdirSync(webDir, { recursive: true });
+      writeFileSync(join(webDir, "page.tsx"), adminWebUiSource);
+    }
     const result = spawnSync(process.execPath, [SELF_PATH], {
       env: { ...process.env, WEIGHING_GUARD_TEST_REPO: dir },
       encoding: "utf8",
@@ -810,7 +1111,77 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
     true,
   );
 
-  console.log("weighing-free-flow guard: exit-code self-test passed (clean=0, 5/5 violations=non-zero)");
+  runOneExitCodeCase(
+    "mode 8: animal-id-required-precondition",
+    {
+      goSource: `package domain
+
+type RecordAnimalObservation struct {
+  AnimalID string ` + "`json:\"animal_id\" validate:\"required\"`" + `
+}
+`,
+      migrationSource: cleanMig,
+    },
+    true,
+  );
+
+  runOneExitCodeCase(
+    "mode 9: android write request carries animal_id",
+    {
+      goSource: cleanGo,
+      migrationSource: cleanMig,
+      androidDtoSource: `package sg.mesha.goatos.core.network.dto
+
+@Serializable
+data class WeighingAnimalObservationRequestDto(
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("animal_id") val animalId: String,
+    @SerialName("scanned_identifier") val scannedIdentifier: String,
+)
+`,
+    },
+    true,
+  );
+
+  runOneExitCodeCase(
+    "mode 10: expected-denominator progress in admin-web weighing UI",
+    {
+      goSource: cleanGo,
+      migrationSource: cleanMig,
+      adminWebUiSource: `export const label = \`\${completed}/\${expectedCount}\`;\n`,
+    },
+    true,
+  );
+
+  runOneExitCodeCase(
+    "clean tree with a real Android write-request DTO and weighing UI (no animal_id, no denominator)",
+    {
+      goSource: cleanGo,
+      migrationSource: cleanMig,
+      androidDtoSource: `package sg.mesha.goatos.core.network.dto
+
+@Serializable
+data class WeighingAnimalObservationRequestDto(
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("scanned_identifier") val scannedIdentifier: String,
+    @SerialName("weight_kg") val weightKg: Double,
+)
+
+@Serializable
+data class WeighingObservationDto(
+    @SerialName("observation_id") val observationId: String = "",
+    @SerialName("animal_id") val animalId: String? = null,
+)
+`,
+      androidUiSource: `private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
+    "$visibleCount captured rows"
+`,
+      adminWebUiSource: `export const label = \`\${completedCount} captured\`;\n`,
+    },
+    false,
+  );
+
+  console.log("weighing-free-flow guard: exit-code self-test passed (clean=0, 8/8 violations=non-zero)");
 }
 
 if (process.argv.includes("--self-test")) {

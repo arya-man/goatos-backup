@@ -43,7 +43,10 @@ type weighingCampaignClosedPayload struct {
 	ClosedAt         time.Time      `json:"closed_at"`
 }
 
-func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult) error {
+// eventType is passed in so an ABANDON emits weighing.shed.abandoned rather than
+// weighing.shed.closed. Downstream must be able to tell "ended without verification"
+// from "verified and closed" without parsing the reason text.
+func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult, eventType string) error {
 	payload := weighingShedClosedPayload{
 		TenantID:         cmd.TenantID,
 		CampaignID:       cmd.CampaignID,
@@ -70,9 +73,9 @@ WHERE cs.tenant_id=$1::uuid
 		ctx,
 		tx,
 		cmd.TenantID,
-		eventTypeScopeClosed,
+		eventType,
 		cmd.CampaignID,
-		eventTypeScopeClosed+":"+cmd.CampaignShedID+":"+cmd.IdempotencyKey,
+		eventType+":"+cmd.CampaignShedID+":"+cmd.IdempotencyKey,
 		"",
 		payload,
 	)

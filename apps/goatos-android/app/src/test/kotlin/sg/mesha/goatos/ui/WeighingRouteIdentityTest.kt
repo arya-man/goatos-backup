@@ -54,13 +54,35 @@ class WeighingRouteIdentityTest {
         assertFalse(navHost.contains(") { launchSingleTop = true }\n                    }\n                },"))
     }
 
+    // The guarantee is unchanged: an operator who may execute weighing must land on the
+    // execution screen, never the leadership read-only one. What changed is WHERE that
+    // answer comes from.
+    //
+    // This used to assert the shell contained `(isOperatorProfile && hasWeighingModule)`,
+    // where isOperatorProfile was `profile.roleLabel.substringBefore("·") == "operator"`
+    // — an authorization decision parsed out of a DISPLAY label. AGENTS.md bans inferring
+    // roles from name strings, and it is genuinely fragile: retitling or translating the
+    // label silently grants or revokes execution.
+    //
+    // The backend already computes this from real grant + module truth
+    // (workforce/app/bootstrap_copy.go canExecuteWeighing = WeighingExecute permission AND
+    // the weighing module granted) and ships it as the `weighing_execute` bootstrap flag.
     @Test
-    fun `operator with weighing module never falls into leadership read only screen`() {
+    fun `operator weighing execution is decided by the backend flag, never by a role label`() {
         val shell = Path.of("src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt").readText()
 
-        assertTrue(shell.contains("isOperatorProfile"))
-        assertTrue(shell.contains("hasWeighingModule"))
-        assertTrue(shell.contains("(isOperatorProfile && hasWeighingModule)"))
+        assertTrue(
+            "weighing execution must be gated on the backend-owned weighing_execute flag",
+            shell.contains("featureFlags[\"weighing_execute\"]"),
+        )
+        assertFalse(
+            "weighing execution must not be inferred from the display role label",
+            shell.contains("isOperatorProfile"),
+        )
+        assertFalse(
+            "weighing execution must not fall back to a locally inferred module check",
+            shell.contains("(isOperatorProfile && hasWeighingModule)"),
+        )
     }
 
     @Test

@@ -346,6 +346,27 @@ func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID
 	})
 }
 
+// AbandonScope ends a bucket WITHOUT the verification gate, for work that will
+// never finish. Same permission and validation as CloseScope; the reason is what
+// justifies skipping verification, so it stays mandatory.
+func (s *Service) AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.CloseResult{}, ports.ErrForbidden
+	}
+	reason = strings.TrimSpace(reason)
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
+		return domain.CloseResult{}, ports.ErrInvalidArgument
+	}
+	return s.repo.AbandonScope(ctx, domain.CloseCommand{
+		TenantID:       actor.TenantID,
+		CampaignID:     campaignID,
+		CampaignShedID: campaignShedID,
+		Reason:         reason,
+		ClosedBy:       actor.UserID,
+		IdempotencyKey: strings.TrimSpace(idempotencyKey),
+	})
+}
+
 // CloseCampaign ends a whole weighing campaign and every bucket still open under
 // it. Buckets whose work was never accepted stay not accepted.
 func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error) {

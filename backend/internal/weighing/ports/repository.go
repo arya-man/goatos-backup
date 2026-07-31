@@ -14,6 +14,23 @@ var (
 	ErrIdempotencyConflict = errors.New("weighing: idempotency conflict")
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
+	// ErrDuplicateScan is returned when a scanned_identifier was already
+	// captured AND SUBMITTED in an earlier round for the same campaign_shed_id
+	// and business day. It is deliberately distinct from ErrIdempotencyConflict:
+	// an idempotency conflict means the SAME idempotency key was reused with a
+	// DIFFERENT payload (a client replay bug), whereas a duplicate scan is a
+	// brand-new request (new idempotency key, no fingerprint to compare) that
+	// collides with a different row already committed as submitted. Mapped to
+	// 409 Conflict — the resource (this tag, in this bucket, today) already
+	// exists as a submitted capture, so the request cannot proceed as issued.
+	ErrDuplicateScan = errors.New("weighing: duplicate scan")
+
+	// ErrVerificationPending is the leadership close gate: a bucket may only be
+	// closed on the NORMAL path once every submitted video has a verdict. It is
+	// deliberately distinct from ErrImmutable ("alreadyterminal") because the
+	// bucket is perfectly writable — it is the CLOSER who is early, and the
+	// operator and verifier are both still free to work.
+	ErrVerificationPending = errors.New("weighing: verification pending")
 )
 
 type Repository interface {
@@ -36,6 +53,10 @@ type Repository interface {
 	// exact-replay readback -> state change -> audit -> idempotency record ->
 	// outbox enqueue, all in ONE transaction).
 	CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
+	// AbandonScope ends a bucket whose work will never finish. Separate from
+	// CloseScope on purpose: it skips the verification gate, demands a reason, and
+	// records itself distinguishably so it can never read as a verified close.
+	AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error
 }

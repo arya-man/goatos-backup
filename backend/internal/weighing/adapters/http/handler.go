@@ -30,6 +30,7 @@ type Service interface {
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
 	ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error
 	CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
+	AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 }
@@ -71,6 +72,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon", h.AbandonScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
@@ -329,6 +331,25 @@ func (h *Handler) CloseScope(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
 }
 
+// AbandonScope is the explicit force-close. It is a DIFFERENT endpoint from close so
+// that ending unverified work is a deliberate act, never a fallback the UI can slip
+// into when the normal close is refused.
+func (h *Handler) AbandonScope(w http.ResponseWriter, r *http.Request) {
+	var req closeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	result, err := h.service.AbandonScope(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+		h.idempotencyKey(r, req.IdempotencyKey),
+		req.Reason,
+	)
+	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
+}
+
 func (h *Handler) CloseCampaign(w http.ResponseWriter, r *http.Request) {
 	var req closeRequest
 	if !h.decode(w, r, &req) {
@@ -378,10 +399,14 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, errorEnvelope{Code: "not_found", Message: "weighing resource was not found", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrImmutable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrVerificationPending):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrDuplicateScan):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "duplicate_scan", Message: "this tag was already captured and submitted earlier today for this shed", TraceID: traceID(r)}, nil)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 	}

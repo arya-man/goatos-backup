@@ -109,6 +109,19 @@ type CampaignShed struct {
 	WeighingCategory    string `json:"weighing_category"`
 	OperatorUserID      string `json:"operator_user_id"`
 	Status              string `json:"status"`
+	// PendingVerificationCount is the exact count of this bucket's SUBMITTED
+	// observations (weighing_observations with submitted_at set, plus any
+	// weighing_shed_observations row) whose verification_status is not yet
+	// 'verified'. There is NO expected-animal denominator here — only a count of
+	// evidence that actually exists and still needs a verifier look.
+	PendingVerificationCount int `json:"pending_verification_count"`
+	// ReadyToClose is true only when the bucket is submitted (status='completed'),
+	// has at least one submitted observation, and NONE of its observations have a
+	// verification_status other than 'verified'. A bucket with an outstanding
+	// 'rework' observation counts as NOT ready — a bounced video is unfinished
+	// work the operator still owes, so surfacing "ready" on it would bury the
+	// rework request from leadership's view.
+	ReadyToClose bool `json:"ready_to_close"`
 }
 
 type ExpectedAnimal struct {

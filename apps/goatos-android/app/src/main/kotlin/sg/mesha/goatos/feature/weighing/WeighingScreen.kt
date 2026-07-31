@@ -123,11 +123,17 @@ data class WeighingUiState(
         visibleRows.count { it.isResolved },
     )
     val shedCompleted: Int get() = shedDrafts.count { it.readyToSubmit }
+    // NO EXPECTED-ANIMAL DENOMINATOR (maintainer decision 2026-07-31). Weighing is
+    // free-flow: the operator scans whatever is in front of them, so there is no known
+    // total and "X of N animals" is a number we cannot honestly produce. The old
+    // `individualResolved / totalExpected` ratio implied a completeness we never had.
+    //
+    // Progress is now capture-relative only: of the scans captured in THIS bucket, how
+    // many are ready. That is a real fraction of a real set.
     val progress: Float get() = when {
         isShedPartition -> if (shedCompleted > 0) 1f else 0f
         visibleRows.isNotEmpty() -> individualCompleted.toFloat() / visibleRows.size.toFloat()
-        totalExpected <= 0 -> 0f
-        else -> individualResolved.toFloat() / totalExpected.toFloat()
+        else -> 0f
     }
     val canRecordIndividual: Boolean get() =
         hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
@@ -222,11 +228,15 @@ data class WeighingAssignmentUiRow(
     val expectedCount: Int,
     val periodLabel: String,
 ) {
+    // After operator submits, bucket is non-clickable until reopened or verifier sends rework
+    val isSubmittedAndWaitingVerification: Boolean
+        get() = status.equals("completed", ignoreCase = true)
+
     val isClosed: Boolean
-        get() = status.equals("Completed", ignoreCase = true) ||
-            status.equals("Accepted", ignoreCase = true) ||
-            status.equals("Submitted", ignoreCase = true) ||
-            status.equals("Done", ignoreCase = true)
+        get() = status.equals("closed", ignoreCase = true)
+
+    val isClickable: Boolean
+        get() = !isSubmittedAndWaitingVerification && !isClosed
 }
 
 data class WeighingParkFilterUiRow(
@@ -888,12 +898,15 @@ private fun AssignmentRow(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = if (row.isClosed) onReopen else onOpen)
+                .clickable(
+                    enabled = row.isClickable,
+                    onClick = if (row.isClosed) onReopen else onOpen
+                )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusPill(row.status)
+                StatusPill(mapWeighingStatusLabel(row.status))
                 CategoryPill(row.category)
             }
             Text(
@@ -910,15 +923,37 @@ private fun AssignmentRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = if (row.isClosed) "Reopen" else assignmentAction(),
-                color = MeshaColors.BrandD,
-                style = MeshaType.cta,
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .clickable(onClick = if (row.isClosed) onReopen else onOpen)
-                    .padding(top = 2.dp),
-            )
+            if (row.isClickable) {
+                Text(
+                    text = assignmentAction(),
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.cta,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClick = onOpen)
+                        .padding(top = 2.dp),
+                )
+            } else if (row.isClosed) {
+                Text(
+                    text = "Reopen",
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.cta,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClick = onReopen)
+                        .padding(top = 2.dp),
+                )
+            } else {
+                // Submitted and waiting for verification - non-clickable
+                Text(
+                    text = "Pending verification",
+                    color = MeshaColors.Muted,
+                    style = MeshaType.cta,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .padding(top = 2.dp),
+                )
+            }
         }
     }
 }
@@ -981,6 +1016,17 @@ private fun WeighingProgressBar(complete: Boolean, category: String) {
             )
         }
     }
+}
+
+private fun mapWeighingStatusLabel(backendStatus: String): String = when {
+    backendStatus.equals("pending", ignoreCase = true) -> "Scheduled"
+    backendStatus.equals("in_progress", ignoreCase = true) -> "In progress"
+    backendStatus.equals("delayed", ignoreCase = true) -> "Delayed"
+    backendStatus.equals("completed", ignoreCase = true) -> "Submitted"
+    backendStatus.equals("closed", ignoreCase = true) -> "Closed"
+    backendStatus.equals("canceled", ignoreCase = true) -> "Canceled"
+    backendStatus.equals("cancelled", ignoreCase = true) -> "Canceled"
+    else -> backendStatus
 }
 
 @Composable

@@ -5385,6 +5385,10 @@ export interface components {
             /** Format: uuid */
             operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
+            /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
+            pending_verification_count: number;
+            /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
+            ready_to_close: boolean;
         };
         WeighingCampaign: {
             /** Format: uuid */

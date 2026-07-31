@@ -907,3 +907,239 @@ ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='canceled'`,
 		t.Fatalf("closed_by_override roster rows=%d, want 0 — close ends the BUCKET, it does not rewrite per-animal outcomes", got)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// CLOSE GATE (maintainer decision 2026-07-31)
+// -----------------------------------------------------------------------------
+
+// Leadership may not close a bucket while a submitted video is still unreviewed.
+// The gate is only about closing EARLY: the operator may still scan and submit, and
+// the verifier may still review. Work that will never finish ends via AbandonScope.
+func TestCloseScopeBlockedWhileVerificationPending(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-pending")
+
+	_, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "leadership tried to close early", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-pending",
+	})
+	if !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("close with an unverified submitted video err=%v, want ErrVerificationPending", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+
+	// Verify it, and the same close now succeeds.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab01",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "all videos checked", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-verified",
+	}); err != nil {
+		t.Fatalf("close after every video verified: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+}
+
+// A bounced video is unfinished work the operator still owes, so 'rework' counts as
+// pending and the normal close stays shut.
+func TestCloseScopeBlockedWhileReworkOutstanding(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-rework")
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot",
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab02",
+	}); err != nil {
+		t.Fatalf("bounce observation: %v", err)
+	}
+
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "closing over a rework", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-rework",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("close with an outstanding rework err=%v, want ErrVerificationPending", err)
+	}
+}
+
+// Abandon is the explicit way out for work that will never finish: it skips the
+// gate, demands a reason, and records itself as its own event so it can never read
+// as a verified close.
+func TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	seedSubmittedObservation(t, ctx, pool, repo, "abandon-unverified")
+
+	if _, err := repo.AbandonScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "", ClosedBy: repoVerifier, IdempotencyKey: "abandon:no-reason",
+	}); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("abandon without a reason err=%v, want ErrInvalidArgument", err)
+	}
+
+	if _, err := repo.AbandonScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason:   "operator left the farm; videos will never be shot",
+		ClosedBy: repoVerifier, IdempotencyKey: "abandon:never-finishing",
+	}); err != nil {
+		t.Fatalf("abandon an unverified bucket: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+
+	if got := countOutbox(t, ctx, pool, "weighing.shed.abandoned"); got != 1 {
+		t.Fatalf("weighing.shed.abandoned outbox rows=%d, want 1", got)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 0 {
+		t.Fatalf("weighing.shed.closed outbox rows=%d, want 0 — an abandon must never look like a verified close", got)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.scope_abandoned"); got != 1 {
+		t.Fatalf("weighing.scope_abandoned audit rows=%d, want 1", got)
+	}
+}
+
+// The bucket read contract must surface ready_to_close / pending_verification_count
+// from real submitted/verified evidence — false while ANY verification is pending,
+// true only once every submitted video has been verified. No expected-animal
+// denominator is involved anywhere in this computation.
+func TestBucketReadyToCloseReflectsVerificationState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	shedByID := func(t *testing.T) domain.CampaignShed {
+		t.Helper()
+		page, err := repo.ListCampaigns(ctx, repoTenant, "", 50)
+		if err != nil {
+			t.Fatalf("list campaigns: %v", err)
+		}
+		for _, campaign := range page.Items {
+			if campaign.CampaignID != repoCampaign {
+				continue
+			}
+			for _, shed := range campaign.Sheds {
+				if shed.CampaignShedID == repoAnimalScope {
+					return shed
+				}
+			}
+		}
+		t.Fatalf("campaign shed %s not found in list", repoAnimalScope)
+		return domain.CampaignShed{}
+	}
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "ready-to-close")
+
+	shed := shedByID(t)
+	if shed.PendingVerificationCount != 1 {
+		t.Fatalf("pending_verification_count=%d, want 1 while the submitted video is unverified", shed.PendingVerificationCount)
+	}
+	if shed.ReadyToClose {
+		t.Fatalf("ready_to_close=true while a submitted video is still unverified, want false")
+	}
+
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab03",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+
+	shed = shedByID(t)
+	if shed.PendingVerificationCount != 0 {
+		t.Fatalf("pending_verification_count=%d after verifying the only video, want 0", shed.PendingVerificationCount)
+	}
+	if !shed.ReadyToClose {
+		t.Fatalf("ready_to_close=false once every submitted video is verified, want true")
+	}
+}
+
+// seedSubmittedObservation records one free-flow scan in the individual bucket and
+// submits it, leaving the bucket at 'completed' with exactly one unverified video.
+func seedSubmittedObservation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, tag string) string {
+	t.Helper()
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		ScannedIdentifier: tag, WeightKg: 12.0, ProofArtifactID: repoExpectedShedProof,
+		ActualLocationID: repoExpectedShed, IdempotencyKey: "seed:" + tag, RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation for %s: %v", tag, err)
+	}
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator,
+		"submit:"+tag, []string{tag}); err != nil {
+		t.Fatalf("submit scope for %s: %v", tag, err)
+	}
+	return obs.ObservationID
+}
+
+// The campaign-level close must obey the same verification gate as the per-bucket
+// close. It was previously a SECOND, ungated door to 'closed': it takes no reason
+// and is not the explicit abandon path, so leadership could sweep shut the very
+// bucket CloseScope had just refused.
+func TestCloseCampaignBlockedWhileAnyBucketHasPendingVerification(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// An open bucket holding a submitted-but-unreviewed video.
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "campaign-gate-pending")
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds SET status='in_progress'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope)
+
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "leadership bulk close", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:gate-pending",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("campaign close with an unverified submitted video err=%v, want ErrVerificationPending", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "in_progress")
+
+	// Once the verifier has reviewed it, the same campaign close succeeds.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ac01",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "all videos checked", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:gate-verified",
+	}); err != nil {
+		t.Fatalf("campaign close after every video verified: %v", err)
+	}
+}
