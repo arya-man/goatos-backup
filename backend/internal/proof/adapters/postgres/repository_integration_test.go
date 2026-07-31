@@ -219,6 +219,80 @@ func TestCreateProofIsIdempotentByKey(t *testing.T) {
 	}
 }
 
+func TestCompletingReplacementTaskGoatVideoKeepsSupersededProofAuditable(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	taskID := "20000000-0000-4000-8000-000000000001"
+	goatID := "30000000-0000-4000-8000-000000000001"
+	create := domain.CreateUpload{
+		TenantID:    tenantID,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     taskID,
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+	}
+	first, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("first CreateProof() error = %v", err)
+	}
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     first.ProofID,
+		ContentHash: "sha256:first",
+		MimeType:    "video/mp4",
+		SizeBytes:   123,
+	}); err != nil {
+		t.Fatalf("first CompleteProof() error = %v", err)
+	}
+	retentionExpires := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+UPDATE proof_artifacts
+SET retention_policy = 'operational_90d',
+    retention_expires_at = $3
+WHERE tenant_id = $1::uuid
+  AND proof_id = $2::uuid`, tenantID, first.ProofID, retentionExpires); err != nil {
+		t.Fatalf("seed first retention: %v", err)
+	}
+
+	second, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("second CreateProof() error = %v", err)
+	}
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     second.ProofID,
+		ContentHash: "sha256:second",
+		MimeType:    "video/mp4",
+		SizeBytes:   456,
+	}); err != nil {
+		t.Fatalf("second CompleteProof() error = %v", err)
+	}
+
+	superseded, err := repo.GetProof(ctx, tenantID, first.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(first) error = %v", err)
+	}
+	if superseded.UploadState != "completed" {
+		t.Fatalf("superseded upload_state = %q, want completed", superseded.UploadState)
+	}
+	if superseded.RetentionExpiresAt == nil || !superseded.RetentionExpiresAt.Equal(retentionExpires) {
+		t.Fatalf("retention expiry = %v, want preserved %v", superseded.RetentionExpiresAt, retentionExpires)
+	}
+	if superseded.Metadata["superseded_by_proof_id"] != second.ProofID {
+		t.Fatalf("metadata = %#v, want superseded_by_proof_id %q", superseded.Metadata, second.ProofID)
+	}
+	if superseded.Metadata["superseded_reason"] != "replacement_video" {
+		t.Fatalf("metadata = %#v, want replacement reason", superseded.Metadata)
+	}
+}
+
 func TestBackfillSubmissionRetentionAppliesCommittedSOPPolicy(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
