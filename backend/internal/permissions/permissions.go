@@ -258,6 +258,26 @@ var rolePermissions = map[string]map[string]struct{}{
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
 	},
+	// RoleGrowthDirector runs Weighing and ONLY Weighing. The role key existed with no entry in
+	// this map, which meant every RoleHasPermission check returned false and a growth_director
+	// grant authorized nothing at all -- the Growth Director could not weigh, and their
+	// `weighing_execute` bootstrap flag was false.
+	//
+	// Deliberately NO vaccination permission: the module drawer is composed from granted modules,
+	// so this role gets exactly one nav item (Weighing). Adding a vaccination permission here later
+	// is what would give them a second item -- that is the intended lever, not a nav template.
+	//
+	// A director's shed reach is broader than an operator's (both parks, via tenant scope) while an
+	// operator stays inside their own park, but the weighing WRITE stays per-shed-assignment for
+	// both: you weigh the sheds you were assigned, and nothing else. Weighing itself is free-flow
+	// (raw RFID, no herd-animal join, no vaccination rules, weighing tables only), so no goat or
+	// protocol read is needed here.
+	RoleGrowthDirector: {
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		LocationsRead: {}, OperatorsRead: {},
+		WeighingPlan: {}, WeighingMonitor: {}, WeighingExecute: {},
+		CalendarRead: {},
+	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
 		CountsWrite:     {},

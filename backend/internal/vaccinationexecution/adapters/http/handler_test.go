@@ -357,7 +357,11 @@ func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
 		wantViewerOnly bool
 	}{
 		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}, true},
-		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}, false},
+		// A PC Director is oversight-only too (maintainer decision): vaccination execution belongs
+		// to the operator the drive is assigned to, so holding task.execute no longer opens a shed
+		// this actor was not assigned. Previously pinned false, which kept the shed card tappable
+		// and produced a scan screen whose every write failed `task_not_assigned`.
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}, true},
 		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}, true},
 	}
 	for _, tc := range cases {
