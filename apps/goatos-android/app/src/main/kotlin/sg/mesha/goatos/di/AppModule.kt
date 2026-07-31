@@ -433,6 +433,7 @@ object AppModule {
         rosterDao = database.weighingRosterDao(),
         observationDao = database.weighingObservationDao(),
         shedObservationDao = database.weighingShedObservationDao(),
+        database = database,
         syncRepository = syncRepository,
         appScope = appScope,
     )

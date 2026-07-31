@@ -233,6 +233,105 @@ class WeighingRepositoryTest {
     }
 
     @Test
+    fun `refresh scope drops stale accepted observations but keeps pending local work`() = runTest {
+        repository.replaceRoster(
+            scopeKey,
+            listOf(
+                rosterRow(animalId = "animal-accepted", tag = "TAG-ACCEPTED"),
+                rosterRow(animalId = "animal-pending", tag = "TAG-PENDING"),
+            ),
+        )
+        val accepted = repository.recordIndividual(
+            individualCapture("animal-accepted", "TAG-ACCEPTED", weightKg = 10.2),
+        ) as AppResult.Ok
+        db.weighingObservationDao().markAcceptedByIdempotencyKey(accepted.value.idempotencyKey)
+        repository.recordIndividual(
+            individualCapture("animal-pending", "TAG-PENDING", weightKg = 11.4),
+        ) as AppResult.Ok
+
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                cursor: String?,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(
+                items = listOf(
+                    rosterDto(campaignId, campaignShedId, "animal-accepted", "TAG-ACCEPTED", 1),
+                    rosterDto(campaignId, campaignShedId, "animal-pending", "TAG-PENDING", 2),
+                ),
+                observations = emptyList(),
+            )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(listOf("animal-pending"), state.individualDrafts.map { it.animalId })
+        assertEquals(2, state.totalExpected)
+    }
+
+    @Test
+    fun `refresh scope drops stale accepted shed partition so backend open shed can be recorded again`() = runTest {
+        val first = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 180.5, "unit": "kg"}""",
+            ),
+        ) as AppResult.Ok
+        db.weighingShedObservationDao().markAcceptedByIdempotencyKey(first.value.idempotencyKey)
+
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                cursor: String?,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(
+                items = listOf(rosterDto(campaignId, campaignShedId, "animal-open", "TAG-OPEN", 1)),
+                observations = emptyList(),
+            )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            clock = { 2000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        val second = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 181.0, "unit": "kg"}""",
+            ),
+        )
+
+        assertTrue(second is AppResult.Ok)
+        assertEquals(1, repository.observeScope(scopeKey, windowSize = 20).first().shedDrafts.size)
+    }
+
+    @Test
     fun `refresh scope follows roster cursors and keeps off-page RFID matchable`() = runTest {
         val requested = mutableListOf<Pair<String?, Int>>()
         val api = object : AppApi by FakeAppApi() {

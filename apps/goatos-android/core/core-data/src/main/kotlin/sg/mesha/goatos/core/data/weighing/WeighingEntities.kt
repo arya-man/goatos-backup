@@ -154,6 +154,12 @@ interface WeighingObservationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun restoreAccepted(entity: WeighingObservationEntity)
 
+    @Query("DELETE FROM weighing_observation WHERE scopeKey = :scopeKey AND syncStatus = 'ACCEPTED'")
+    suspend fun deleteAcceptedForScope(scopeKey: String)
+
+    @Query("DELETE FROM weighing_observation WHERE scopeKey = :scopeKey AND syncStatus = 'ACCEPTED' AND observationId NOT IN (:activeObservationIds)")
+    suspend fun deleteAcceptedNotIn(scopeKey: String, activeObservationIds: List<String>)
+
     @Update
     suspend fun update(entity: WeighingObservationEntity)
 
@@ -218,6 +224,9 @@ interface WeighingObservationDao {
 interface WeighingShedObservationDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entity: WeighingShedObservationEntity): Long
+
+    @Query("DELETE FROM weighing_shed_observation WHERE scopeKey = :scopeKey AND syncStatus = 'ACCEPTED'")
+    suspend fun deleteAcceptedForScope(scopeKey: String)
 
     @Query("SELECT * FROM weighing_shed_observation WHERE scopeKey = :scopeKey ORDER BY capturedAtMs ASC LIMIT :limit")
     fun observeForScope(scopeKey: String, limit: Int = MAX_SHED_OBSERVATIONS_PER_SCOPE): Flow<List<WeighingShedObservationEntity>>
