@@ -211,7 +211,13 @@ class SubmitViewModel @Inject constructor(
             return@launch
         }
         val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
-        captureAllowed = profile?.primaryRoleHint == OPERATOR_ROLE
+        // Backend-owned, never inferred from a role label: `vaccination_execute` is compiled by the
+        // backend from the caller's grants and is the same flag the shell uses to allow opening a
+        // shed for execution. A role literal here made every authorized non-operator (a director)
+        // read-only at submit even though the backend had already authorized the work.
+        captureAllowed = runCatching {
+            bootstrapRepository.loadNavState().featureFlags[VACCINATION_EXECUTE_FLAG] == true
+        }.getOrDefault(false)
         currentPrincipalId = profile?.operatorId?.ifBlank { null }
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold install
         // or a task never opened before) immediately, then re-renders after every successful
@@ -1391,7 +1397,8 @@ class SubmitViewModel @Inject constructor(
     }
 }
 
-private const val OPERATOR_ROLE = "operator"
+/** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
+private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 
 private fun FormSpec.rosterScanTargetFieldKey(): String? =
     fields.singleOrNull { it.type == FormFieldType.GOAT_SCAN }?.key

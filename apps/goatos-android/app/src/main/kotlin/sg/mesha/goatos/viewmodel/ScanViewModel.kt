@@ -365,7 +365,15 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
             currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
-            _operatorAllowed.value = profile?.primaryRoleHint == OPERATOR_ROLE
+            // Backend-owned, never inferred from a role label. `vaccination_execute` is compiled by
+            // the backend from the caller's grants (see canExecuteVaccination), and it is the same
+            // flag the shell already uses to decide whether a shed can be opened into this screen.
+            // The old `primaryRoleHint == "operator"` literal locked out every non-operator who is
+            // nonetheless authorized to execute: a director scanned, the animal flipped DONE, and
+            // the proof camera never opened, stranding the animal on "Scan again to record proof".
+            _operatorAllowed.value = runCatching {
+                bootstrapRepository.loadNavState().featureFlags[VACCINATION_EXECUTE_FLAG] == true
+            }.getOrDefault(false)
         }
         // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
@@ -1071,7 +1079,8 @@ private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
 private const val MIN_VISIBLE_PROOF_SYNCING_MS = 1_500L
-private const val OPERATOR_ROLE = "operator"
+/** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
+private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
 
 private fun scanHeaderTitle(routeTitle: String?, detail: TaskDetail?): String {

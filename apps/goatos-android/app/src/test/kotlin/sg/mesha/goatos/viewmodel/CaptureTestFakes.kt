@@ -286,8 +286,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
  *  the approver-only/leadership role-blocked path. */
 class FakeCaptureBootstrapRepository(
     private val profile: BootstrapOperatorProfileDto? = BootstrapOperatorProfileDto(operatorId = "operator-1", primaryRoleHint = "operator"),
+    // Execution capability is backend-compiled into the bootstrap feature flags, NOT inferred from
+    // the role hint above. Defaults to authorized so existing capture tests keep their behavior.
+    private val featureFlags: Map<String, Boolean> = mapOf("vaccination_execute" to true),
 ) : BootstrapRepository {
-    override suspend fun loadNavState(): NavState = NavState.Empty
+    override suspend fun loadNavState(): NavState = NavState.Empty.copy(featureFlags = featureFlags)
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
 }
 

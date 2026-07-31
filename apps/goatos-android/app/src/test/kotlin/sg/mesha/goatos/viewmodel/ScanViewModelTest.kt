@@ -30,6 +30,7 @@ import org.junit.Test
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.core.analytics.NoopAnalytics
+import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
@@ -1217,4 +1218,83 @@ private class CapturingSubmitSyncRepository : SyncRepository {
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
+}
+
+
+/**
+ * Whether this person may capture vaccination proof is BACKEND-owned: the workforce bootstrap
+ * compiles `vaccination_execute` from the caller's grants. It must never be re-derived on device
+ * from `primary_role_hint`.
+ *
+ * Regression this locks: the old `primaryRoleHint == "operator"` literal locked out a pc_director
+ * the backend HAD authorized (`vaccination_execute = true`). On the phone that read as -- the tag
+ * scans, the animal flips to DONE, the proof camera never opens, and the row is stranded on
+ * "Scan again to record proof", so the shed can never be submitted.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class ScanViewModelExecutionGateTest {
+
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun viewModelFor(roleHint: String, flags: Map<String, Boolean>): ScanViewModel =
+        ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(
+                profile = BootstrapOperatorProfileDto(operatorId = "person-1", primaryRoleHint = roleHint),
+                featureFlags = flags,
+            ),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+
+    @Test
+    fun `director authorized by the backend may capture proof`() = runTest(dispatcher) {
+        val vm = viewModelFor("pc_director", mapOf("vaccination_execute" to true))
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        // captureAccessRequired == "this person executes here, so grant camera/RFID access".
+        assertTrue(vm.state.value.captureAccessRequired)
+    }
+
+    @Test
+    fun `operator authorized by the backend may capture proof`() = runTest(dispatcher) {
+        val vm = viewModelFor("operator", mapOf("vaccination_execute" to true))
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertTrue(vm.state.value.captureAccessRequired)
+    }
+
+    @Test
+    fun `an operator role hint cannot grant capture the backend withheld`() = runTest(dispatcher) {
+        val vm = viewModelFor("operator", mapOf("vaccination_execute" to false))
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertFalse(vm.state.value.captureAccessRequired)
+    }
+
+    @Test
+    fun `a missing flag is treated as not authorized`() = runTest(dispatcher) {
+        val vm = viewModelFor("verifier", emptyMap())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertFalse(vm.state.value.captureAccessRequired)
+    }
 }
