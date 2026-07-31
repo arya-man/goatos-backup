@@ -51,6 +51,7 @@ import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
@@ -253,11 +254,15 @@ class WeighingViewModel @Inject constructor(
             }
         } else {
             viewModelScope.launch {
-                val isOperator = runCatching { bootstrapRepository.operatorProfile() != null }.getOrDefault(false)
-                plannerMode.value = !isOperator
-                if (isOperator) {
-                    refreshAssignments()
-                } else {
+                // The planner belongs to the planner SURFACE. This used to ask whether the viewer
+                // had an operator profile, which is true for every seeded user -- so plannerMode was
+                // never true and the whole planning UI (week strip, shed/category picking, the
+                // New task CTA) was unreachable for everyone. The route already declares which
+                // surface it is; use that.
+                val isPlannerSurface = surface == WEIGHING_SCOPE_ALL
+                plannerMode.value = isPlannerSurface
+                refreshAssignments()
+                if (isPlannerSurface) {
                     refreshPlanner()
                 }
             }

@@ -833,6 +833,9 @@ fun AppNavHost(
                 state = state,
                 onRefresh = vm::refresh,
                 onSelectPark = vm::selectAssignmentPark,
+                onCreateOrEditTask = vm::createOrEditDefaultPlan,
+                onTogglePlannerShed = vm::togglePlannerShed,
+                onPlannerShedCategory = vm::setPlannerShedCategory,
                 onAssignmentRowVisible = vm::onAssignmentRowVisible,
             )
         }

@@ -473,7 +473,7 @@ internal fun ListLoadingFooter() {
 }
 
 @Composable
-private fun PlannerRootContent(
+internal fun PlannerRootContent(
     state: WeighingUiState,
     onCreateOrEditTask: () -> Unit,
     onTogglePlannerShed: (String) -> Unit,
