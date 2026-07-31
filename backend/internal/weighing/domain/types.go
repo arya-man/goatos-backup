@@ -8,6 +8,14 @@ const (
 	StatusInProgress = "in_progress"
 	StatusDelayed    = "delayed"
 	StatusCompleted  = "completed"
+	StatusClosed     = "closed"
+
+	// Verification verdict state carried by a weighing observation. Weighing
+	// enqueues one generic verification item per observation; these are the
+	// answers a verifier can send back.
+	VerificationStatusPending  = "pending"
+	VerificationStatusVerified = "verified"
+	VerificationStatusRework   = "rework"
 
 	CategoryIndividualAnimal     = "individual_animal"
 	CategoryPerShedPartition     = "per_shed_partition"
@@ -124,6 +132,10 @@ type RosterPage struct {
 	Items        []ExpectedAnimal `json:"items"`
 	Observations []Observation    `json:"observations,omitempty"`
 	NextCursor   string           `json:"next_cursor,omitempty"`
+	// NextObservationsCursor paginates Observations independently of Items, on
+	// a keyset of (accepted_at, observation_id). Empty means no further
+	// observations pages for this shed/roster-window request.
+	NextObservationsCursor string `json:"next_observations_cursor,omitempty"`
 }
 
 // LeadershipShedVideos is the read-only, shed-grain weighing proof contract.
@@ -169,6 +181,73 @@ type Progress struct {
 	WrongShedCount           int `json:"wrong_shed_count"`
 	MissingCount             int `json:"missing_count"`
 	RemainingCount           int `json:"remaining_count"`
+}
+
+// CloseCommand drives CloseScope / CloseCampaign. Close is an EXPLICIT
+// leadership action that ends work which will never finish on its own. It is
+// deliberately allowed while buckets still hold work that was never accepted, so
+// the reason and the actor are mandatory context rather than decoration.
+type CloseCommand struct {
+	TenantID       string
+	CampaignID     string
+	CampaignShedID string
+	Reason         string
+	ClosedBy       string
+	IdempotencyKey string
+}
+
+// CloseResult is the readback of a close. It is persisted as the idempotency
+// result snapshot, so an exact replay returns this same value without rerunning
+// any side effect.
+//
+// NotAccepted* describe work that was open at close time and STAYS not accepted:
+// closing never marks an unaccepted bucket accepted. NotAccepted is a bounded
+// sample (CloseNotAcceptedSampleLimit) while NotAcceptedCount is the exact
+// whole-scope total, so the audit trail cannot blow up on a large campaign.
+type CloseResult struct {
+	CampaignID       string    `json:"campaign_id"`
+	CampaignShedID   string    `json:"campaign_shed_id,omitempty"`
+	Status           string    `json:"status"`
+	Reason           string    `json:"reason,omitempty"`
+	ClosedBy         string    `json:"closed_by"`
+	ClosedAt         time.Time `json:"closed_at"`
+	NotAcceptedCount int       `json:"not_accepted_count"`
+	NotAccepted      []string  `json:"not_accepted,omitempty"`
+}
+
+// CloseNotAcceptedSampleLimit bounds the identifier list recorded in the close
+// audit/idempotency payload and carried in the close event. The count stays exact.
+const CloseNotAcceptedSampleLimit = 100
+
+// VerificationVerdict is the weighing-side projection of one generic verifier
+// verdict onto one weighing observation. EventID is the verification event id and
+// is the idempotency key: the durable bus is at-least-once.
+type VerificationVerdict struct {
+	TenantID      string
+	ObservationID string
+	RefType       string
+	Status        string
+	VerifiedBy    string
+	Reason        string
+	EventID       string
+}
+
+// VerificationVerdictResult reports what the verdict changed so the consumer stays
+// idempotent and the notifier can route without a callback into weighing.
+type VerificationVerdictResult struct {
+	Applied        bool   `json:"applied"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ObservationID  string `json:"observation_id"`
+	OperatorID     string `json:"operator_id"`
+	Status         string `json:"status"`
+	// DecidedAt is the instant the verdict was PERSISTED (the row's verified_at,
+	// returned by the same UPDATE), not a wall clock read afterwards. It is part
+	// of the result — and therefore of the idempotency snapshot — so an
+	// at-least-once redelivery reports the ORIGINAL decision time instead of
+	// minting a new one. Business meaning is India business time per AGENTS.md,
+	// so it is carried in Asia/Kolkata.
+	DecidedAt time.Time `json:"decided_at"`
 }
 
 type CreateCampaign struct {

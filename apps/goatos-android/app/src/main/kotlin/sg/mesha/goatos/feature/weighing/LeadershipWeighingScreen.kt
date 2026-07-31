@@ -11,13 +11,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,6 +37,9 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 fun LeadershipWeighingScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
+    onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -58,8 +65,19 @@ fun LeadershipWeighingScreen(
             if (state.assignments.isEmpty()) {
                 item { LeadershipEmptyCard(loading = state.loading) }
             } else {
-                items(state.assignments, key = { it.campaignShedId }) { assignment ->
-                    LeadershipAssignmentCard(assignment)
+                itemsIndexed(state.assignments, key = { _, assignment -> assignment.campaignShedId }) { index, assignment ->
+                    // The list itself pulls the next page as the reader scrolls near the end.
+                    LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
+                        onAssignmentRowVisible(index)
+                    }
+                    LeadershipAssignmentCard(
+                        assignment,
+                        onReopen = { onReopenAssignment(assignment) },
+                        onClose = { reason -> onCloseAssignment(assignment, reason) },
+                    )
+                }
+                if (state.assignmentsLoadingMore) {
+                    item(key = "assignments-loading-more") { ListLoadingFooter() }
                 }
             }
         }
@@ -67,7 +85,11 @@ fun LeadershipWeighingScreen(
 }
 
 @Composable
-private fun LeadershipAssignmentCard(row: WeighingAssignmentUiRow) {
+private fun LeadershipAssignmentCard(
+    row: WeighingAssignmentUiRow,
+    onReopen: () -> Unit = {},
+    onClose: (String) -> Unit = {},
+) {
     val complete = row.isClosed
     Column(
         modifier = Modifier
@@ -83,14 +105,31 @@ private fun LeadershipAssignmentCard(row: WeighingAssignmentUiRow) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = row.label,
-                color = MeshaColors.Ink,
-                style = MeshaType.cardTitle,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = row.label,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (complete) {
+                    Text(
+                        text = "Tap to reopen",
+                        color = MeshaColors.BrandD,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable(
+                                role = Role.Button,
+                                onClick = onReopen,
+                            ),
+                    )
+                }
+            }
             Text(
                 text = row.status.ifBlank { "Scheduled" },
                 color = if (complete) MeshaColors.Ok else MeshaColors.BrandD,

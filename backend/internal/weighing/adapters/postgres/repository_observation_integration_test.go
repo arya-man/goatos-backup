@@ -373,7 +373,7 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 		t.Fatalf("seed free-flow observation: %v", err)
 	}
 
-	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", 50)
+	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", "", 50)
 	if err != nil {
 		t.Fatalf("wrong operator roster read returned hard error: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 	if len(page.Observations) != 0 {
 		t.Fatalf("wrong operator observations=%+v, want no free-flow observation rows", page.Observations)
 	}
-	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", 50)
+	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", "", 50)
 	if err != nil {
 		t.Fatalf("assigned operator roster read: %v", err)
 	}
@@ -652,6 +652,29 @@ func TestSubmitIndividualScopeCompletesKnownAnimalWithScannedIdentifier(t *testi
 		t.Fatalf("submit known animal scope: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+}
+
+func TestSubmitIndividualScopeRejectsWhenObservedAnimalsOmittedFromSubmit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'A', 10.1, $4::uuid, $5::uuid, 'omit-test:a'),
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'B', 10.2, $4::uuid, $5::uuid, 'omit-test:b'),
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'C', 10.3, $4::uuid, $5::uuid, 'omit-test:c')`,
+		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator)
+
+	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:omitted-observed", []string{"A"})
+	if !errors.Is(err, ports.ErrScopeIncomplete) {
+		t.Fatalf("submit with omitted observed animals err=%v, want ErrScopeIncomplete", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
 }
 
 func TestWeighingFreeFlowOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrixDocumentsBucketSemantics(t *testing.T) {

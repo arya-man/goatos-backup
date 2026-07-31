@@ -120,6 +120,11 @@ guardrails:
 	$(MAKE) fcm-recipient-routing-guard
 	$(MAKE) calendar-endpoint-grain-guard
 	$(MAKE) goat-shed-scope-guard
+	$(MAKE) weighing-free-flow-guard
+	$(MAKE) weighing-operator-scope-guard
+	$(MAKE) weighing-one-operator-per-bucket-guard
+	$(MAKE) weighing-kernel-phase2-guard
+	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
 	$(MAKE) api-latency-policy-test
@@ -244,6 +249,28 @@ calendar-endpoint-grain-guard:
 goat-shed-scope-guard:
 	node tools/agent-hooks/check-goat-shed-scope.mjs --self-test
 	node tools/agent-hooks/check-goat-shed-scope.mjs
+
+weighing-free-flow-guard:
+	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
+
+weighing-operator-scope-guard:
+	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs
+
+weighing-one-operator-per-bucket-guard:
+	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs
+
+.PHONY: weighing-kernel-phase2-guard
+weighing-kernel-phase2-guard:
+	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs
+
+.PHONY: migration-duplicate-versions-guard
+migration-duplicate-versions-guard:
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs --self-test
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs
 
 goat-shed-integrity-db-proof:
 	bash tools/dev/check-goat-shed-integrity.sh

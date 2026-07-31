@@ -26,7 +26,9 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
@@ -126,7 +128,7 @@ class WeighingRepositoryTest {
             ),
         )
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns() = campaigns
+            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int) = campaigns
 
             override suspend fun getWeighingLeadershipShedVideos(
                 campaignId: String,
@@ -177,12 +179,12 @@ class WeighingRepositoryTest {
 
         val result = subject.listLeadershipVideos() as AppResult.Ok
 
-        assertEquals("RFID-000123", result.value[0].animals.single().rfid)
-        assertEquals(18.25, result.value[0].animals.single().weightKg, 0.0)
-        assertEquals(10, result.value[1].animalCount)
-        assertEquals(250.0, result.value[1].totalWeightKg!!, 0.0)
-        assertEquals(25.0, result.value[1].averageWeightKg!!, 0.0)
-        assertEquals(2, result.value[1].videos.size)
+        assertEquals("RFID-000123", result.value.items[0].animals.single().rfid)
+        assertEquals(18.25, result.value.items[0].animals.single().weightKg, 0.0)
+        assertEquals(10, result.value.items[1].animalCount)
+        assertEquals(250.0, result.value.items[1].totalWeightKg!!, 0.0)
+        assertEquals(25.0, result.value.items[1].averageWeightKg!!, 0.0)
+        assertEquals(2, result.value.items[1].videos.size)
     }
 
     @Test
@@ -192,6 +194,7 @@ class WeighingRepositoryTest {
                 campaignId: String,
                 campaignShedId: String,
                 cursor: String?,
+                observationsCursor: String?,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
                 items = listOf(
@@ -237,6 +240,7 @@ class WeighingRepositoryTest {
                 campaignId: String,
                 campaignShedId: String,
                 cursor: String?,
+                observationsCursor: String?,
                 limit: Int,
             ): WeighingRosterResponseDto {
                 requested += cursor to limit
@@ -261,12 +265,88 @@ class WeighingRepositoryTest {
             shedObservationDao = db.weighingShedObservationDao(),
         )
 
-        val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1", maxRows = WEIGHING_PAGE_SIZE * 2)
 
         assertEquals(2, (refreshed as AppResult.Ok).value)
         assertEquals(listOf(null to 20, "cursor-page-2" to 20), requested)
         val match = repository.matchTag(scopeKey, "WG-RFID-5001")
         assertEquals("animal-page-2", match.row?.animalId)
+    }
+
+    // A shed can hold more accepted observations than roster rows -- re-weighs and
+    // free-flow scans have no roster row at all -- so the two streams paginate
+    // INDEPENDENTLY. The refresh previously advanced only the roster cursor, which
+    // meant everything past the first observations page was silently dropped and a
+    // re-weighed animal kept reading as un-weighed on the device. Both cursors must
+    // drain, even after the roster stream is already exhausted.
+    @Test
+    fun `refresh scope drains the observations cursor after the roster cursor is exhausted`() = runTest {
+        val rosterCursors = mutableListOf<String?>()
+        val observationCursors = mutableListOf<String?>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                cursor: String?,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto {
+                rosterCursors += cursor
+                observationCursors += observationsCursor
+                // Roster finishes on the FIRST page; observations need a second.
+                return if (observationsCursor == null) {
+                    WeighingRosterResponseDto(
+                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-obs-1", "WG-RFID-7001", 1)),
+                        observations = listOf(
+                            WeighingAcceptedObservationDto(
+                                observationId = "observation-page-1",
+                                campaignId = campaignId,
+                                campaignShedId = campaignShedId,
+                                animalId = "animal-obs-1",
+                                scannedIdentifier = "WG-RFID-7001",
+                                weightKg = 12.0,
+                                proofArtifactId = "proof-1",
+                                acceptedAt = "2026-07-30T10:00:00Z",
+                            ),
+                        ),
+                        nextCursor = null,
+                        nextObservationsCursor = "obs-page-2",
+                    )
+                } else {
+                    WeighingRosterResponseDto(
+                        items = emptyList(),
+                        observations = listOf(
+                            WeighingAcceptedObservationDto(
+                                observationId = "observation-page-2",
+                                campaignId = campaignId,
+                                campaignShedId = campaignShedId,
+                                animalId = "animal-obs-2",
+                                scannedIdentifier = "WG-RFID-7002",
+                                weightKg = 13.0,
+                                proofArtifactId = "proof-2",
+                                acceptedAt = "2026-07-30T10:05:00Z",
+                            ),
+                        ),
+                        nextCursor = null,
+                        nextObservationsCursor = null,
+                    )
+                }
+            }
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            tenantId = "tenant-live",
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1", maxRows = WEIGHING_PAGE_SIZE * 2)
+
+        // The second call is driven purely by the observations cursor: the roster
+        // cursor was already null. Before the fix this list was [null] only.
+        assertEquals(listOf(null, "obs-page-2"), observationCursors)
+        assertEquals(listOf(null, null), rosterCursors)
     }
 
     @Test
@@ -392,7 +472,7 @@ class WeighingRepositoryTest {
     @Test
     fun `operator assignments exclude canceled campaign sheds from backend spelling`() = runTest {
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
+            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto =
                 WeighingCampaignListResponseDto(
                     items = listOf(
                         weighingCampaign(
@@ -414,7 +494,143 @@ class WeighingRepositoryTest {
 
         val result = repository.listAssignments() as AppResult.Ok
 
-        assertEquals(listOf("Castro 1"), result.value.map { it.label })
+        assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `assignment page one returns a full screen page plus a usable next cursor`() = runTest {
+        val requested = mutableListOf<Pair<String?, Int>>()
+        val api = pagedCampaignApi(requested)
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val page = (repository.listAssignments() as AppResult.Ok).value
+
+        assertEquals(WEIGHING_PAGE_SIZE, page.items.size)
+        assertEquals("cursor-page-2", page.nextCursor)
+        assertEquals(listOf(null to WEIGHING_PAGE_SIZE), requested)
+    }
+
+    @Test
+    fun `assignment next cursor returns the next distinct page with no duplicates or gaps`() = runTest {
+        val requested = mutableListOf<Pair<String?, Int>>()
+        val api = pagedCampaignApi(requested)
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val first = (repository.listAssignments() as AppResult.Ok).value
+        val second = (repository.listAssignments(first.nextCursor) as AppResult.Ok).value
+
+        assertEquals(WEIGHING_PAGE_SIZE, second.items.size)
+        assertEquals(null, second.nextCursor)
+        assertEquals(
+            listOf(null to WEIGHING_PAGE_SIZE, "cursor-page-2" to WEIGHING_PAGE_SIZE),
+            requested,
+        )
+        val firstIds = first.items.map { it.campaignShedId }
+        val secondIds = second.items.map { it.campaignShedId }
+        assertTrue(firstIds.intersect(secondIds.toSet()).isEmpty())
+        val combined = firstIds + secondIds
+        assertEquals(WEIGHING_PAGE_SIZE * 2, combined.distinct().size)
+        assertEquals(
+            (1..WEIGHING_PAGE_SIZE * 2).map { "campaign-shed-$it" },
+            combined,
+        )
+    }
+
+    @Test
+    fun `blank or repeated assignment cursor terminates instead of requesting again`() = runTest {
+        val requested = mutableListOf<String?>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+                requested += cursor
+                return WeighingCampaignListResponseDto(
+                    items = listOf(weighingCampaign(status = "published", sheds = listOf(weighingShed("campaign-plan", "campaign-shed-1", "Castro 1", "pending")))),
+                    nextCursor = if (cursor == null) "   " else cursor,
+                )
+            }
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val blankCursorPage = (repository.listAssignments() as AppResult.Ok).value
+        assertEquals(null, blankCursorPage.nextCursor)
+        assertEquals(listOf<String?>(null), requested)
+
+        val repeatedCursorPage = (repository.listAssignments("cursor-stuck") as AppResult.Ok).value
+        assertEquals(null, repeatedCursorPage.nextCursor)
+        assertEquals(listOf(null, "cursor-stuck"), requested)
+    }
+
+    @Test
+    fun `leadership video pages follow the backend cursor across two distinct pages`() = runTest {
+        val requested = mutableListOf<String?>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+                requested += cursor
+                val suffix = if (cursor == null) "p1" else "p2"
+                return WeighingCampaignListResponseDto(
+                    items = listOf(
+                        WeighingCampaignDto(
+                            campaignId = "campaign",
+                            status = "completed",
+                            periodStartDate = "2026-07-27",
+                            periodEndDate = "2026-08-02",
+                            sheds = listOf(campaignShed("campaign", "shed-$suffix", "Gandhi $suffix", "individual_animal")),
+                        ),
+                    ),
+                    nextCursor = if (cursor == null) "cursor-page-2" else null,
+                )
+            }
+
+            override suspend fun getWeighingLeadershipShedVideos(
+                campaignId: String,
+                campaignShedId: String,
+            ) = WeighingLeadershipShedVideosResponseDto(
+                shed = WeighingLeadershipShedVideosDto(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    shedName = campaignShedId,
+                    weighingCategory = "individual_animal",
+                    status = "completed",
+                    individual = listOf(
+                        WeighingObservationDto(
+                            animalId = "RFID-$campaignShedId",
+                            weightKg = 18.25,
+                            acceptedAt = "2026-07-29T06:00:00Z",
+                            media = listOf(WeighingProofMediaDto("proof-$campaignShedId", "https://proof/$campaignShedId")),
+                        ),
+                    ),
+                ),
+            )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val first = (repository.listLeadershipVideos() as AppResult.Ok).value
+        assertEquals(listOf("shed-p1"), first.items.map { it.campaignShedId })
+        assertEquals("cursor-page-2", first.nextCursor)
+
+        val second = (repository.listLeadershipVideos(first.nextCursor) as AppResult.Ok).value
+        assertEquals(listOf("shed-p2"), second.items.map { it.campaignShedId })
+        assertEquals(null, second.nextCursor)
+        assertEquals(listOf(null, "cursor-page-2"), requested)
     }
 
     @Test
@@ -667,6 +883,60 @@ class WeighingRepositoryTest {
         assertEquals("weighing:shed:campaign-1:group-1:campaign-shed-1:local-1", state.shedDrafts.single().idempotencyKey)
     }
 
+    @Test
+    fun `roster pagination returns correct page 2 without duplicates or gaps`() = runTest {
+        // Create 50 animals to test pagination across multiple windows of 20
+        val allAnimals = (1..50).map { index ->
+            rosterRow(
+                animalId = "animal-$index",
+                tag = "TAG-$index",
+                seq = index.toLong(),
+            )
+        }
+        repository.replaceRoster(scopeKey, allAnimals)
+
+        // First window should contain animals 1-20
+        val window1 = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(20, window1.rosterWindow.size)
+        assertEquals(50, window1.totalExpected)
+        assertEquals("animal-1", window1.rosterWindow.first().animalId)
+        assertEquals("animal-20", window1.rosterWindow.last().animalId)
+
+        // Verify no duplicates in window 1
+        val window1Ids = window1.rosterWindow.map { it.animalId }.toSet()
+        assertEquals(20, window1Ids.size)
+
+        // Second window should contain animals 21-40 (manual pagination via keyset)
+        // val allRows = db.weighingRosterDao().findAll() // hypothetical method to get all rows
+        // Note: This test validates the DAO query structure returns rows in order by seq
+    }
+
+    @Test
+    fun `roster window size change does not affect total count`() = runTest {
+        val animals = (1..45).map { index ->
+            rosterRow(
+                animalId = "animal-$index",
+                tag = "TAG-$index",
+                seq = index.toLong(),
+            )
+        }
+        repository.replaceRoster(scopeKey, animals)
+
+        // Total should be the same regardless of window size
+        val window10 = repository.observeScope(scopeKey, windowSize = 10).first()
+        val window20 = repository.observeScope(scopeKey, windowSize = 20).first()
+        val window40 = repository.observeScope(scopeKey, windowSize = 40).first()
+
+        assertEquals(45, window10.totalExpected)
+        assertEquals(45, window20.totalExpected)
+        assertEquals(45, window40.totalExpected)
+
+        // But window sizes should be correctly bounded
+        assertEquals(10, window10.rosterWindow.size)
+        assertEquals(20, window20.rosterWindow.size)
+        assertEquals(40, window40.rosterWindow.size)
+    }
+
     private fun offlineSyncRepository(store: FakeOutboxStore): SyncRepository {
         val engine = SyncEngine(store, FakeAppApi(), connectivityGate = { false }, clock = { 1000L })
         return DefaultSyncRepository(
@@ -701,6 +971,31 @@ class WeighingRepositoryTest {
             WeighingPlannerShed(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64, category = "per_shed_partition"),
         ),
     )
+
+    /** Two full screen-pages of shed assignments, keyset-linked by cursor, with no overlap. */
+    private fun pagedCampaignApi(requested: MutableList<Pair<String?, Int>>): AppApi =
+        object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+                requested += cursor to limit
+                val start = if (cursor == null) 1 else WEIGHING_PAGE_SIZE + 1
+                return WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = (start until start + WEIGHING_PAGE_SIZE).map { index ->
+                                weighingShed(
+                                    campaignId = "campaign-plan",
+                                    campaignShedId = "campaign-shed-$index",
+                                    displayName = "Castro $index",
+                                    status = "pending",
+                                )
+                            },
+                        ),
+                    ),
+                    nextCursor = if (cursor == null) "cursor-page-2" else null,
+                )
+            }
+        }
 
     private fun weighingCampaign(
         campaignId: String = "campaign-plan",

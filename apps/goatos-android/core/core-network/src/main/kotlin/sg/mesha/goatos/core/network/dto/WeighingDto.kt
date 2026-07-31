@@ -25,6 +25,10 @@ data class WeighingCampaignShedDto(
     @SerialName("weighing_category") val weighingCategory: String = "",
     @SerialName("operator_user_id") val operatorUserId: String = "",
     @SerialName("status") val status: String = "",
+    /** Backend-owned count of animals still open in THIS shed bucket. Absent when the
+     *  backend read model does not publish shed-grain remaining truth yet; the client
+     *  must then render a count-free close label instead of inventing a number. */
+    @SerialName("remaining_count") val remainingCount: Int? = null,
 )
 
 @Serializable
@@ -50,6 +54,7 @@ data class WeighingCampaignDto(
 @Serializable
 data class WeighingCampaignListResponseDto(
     @SerialName("items") val items: List<WeighingCampaignDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
 )
 
@@ -143,6 +148,10 @@ data class WeighingRosterResponseDto(
     @SerialName("items") val items: List<WeighingRosterRowDto> = emptyList(),
     @SerialName("observations") val observations: List<WeighingAcceptedObservationDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
+    // Independently paginates `observations` on a keyset of (accepted_at,
+    // observation_id) scoped to this campaign_shed_id; absent/null means no
+    // further observations page for this request.
+    @SerialName("next_observations_cursor") val nextObservationsCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
 )
 
@@ -233,6 +242,12 @@ data class WeighingObservationResponseDto(
 @Serializable
 data class WeighingScopeReopenRequestDto(
     @SerialName("reason") val reason: String = "",
+)
+
+@Serializable
+data class WeighingScopeCloseRequestDto(
+    @SerialName("reason") val reason: String = "",
+    @SerialName("idempotency_key") val idempotencyKey: String = "",
 )
 
 @kotlinx.serialization.Serializable

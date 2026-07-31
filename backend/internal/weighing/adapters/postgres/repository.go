@@ -17,6 +17,13 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	// The clinical-hold and exit-lifecycle vocabularies are OWNED by
+	// protocol/domain and reused here rather than re-listed. AGENTS.md makes that
+	// set the single source of truth and forbids re-hardcoding it per module, so
+	// weighing gates on exactly the states the vaccination kernel defers on. Note
+	// this includes `recovering` and `under_treatment` as well as the sick /
+	// quarantine / ICU states the blocker names literally: the gate fails closed.
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -252,10 +259,43 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	if err != nil {
 		return domain.Campaign{}, err
 	}
+	// PHASE 2 KERNEL: publishing a campaign materializes its durable work items in
+	// THIS transaction. A required recorder, not a side effect: if the work items
+	// cannot be written the publish fails and the campaign stays draft, so a
+	// published campaign can never exist without the work the kernel sweeps.
+	// Idempotent by the unique (tenant_id, campaign_shed_id) bucket index, so
+	// republish and an exact replay create no duplicates.
+	if _, err := r.createWorkItemsForPublishTx(ctx, tx, tenantID, campaignID); err != nil {
+		return domain.Campaign{}, err
+	}
 	if err := r.recordIdempotency(ctx, tx, tenantID, "weighing.campaign_published", idempotencyKey, fingerprint, "weighing_campaign", campaignID, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := r.enqueue(ctx, tx, tenantID, "weighing.campaign_published", campaignID, idempotencyKey, fingerprint, map[string]string{"campaign_id": campaignID, "published_by": actorID}); err != nil {
+	// The published payload carries the per-bucket operator assignment already read
+	// above (c.Sheds), so the notification consumer can push DOWNWARD to each
+	// assigned operator about ONLY their own buckets without a callback into
+	// weighing and without a per-shed query. One bucket has exactly ONE operator.
+	publishedBuckets := make([]publishedBucket, 0, len(c.Sheds))
+	for _, shed := range c.Sheds {
+		publishedBuckets = append(publishedBuckets, publishedBucket{
+			CampaignShedID:      shed.CampaignShedID,
+			ShedID:              shed.LocationID,
+			ShedLabel:           shed.DisplayName,
+			OperatorID:          shed.OperatorUserID,
+			WeighingCategory:    shed.WeighingCategory,
+			ExpectedAnimalCount: shed.ExpectedAnimalCount,
+		})
+	}
+	if err := r.enqueue(ctx, tx, tenantID, "weighing.campaign_published", campaignID, idempotencyKey, fingerprint, weighingCampaignPublishedPayload{
+		TenantID:          tenantID,
+		CampaignID:        campaignID,
+		ParkID:            c.ParkID,
+		PublishedBy:       actorID,
+		PeriodStartDate:   c.PeriodStartDate,
+		PeriodEndDate:     c.PeriodEndDate,
+		StartBusinessDate: c.StartBusinessDate,
+		Buckets:           publishedBuckets,
+	}); err != nil {
 		return domain.Campaign{}, err
 	}
 	return c, tx.Commit(ctx)
@@ -283,15 +323,47 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
 	operatorFilter := strings.TrimSpace(operatorUserID)
+	// projection-review: membership=weighing_campaigns rows for one tenant, with per-campaign bucket detail and progress rollups attached afterwards by hydrateCampaigns keyed on campaign_id; group_key=(tenant_id,campaign_id) with keyset order key (period_start_date,created_at,campaign_id); join_cardinality=locations park is at most one row per campaign (locations PK location_id, matched on tenant_id+location_id) and weighing_campaign_sheds is 1:N but only reached through an EXISTS semijoin so it cannot multiply campaign rows; pagination=keyset on (period_start_date,created_at,campaign_id) DESC with tenant and operator predicates inside WHERE so filtering happens before LIMIT, and LIMIT $5 is limit+1 purely for cursor lookahead; scope=tenant_id=$1 always, plus the operator predicate $6 restricting the tenant to campaigns holding a non-canceled weighing_campaign_sheds bucket assigned to that operator.
+	//
+	// Grain proof (a) producer unique columns vs consumer match/group columns:
+	//   producer weighing_campaigns   unique: (campaign_id) PK, tenant-scoped (tenant_id, campaign_id)
+	//   consumer list row             match:  (weighing_campaigns.tenant_id, weighing_campaigns.campaign_id)
+	//   producer weighing_campaign_sheds unique: (campaign_shed_id) PK; tenant/campaign-scoped (tenant_id, campaign_id, campaign_shed_id)
+	//   consumer hydrateCampaigns     match:  (tenant_id, campaign_id, campaign_shed_id), grouped in Go by campaign_id
+	//   producer locations            unique: (location_id) PK
+	//   consumer park label           match:  (park.tenant_id, park.location_id) = (weighing_campaigns.tenant_id, weighing_campaigns.park_id)
+	//
+	// Grain proof (b) row multiplicity of every joined side:
+	//   locations park                 0..1 rows per campaign (LEFT JOIN on the locations primary key; COALESCE covers the 0 case).
+	//                                  It is the only table joined into the row path, and it is exactly why every column here is
+	//                                  schema-qualified: locations also owns status/name/tenant_id/created_at/updated_at, so the
+	//                                  previously bare status/tenant_id/period_start_date/campaign_id references were ambiguous
+	//                                  the moment this join was added (Postgres 42702). Qualification is the fix, not a rename.
+	//   weighing_campaign_sheds scope  1..N rows per campaign, consumed ONLY inside EXISTS (semijoin) => contributes 0 extra rows.
+	//   weighing_expected_animals      1..N rows per campaign, never joined here; pre-aggregated in hydrateCampaigns with
+	//                                  GROUP BY campaign_id before it reaches a campaign row.
+	//   weighing_shed_observations     1..N rows per campaign, never joined here; pre-aggregated in hydrateCampaigns with
+	//                                  count(DISTINCT campaign_shed_id) GROUP BY campaign_id.
+	//
+	// Grain proof (c) ratio key sets (Progress remaining/completed vs expected):
+	//   numerator   (completed animals, completed per-shed scopes, wrong-shed, missing) ranges over
+	//               (tenant_id, campaign_id, campaign_shed_id IN the operator-visible bucket set)
+	//   denominator (individual expected count, per-scope expected count) ranges over
+	//               (tenant_id, campaign_id, campaign_shed_id IN the operator-visible bucket set)
+	//   Identical key sets on both sides: hydrateCampaigns applies the SAME operator bucket predicate to the
+	//   rollups that it applies to the bucket rows, so an operator's remaining count can never be computed from
+	//   a sibling operator's completions against their own smaller expected set.
 	rows, err := r.pool.Query(ctx, `
-SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text, weighing_campaigns.park_id::text, COALESCE(park.name, '') AS park_name, period_start_date::text, period_end_date::text,
-  start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text,
-  created_at, updated_at, row_version
+SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text, weighing_campaigns.park_id::text, COALESCE(park.name, '') AS park_name,
+  weighing_campaigns.period_start_date::text, weighing_campaigns.period_end_date::text,
+  weighing_campaigns.start_business_date::text, weighing_campaigns.status, weighing_campaigns.planned_cap_per_day,
+  weighing_campaigns.operator_user_id::text, weighing_campaigns.created_by::text,
+  weighing_campaigns.created_at, weighing_campaigns.updated_at, weighing_campaigns.row_version
 FROM weighing_campaigns
 LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
       AND park.location_id=weighing_campaigns.park_id
-WHERE tenant_id=$1::uuid
+WHERE weighing_campaigns.tenant_id=$1::uuid
   AND (
     $6::uuid IS NULL
     OR EXISTS (
@@ -305,9 +377,9 @@ WHERE tenant_id=$1::uuid
   )
   AND (
     $2::date IS NULL
-    OR (period_start_date, created_at, campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
+    OR (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
   )
-ORDER BY period_start_date DESC, created_at DESC, campaign_id DESC
+ORDER BY weighing_campaigns.period_start_date DESC, weighing_campaigns.created_at DESC, weighing_campaigns.campaign_id DESC
 LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter))
 	if err != nil {
 		return domain.CampaignPage{}, err
@@ -476,15 +548,15 @@ ORDER BY display_name, display_code, user_id`, tenantID)
 	return out, nil
 }
 
-func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, limit)
+func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, observationsCursor, limit)
 }
 
-func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, limit)
+func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, observationsCursor, limit)
 }
 
-func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
+func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursorValue string, limit int) (domain.RosterPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -610,7 +682,12 @@ ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShe
 		nextCursor = encodeRosterCursor(rosterCursor{CreatedAt: created[limit-1], AnimalID: last.AnimalID})
 		out = out[:limit]
 	}
-	observations := make([]domain.Observation, 0)
+	obsCur, err := decodeObservationsCursor(observationsCursorValue)
+	if err != nil {
+		return domain.RosterPage{}, ports.ErrInvalidArgument
+	}
+	observations := make([]domain.Observation, 0, limit)
+	observationAcceptedAt := make([]time.Time, 0, limit+1)
 	observationRows, err := r.pool.Query(ctx, `
 SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
        COALESCE(animal_id::text, NULLIF(scanned_identifier, '')),
@@ -630,13 +707,20 @@ WHERE weighing_observations.tenant_id=$1::uuid
     weighing_observations.animal_id IS NULL
     OR weighing_observations.animal_id = ANY($4::uuid[])
   )
-ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out), nullableString(operatorFilter))
+  AND (
+    $6::timestamptz IS NULL
+    OR (weighing_observations.accepted_at, weighing_observations.observation_id) > ($6::timestamptz, $7::uuid)
+  )
+ORDER BY accepted_at, observation_id
+LIMIT $8`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out), nullableString(operatorFilter),
+		nullableTime(obsCur.AcceptedAt), nullableString(obsCur.ObservationID), limit+1)
 	if err != nil {
 		return domain.RosterPage{}, err
 	}
 	defer observationRows.Close()
 	for observationRows.Next() {
 		var observation domain.Observation
+		var acceptedAt time.Time
 		if err := observationRows.Scan(
 			&observation.ObservationID,
 			&observation.CampaignID,
@@ -649,12 +733,20 @@ ORDER BY accepted_at, observation_id`, tenantID, campaignID, campaignShedID, ros
 		); err != nil {
 			return domain.RosterPage{}, err
 		}
+		acceptedAt = observation.AcceptedAt
 		observations = append(observations, observation)
+		observationAcceptedAt = append(observationAcceptedAt, acceptedAt)
 	}
 	if err := observationRows.Err(); err != nil {
 		return domain.RosterPage{}, err
 	}
-	return domain.RosterPage{Items: out, Observations: observations, NextCursor: nextCursor}, nil
+	nextObservationsCursor := ""
+	if len(observations) > limit {
+		last := observations[limit-1]
+		nextObservationsCursor = encodeObservationsCursor(observationsCursor{AcceptedAt: observationAcceptedAt[limit-1], ObservationID: last.ObservationID})
+		observations = observations[:limit]
+	}
+	return domain.RosterPage{Items: out, Observations: observations, NextCursor: nextCursor, NextObservationsCursor: nextObservationsCursor}, nil
 }
 
 func (r *Repository) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
@@ -797,6 +889,20 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 	    actual_location.name AS actual_location_label
 	  FROM campaign c
 	  JOIN goats g ON g.tenant_id=$1::uuid AND g.goat_id=$3::uuid
+	   -- CRITICAL-ANIMAL-ACTION GATE (docs/features/critical-animal-action-guardrails.md).
+	   -- A clinically held or already-exited animal must not be walked onto a scale,
+	   -- so the write FAILS CLOSED. This reads canonical goats.health_status /
+	   -- goats.lifecycle_status directly and NOT weighing_expected_animals.
+	   -- availability_status on purpose: that column is a periodically-refreshed
+	   -- roster snapshot, and a free-flow animal may have NO roster row at all, so a
+	   -- roster-based check would be vacuously true and silently fail to gate.
+	   -- The predicate lives inside this single INSERT statement so the health read
+	   -- and the write commit atomically -- a separate Go pre-check would be a
+	   -- check-then-write race.
+	   -- Free-flow is untouched: an identifier that resolves to no animal never
+	   -- reaches this branch (see recordUnknownAnimalObservationTx above).
+	   AND COALESCE(g.health_status, 'healthy') <> ALL($11::text[])
+	   AND COALESCE(g.lifecycle_status, '') <> ALL($12::text[])
 		  JOIN weighing_expected_animals ea
 		    ON ea.tenant_id=$1::uuid
 		   AND ea.campaign_id=$2::uuid
@@ -826,7 +932,8 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
 	)
 	SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID, strings.TrimSpace(cmd.ScannedIdentifier)).
+		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID, strings.TrimSpace(cmd.ScannedIdentifier),
+		protocoldomain.MandatoryClinicalDeferStates, protocoldomain.ExitLifecycleStates).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyAnimalObservationRejection(ctx, tx, cmd)
@@ -1097,6 +1204,53 @@ WHERE cs.tenant_id=$1::uuid
 	return r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID)
 }
 
+// classifyIndividualScopeSubmitFailure runs inside the SAME transaction as the
+// failed completion UPDATE in SubmitIndividualScope, to distinguish an
+// ordinary "bucket not found / not owned by this operator" 404 from the
+// scope-self-consistency failure where the submitted scan list omits an
+// already-captured, proof-complete observation for this shed. It must never
+// join weighing_expected_animals, the herd register, vaccination, or shed
+// ownership — only the shed's own weighing_observations.
+func (r *Repository) classifyIndividualScopeSubmitFailure(ctx context.Context, tx pgx.Tx, tenantID, campaignID, campaignShedID, actorID string, scannedIdentifiers []string) error {
+	var bucketExists bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM weighing_campaign_sheds cs
+  WHERE cs.tenant_id=$1::uuid
+    AND cs.campaign_id=$2::uuid
+    AND cs.campaign_shed_id=$3::uuid
+    AND cs.weighing_category='individual_animal'
+    AND cs.operator_user_id=$4::uuid
+)`, tenantID, campaignID, campaignShedID, actorID).Scan(&bucketExists); err != nil {
+		return fmt.Errorf("check individual scope bucket exists: %w", err)
+	}
+	if !bucketExists {
+		return ports.ErrNotFound
+	}
+	var omitsObserved bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM weighing_observations observation
+  JOIN proof_artifacts proof
+    ON proof.tenant_id=observation.tenant_id
+   AND proof.proof_id=observation.proof_artifact_id
+   AND proof.upload_state='completed'
+   AND proof.proof_type='video'
+  WHERE observation.tenant_id=$1::uuid
+    AND observation.campaign_id=$2::uuid
+    AND observation.campaign_shed_id=$3::uuid
+    AND observation.weight_kg > 0
+    AND observation.scanned_identifier <> ALL($4::text[])
+)`, tenantID, campaignID, campaignShedID, scannedIdentifiers).Scan(&omitsObserved); err != nil {
+		return fmt.Errorf("check individual scope submit omits observed animals: %w", err)
+	}
+	if omitsObserved {
+		return ports.ErrScopeIncomplete
+	}
+	return ports.ErrNotFound
+}
+
 func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -1148,12 +1302,25 @@ WHERE cs.tenant_id=$1::uuid
       AND observation.scanned_identifier=captured.scanned_identifier
       AND observation.weight_kg > 0
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM weighing_observations observation
+    JOIN proof_artifacts proof
+      ON proof.tenant_id=observation.tenant_id
+     AND proof.proof_id=observation.proof_artifact_id
+     AND proof.upload_state='completed'
+     AND proof.proof_type='video'
+    WHERE observation.tenant_id=cs.tenant_id
+      AND observation.campaign_id=cs.campaign_id
+      AND observation.campaign_shed_id=cs.campaign_shed_id
+      AND observation.weight_kg > 0
+      AND observation.scanned_identifier <> ALL($5::text[])
   )`, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
-		return ports.ErrNotFound
+		return r.classifyIndividualScopeSubmitFailure(ctx, tx, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
 		return err
@@ -1485,17 +1652,38 @@ ORDER BY campaign_id, display_name`, tenantID, ids, nullableString(operatorFilte
 		wrongShed        int
 		missing          int
 	}, len(campaigns))
+	// projection-review: membership=weighing_expected_animals rows belonging to the operator-visible campaign_shed buckets of the listed campaigns; group_key=campaign_id, joined back to the campaign row in Go by campaign_id; join_cardinality=one expected-animal row per (campaign_id,animal_id) primary key and the operator bucket check is an EXISTS semijoin on the weighing_campaign_sheds primary key so it adds no rows; pagination=one bounded set-based aggregate over the campaign ids of the current page (never per row and never per page-loop iteration); scope=tenant_id=$1 plus the same optional operator bucket predicate $3 used for the bucket rows above.
+	//
+	// Grain proof (a) producer unique columns vs consumer match/group columns:
+	//   producer weighing_expected_animals unique: (campaign_id, animal_id) PK, bucket column campaign_shed_id
+	//   consumer rollup                    group:  (campaign_id); bucket filter matches (tenant_id, campaign_id, campaign_shed_id)
+	// Grain proof (b) row multiplicity: weighing_campaign_sheds cs is 1..N per campaign but is read inside EXISTS on its own
+	//   primary key, so it contributes exactly 0 extra rows; nothing else is joined.
+	// Grain proof (c) ratio key sets: this numerator and the expected-count denominator built from the bucket rows above both
+	//   range over (tenant_id, campaign_id, campaign_shed_id IN the operator-visible bucket set) - identical on both sides.
 	rows, err = r.pool.Query(ctx, `
-SELECT campaign_id::text,
-  count(*) FILTER (WHERE status = 'weighed')::int AS completed_animals,
-  count(*) FILTER (WHERE availability_status = 'moved_other_shed')::int AS wrong_shed,
+SELECT wea.campaign_id::text,
+  count(*) FILTER (WHERE wea.status = 'weighed')::int AS completed_animals,
+  count(*) FILTER (WHERE wea.availability_status = 'moved_other_shed')::int AS wrong_shed,
   count(*) FILTER (
-    WHERE availability_status IN ('dead', 'sold_transferred')
-      OR current_lifecycle_status IN ('dead', 'sold', 'transferred')
+    WHERE wea.availability_status IN ('dead', 'sold_transferred')
+      OR wea.current_lifecycle_status IN ('dead', 'sold', 'transferred')
   )::int AS missing
-FROM weighing_expected_animals
-WHERE tenant_id=$1::uuid AND campaign_id = ANY($2::uuid[])
-GROUP BY campaign_id`, tenantID, ids)
+FROM weighing_expected_animals wea
+WHERE wea.tenant_id=$1::uuid
+  AND wea.campaign_id = ANY($2::uuid[])
+  AND (
+    $3::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM weighing_campaign_sheds cs
+      WHERE cs.tenant_id=wea.tenant_id
+        AND cs.campaign_id=wea.campaign_id
+        AND cs.campaign_shed_id=wea.campaign_shed_id
+        AND cs.operator_user_id=$3::uuid
+    )
+  )
+GROUP BY wea.campaign_id`, tenantID, ids, nullableString(operatorFilter))
 	if err != nil {
 		return err
 	}
@@ -1518,6 +1706,17 @@ GROUP BY campaign_id`, tenantID, ids)
 	}
 	rows.Close()
 
+	// projection-review: membership=per_shed_partition buckets of the listed campaigns that carry at least one shed observation, restricted to the operator-visible bucket set; group_key=campaign_id with count(DISTINCT campaign_shed_id) as the completed-bucket measure; join_cardinality=weighing_shed_observations is 1..N per bucket and weighing_campaign_sheds cs is exactly 1 row per campaign_shed_id (primary key), so the DISTINCT campaign_shed_id count is bucket-grain no matter how many observations or re-shoots a bucket collected; pagination=one bounded set-based aggregate over the campaign ids of the current page; scope=tenant_id=$1 plus the same optional operator bucket predicate $3 used for the bucket rows and the expected-animal rollup.
+	//
+	// Grain proof (a) producer unique columns vs consumer match/group columns:
+	//   producer weighing_campaign_sheds unique: (campaign_shed_id) PK; tenant/campaign-scoped (tenant_id, campaign_id, campaign_shed_id)
+	//   consumer rollup                  match:  (cs.tenant_id, cs.campaign_id, cs.campaign_shed_id) = the same three columns on wso
+	//   consumer group:                          (wso.campaign_id), measure count(DISTINCT wso.campaign_shed_id)
+	// Grain proof (b) row multiplicity: cs is 1:1 with the joined campaign_shed_id (primary key), wso is 1..N per bucket and is
+	//   collapsed by DISTINCT campaign_shed_id, so N observations on one bucket still count as one completed bucket.
+	// Grain proof (c) ratio key sets: numerator (completed per-shed buckets) and denominator (PerScopeExpectedCount, counted from
+	//   the operator-visible bucket rows above) both range over (tenant_id, campaign_id, campaign_shed_id IN the operator-visible
+	//   bucket set) - identical on both sides.
 	rows, err = r.pool.Query(ctx, `
 SELECT wso.campaign_id::text, count(DISTINCT wso.campaign_shed_id)::int
 FROM weighing_shed_observations wso
@@ -1526,8 +1725,10 @@ JOIN weighing_campaign_sheds cs
  AND cs.campaign_id=wso.campaign_id
  AND cs.campaign_shed_id=wso.campaign_shed_id
  AND cs.weighing_category='per_shed_partition'
-WHERE wso.tenant_id=$1::uuid AND wso.campaign_id = ANY($2::uuid[])
-GROUP BY wso.campaign_id`, tenantID, ids)
+WHERE wso.tenant_id=$1::uuid
+  AND wso.campaign_id = ANY($2::uuid[])
+  AND ($3::uuid IS NULL OR cs.operator_user_id=$3::uuid)
+GROUP BY wso.campaign_id`, tenantID, ids, nullableString(operatorFilter))
 	if err != nil {
 		return err
 	}
@@ -1764,6 +1965,28 @@ WHERE campaign.tenant_id=$1::uuid
 	if !animalExists {
 		return ports.ErrNotFound
 	}
+	// Clinical gate, checked AFTER existence (so a genuinely unknown animal still
+	// reports not-found) and BEFORE the proof check (so a held animal reports why
+	// it is held rather than being blamed on its proof). Inserted here rather than
+	// reordering the existing branches, which keep their current 404/403/400
+	// classification.
+	var clinicallyBlocked bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM goats
+  WHERE tenant_id=$1::uuid
+    AND goat_id=$2::uuid
+    AND (
+      COALESCE(health_status, 'healthy') = ANY($3::text[])
+      OR COALESCE(lifecycle_status, '') = ANY($4::text[])
+    )
+)`, cmd.TenantID, cmd.AnimalID,
+		protocoldomain.MandatoryClinicalDeferStates, protocoldomain.ExitLifecycleStates).Scan(&clinicallyBlocked); err != nil {
+		return err
+	}
+	if clinicallyBlocked {
+		return ports.ErrAnimalUnavailable
+	}
 	var proofOK bool
 	err = tx.QueryRow(ctx, `
 	SELECT EXISTS (
@@ -1956,8 +2179,14 @@ func weighingSubjectType(eventType string) string {
 	switch eventType {
 	case "weighing.campaign_created", "weighing.campaign_updated", "weighing.campaign_published":
 		return "weighing_campaign"
-	case "weighing.shed_submission.completed":
+	case "weighing.shed_submission.completed", "weighing.shed.reopened", eventTypeScopeClosed:
 		return "weighing_campaign_shed"
+	case domain.EventWorkItemDayStart, domain.EventWorkItemRolledForward, domain.EventWorkItemDelayed:
+		// Cadence events are campaign-aggregated (one per campaign+operator) and
+		// their outbox aggregate_id is the campaign id.
+		return "weighing_campaign"
+	case eventTypeCampaignClosed:
+		return "weighing_campaign"
 	default:
 		return "weighing_observation"
 	}
@@ -2045,6 +2274,34 @@ func decodeRosterCursor(value string) (rosterCursor, error) {
 	}
 	if cursor.CreatedAt.IsZero() || cursor.AnimalID == "" {
 		return rosterCursor{}, ports.ErrInvalidArgument
+	}
+	return cursor, nil
+}
+
+type observationsCursor struct {
+	AcceptedAt    time.Time `json:"accepted_at"`
+	ObservationID string    `json:"observation_id"`
+}
+
+func encodeObservationsCursor(cursor observationsCursor) string {
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeObservationsCursor(value string) (observationsCursor, error) {
+	if strings.TrimSpace(value) == "" {
+		return observationsCursor{}, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return observationsCursor{}, err
+	}
+	var cursor observationsCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return observationsCursor{}, err
+	}
+	if cursor.AcceptedAt.IsZero() || cursor.ObservationID == "" {
+		return observationsCursor{}, ports.ErrInvalidArgument
 	}
 	return cursor, nil
 }

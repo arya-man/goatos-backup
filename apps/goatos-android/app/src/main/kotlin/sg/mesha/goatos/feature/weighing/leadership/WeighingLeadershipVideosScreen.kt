@@ -61,6 +61,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 data class WeighingLeadershipVideosUiState(
     val loading: Boolean = true,
+    val loadingMore: Boolean = false,
     val sheds: List<WeighingLeadershipShedUi> = emptyList(),
     val error: String? = null,
 )
@@ -107,6 +108,7 @@ private data class SelectedLeadershipVideo(
 @Composable
 fun WeighingLeadershipVideosScreen(
     state: WeighingLeadershipVideosUiState,
+    onShedVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var selectedScope by remember { mutableStateOf(WeighingVideoScope.ALL) }
@@ -128,6 +130,12 @@ fun WeighingLeadershipVideosScreen(
     }
     val filteredSheds = remember(selectableSheds, selectedShedId) {
         selectedShedId?.let { shedId -> selectableSheds.filter { it.id == shedId } } ?: selectableSheds
+    }
+    val prefetchShedIds = remember(state.sheds) {
+        state.sheds.takeLast(LIST_PREFETCH_DISTANCE).map { it.id }.toSet()
+    }
+    val shedIndexById = remember(state.sheds) {
+        state.sheds.withIndex().associate { (index, shed) -> shed.id to index }
     }
     val individualCount = state.sheds.sumOf { it.animals.size }
     val lumpVideoCount = state.sheds.filter { it.isLumpSum }.sumOf { it.videos.size }
@@ -170,6 +178,12 @@ fun WeighingLeadershipVideosScreen(
                             item(key = "individual-empty") { EmptySection("No individual animal videos in this filter") }
                         } else {
                             items(individualSheds, key = { "individual-${it.id}" }) { shed ->
+                                // The gallery itself pulls the next page as the reader scrolls near the end.
+                                if (shed.id in prefetchShedIds) {
+                                    LaunchedEffect(shed.id, state.sheds.size) {
+                                        shedIndexById[shed.id]?.let(onShedVisible)
+                                    }
+                                }
                                 IndividualShedCard(shed, onVideoSelected = { selectedVideo = it })
                             }
                         }
@@ -189,9 +203,18 @@ fun WeighingLeadershipVideosScreen(
                             item(key = "lump-empty") { EmptySection("No lump-sum videos in this filter") }
                         } else {
                             items(lumpSheds, key = { "lump-${it.id}" }) { shed ->
+                                // The gallery itself pulls the next page as the reader scrolls near the end.
+                                if (shed.id in prefetchShedIds) {
+                                    LaunchedEffect(shed.id, state.sheds.size) {
+                                        shedIndexById[shed.id]?.let(onShedVisible)
+                                    }
+                                }
                                 LumpSumShedCard(shed, onVideoSelected = { selectedVideo = it })
                             }
                         }
+                    }
+                    if (state.loadingMore) {
+                        item(key = "videos-loading-more") { LoadingMoreFooter() }
                     }
                 }
             }
@@ -614,6 +637,31 @@ private fun LeadershipVideoPlayer(video: SelectedLeadershipVideo, onDismiss: () 
                 }
             }
         }
+    }
+}
+
+private const val LIST_PREFETCH_DISTANCE = 3
+
+@Composable
+private fun LoadingMoreFooter() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            color = MeshaColors.Brand,
+            strokeWidth = 2.dp,
+        )
+        Text(
+            text = "Loading more videos",
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+            modifier = Modifier.padding(start = 8.dp),
+        )
     }
 }
 

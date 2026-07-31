@@ -33,16 +33,58 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         refresh()
     }
 
+    private var nextCursor: String? = null
+
     fun refresh() {
         viewModelScope.launch {
             mutableState.value = mutableState.value.copy(loading = true, error = null)
-            mutableState.value = when (val result = repository.listLeadershipVideos()) {
-                is AppResult.Ok -> WeighingLeadershipVideosUiState(
-                    loading = false,
-                    sheds = result.value.map(::toUi),
-                )
-                is AppResult.Err -> WeighingLeadershipVideosUiState(
-                    loading = false,
+            mutableState.value = when (val result = repository.listLeadershipVideos(cursor = null)) {
+                is AppResult.Ok -> {
+                    nextCursor = result.value.nextCursor
+                    WeighingLeadershipVideosUiState(
+                        loading = false,
+                        sheds = result.value.items.map(::toUi),
+                    )
+                }
+                is AppResult.Err -> {
+                    nextCursor = null
+                    WeighingLeadershipVideosUiState(
+                        loading = false,
+                        error = result.message,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Scroll-driven prefetch: the gallery reports the shed it just composed, and only a shed inside
+     * the tail window of the loaded page asks for the next page. One page per trigger.
+     */
+    fun onShedVisible(index: Int) {
+        val loaded = mutableState.value.sheds.size
+        if (loaded == 0 || index < loaded - LIST_PREFETCH_DISTANCE) return
+        appendNextPage()
+    }
+
+    private fun appendNextPage() {
+        val cursor = nextCursor?.takeIf { it.isNotBlank() } ?: return
+        val current = mutableState.value
+        if (current.loading || current.loadingMore) return
+        mutableState.value = current.copy(loadingMore = true)
+        viewModelScope.launch {
+            mutableState.value = when (val result = repository.listLeadershipVideos(cursor = cursor)) {
+                is AppResult.Ok -> {
+                    nextCursor = result.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                    val known = mutableState.value.sheds.map { it.id }.toSet()
+                    val appended = result.value.items.map(::toUi).filter { it.id !in known }
+                    mutableState.value.copy(
+                        loadingMore = false,
+                        sheds = mutableState.value.sheds + appended,
+                    )
+                }
+                is AppResult.Err -> mutableState.value.copy(
+                    loadingMore = false,
                     error = result.message,
                 )
             }
@@ -97,6 +139,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         }
 
     private companion object {
+        const val LIST_PREFETCH_DISTANCE = 3
         val timestampFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a").withZone(ZoneId.systemDefault())
         val periodFormatter: DateTimeFormatter =

@@ -5488,6 +5488,8 @@ export interface components {
             items: components["schemas"]["WeighingRosterRow"][];
             observations?: components["schemas"]["WeighingObservation"][];
             next_cursor?: string;
+            /** @description Opaque cursor for the next page of observations, keyset-paginated on (accepted_at, observation_id) within this campaign_shed_id. Empty/absent means no further observations for this request. */
+            next_observations_cursor?: string;
             trace_id?: string;
         };
         CreateWeighingCampaignShed: {
@@ -7015,6 +7017,8 @@ export interface operations {
                 limit?: number;
                 /** @description Opaque roster cursor returned as next_cursor by the previous page. */
                 cursor?: string;
+                /** @description Opaque observations cursor returned as next_observations_cursor by the previous page. Paginates the observations array independently of items, on a keyset of (accepted_at, observation_id) scoped to this campaign_shed_id; it does not advance in lockstep with the roster cursor. */
+                observations_cursor?: string;
             };
             header?: never;
             path: {

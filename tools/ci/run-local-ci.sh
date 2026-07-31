@@ -205,6 +205,11 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "weighing-free-flow-guard" make weighing-free-flow-guard
+  step "weighing-operator-scope-guard" make weighing-operator-scope-guard
+  step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
+  step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
+  step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
