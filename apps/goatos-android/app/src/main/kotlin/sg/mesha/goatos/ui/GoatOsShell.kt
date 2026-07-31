@@ -185,6 +185,21 @@ fun GoatOsShell(navState: NavState) {
         if (navController.graph.findNode(href) == null) {
             Log.w(TAG_SHELL, "nav_href_not_hosted route=$href — stale nav cache or newer backend")
             false
+        } else if (navController.popBackStack(href, inclusive = false)) {
+            // The tapped root is ALREADY on the back stack (the common case: leaving a sibling tab
+            // and coming back). Pop back to it instead of navigating onto it.
+            //
+            // navigate() with popUpTo(start) reuses that same entry via launchSingleTop, but leaves
+            // its lifecycle parked below STARTED, so every collectAsStateWithLifecycle on the screen
+            // stops collecting while the last rendered frame stays on screen. The screen then looks
+            // alive -- taps still run click handlers, so a row CTA still navigates -- but nothing
+            // driven by ViewModel state updates again. That is what made the weighing park chips go
+            // dead after a trip through another tab: the chip callback fired and set the selection,
+            // and the list never re-rendered.
+            //
+            // popBackStack resumes the existing entry, and still clears any child routes above it,
+            // so the roots-are-roots behaviour documented above is unchanged.
+            true
         } else {
             navController.navigate(href) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = false }
