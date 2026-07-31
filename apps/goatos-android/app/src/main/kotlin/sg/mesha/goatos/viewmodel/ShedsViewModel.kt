@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -47,6 +48,7 @@ import javax.inject.Inject
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
 private const val OPEN_ONLY_QUERY = false
+private const val CALENDAR_PARK_ARG = "parkId"
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
@@ -67,6 +69,7 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val crashReporter: CrashReporter,
+    private val bootstrapRepository: BootstrapRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -78,8 +81,10 @@ class ShedsViewModel @Inject constructor(
             ?.let(::parseExecutionDate)
             ?.takeIf { it >= workWindow.firstDay && it <= workWindow.lastDay }
             ?: workWindow.today
+    private val initialParkId: String? = savedStateHandle.get<String>(CALENDAR_PARK_ARG)?.takeIf { it.isNotBlank() }
     private val _selectedDay = MutableStateFlow(initialDay)
     private val _selectedParkId = MutableStateFlow<String?>(null)
+    private val _leadershipMode = MutableStateFlow(false)
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -108,8 +113,9 @@ class ShedsViewModel @Inject constructor(
         _isRefreshing,
         _isOffline,
         _isLoadingMore,
-    ) { selectedDay, isRefreshing, isOffline, isLoadingMore ->
-        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore)
+        _leadershipMode,
+    ) { selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode ->
+        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode)
     }
 
     // Combines observed resource with transient flags; lifecycle-aware
@@ -142,6 +148,8 @@ class ShedsViewModel @Inject constructor(
             }
         base.copy(
             hostedFromCalendar = calendarHosted,
+            leadershipMode = transient.leadershipMode,
+            selectedParkId = initialParkId,
             isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
             isLoadingMore = transient.isLoadingMore,
@@ -156,7 +164,15 @@ class ShedsViewModel @Inject constructor(
     )
 
     init {
+        loadLeadershipMode()
         refresh()
+    }
+
+    private fun loadLeadershipMode() {
+        viewModelScope.launch {
+            val role = runCatching { bootstrapRepository.operatorProfile()?.primaryRoleHint }.getOrNull()
+            _leadershipMode.value = role.isLeadershipShedsRole()
+        }
     }
 
     /** Network side of stale-while-revalidate: upserts Room on success (the [observeRows]
@@ -388,7 +404,17 @@ private data class ShedsTransientState(
     val isRefreshing: Boolean,
     val isOffline: Boolean,
     val isLoadingMore: Boolean,
+    val leadershipMode: Boolean,
 )
+
+internal fun String?.isLeadershipShedsRole(): Boolean {
+    val normalized = this?.lowercase(Locale.US)?.replace('-', '_') ?: return false
+    return normalized == "ceo" ||
+        normalized == "cxo" ||
+        normalized == "director" ||
+        normalized == "pc_director" ||
+        normalized.endsWith("_director")
+}
 
 internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? =
     protocolAdherenceSummary(emptyList(), counts)

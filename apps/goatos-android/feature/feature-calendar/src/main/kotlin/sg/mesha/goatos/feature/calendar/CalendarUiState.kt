@@ -219,7 +219,12 @@ sealed interface CalendarEvent {
      *  never drills into an empty open-work query. */
     data class OpenDay(val dateKey: String, val showCompletedHistory: Boolean = false) : CalendarEvent
 
-    data class TapItem(val itemId: String, val target: String? = null, val dateKey: String? = null) : CalendarEvent
+    data class TapItem(
+        val itemId: String,
+        val target: String? = null,
+        val dateKey: String? = null,
+        val parkId: String? = null,
+    ) : CalendarEvent
 
     data class ApplyMonthFilters(val filters: CalendarMonthFilters) : CalendarEvent
 

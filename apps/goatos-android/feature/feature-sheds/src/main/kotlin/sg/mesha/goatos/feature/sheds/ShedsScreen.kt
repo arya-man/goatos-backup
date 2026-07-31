@@ -229,6 +229,8 @@ data class ShedsUiState(
     val adherence: ProtocolAdherenceSummary? = null,
     val rows: List<ShedRow> = emptyList(),
     val hostedFromCalendar: Boolean = false,
+    val leadershipMode: Boolean = false,
+    val selectedParkId: String? = null,
     // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
     // false for a leadership oversight read (read-only shed list; the open click is blocked so
     // CEO/Director/Park Head never reach the scan screen). Defaults true so operators are
@@ -322,12 +324,16 @@ fun ShedsScreen(
     val listState = rememberLazyListState()
     val canFilterHere = state.parkFilters.isNotEmpty() && !state.hostedFromCalendar
     val parkGroups = state.parkGroups()
-    val showParkGroupSelector = parkGroups.size > 1 && !state.canOpenShed
-    var selectedParkGroupId by rememberSaveable { mutableStateOf<String?>(null) }
+    val showParkGroupSelector = parkGroups.size > 1 && state.leadershipMode
+    var selectedParkGroupId by rememberSaveable(state.selectedParkId) {
+        mutableStateOf(state.selectedParkId)
+    }
     val parkGroupIds = parkGroups.map { it.parkId }
-    LaunchedEffect(parkGroupIds) {
+    LaunchedEffect(parkGroupIds, state.selectedParkId) {
         if (selectedParkGroupId !in parkGroupIds) {
-            selectedParkGroupId = parkGroupIds.firstOrNull()
+            selectedParkGroupId = state.selectedParkId
+                ?.takeIf { it in parkGroupIds }
+                ?: parkGroupIds.firstOrNull()
         }
     }
     val selectedParkGroup = parkGroups.firstOrNull { it.parkId == selectedParkGroupId }
@@ -380,7 +386,7 @@ fun ShedsScreen(
                 // Leadership reaches this screen from a specific drive/date on the Calendar, so
                 // the day strip is redundant for them — show it only for the operator work queue
                 // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
-                if (state.canOpenShed) {
+                if (!state.leadershipMode) {
                     item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
                 }
                 item { VaccineCarryCard(carry = state.carry) }
@@ -568,9 +574,12 @@ private fun ShedsUiState.parkGroups(): List<ShedParkGroup> =
     rows
         .groupBy { row -> row.parkId.ifBlank { row.parkName.ifBlank { "unknown" } } }
         .map { (parkId, parkRows) ->
+            val filterLabel = parkFilters.firstOrNull { it.parkId == parkId }?.label
             ShedParkGroup(
                 parkId = parkId,
-                label = parkRows.firstOrNull()?.parkName?.takeIf { it.isNotBlank() } ?: "Unknown park",
+                label = filterLabel
+                    ?: parkRows.firstOrNull()?.parkName?.takeIf { it.isNotBlank() }
+                    ?: "Unknown park",
                 rows = parkRows,
             )
         }
@@ -643,13 +652,6 @@ private fun ParkGroupHeader(group: ShedParkGroup) {
             color = Ink,
             fontSize = 15.sp,
             fontWeight = FontWeight.ExtraBold,
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "${group.doneCount}/${group.targetCount} done",
-            color = Muted,
-            fontSize = 11.5f.sp,
-            fontWeight = FontWeight.Bold,
         )
     }
 }
