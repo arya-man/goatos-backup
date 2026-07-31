@@ -43,13 +43,13 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); err == nil {
 		t.Fatal("growth director created weighing campaign; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), pcDirector, "", 20); err == nil {
+	if _, err := service.ListCampaigns(context.Background(), pcDirector, domain.CampaignListScopeAll, "", 20); err == nil {
 		t.Fatal("pc director monitored weighing; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), growthDirector, "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), growthDirector, domain.CampaignListScopeAll, "", 20); err != nil {
 		t.Fatalf("growth director monitor errored: %v", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
 	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
@@ -99,7 +99,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	service := NewService(repo)
 
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
-	page, err := service.ListCampaigns(context.Background(), operator, "", 20)
+	page, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", 20)
 	if err != nil {
 		t.Fatalf("operator list campaigns: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	}
 
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
-	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
+	page, err = service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "", 20)
 	if err != nil {
 		t.Fatalf("monitor list campaigns: %v", err)
 	}
@@ -120,6 +120,89 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	}
 	if repo.monitorCalls != 1 {
 		t.Fatalf("repo monitor calls=%d, want normal monitor listing", repo.monitorCalls)
+	}
+}
+
+// TestListCampaignsMineIsAssigneeScopedForEveryExecutor is the regression for the defect where
+// the growth director's work list showed all four sheds with live Scan actions.
+//
+// The old service asked `canExecute && !canMonitor` to decide "is this a worker", which is true
+// only for RoleOperator. A growth director holds BOTH, so he fell into the unfiltered branch.
+// Scoping is now per-surface: ScopeMine is assignee-scoped for EVERY executor, director included.
+func TestListCampaignsMineIsAssigneeScopedForEveryExecutor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		role string
+	}{
+		{name: "operator", role: permissions.RoleOperator},
+		{name: "growth director", role: permissions.RoleGrowthDirector},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &campaignListRepo{
+				operatorPage: domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
+				monitorPage:  domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
+			}
+			service := NewService(repo)
+			actor := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{tc.role}}
+
+			if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScopeMine, "", 20); err != nil {
+				t.Fatalf("scope=mine: %v", err)
+			}
+			if repo.operatorCalls != 1 || repo.monitorCalls != 0 {
+				t.Fatalf("scope=mine used operator=%d monitor=%d, want the assignee-scoped read", repo.operatorCalls, repo.monitorCalls)
+			}
+			if repo.operatorUserID != testOp {
+				t.Fatalf("scope=mine scoped to %q, want the caller %q", repo.operatorUserID, testOp)
+			}
+		})
+	}
+}
+
+// TestListCampaignsScopeAuthority pins each surface to its own capability, so no scope is
+// reachable by holding a different surface's permission.
+func TestListCampaignsScopeAuthority(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	for _, tc := range []struct {
+		name      string
+		actor     domain.Actor
+		scope     domain.CampaignListScope
+		wantAllow bool
+	}{
+		// The CEO plans: the flat list is his, and he must never reach an executable surface.
+		{name: "ceo may read the flat planner list", actor: ceo, scope: domain.CampaignListScopeAll, wantAllow: true},
+		{name: "ceo may not read an executable work list", actor: ceo, scope: domain.CampaignListScopeMine, wantAllow: false},
+		{name: "ceo may not read the operators surface", actor: ceo, scope: domain.CampaignListScopeOperators, wantAllow: false},
+		// The growth director executes his own sheds AND oversees other people's.
+		{name: "growth director may read his own work", actor: growthDirector, scope: domain.CampaignListScopeMine, wantAllow: true},
+		{name: "growth director may oversee operators", actor: growthDirector, scope: domain.CampaignListScopeOperators, wantAllow: true},
+		// An operator sees his own work and nothing wider.
+		{name: "operator may read his own work", actor: operator, scope: domain.CampaignListScopeMine, wantAllow: true},
+		{name: "operator may not read the flat list", actor: operator, scope: domain.CampaignListScopeAll, wantAllow: false},
+		{name: "operator may not oversee operators", actor: operator, scope: domain.CampaignListScopeOperators, wantAllow: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(&campaignListRepo{})
+			_, err := service.ListCampaigns(context.Background(), tc.actor, tc.scope, "", 20)
+			if tc.wantAllow && err != nil {
+				t.Fatalf("scope %q: %v, want allowed", tc.scope, err)
+			}
+			if !tc.wantAllow && err == nil {
+				t.Fatalf("scope %q was allowed, want forbidden", tc.scope)
+			}
+		})
+	}
+}
+
+// TestListCampaignsRejectsUnknownScope keeps an unrecognised surface from silently falling back
+// to a wider listing than the caller asked for.
+func TestListCampaignsRejectsUnknownScope(t *testing.T) {
+	service := NewService(&campaignListRepo{})
+	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScope("everything"), "", 20); err == nil {
+		t.Fatal("unknown scope was accepted; want rejected")
 	}
 }
 

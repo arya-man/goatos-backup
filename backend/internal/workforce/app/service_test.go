@@ -98,15 +98,25 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 		modules                []string
 		wantVaccinationExecute bool
 		wantWeighingExecute    bool
+		wantWeighingOversee    bool
 		wantVideoControls      bool
 	}{
-		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true, wantVideoControls: false},
-		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantVideoControls: false},
-		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantVideoControls: false},
-		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantVideoControls: true},
-		{name: "growth director executes weighing only", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantVideoControls: true},
-		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false, wantVideoControls: false},
-		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false, wantVideoControls: true},
+		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		// The Operators surface is the growth director's alone. The CEO plans (weighing.plan) and
+		// lands on the flat all-tasks list, so a second someone-else's-work tab is redundant there.
+		{name: "growth director executes and oversees weighing", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		// Leadership modules come from the leadership TIER (leadershipModuleKeys), not from
+		// department_module_grants, so a growth director keeps weighing even when the granted
+		// module list says otherwise. The flag still tracks the permission.
+		{name: "growth director keeps weighing from leadership tier regardless of granted modules", role: permissions.RoleGrowthDirector, modules: []string{"vaccination"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		// The CEO plans and oversees weighing but holds neither TaskExecute nor WeighingExecute:
+		// a planner must never reach a scan surface.
+		{name: "ceo plans weighing but neither executes nor oversees operators", role: permissions.RoleCEOInternal, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,6 +134,9 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 			}
 			if got.FeatureFlags["weighing_execute"] != tc.wantWeighingExecute {
 				t.Fatalf("weighing_execute=%v want %v", got.FeatureFlags["weighing_execute"], tc.wantWeighingExecute)
+			}
+			if got.FeatureFlags["weighing_oversee_operators"] != tc.wantWeighingOversee {
+				t.Fatalf("weighing_oversee_operators=%v want %v", got.FeatureFlags["weighing_oversee_operators"], tc.wantWeighingOversee)
 			}
 			if got.FeatureFlags["verification_video_controls"] != tc.wantVideoControls {
 				t.Fatalf("verification_video_controls=%v want %v", got.FeatureFlags["verification_video_controls"], tc.wantVideoControls)
@@ -564,8 +577,9 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if weighing == nil {
 			t.Fatalf("operator must receive separate weighing module; modules=%#v", modules)
 		}
+		// An operator executes and nothing else: one work list, no planner list, no oversight.
 		want := []domain.BootstrapNavigationItem{
-			{Key: "weighing", Label: "Weighing", Href: "/weighing"},
+			{Key: "weighing", Label: "My work", Href: "/weighing"},
 			{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
@@ -576,6 +590,62 @@ func TestBootstrapNavComposition(t *testing.T) {
 			if weighing.NavItems[i] != want[i] {
 				t.Fatalf("weighing nav[%d]=%#v want %#v", i, weighing.NavItems[i], want[i])
 			}
+		}
+	})
+
+	// The three weighing surfaces are separate destinations, so the bar each principal gets is
+	// decided by the capabilities they hold -- never by a per-role nav template.
+	t.Run("weighing surfaces are composed per capability", func(t *testing.T) {
+		weighingModule := func(grants []domain.GrantSummary) domain.BootstrapModule {
+			t.Helper()
+			for _, m := range modulesFor(grants, []string{"vaccination", "weighing"}, "") {
+				if m.Key == "weighing" {
+					return m
+				}
+			}
+			t.Fatalf("no weighing module for grants=%#v", grants)
+			return domain.BootstrapModule{}
+		}
+		hrefs := func(m domain.BootstrapModule) []string {
+			out := make([]string, 0, len(m.NavItems))
+			for _, item := range m.NavItems {
+				out = append(out, item.Href)
+			}
+			return out
+		}
+		contains := func(list []string, want string) bool {
+			for _, got := range list {
+				if got == want {
+					return true
+				}
+			}
+			return false
+		}
+
+		// The CEO plans. He must not get an executable work list, and because "My work" is gated
+		// away his landing falls through to the flat all-tasks list rather than an empty page.
+		ceo := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)})
+		if ceo.Href != "/weighing/tasks" {
+			t.Fatalf("ceo weighing landing=%q want the flat all-tasks list", ceo.Href)
+		}
+		if got := hrefs(ceo); contains(got, "/weighing") || contains(got, "/weighing/operators") {
+			t.Fatalf("ceo weighing nav=%v must not offer a work list or the operators surface", got)
+		}
+		if !contains(hrefs(ceo), "/weighing/tasks") {
+			t.Fatalf("ceo weighing nav=%v want the planner list", hrefs(ceo))
+		}
+
+		// The growth director executes his own sheds and oversees other people's, but does not plan.
+		director := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)})
+		if director.Href != "/weighing" {
+			t.Fatalf("growth director weighing landing=%q want his own work list", director.Href)
+		}
+		got := hrefs(director)
+		if !contains(got, "/weighing") || !contains(got, "/weighing/operators") {
+			t.Fatalf("growth director weighing nav=%v want both his work list and the operators surface", got)
+		}
+		if contains(got, "/weighing/tasks") {
+			t.Fatalf("growth director weighing nav=%v must not offer the planner list", got)
 		}
 	})
 

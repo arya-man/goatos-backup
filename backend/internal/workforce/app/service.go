@@ -404,6 +404,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
 			"vaccination_execute":         canExecuteVaccination(grants, grantedModules),
 			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
+			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),

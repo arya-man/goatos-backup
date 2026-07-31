@@ -96,8 +96,20 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    2,
 		contributions: []moduleNavContribution{
-			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 2, requiredPermission: permissions.WeighingMonitor},                                                                  //nav-composition:ignore: registry entry
+			// Three SEPARATE weighing destinations, each gated on its own capability so no screen
+			// has to branch on who is looking:
+			//
+			//   /weighing           my own assigned sheds, the only list with a scan action.
+			//   /weighing/tasks     the planner's flat all-tasks list across parks.
+			//   /weighing/operators read-only oversight of other people's work.
+			//
+			// Tab order is priority, and PLAN WINS OVER EXECUTE: the CEO holds plan but not
+			// execute, so "My work" is gated away for him, landingHref falls through to the first
+			// permitted item, and he lands on the flat list instead of an empty my-work page.
+			{key: "tasks", labelKey: "nav.tasks", href: "/weighing/tasks", shared_key: "", priority: 1, requiredPermission: permissions.WeighingPlan},                         //nav-composition:ignore: registry entry
+			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
+			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -319,6 +331,14 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
 }
 
+// canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
+// assigned to SOMEONE ELSE. It mirrors canExecuteWeighing so the client never has to infer the
+// surface from a role name; the write path still requires the caller to be the shed's assignee,
+// so this flag widens what is visible and never what is recordable.
+func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModule(grants, grantedModules, "weighing")
+}
+
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 	return isLeadershipPrincipal(grants)
 }
@@ -530,6 +550,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":    "Shifting",
 		"nav.approval":    "Approval",
 		"nav.weighing":    "Weighing",
+		"nav.my_work":     "My work",
+		"nav.tasks":       "Tasks",
+		"nav.operators":   "Operators",
 		"nav.videos":      "Videos",
 		"nav.you":         "You",
 
@@ -554,6 +577,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":    "शिफ्टिंग",
 		"nav.approval":    "अनुमोदन",
 		"nav.weighing":    "वजन",
+		"nav.my_work":     "मेरा काम",
+		"nav.tasks":       "कार्य",
+		"nav.operators":   "ऑपरेटर",
 		"nav.videos":      "वीडियो",
 		"nav.you":         "आप",
 
@@ -578,6 +604,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
 		"nav.approval":    "ಅನುಮೋದನೆ",
 		"nav.weighing":    "ತೂಕ",
+		"nav.my_work":     "ನನ್ನ ಕೆಲಸ",
+		"nav.tasks":       "ಕಾರ್ಯಗಳು",
+		"nav.operators":   "ಆಪರೇಟರ್‌ಗಳು",
 		"nav.videos":      "ವೀಡಿಯೊಗಳು",
 		"nav.you":         "ನೀವು",
 
@@ -602,6 +631,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":    "షిఫ్టింగ్",
 		"nav.approval":    "ఆమోదం",
 		"nav.weighing":    "బరువు",
+		"nav.my_work":     "నా పని",
+		"nav.tasks":       "పనులు",
+		"nav.operators":   "ఆపరేటర్లు",
 		"nav.videos":      "వీడియోలు",
 		"nav.you":         "మీరు",
 

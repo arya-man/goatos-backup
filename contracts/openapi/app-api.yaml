@@ -254,8 +254,24 @@ paths:
       tags:
         - Weighing
       operationId: appListWeighingCampaigns
-      summary: List operator-visible Weighing campaigns.
+      summary: List Weighing campaigns for one weighing surface.
+      description: >
+        The three weighing surfaces are separate destinations with separate authority, so the
+        caller names the one it wants instead of the server inferring it from the actor's roles.
+        `mine` is the caller's own assigned sheds and is the only executable list
+        (`weighing.execute`); `all` is the planner's flat all-tasks list across parks
+        (`weighing.plan` or `weighing.monitor`); `operators` is read-only oversight of other
+        people's weighing work (`weighing.oversee_operators`) and carries no scan action.
+        Omitting the parameter means `mine`. No scope widens the write: recording a weight still
+        requires the caller to be the shed's assignee.
       parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [mine, all, operators]
+            default: mine
         - name: cursor
           in: query
           required: false

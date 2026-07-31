@@ -214,8 +214,17 @@ interface AppApiService {
         @Query("shed_id") shedId: String?,
     ): ShedCompletionSummaryDto
 
+    /**
+     * Lists weighing campaigns for ONE weighing surface.
+     *
+     * [scope] names the surface the caller is rendering rather than letting the server infer it
+     * from the actor's roles: "mine" is the caller's own assigned sheds (the only executable
+     * list), "all" is the planner's flat all-tasks list, and "operators" is read-only oversight
+     * of other people's work. Omitting it means "mine".
+     */
     @GET("app/weighing/campaigns")
     suspend fun listWeighingCampaigns(
+        @Query("scope") scope: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingCampaignListResponseDto
