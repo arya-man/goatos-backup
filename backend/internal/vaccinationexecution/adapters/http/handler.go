@@ -686,16 +686,26 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" || !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
+		return
+	}
 	q := vaccexecd.ScanRosterQuery{
 		TenantID:             tenantID(r),
 		ShedID:               shedID,
 		TaskID:               taskID,
-		OperatorScopeActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+		OperatorScopeActorID: actorID,
 		Limit:                limit,
 	}
-	if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
-		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
-		return
+	// A leadership actor gets the PARK-scoped view of the shed, not the
+	// operator-assignment-scoped one -- the same rule the other app execution reads already
+	// apply. The roster's assignment join keeps only assignments owned by the scope actor, so
+	// leaving it set for a director (who owns no drive assignment) matched no assignment and
+	// returned an EMPTY roster for a shed that plainly has due animals. The park authorization
+	// filter still applies, so this widens the roster to the shed, never past the caller's parks.
+	if h.isLeadershipExecutionActor(r) {
+		q.OperatorScopeActorID = ""
 	}
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
