@@ -358,7 +358,12 @@ interface AppApi {
     suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
-    suspend fun listWeighingCampaigns(scope: String? = null, cursor: String? = null, limit: Int = WEIGHING_PAGE_SIZE): WeighingCampaignListResponseDto
+    suspend fun listWeighingCampaigns(
+        scope: String? = null,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+        parkId: String? = null,
+    ): WeighingCampaignListResponseDto
 
     /** GET /app/weighing/planner/catalog — leadership planner vocabulary for weekly kids task creation. */
     suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto
@@ -1064,7 +1069,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             submitState = "draft",
         )
 
-    override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         WeighingPlannerCatalogResponseDto()

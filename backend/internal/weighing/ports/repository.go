@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -31,15 +32,45 @@ var (
 	// bucket is perfectly writable — it is the CLOSER who is early, and the
 	// operator and verifier are both still free to work.
 	ErrVerificationPending = errors.New("weighing: verification pending")
+
+	// ErrShedAlreadyScheduled is the duplicate-work block: one open weighing row
+	// per (park, weigh date, shed). It is distinct from ErrImmutable (the target
+	// is in a state that refuses the write) because nothing here is in a wrong
+	// state — the requested buckets are simply already somebody's work on that
+	// date, and the planner must be told WHICH ones so it can render the reason.
+	// Carried to the client as 409 weighing_shed_already_scheduled.
+	ErrShedAlreadyScheduled = errors.New("weighing: shed already scheduled")
 )
+
+// ShedScheduleConflict names the buckets that blocked a create/update/publish so
+// the client can say "Cannot publish - Shed 4, Shed 7 already scheduled" without
+// a second round trip. It unwraps to ErrShedAlreadyScheduled, so callers that
+// only care about the class keep using errors.Is.
+type ShedScheduleConflict struct {
+	// WeighDate is the Asia/Kolkata business DATE the conflict is on.
+	WeighDate string `json:"weigh_date"`
+	// Sheds are the human-readable bucket names, ordered, deduplicated.
+	Sheds []string `json:"sheds"`
+}
+
+func (c *ShedScheduleConflict) Error() string {
+	return "weighing: sheds already scheduled on " + c.WeighDate + ": " + strings.Join(c.Sheds, ", ")
+}
+
+func (c *ShedScheduleConflict) Unwrap() error { return ErrShedAlreadyScheduled }
 
 type Repository interface {
 	CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error)
 	UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error)
-	ListCampaigns(ctx context.Context, tenantID string, cursor string, limit int) (domain.CampaignPage, error)
-	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID string, cursor string, limit int) (domain.CampaignPage, error)
-	PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string) (domain.PlannerCatalog, error)
+	// ListCampaigns / ListCampaignsForOperator page the task list. parkID is an
+	// optional row filter; the page's whole-filter Counts are computed over the
+	// scope and are deliberately NOT narrowed by it (see domain.CampaignCounts).
+	ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
+	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
+	// PlannerCatalog reports shed availability for ONE weigh date. excludeCampaignID
+	// is the task being edited, whose own buckets must not read back as "taken".
+	PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string, excludeCampaignID string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)

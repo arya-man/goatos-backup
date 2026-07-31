@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.WeighingTask
+import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDayTabUiRow
@@ -49,6 +51,12 @@ import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
+import sg.mesha.goatos.feature.weighing.WeighingTaskDetailUiState
+import sg.mesha.goatos.feature.weighing.WeighingTaskOperatorGroupUiRow
+import sg.mesha.goatos.feature.weighing.WeighingTaskShedUiRow
+import sg.mesha.goatos.feature.weighing.WeighingTaskUiRow
+import sg.mesha.goatos.feature.weighing.WeighingTasksTab
+import sg.mesha.goatos.feature.weighing.WeighingTasksUiState
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
@@ -119,6 +127,32 @@ class WeighingViewModel @Inject constructor(
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
     private val plannerSelections = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedAssignmentParkId = MutableStateFlow<String?>(null)
+    private val tasks = MutableStateFlow<List<WeighingTask>>(emptyList())
+    private val tasksNextCursor = MutableStateFlow<String?>(null)
+    private val tasksLoading = MutableStateFlow(false)
+    private val tasksAppending = MutableStateFlow(false)
+
+    /** True once the planner has paged past the first page, so a refresh must not rewind the cursor. */
+    private var tasksDeepPaged = false
+
+    /** How many extra pages a tab switch may pull before the user's own scrolling takes over. */
+    private var tabRefillBudget = 0
+    private val tasksTab = MutableStateFlow(WeighingTasksTab.ACTIVE)
+    private val tasksCounts = MutableStateFlow(WeighingTaskTabCounts())
+    /**
+     * Park chips are built from every park seen so far, not from the current page: filtering by
+     * park re-queries the server, so deriving the chip list from the filtered rows would leave the
+     * user with a single chip and no way back.
+     */
+    private val knownTaskParks = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * Which task the detail screen is showing. The detail destination is always pushed from the
+     * task list and reads the list's ViewModel, so the task it needs is already loaded -- there is
+     * no single-task endpoint, and paging the whole list looking for one campaign would be a drain
+     * loop.
+     */
+    private val selectedTaskId = MutableStateFlow<String?>(null)
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
@@ -193,6 +227,96 @@ class WeighingViewModel @Inject constructor(
             WeighingCaptureState(scans, proofs, readerConnection)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingCaptureState())
 
+    /**
+     * The planner task list state. Deliberately a SEPARATE stream from [state]: the task list is a
+     * task-grain read with its own paging cursor and its own tabs, and folding it into the capture
+     * screen's state machine is what produced the shed-grain task list in the first place.
+     */
+    val tasksState: StateFlow<WeighingTasksUiState> =
+        combine(tasks, tasksTab, tasksCounts, knownTaskParks, selectedAssignmentParkId) {
+                loadedTasks,
+                tab,
+                counts,
+                parks,
+                parkId,
+            ->
+            WeighingTasksUiState(
+                tab = tab,
+                activeCount = counts.active,
+                completedCount = counts.completed,
+                tasks = loadedTasks.filter { it.matchesTab(tab) }.map { it.toTaskUiRow() },
+                repeatCandidate = loadedTasks
+                    .lastOrNull { it.matchesTab(WeighingTasksTab.ACTIVE) }
+                    ?.toTaskUiRow()
+                    ?.takeIf { tab == WeighingTasksTab.ACTIVE },
+                parkFilters = parks.entries
+                    .sortedBy { it.value }
+                    .map { WeighingParkFilterUiRow(parkId = it.key, label = it.value, selected = it.key == parkId) },
+                todayLabel = LocalDate.now(ZoneId.of(WEIGHING_BUSINESS_ZONE)).format(weighingTodayFormatter),
+            )
+        }.let { base ->
+            combine(base, tasksLoading, tasksAppending) { current, loading, appending ->
+                current.copy(loading = loading, loadingMore = appending)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTasksUiState())
+
+    /**
+     * The task DETAIL state: one task, its buckets grouped by the operator who owns them.
+     *
+     * Operator display names come from the planner catalog. An id the catalog does not know is
+     * never rendered raw and never given an invented name.
+     */
+    val taskDetailState: StateFlow<WeighingTaskDetailUiState> =
+        combine(
+            tasks,
+            selectedTaskId,
+            plannerCatalog,
+            tasksLoading,
+            actionInFlight,
+        ) { loadedTasks, taskId, catalog, loading, busy ->
+            val task = taskId?.let { id -> loadedTasks.firstOrNull { it.campaignId == id } }
+            val operatorNames = catalog?.operators.orEmpty()
+                .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
+                .associate { it.userId to it.displayName }
+            task.toTaskDetailUiState(
+                campaignId = taskId.orEmpty(),
+                operatorNames = operatorNames,
+                loading = loading,
+                busy = busy,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskDetailUiState())
+
+    /** Names the task the detail screen is on. Safe to call on every recomposition. */
+    fun selectTask(campaignId: String) {
+        val normalized = campaignId.takeIf { it.isNotBlank() }
+        if (selectedTaskId.value == normalized) return
+        selectedTaskId.value = normalized
+    }
+
+    /**
+     * Leadership reopen for ONE bucket on the task detail screen.
+     *
+     * Same write as the assignment-row reopen; it takes the bucket identity directly because the
+     * detail screen renders task-grain rows, not assignment rows.
+     */
+    fun reopenTaskShed(row: WeighingTaskShedUiRow) {
+        if (scopeKey != null || actionInFlight.value || !row.canReopen) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, "Need to scan more animals")) {
+                    is AppResult.Ok -> {
+                        message.value = "${row.shedName} reopened."
+                        refreshTasks()
+                    }
+                    is AppResult.Err -> message.value = reopened.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
     val state: StateFlow<WeighingUiState> =
         combine(scopeState, formState, rootState, captureState) { scope, form, root, capture ->
             scope.toUiState(
@@ -264,6 +388,7 @@ class WeighingViewModel @Inject constructor(
                 refreshAssignments()
                 if (isPlannerSurface) {
                     refreshPlanner()
+                    refreshTasks()
                 }
             }
         }
@@ -273,6 +398,7 @@ class WeighingViewModel @Inject constructor(
         if (scopeKey == null) {
             if (plannerMode.value) {
                 refreshPlanner()
+                refreshTasks()
             } else {
                 refreshAssignments()
             }
@@ -334,6 +460,144 @@ class WeighingViewModel @Inject constructor(
                 appendingAssignments.value = false
             }
         }
+    }
+
+    /** The planner task list, at TASK grain: one card per park per weigh date. */
+    fun refreshTasks() {
+        if (scopeKey != null) return
+        if (tasksLoading.value) return
+        tasksLoading.value = true
+        viewModelScope.launch {
+            try {
+                when (
+                    val loaded = repository.listTasks(
+                        cursor = null,
+                        scope = surface,
+                        parkId = selectedAssignmentParkId.value,
+                    )
+                ) {
+                    is AppResult.Ok -> {
+                        // MERGE, never replace.
+                        //
+                        // A refresh fires on every resume, including the resume that happens when
+                        // the user backs out of a task's own detail screen. Replacing the list with
+                        // the first page would throw away every page the planner had scrolled to --
+                        // and because the detail screen resolves its task out of this same loaded
+                        // list, a task from page 2 or beyond would vanish out from under its own
+                        // screen the moment that screen resumed.
+                        //
+                        // The fresh page wins per campaign id (it is the newer truth); accumulated
+                        // rows the fresh page does not mention keep their place behind it. The
+                        // cursor is only rewound when nothing had been paged past page 1, so deeper
+                        // pages are not re-fetched.
+                        val fresh = loaded.value.items
+                        val freshIds = fresh.map { it.campaignId }.toSet()
+                        tasks.value = fresh + tasks.value.filter { it.campaignId !in freshIds }
+                        if (!tasksDeepPaged) {
+                            tasksNextCursor.value = loaded.value.nextCursor
+                        }
+                        tasksCounts.value = WeighingTaskTabCounts(
+                            active = loaded.value.activeCount,
+                            completed = loaded.value.completedCount,
+                        )
+                        rememberTaskParks(loaded.value.items)
+                    }
+                    is AppResult.Err -> reportReadFailure(loaded.message)
+                }
+            } finally {
+                tasksLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Scroll-driven prefetch for the task list. Same contract as [onAssignmentRowVisible]: one page
+     * per trigger, tail window only, no tappable load-more row.
+     */
+    fun onTaskRowVisible(index: Int) {
+        if (scopeKey != null) return
+        val loaded = tasks.value.size
+        if (loaded == 0) return
+        if (index < loaded - LIST_PREFETCH_DISTANCE) return
+        appendTasks()
+    }
+
+    fun selectTaskTab(tab: WeighingTasksTab) {
+        if (tasksTab.value == tab) return
+        tasksTab.value = tab
+        // A tab is a view over the SAME keyset, so switching to a tab whose rows all sit further
+        // down the list should keep paging rather than show a false empty state -- but ONE page,
+        // not a drain.
+        //
+        // The server page is not tab-scoped, so on a tenant whose completed tasks sit far down the
+        // keyset an unbounded refill walks the entire campaign history into an in-heap accumulator,
+        // page after page, back to back. That is the mobile over-fetch rule inverted. One extra
+        // page per tab selection; after that the user's own scrolling drives paging, exactly as it
+        // does on the active tab.
+        tabRefillBudget = 1
+        appendTasksIfTabUnderfilled()
+    }
+
+    fun selectTaskPark(parkId: String?) {
+        val normalized = parkId?.takeIf { it.isNotBlank() }
+        if (selectedAssignmentParkId.value == normalized) return
+        selectedAssignmentParkId.value = normalized
+        // A different park is a different keyset: drop the accumulated pages rather than merging
+        // the new park's first page in front of the old park's tail.
+        tasks.value = emptyList()
+        tasksNextCursor.value = null
+        tasksDeepPaged = false
+        refreshTasks()
+    }
+
+    private fun appendTasks() {
+        if (scopeKey != null) return
+        val cursor = tasksNextCursor.value?.takeIf { it.isNotBlank() } ?: return
+        if (tasksLoading.value || tasksAppending.value) return
+        tasksAppending.value = true
+        viewModelScope.launch {
+            try {
+                when (
+                    val loaded = repository.listTasks(
+                        cursor = cursor,
+                        scope = surface,
+                        parkId = selectedAssignmentParkId.value,
+                    )
+                ) {
+                    is AppResult.Ok -> {
+                        val known = tasks.value.map { it.campaignId }.toSet()
+                        tasks.value = tasks.value + loaded.value.items.filter { it.campaignId !in known }
+                        tasksNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                        tasksDeepPaged = true
+                        tasksCounts.value = WeighingTaskTabCounts(
+                            active = loaded.value.activeCount,
+                            completed = loaded.value.completedCount,
+                        )
+                        rememberTaskParks(loaded.value.items)
+                    }
+                    is AppResult.Err -> reportReadFailure(loaded.message)
+                }
+            } finally {
+                tasksAppending.value = false
+                appendTasksIfTabUnderfilled()
+            }
+        }
+    }
+
+    private fun appendTasksIfTabUnderfilled() {
+        if (tabRefillBudget <= 0) return
+        if (tasksNextCursor.value.isNullOrBlank()) return
+        val visible = tasks.value.count { it.matchesTab(tasksTab.value) }
+        if (visible >= LIST_PREFETCH_DISTANCE) return
+        tabRefillBudget -= 1
+        appendTasks()
+    }
+
+    private fun rememberTaskParks(loaded: List<WeighingTask>) {
+        if (loaded.isEmpty()) return
+        knownTaskParks.value = knownTaskParks.value + loaded
+            .filter { it.parkId.isNotBlank() }
+            .associate { it.parkId to it.parkName.ifBlank { it.parkId } }
     }
 
     fun reopenAssignment(row: WeighingAssignmentUiRow) {
@@ -1666,4 +1930,138 @@ private data class WeighingWeek(
             )
         }
     }
+}
+
+private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
+
+/** Weigh dates are business DATES, so they are formatted as a day, never as a clock time. */
+private val weighingTodayFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
+private val weighingIsoDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+private val weighingMonthFormatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
+
+/** Whole-filter tab tallies as the backend computed them. Never counted from a loaded page. */
+private data class WeighingTaskTabCounts(
+    val active: Int = 0,
+    val completed: Int = 0,
+)
+
+/**
+ * Server-owned split, mirrored exactly so the rows and the tab numbers cannot disagree:
+ * a task is Completed when it is completed or closed, and Active in every other live status.
+ * A canceled task belongs to neither tab.
+ */
+private fun WeighingTask.matchesTab(tab: WeighingTasksTab): Boolean {
+    val normalized = status.trim().lowercase()
+    if (normalized == "canceled" || normalized == "cancelled") return false
+    val completed = normalized == "completed" || normalized == "closed"
+    return if (tab == WeighingTasksTab.COMPLETED) completed else !completed
+}
+
+/** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
+private const val WEIGHING_GROUP_BUCKET_CAP = 20
+
+private fun WeighingTask?.toTaskDetailUiState(
+    campaignId: String,
+    operatorNames: Map<String, String>,
+    loading: Boolean,
+    busy: Boolean,
+): WeighingTaskDetailUiState {
+    if (this == null) {
+        return WeighingTaskDetailUiState(campaignId = campaignId, found = false, loading = loading, busy = busy)
+    }
+    val date = runCatching { LocalDate.parse(weighDate, weighingIsoDateFormatter) }.getOrNull()
+    val normalizedStatus = status.trim().lowercase()
+    // Grouping key is the operator's identity; the LABEL is the catalog's display name. An id the
+    // catalog cannot resolve is shown as a plain operator heading rather than as a raw id.
+    val groups = sheds
+        .groupBy { it.operatorUserId }
+        .map { (operatorUserId, operatorSheds) ->
+            WeighingTaskOperatorGroupUiRow(
+                operatorUserId = operatorUserId.ifBlank { "unassigned" },
+                operatorLabel = when {
+                    operatorUserId.isBlank() -> "Not assigned yet"
+                    else -> operatorNames[operatorUserId] ?: "Operator"
+                },
+                shedCount = operatorSheds.size,
+                sheds = operatorSheds.take(WEIGHING_GROUP_BUCKET_CAP).map { it.toTaskShedUiRow(this) },
+                moreShedCount = (operatorSheds.size - WEIGHING_GROUP_BUCKET_CAP).coerceAtLeast(0),
+            )
+        }
+        .sortedBy { it.operatorLabel }
+    return WeighingTaskDetailUiState(
+        campaignId = this.campaignId,
+        found = true,
+        parkName = parkName.ifBlank { parkId },
+        dateLabel = date?.format(weighingTodayFormatter) ?: weighDate,
+        status = status,
+        statusLabel = normalizedStatus.ifBlank { "scheduled" }.replace('_', ' '),
+        bucketCount = sheds.size,
+        operatorCount = sheds.map { it.operatorUserId }.filter { it.isNotBlank() }.distinct().size,
+        isDraft = normalizedStatus == "draft",
+        isClosed = normalizedStatus == "closed",
+        groups = groups,
+        loading = loading,
+        busy = busy,
+    )
+}
+
+private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask): WeighingTaskShedUiRow {
+    val normalized = status.trim().lowercase()
+    val reworked = reworkCount > 0
+    return WeighingTaskShedUiRow(
+        campaignId = task.campaignId,
+        campaignShedId = campaignShedId,
+        tenantId = task.tenantId,
+        locationId = locationId,
+        shedName = displayName.ifBlank { locationId },
+        category = category,
+        status = status,
+        // The task payload carries bucket STATE, not a record count, so the line says what state
+        // the bucket is in. It never guesses how many animals were captured.
+        captureSummary = when {
+            reworked -> "Sent back to the operator"
+            normalized == "closed" -> "Accepted"
+            normalized == "completed" -> "Submitted · waiting for verifier"
+            normalized == "in_progress" -> "Capture started"
+            else -> "Nothing captured yet"
+        },
+        // Position on the bucket's own state ladder. NOT a share of animals: weighing has no
+        // expected-animal roster, so an animal denominator would be invented.
+        progress = when {
+            reworked -> 0.25f
+            normalized == "closed" -> 1f
+            normalized == "completed" -> 0.7f
+            normalized == "in_progress" -> 0.35f
+            else -> 0f
+        },
+        // Leadership can pull a bucket back once the operator has submitted it, or after it was
+        // accepted or bounced for rework.
+        canReopen = reworked || normalized == "completed" || normalized == "closed",
+    )
+}
+
+private fun WeighingTask.toTaskUiRow(): WeighingTaskUiRow {
+    val bucketCount = sheds.size
+    // "Accepted" is a bucket whose evidence a verifier has cleared, or one leadership has closed.
+    val accepted = sheds.count { it.readyToClose || it.status.equals("closed", ignoreCase = true) }
+    val date = runCatching { LocalDate.parse(weighDate, weighingIsoDateFormatter) }.getOrNull()
+    return WeighingTaskUiRow(
+        campaignId = campaignId,
+        parkId = parkId,
+        parkName = parkName.ifBlank { parkId },
+        status = status,
+        dateLabel = date?.format(weighingTodayFormatter) ?: weighDate,
+        monthLabel = date?.format(weighingMonthFormatter).orEmpty(),
+        bucketCount = bucketCount,
+        shedNames = sheds.take(2).map { it.displayName }.filter { it.isNotBlank() },
+        moreShedCount = (bucketCount - 2).coerceAtLeast(0),
+        individualCount = sheds.count { !it.category.equals("per_shed_partition", ignoreCase = true) },
+        lumpSumCount = sheds.count { it.category.equals("per_shed_partition", ignoreCase = true) },
+        operatorCount = sheds.map { it.operatorUserId }.filter { it.isNotBlank() }.distinct().size,
+        // A bucket is "to verify" only while it still has unlooked-at evidence: the rework subset
+        // is reported separately because that work is back with the operator, not with a verifier.
+        toVerifyCount = sheds.count { (it.pendingVerificationCount - it.reworkCount) > 0 },
+        reworkCount = sheds.count { it.reworkCount > 0 },
+        acceptedCount = accepted,
+    )
 }

@@ -92,6 +92,50 @@ data class WeighingAssignment(
     val periodLabel: String,
 )
 
+/**
+ * ONE weighing task: one park on ONE weigh date, holding its shed buckets.
+ *
+ * This is the grain the planner's task list renders. It is deliberately SEPARATE from
+ * [WeighingAssignment], which stays the per-shed executable grain the operator work list and the
+ * oversight surface need. A campaign is never flattened for this list: flattening is what made the
+ * task list show one card per shed instead of one card per task.
+ */
+data class WeighingTask(
+    val campaignId: String,
+    val tenantId: String,
+    val parkId: String,
+    val parkName: String,
+    /** The Asia/Kolkata business DATE this task is weighed on. One task = one date. */
+    val weighDate: String,
+    val status: String,
+    val sheds: List<WeighingTaskShed>,
+)
+
+data class WeighingTaskShed(
+    val campaignShedId: String,
+    val locationId: String,
+    val displayName: String,
+    val category: String,
+    val operatorUserId: String,
+    val status: String,
+    val pendingVerificationCount: Int,
+    val reworkCount: Int,
+    val readyToClose: Boolean,
+)
+
+/**
+ * One keyset page of tasks plus the WHOLE-FILTER tab tallies.
+ *
+ * [activeCount] and [completedCount] are backend-owned and range over the entire scope, never over
+ * [items]: counting the page would make the tab numbers jump on every scroll.
+ */
+data class WeighingTaskPage(
+    val items: List<WeighingTask> = emptyList(),
+    val nextCursor: String? = null,
+    val activeCount: Int = 0,
+    val completedCount: Int = 0,
+)
+
 data class WeighingLeadershipVideo(
     val proofId: String,
     val downloadUrl: String,
@@ -137,6 +181,15 @@ data class WeighingPlannerShed(
     val kidCount: Int,
     val category: String = "per_shed_partition",
     val operatorUserId: String = "",
+    /**
+     * Server-answered availability for the weigh date the catalog was asked for: true when an open
+     * weighing task already holds this shed on that date. Duplicate work is refused at the write
+     * too, so this only exists to explain the block BEFORE a planner spends five steps on it.
+     */
+    val scheduled: Boolean = false,
+    val scheduledStatus: String = "",
+    val scheduledOperatorDisplayName: String = "",
+    val scheduledCategory: String = "",
 )
 
 data class WeighingCampaignSummary(
@@ -209,9 +262,30 @@ interface WeighingRepository {
      * [WEIGHING_SCOPE_OPERATORS] is read-only oversight of other people's work.
      */
     suspend fun listAssignments(cursor: String? = null, scope: String = WEIGHING_SCOPE_MINE): AppResult<WeighingPage<WeighingAssignment>>
+    /**
+     * Lists weighing work at TASK grain (one park on one weigh date) for the planner's task list.
+     *
+     * Separate from [listAssignments] on purpose: that call stays the per-shed grain the operator
+     * work list and the oversight surface execute against.
+     */
+    suspend fun listTasks(
+        cursor: String? = null,
+        scope: String = WEIGHING_SCOPE_ALL,
+        parkId: String? = null,
+    ): AppResult<WeighingTaskPage>
+
     suspend fun listLeadershipVideos(cursor: String? = null): AppResult<WeighingPage<WeighingLeadershipShed>>
     suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
+
+    /**
+     * Creates ONE weighing task and returns its id.
+     *
+     * A created task is a DRAFT — a real state a planner can leave a task in. [publish] then runs
+     * the SAME publish call the planner would run later, so a published task is never fabricated by
+     * writing a status: it goes draft -> published through the one path that enforces the rules.
+     */
+    suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String>
     suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
     suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = WEIGHING_PAGE_SIZE): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
@@ -297,6 +371,31 @@ class DefaultWeighingRepository(
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
     }
 
+    override suspend fun listTasks(
+        cursor: String?,
+        scope: String,
+        parkId: String?,
+    ): AppResult<WeighingTaskPage> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
+        val requestCursor = cursor?.takeIf { it.isNotBlank() }
+        runCatching {
+            val response = client.listWeighingCampaigns(
+                scope = scope,
+                cursor = requestCursor,
+                limit = WEIGHING_PAGE_SIZE,
+                parkId = parkId?.takeIf { it.isNotBlank() },
+            )
+            AppResult.Ok(
+                WeighingTaskPage(
+                    items = response.items.map { it.toTask() },
+                    nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                    activeCount = response.counts.active,
+                    completedCount = response.counts.completed,
+                ),
+            )
+        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing tasks.") }
+    }
+
     override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
@@ -362,6 +461,25 @@ class DefaultWeighingRepository(
             val published = client.publishWeighingCampaign(created.campaignId, publishIdem).campaign
             AppResult.Ok(published.toAssignments().firstOrNull())
         }.getOrElse { AppResult.Err(it.message ?: "Could not publish weighing plan.") }
+    }
+
+    override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Add at least one shed bucket.")
+        runCatching {
+            // The key names the WORK, not the attempt: the same date, park and bucket set is the
+            // same task, so a retry after a dropped response cannot create a second one.
+            val createIdem = "weighing:create:${draft.startBusinessDate}:${draft.parkId}:" +
+                draft.sheds.joinToString(",") { "${it.locationId}:${it.category}:${it.operatorUserId}" }
+            val created = client.createWeighingCampaign(
+                idempotencyKey = createIdem,
+                request = draft.toCreateRequest(),
+            ).campaign
+            if (publish && created.status == "draft") {
+                client.publishWeighingCampaign(created.campaignId, "weighing:publish:${created.campaignId}")
+            }
+            AppResult.Ok(created.campaignId)
+        }.getOrElse { AppResult.Err(it.message ?: "Could not save this weighing task.") }
     }
 
     override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> = withContext(Dispatchers.IO) {
@@ -950,6 +1068,10 @@ private fun WeighingPlannerCatalogResponseDto.toPlannerCatalog(): WeighingPlanne
                         locationId = shed.locationId,
                         name = shed.name,
                         kidCount = shed.kidCount,
+                        scheduled = shed.scheduled,
+                        scheduledStatus = shed.scheduledStatus,
+                        scheduledOperatorDisplayName = shed.scheduledOperatorDisplayName,
+                        scheduledCategory = shed.scheduledWeighingCategory,
                     )
                 },
                 existingCampaign = park.existingCampaign?.let { existing ->
@@ -991,6 +1113,36 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
                 operatorUserId = it.operatorUserId.ifBlank { operatorUserId },
             )
         },
+    )
+
+/**
+ * Task-grain projection of one campaign. Unlike [toAssignments] this does NOT drop the campaign:
+ * a draft task is a real task the planner must still see, and a canceled bucket is dropped from
+ * the bucket list without dropping the task itself.
+ */
+private fun WeighingCampaignDto.toTask(): WeighingTask =
+    WeighingTask(
+        campaignId = campaignId,
+        tenantId = tenantId,
+        parkId = parkId,
+        parkName = parkName,
+        weighDate = startBusinessDate.ifBlank { periodStartDate },
+        status = status,
+        sheds = sheds
+            .filter { it.status.lowercase() !in setOf("canceled", "cancelled") }
+            .map { shed ->
+                WeighingTaskShed(
+                    campaignShedId = shed.campaignShedId,
+                    locationId = shed.locationId,
+                    displayName = shed.displayName,
+                    category = shed.weighingCategory,
+                    operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
+                    status = shed.status,
+                    pendingVerificationCount = shed.pendingVerificationCount,
+                    reworkCount = shed.reworkCount,
+                    readyToClose = shed.readyToClose,
+                )
+            },
     )
 
 private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =

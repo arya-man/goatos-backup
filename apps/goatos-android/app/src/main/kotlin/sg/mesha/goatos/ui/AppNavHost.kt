@@ -1,6 +1,7 @@
 package sg.mesha.goatos.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -95,7 +96,9 @@ import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
+import sg.mesha.goatos.feature.weighing.plan.WeighingPlanWizardScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
+import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
@@ -133,6 +136,7 @@ import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
+import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
 import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 
@@ -147,6 +151,13 @@ object Routes {
      * and must never reach a scan surface.
      */
     const val WEIGHING_TASKS = "/weighing/tasks"
+    /** Task authoring. The task list's only create entry point. */
+    const val WEIGHING_TASK_NEW = "/weighing/tasks/new"
+    /**
+     * ONE weighing task (one park on one weigh date). A hosted drill pushed from the task list,
+     * so it carries Up/Back and no root chrome.
+     */
+    const val WEIGHING_TASK = "/weighing/task"
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
     const val WEIGHING_VIDEOS = "/weighing/videos"
@@ -411,6 +422,10 @@ object Routes {
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
     ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
+
+    /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
+    fun weighingTaskRoute(campaignId: String): String =
+        "$WEIGHING_TASK?$WEIGHING_CAMPAIGN_ARG=${Uri.encode(campaignId)}"
 
     fun weighingScanRoute(
         campaignId: String,
@@ -828,15 +843,122 @@ fun AppNavHost(
             ),
         ) { entry ->
             val vm: WeighingViewModel = hiltViewModel(entry)
-            val state by vm.state.collectAsStateWithLifecycle()
+            val tasksState by vm.tasksState.collectAsStateWithLifecycle()
             WeighingTasksScreen(
-                state = state,
+                state = tasksState,
                 onRefresh = vm::refresh,
-                onSelectPark = vm::selectAssignmentPark,
-                onCreateOrEditTask = vm::createOrEditDefaultPlan,
-                onTogglePlannerShed = vm::togglePlannerShed,
-                onPlannerShedCategory = vm::setPlannerShedCategory,
-                onAssignmentRowVisible = vm::onAssignmentRowVisible,
+                onSelectTab = vm::selectTaskTab,
+                onSelectPark = vm::selectTaskPark,
+                onOpenTask = { campaignId -> navController.navigate(Routes.weighingTaskRoute(campaignId)) },
+                // The repeat flow re-enters task authoring, which a later stage owns; until then
+                // the list must not pretend to open something.
+                onRepeatTask = null,
+                onNewTask = { navController.navigate(Routes.WEIGHING_TASK_NEW) },
+                onTaskRowVisible = vm::onTaskRowVisible,
+            )
+        }
+
+        // ONE task, hosted: Up/Back, no root chrome. It reads the TASK LIST's ViewModel through
+        // that destination's back-stack entry, because the task it renders is the one the list
+        // already loaded -- there is no single-task read, and paging the list hunting for one
+        // campaign would be a drain loop. If the list is somehow not on the stack (a cold deep
+        // link), it falls back to its own scoped instance, which loads the planner's first page.
+        composable(
+            route = "${Routes.WEIGHING_TASK}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_SURFACE_ARG}={${Routes.WEIGHING_SURFACE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_SURFACE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = WEIGHING_SCOPE_ALL
+                },
+            ),
+        ) { entry ->
+            val campaignId = entry.arguments?.getString(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
+            val listEntry = remember(entry) {
+                runCatching { navController.getBackStackEntry(Routes.WEIGHING_TASKS) }.getOrNull()
+            }
+            val vm: WeighingViewModel = hiltViewModel(listEntry ?: entry)
+            val detailState by vm.taskDetailState.collectAsStateWithLifecycle()
+            LaunchedEffect(campaignId) { vm.selectTask(campaignId) }
+            WeighingTaskDetailScreen(
+                state = detailState,
+                onRefresh = vm::refresh,
+                onBack = { navController.popBackStack() },
+                onOpenShed = { shed ->
+                    navController.navigate(
+                        Routes.weighingScanRoute(
+                            campaignId = shed.campaignId,
+                            workGroupId = shed.campaignShedId,
+                            campaignShedId = shed.campaignShedId,
+                            category = shed.category,
+                            tenantId = shed.tenantId,
+                            expectedLocationId = shed.locationId,
+                            expectedLocationLabel = shed.shedName,
+                            scanTitle = shed.shedName,
+                        ),
+                    )
+                },
+                onReopenShed = vm::reopenTaskShed,
+                // Editing and repeating a task both re-enter task authoring, which a later stage
+                // owns. Passing null renders them disabled WITH the reason instead of dead-ending.
+                onEditTask = null,
+                onRepeatTask = null,
+            )
+        }
+
+        // Task authoring. Declares the planner surface like every other weighing destination so the
+        // ViewModel is scoped to the planner list, never to an operator's own work.
+        composable(
+            route = Routes.WEIGHING_TASK_NEW,
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_SURFACE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = WEIGHING_SCOPE_ALL
+                },
+            ),
+        ) { entry ->
+            val vm: WeighingPlanWizardViewModel = hiltViewModel(entry)
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Back walks the wizard backwards; only the first step leaves the screen, so a
+            // half-built task is never thrown away by a stray Back.
+            val stepBackOrLeave: () -> Unit = { if (!vm.back()) navController.popBackStack() }
+            BackHandler(onBack = stepBackOrLeave)
+            LaunchedEffect(state.savedCampaignId) {
+                val campaignId = state.savedCampaignId
+                if (!campaignId.isNullOrBlank()) {
+                    // The task now exists on the server, so the wizard is done: land on the task
+                    // itself rather than leaving the planner on a form they already committed.
+                    navController.popBackStack()
+                    navController.navigate(Routes.weighingTaskRoute(campaignId))
+                }
+            }
+            WeighingPlanWizardScreen(
+                state = state,
+                onBack = stepBackOrLeave,
+                onSelectDate = vm::selectDate,
+                onSelectPark = vm::selectPark,
+                onBucketQuery = vm::setBucketQuery,
+                onBucketFilter = vm::setBucketFilter,
+                onToggleBucket = vm::toggleBucket,
+                onAddAllBuckets = vm::addAllVisibleBuckets,
+                onClearBuckets = vm::clearAllBuckets,
+                onLoadMoreBuckets = vm::loadMoreBuckets,
+                onConfigQuery = vm::setConfigQuery,
+                onToggleConfigSearch = vm::toggleConfigSearch,
+                onLoadMoreConfigRows = vm::loadMoreConfigRows,
+                onBucketCategory = vm::setBucketCategory,
+                onBucketOperator = vm::setBucketOperator,
+                onToggleConfigPick = vm::toggleConfigPick,
+                onPickAllShown = vm::pickAllShownConfigRows,
+                onClearPicks = vm::clearConfigPicks,
+                onApplyBulk = vm::applyBulk,
+                onSplitEvenly = vm::splitEvenly,
+                onContinue = vm::next,
+                onCommit = vm::commit,
             )
         }
 

@@ -134,7 +134,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List operator-visible Weighing campaigns. */
+        /**
+         * List Weighing campaigns for one weighing surface.
+         * @description The three weighing surfaces are separate destinations with separate authority, so the caller names the one it wants instead of the server inferring it from the actor's roles. `mine` is the caller's own assigned sheds and is the only executable list (`weighing.execute`); `all` is the planner's flat all-tasks list across parks (`weighing.plan` or `weighing.monitor`); `operators` is read-only oversight of other people's weighing work (`weighing.oversee_operators`) and carries no scan action. Omitting the parameter means `mine`. No scope widens the write: recording a weight still requires the caller to be the shed's assignee.
+         */
         get: operations["appListWeighingCampaigns"];
         put?: never;
         post?: never;
@@ -151,7 +154,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards. */
+        /**
+         * Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards.
+         * @description Availability is scoped to ONE weigh date: each shed reports whether an open weighing task already claims it on that date, and by whom. A shed claimed on another date is not claimed here.
+         */
         get: operations["appWeighingPlannerCatalog"];
         put?: never;
         post?: never;
@@ -5455,6 +5461,8 @@ export interface components {
             status: components["schemas"]["WeighingCampaignShedStatus"];
             /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
             pending_verification_count: number;
+            /** @description The subset of pending_verification_count that a verifier actively bounced back to the operator. A strict subset, never added to the pending count. */
+            rework_count?: number;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
         };
@@ -5488,7 +5496,13 @@ export interface components {
         WeighingCampaignListResponse: {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
+            counts?: components["schemas"]["WeighingCampaignCounts"];
             trace_id?: string;
+        };
+        /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
+        WeighingCampaignCounts: {
+            active: number;
+            completed: number;
         };
         WeighingCampaignResponse: {
             campaign: components["schemas"]["WeighingCampaign"];
@@ -5513,6 +5527,15 @@ export interface components {
             location_id: string;
             name: string;
             kid_count: number;
+            /** @description True when an open weighing task already claims this shed on the requested weigh date. Absent/false means the shed is free on that date. */
+            scheduled?: boolean;
+            /** Format: uuid */
+            scheduled_campaign_id?: string;
+            scheduled_status?: components["schemas"]["WeighingCampaignShedStatus"];
+            /** Format: uuid */
+            scheduled_operator_user_id?: string;
+            scheduled_operator_display_name?: string;
+            scheduled_weighing_category?: components["schemas"]["WeighingCategory"];
         };
         WeighingPlannerPark: {
             /** Format: uuid */
@@ -6958,6 +6981,8 @@ export interface operations {
     listWeighingCampaigns: {
         parameters: {
             query?: {
+                /** @description Optional park filter. It narrows the returned ROWS only; `counts` stays a whole-scope aggregate so the Active/Completed tallies do not move when the park chip changes. */
+                park_id?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -7079,6 +7104,9 @@ export interface operations {
     appListWeighingCampaigns: {
         parameters: {
             query?: {
+                scope?: "mine" | "all" | "operators";
+                /** @description Optional park filter. It narrows the returned ROWS only; `counts` stays a whole-scope aggregate so the Active/Completed tallies do not move when the park chip changes. */
+                park_id?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -7105,7 +7133,10 @@ export interface operations {
     appWeighingPlannerCatalog: {
         parameters: {
             query: {
+                /** @description The Asia/Kolkata business DATE the availability is reported for. */
                 period_start_date: string;
+                /** @description The task currently being edited. Its own buckets are not reported as taken, so an edit can re-save the sheds it already owns. */
+                exclude_campaign_id?: string;
             };
             header?: never;
             path?: never;

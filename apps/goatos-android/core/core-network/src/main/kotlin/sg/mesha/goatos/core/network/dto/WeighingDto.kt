@@ -35,6 +35,12 @@ data class WeighingCampaignShedDto(
      *  backend read model does not publish shed-grain remaining truth yet; the client
      *  must then render a count-free close label instead of inventing a number. */
     @SerialName("remaining_count") val remainingCount: Int? = null,
+    /** Backend-owned count of this bucket's submitted evidence still awaiting a verifier look. */
+    @SerialName("pending_verification_count") val pendingVerificationCount: Int = 0,
+    /** Strict subset of [pendingVerificationCount] a verifier bounced back to the operator. */
+    @SerialName("rework_count") val reworkCount: Int = 0,
+    /** True only when this bucket is submitted and every observation on it is verified. */
+    @SerialName("ready_to_close") val readyToClose: Boolean = false,
 )
 
 @Serializable
@@ -58,8 +64,16 @@ data class WeighingCampaignDto(
 )
 
 @Serializable
+data class WeighingCampaignCountsDto(
+    @SerialName("active") val active: Int = 0,
+    @SerialName("completed") val completed: Int = 0,
+)
+
+@Serializable
 data class WeighingCampaignListResponseDto(
     @SerialName("items") val items: List<WeighingCampaignDto> = emptyList(),
+    /** Whole-filter task tally behind the two task tabs. Never derived from [items]. */
+    @SerialName("counts") val counts: WeighingCampaignCountsDto = WeighingCampaignCountsDto(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
 )
@@ -85,6 +99,15 @@ data class WeighingPlannerShedDto(
     @SerialName("location_id") val locationId: String = "",
     @SerialName("name") val name: String = "",
     @SerialName("kid_count") val kidCount: Int = 0,
+    // Whether an OPEN weighing task already claims this shed on the REQUESTED weigh date, and who
+    // holds it. The server answers this per date; the app never infers availability by scanning its
+    // own loaded tasks, which would only ever see the page it happens to hold.
+    @SerialName("scheduled") val scheduled: Boolean = false,
+    @SerialName("scheduled_campaign_id") val scheduledCampaignId: String = "",
+    @SerialName("scheduled_status") val scheduledStatus: String = "",
+    @SerialName("scheduled_operator_user_id") val scheduledOperatorUserId: String = "",
+    @SerialName("scheduled_operator_display_name") val scheduledOperatorDisplayName: String = "",
+    @SerialName("scheduled_weighing_category") val scheduledWeighingCategory: String = "",
 )
 
 @Serializable

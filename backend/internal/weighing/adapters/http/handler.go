@@ -21,8 +21,8 @@ type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
 	UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
-	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, cursor string, limit int) (domain.CampaignPage, error)
-	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
+	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error)
+	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate, excludeCampaignID string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
@@ -91,6 +91,25 @@ func (h *Handler) WeighingProcessState(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("to"),
 	)
 	h.respond(w, r, result, err)
+}
+
+// conflictFieldError names ONE blocked bucket inside the standard error envelope's
+// field_errors array, so the conflicting shed names travel with the 409 without
+// inventing envelope keys the contract does not declare.
+type conflictFieldError struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// shedScheduleConflictEnvelope is the standard envelope carrying one field error
+// per already-scheduled bucket, so a blocked publish can be explained inline
+// instead of costing the planner a second request.
+type shedScheduleConflictEnvelope struct {
+	Code        string               `json:"code"`
+	Message     string               `json:"message"`
+	FieldErrors []conflictFieldError `json:"field_errors"`
+	TraceID     string               `json:"trace_id"`
 }
 
 type errorEnvelope struct {
@@ -164,8 +183,10 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 		h.respond(w, r, nil, ports.ErrInvalidArgument)
 		return
 	}
-	page, err := h.service.ListCampaigns(r.Context(), actor(r), scope, r.URL.Query().Get("cursor"), limit)
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
+	// park_id filters the ROWS only. counts stays a whole-scope aggregate on purpose, so the
+	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
+	page, err := h.service.ListCampaigns(r.Context(), actor(r), scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +214,7 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PlannerCatalog(w http.ResponseWriter, r *http.Request) {
-	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"))
+	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"), r.URL.Query().Get("exclude_campaign_id"))
 	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "trace_id": traceID(r)}, err)
 }
 
@@ -420,6 +441,27 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrShedAlreadyScheduled):
+		// The blocked bucket NAMES travel with the 409 so the planner can render the
+		// reason inline instead of asking again.
+		conflict := &ports.ShedScheduleConflict{}
+		if !errors.As(err, &conflict) {
+			conflict = &ports.ShedScheduleConflict{}
+		}
+		fieldErrors := make([]conflictFieldError, 0, len(conflict.Sheds))
+		for _, shed := range conflict.Sheds {
+			fieldErrors = append(fieldErrors, conflictFieldError{
+				Field:   "sheds",
+				Code:    "weighing_shed_already_scheduled",
+				Message: shed + " is already scheduled on " + conflict.WeighDate + ".",
+			})
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
+			Code:        "weighing_shed_already_scheduled",
+			Message:     "Some of these sheds are already scheduled on this date.",
+			FieldErrors: fieldErrors,
+			TraceID:     traceID(r),
+		}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrDuplicateScan):

@@ -128,7 +128,7 @@ class WeighingRepositoryTest {
             ),
         )
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int) = campaigns
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?) = campaigns
 
             override suspend fun getWeighingLeadershipShedVideos(
                 campaignId: String,
@@ -580,7 +580,7 @@ class WeighingRepositoryTest {
     @Test
     fun `operator assignments exclude canceled campaign sheds from backend spelling`() = runTest {
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto =
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
                 WeighingCampaignListResponseDto(
                     items = listOf(
                         weighingCampaign(
@@ -658,7 +658,7 @@ class WeighingRepositoryTest {
     fun `blank or repeated assignment cursor terminates instead of requesting again`() = runTest {
         val requested = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
                 requested += cursor
                 return WeighingCampaignListResponseDto(
                     items = listOf(weighingCampaign(status = "published", sheds = listOf(weighingShed("campaign-plan", "campaign-shed-1", "Castro 1", "pending")))),
@@ -686,7 +686,7 @@ class WeighingRepositoryTest {
     fun `leadership video pages follow the backend cursor across two distinct pages`() = runTest {
         val requested = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
                 requested += cursor
                 val suffix = if (cursor == null) "p1" else "p2"
                 return WeighingCampaignListResponseDto(
@@ -1083,7 +1083,7 @@ class WeighingRepositoryTest {
     /** Two full screen-pages of shed assignments, keyset-linked by cursor, with no overlap. */
     private fun pagedCampaignApi(requested: MutableList<Pair<String?, Int>>): AppApi =
         object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
                 requested += cursor to limit
                 val start = if (cursor == null) 1 else WEIGHING_PAGE_SIZE + 1
                 return WeighingCampaignListResponseDto(
