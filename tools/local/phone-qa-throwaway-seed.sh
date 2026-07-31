@@ -460,7 +460,8 @@ VALUES
   ('91000000-0000-4000-8000-000000000802', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000711', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 'CPT - Mandela 2 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
   ('91000000-0000-4000-8000-000000000804', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000711', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 'CPT - Mandela 2 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3)
 ON CONFLICT (assignment_id) DO UPDATE
-SET planned_date = EXCLUDED.planned_date,
+SET batch_id = EXCLUDED.batch_id,
+    planned_date = EXCLUDED.planned_date,
     operator_id = EXCLUDED.operator_id,
     park_id = EXCLUDED.park_id,
     shed_id = EXCLUDED.shed_id,
