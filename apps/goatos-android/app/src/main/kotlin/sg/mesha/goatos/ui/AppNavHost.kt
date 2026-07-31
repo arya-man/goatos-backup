@@ -715,6 +715,16 @@ fun AppNavHost(
                                 Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
                                 return@ShedsScreen
                             }
+                            // Same oversight gate the /calendar/drive-hosted shed queue applies:
+                            // a read-only viewer never enters the scan/submit loop. Without this the
+                            // two routes into the SAME screen disagreed -- a director was blocked on
+                            // one path and walked straight into scanning on the other, where the tag
+                            // read, the DONE flip and the proof camera all succeeded locally and
+                            // every write then failed `task is not assigned` in background sync.
+                            if (!state.canOpenShed) {
+                                Toast.makeText(context, "This shed is assigned to another operator", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
                             if (selected?.canOpen == false) {
                                 Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
