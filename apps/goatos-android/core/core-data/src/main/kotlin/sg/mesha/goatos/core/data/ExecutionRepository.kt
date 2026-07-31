@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -357,9 +358,22 @@ class DefaultExecutionRepository(
             // failure throws before we touch the DB, so the previously-persisted roster is left intact
             // (offline-safe atomic replace) and the write lock is held only for the local upsert.
             val rows = staged.distinctBy { it.id }
+            val serverDoneObligationIds = rows
+                .asSequence()
+                .filter { it.isServerDone() }
+                .mapNotNull { it.obligationId.takeIf(String::isNotBlank) }
+                .distinct()
+                .toList()
             database.withTransaction {
                 scanRosterRowDao.deleteForScope(rowScope)
                 scanRosterRowDao.upsertAll(rows)
+                taskId?.takeIf(String::isNotBlank)?.let { id ->
+                    database.scannedGoatDao().pruneSyncedFieldToServerDone(
+                        taskId = id,
+                        fieldKey = ROSTER_SCAN_FIELD_KEY,
+                        serverDoneObligationIds = serverDoneObligationIds,
+                    )
+                }
             }
         }
     }
@@ -429,6 +443,11 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     seq = seq,
     updatedAt = now,
 )
+
+private fun ScanRosterRowEntity.isServerDone(): Boolean =
+    scannedAtMs != null ||
+        status.lowercase(Locale.US).contains("done") ||
+        status.lowercase(Locale.US).contains("complete")
 
 private fun humanizeVaccineLabel(raw: String): String {
     val trimmed = raw.trim()

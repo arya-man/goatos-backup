@@ -317,7 +317,7 @@ class WeighingViewModelTest {
         val repository = FakeWeighingRepository(
             scopeState = WeighingScopeState(
                 listOf(rosterRow()),
-                listOf(acceptedDraft(weightKg = 12.0, capturedAtMs = 1_000)),
+                listOf(acceptedDraft(weightKg = 12.0, capturedAtMs = 1_000, proofCaptureId = "proof-replacement")),
                 emptyList(),
                 0,
             ),
@@ -332,6 +332,131 @@ class WeighingViewModelTest {
         val row = vm.state.value.visibleRows.single()
         assertEquals("proof-replacement", row.proofCaptureId)
         assertTrue(row.proofStatusLabel.orEmpty().startsWith("Video synced"))
+    }
+
+    @Test
+    fun `stale synced individual proof is ignored after backend reopens weighing row`() = runTest(dispatcher) {
+        val staleProof = ProofCaptureRow(
+            id = "proof-stale",
+            fieldKey = "weighing_individual_video",
+            proofSubject = ProofSubject.GOAT,
+            subjectId = TEST_TAG,
+            localUri = "file://stale.mp4",
+            mimeType = "video/mp4",
+            caption = TEST_TAG,
+            capturedAtMs = 3_600_000,
+            capturedStartMs = 3_600_000,
+            capturedEndMs = 3_601_000,
+            capturedByPrincipalId = null,
+            syncStatus = CaptureSyncStatus.SYNCED,
+            serverProofId = "server-proof-stale",
+            lastError = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(listOf(rosterRow()), emptyList(), emptyList(), 0),
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG, capturedAtMs = 4_000)
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(staleProof) }
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertNull(row.proofCaptureId)
+        assertNull(row.proofStatusLabel)
+    }
+
+    @Test
+    fun `stale synced shed proofs do not block new group video after backend reopen`() = runTest(dispatcher) {
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
+            repeat(5) { index ->
+                repo.seedProofs(
+                    ProofCaptureRow(
+                        id = "old-shed-proof-$index",
+                        fieldKey = "weighing_shed_partition_video",
+                        proofSubject = ProofSubject.SHED,
+                        subjectId = "shed-1",
+                        localUri = "file://old-$index.mp4",
+                        mimeType = "video/mp4",
+                        caption = "old $index",
+                        capturedAtMs = index.toLong(),
+                        capturedStartMs = index.toLong(),
+                        capturedEndMs = index.toLong() + 1,
+                        capturedByPrincipalId = null,
+                        syncStatus = CaptureSyncStatus.SYNCED,
+                        serverProofId = "server-old-$index",
+                        lastError = null,
+                    ),
+                )
+            }
+        }
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(sg.mesha.goatos.capture.CapturedVideo(localUri = "file://new.mp4", startedAtMs = 10_000, endedAtMs = 12_000))
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.captureShedVideo()
+        advanceUntilIdle()
+
+        assertEquals(1, proofs.captureCalls.size)
+    }
+
+    @Test
+    fun `stale caption-only proof is not reused after backend reset removes accepted draft`() = runTest(dispatcher) {
+        val staleProof = ProofCaptureRow(
+            id = "proof-before-reset",
+            fieldKey = "weighing_individual_video",
+            proofSubject = ProofSubject.GOAT,
+            subjectId = TEST_TAG,
+            localUri = "file://stale.mp4",
+            mimeType = "video/mp4",
+            caption = TEST_TAG,
+            capturedAtMs = 1_000,
+            capturedStartMs = 1_000,
+            capturedEndMs = 2_000,
+            capturedByPrincipalId = null,
+            syncStatus = CaptureSyncStatus.SYNCED,
+            serverProofId = "server-proof-before-reset",
+            lastError = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "observation-after-reset",
+                        animalId = TEST_TAG,
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 12.0,
+                        capturedAtMs = 3_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:after-reset",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(staleProof) }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertNull(row.proofCaptureId)
+        assertEquals(ProofUploadStatus.MISSING, row.proofUploadStatus)
     }
 
     @Test
@@ -353,15 +478,17 @@ class WeighingViewModelTest {
         scoped: Boolean = false,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
+        proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
+        bootstrapRepository: BootstrapRepository = LeadershipBootstrapRepository,
         weighingCategory: String = "individual_animal",
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
-            bootstrapRepository = LeadershipBootstrapRepository,
+            bootstrapRepository = bootstrapRepository,
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = scanCaptureRepository,
             proofCaptureRepository = proofCaptureRepository,
-            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureSource = proofCaptureSource,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             savedStateHandle = SavedStateHandle(
@@ -411,23 +538,30 @@ class WeighingViewModelTest {
         animalId: String = TEST_TAG,
         weightKg: Double,
         capturedAtMs: Long = 1_000,
+        proofCaptureId: String = "proof-$animalId",
     ) = IndividualWeighingDraft(
         observationId = "observation-$animalId",
         animalId = animalId,
         scannedIdentifier = animalId,
         weightKg = weightKg,
         capturedAtMs = capturedAtMs,
-        proofCaptureId = "proof-$animalId",
+        proofCaptureId = proofCaptureId,
         proofReady = true,
         readyToSubmit = true,
         syncedToBackend = true,
         idempotencyKey = "server:observation-1",
-        serverProofId = "proof-$animalId",
+        serverProofId = proofCaptureId,
     )
 
     private object LeadershipBootstrapRepository : BootstrapRepository {
         override suspend fun loadNavState(): NavState = NavState.Empty
         override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+    }
+
+    private object OperatorBootstrapRepository : BootstrapRepository {
+        override suspend fun loadNavState(): NavState = NavState.Empty
+        override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
+            BootstrapOperatorProfileDto(operatorId = "operator-1", displayName = "Operator 1", primaryRoleHint = "operator")
     }
 
     private class FakeRfidReaderPort : RfidReaderPort {

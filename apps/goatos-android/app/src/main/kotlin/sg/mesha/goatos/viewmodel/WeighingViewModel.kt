@@ -97,6 +97,8 @@ class WeighingViewModel @Inject constructor(
     private val autoProofs = MutableStateFlow<Map<String, ProofCaptureRow>>(emptyMap())
     private val proofReplacementAnimalId = MutableStateFlow<String?>(null)
     private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
+    private val rawProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
+    private val sessionProofIds = MutableStateFlow<Set<String>>(emptySet())
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)
@@ -229,25 +231,13 @@ class WeighingViewModel @Inject constructor(
             }
             viewModelScope.launch {
                 proofCaptureRepository.observeProofs(scopeKey).collect { proofs ->
-                    observedProofs.value = proofs
-                    val shedProofIds = syncedShedProofIds(proofs)
-                    proofs.forEach { proof ->
-                        val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
-                        when (proof.fieldKey) {
-                            INDIVIDUAL_PROOF_FIELD_KEY -> {
-                                val animalId = proof.caption?.takeIf { it.isNotBlank() }
-                                    ?: proof.subjectId?.takeIf { it.isNotBlank() }
-                                    ?: return@forEach
-                                repository.attachIndividualProof(scopeKey, animalId, proof.id, serverProofId)
-                            }
-                            SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(
-                                scopeKey,
-                                proof.id,
-                                serverProofId,
-                                shedProofIds,
-                            )
-                        }
-                    }
+                    rawProofs.value = proofs
+                    publishActiveProofs(scopeKey, proofs)
+                }
+            }
+            viewModelScope.launch {
+                scopeState.collect {
+                    publishActiveProofs(scopeKey, rawProofs.value)
                 }
             }
         } else {
@@ -724,12 +714,13 @@ class WeighingViewModel @Inject constructor(
         val weightKg = parsePositiveWeighingWeight(weightInput.value) ?: return
         val animalCount = parsePositiveWeighingAnimalCount(animalCountInput.value) ?: return
         val averageWeightKg = weightKg / animalCount
-        val syncedProof = observedProofs.value
+        val activeProofs = activeWeighingProofs(observedProofs.value, scopeState.value)
+        val syncedProof = activeProofs
             .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
             .filter { it.subjectId == expectedLocationId }
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .minByOrNull { it.capturedAtMs }
-        val syncedProofIds = syncedShedProofIds(observedProofs.value)
+        val syncedProofIds = syncedShedProofIds(activeProofs)
         if (syncedProof == null) {
             message.value = "Capture and sync at least one group video before submitting."
             return
@@ -864,7 +855,7 @@ class WeighingViewModel @Inject constructor(
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
-        val shedProofs = observedProofs.value
+        val shedProofs = activeWeighingProofs(observedProofs.value, scopeState.value)
             .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY && it.subjectId == expectedLocationId }
             .sortedBy { it.capturedAtMs }
         val existing = shedProofs.size
@@ -919,6 +910,7 @@ class WeighingViewModel @Inject constructor(
                     )
                 ) {
                     is AppResult.Ok -> {
+                        sessionProofIds.value = sessionProofIds.value + proof.value.id
                         if (replacingProofId != null) {
                             when (val removed = proofCaptureRepository.remove(key, replacingProofId)) {
                                 is AppResult.Ok -> Unit
@@ -1062,6 +1054,7 @@ class WeighingViewModel @Inject constructor(
             try {
                 when (val proof = captureProofForRow(key, row)) {
                     is AppResult.Ok -> {
+                        sessionProofIds.value = sessionProofIds.value + proof.value.id
                         autoProofs.value = autoProofs.value + (row.animalId to proof.value)
                         message.value = "Video saved for ${row.displayAnimalId}. Enter weight."
                     }
@@ -1309,9 +1302,10 @@ class WeighingViewModel @Inject constructor(
             val draft = drafts.firstOrNull { it.animalId == row.animalId }
             val savedWeight = draft?.weightKg?.toString()
             val weight = animalWeights[row.animalId] ?: savedWeight.orEmpty()
+            val draftProofId = draft?.proofCaptureId?.takeIf { it.isNotBlank() }
             val proof = proofs
                 .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-                .filter { it.caption == row.animalId || it.id == draft?.proofCaptureId }
+                .filter { draftProofId != null && it.id == draftProofId }
                 .maxByOrNull { it.capturedAtMs }
                 ?: autoProofs.value[row.animalId]
             val proofStatus = when {
@@ -1388,13 +1382,48 @@ class WeighingViewModel @Inject constructor(
     private fun timeOnlyLabel(epochMs: Long): String =
         WEIGHING_TIME_ONLY_FORMATTER.format(Instant.ofEpochMilli(epochMs))
 
+    private fun activeWeighingProofs(
+        proofs: List<ProofCaptureRow>,
+        scope: WeighingScopeState?,
+    ): List<ProofCaptureRow> {
+        val activeIds = sessionProofIds.value.toMutableSet()
+        scope?.individualDrafts.orEmpty()
+            .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
+        if (activeIds.isEmpty()) return emptyList()
+        return proofs.filter { it.id in activeIds }
+    }
+
+    private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
+        val activeProofs = activeWeighingProofs(proofs, scopeState.value)
+        observedProofs.value = activeProofs
+        val shedProofIds = syncedShedProofIds(activeProofs)
+        activeProofs.forEach { proof ->
+            val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
+            when (proof.fieldKey) {
+                INDIVIDUAL_PROOF_FIELD_KEY -> {
+                    val animalId = proof.caption?.takeIf { it.isNotBlank() }
+                        ?: proof.subjectId?.takeIf { it.isNotBlank() }
+                        ?: return@forEach
+                    repository.attachIndividualProof(scope, animalId, proof.id, serverProofId)
+                }
+                SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(
+                    scope,
+                    proof.id,
+                    serverProofId,
+                    shedProofIds,
+                )
+            }
+        }
+    }
+
     private fun proofForAnimal(animalId: String): ProofCaptureRow? {
         val draftProofId = scopeState.value?.individualDrafts
             ?.firstOrNull { it.animalId == animalId }
             ?.proofCaptureId
+            ?.takeIf { it.isNotBlank() }
         return observedProofs.value
             .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-            .filter { it.caption == animalId || it.id == draftProofId }
+            .filter { draftProofId != null && it.id == draftProofId }
             .maxByOrNull { it.capturedAtMs }
             ?: autoProofs.value[animalId]
     }
