@@ -236,14 +236,18 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 		metadata,
 	)
 	artifact, err := scanArtifact(row)
+	completedNow := true
 	if errors.Is(err, pgx.ErrNoRows) {
+		completedNow = false
 		artifact, err = r.getCompletedProof(ctx, in.TenantID, in.ProofID)
 	}
 	if err != nil {
 		return domain.Artifact{}, err
 	}
-	if err := r.supersedeOlderTaskGoatVideos(ctx, tx, artifact); err != nil {
-		return domain.Artifact{}, err
+	if completedNow {
+		if err := r.supersedeOlderTaskGoatVideos(ctx, tx, artifact); err != nil {
+			return domain.Artifact{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Artifact{}, err

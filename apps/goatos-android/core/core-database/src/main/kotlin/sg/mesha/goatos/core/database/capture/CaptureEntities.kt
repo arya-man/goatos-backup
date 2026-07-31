@@ -122,6 +122,36 @@ interface ScannedGoatDao {
     @Query("DELETE FROM scanned_goat_capture WHERE taskId = :taskId")
     suspend fun clearForTask(taskId: String)
 
+    @Query(
+        "DELETE FROM scanned_goat_capture " +
+            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND syncStatus = 'SYNCED'",
+    )
+    suspend fun deleteSyncedForField(taskId: String, fieldKey: String)
+
+    @Query(
+        "DELETE FROM scanned_goat_capture " +
+            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
+            "AND (obligationId IS NULL OR obligationId NOT IN (:serverDoneObligationIds))",
+    )
+    suspend fun deleteSyncedForFieldExceptObligations(
+        taskId: String,
+        fieldKey: String,
+        serverDoneObligationIds: List<String>,
+    )
+
+    @Transaction
+    suspend fun pruneSyncedFieldToServerDone(
+        taskId: String,
+        fieldKey: String,
+        serverDoneObligationIds: List<String>,
+    ) {
+        if (serverDoneObligationIds.isEmpty()) {
+            deleteSyncedForField(taskId, fieldKey)
+        } else {
+            deleteSyncedForFieldExceptObligations(taskId, fieldKey, serverDoneObligationIds)
+        }
+    }
+
     @Query("DELETE FROM scanned_goat_capture")
     suspend fun clearAll()
 
