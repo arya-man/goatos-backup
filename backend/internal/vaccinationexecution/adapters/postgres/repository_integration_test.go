@@ -1301,6 +1301,44 @@ WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
 	}
 }
 
+func TestScanRosterParkScopedTaskResolvesTenantScopedBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "park-scoped task with tenant batch", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Park task over tenant batch','in_progress',$5,'park',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`,
+		testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testPark, testBatch)
+	execProjectionSQL(t, ctx, pool, "tenant-scoped batch still tied to task",
+		`UPDATE obligation_batches SET sop_task_id=$1, scope_type='tenant', scope_id=$2 WHERE tenant_id=$2 AND batch_id=$3`,
+		testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "keep goat obligation batch-owned only",
+		`UPDATE obligation_instances SET sop_task_id=NULL WHERE tenant_id=$1 AND batch_id=$2`,
+		testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "primary tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','TENANT-BATCH-RFID','tenant-batch-rfid','active','global','v1',now())`,
+		testTenant, testGoat)
+
+	repo := NewRepository(pool, 5*time.Second)
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster: %v", err)
+	}
+	if len(roster.Rows) != 1 {
+		t.Fatalf("rows=%#v", roster.Rows)
+	}
+	row := roster.Rows[0]
+	if row.GoatID != testGoat || row.PrimaryTag != "TENANT-BATCH-RFID" || row.TaskID != testTask || row.BatchID != testBatch {
+		t.Fatalf("row=%#v", row)
+	}
+}
+
 func TestScanRosterExcludesFutureAssignmentWhenSameTaskBatchHasMultipleVaccinesWithDifferentDates(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

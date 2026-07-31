@@ -2271,6 +2271,7 @@ SELECT st.task_id::text, ob.batch_id::text, st.sop_version_id::text, st.row_vers
 FROM sop_tasks st
 JOIN obligation_batches ob
   ON ob.tenant_id = st.tenant_id
+ AND ob.sop_task_id = st.task_id
  AND ob.batch_id = nullif(st.context ->> 'obligation_batch_id', '')::uuid
 WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid
@@ -2288,6 +2289,8 @@ WHERE st.tenant_id = $1::uuid
             (st.scope_type = 'shed' AND st.scope_id = $3::uuid AND ob.scope_type = 'shed' AND ob.scope_id = $3::uuid)
             OR
             (st.scope_type = 'park' AND ob.scope_type = 'park' AND st.scope_id = ob.scope_id AND g.park_id = ob.scope_id)
+            OR
+            (st.scope_type = 'park' AND ob.scope_type = 'tenant' AND ob.scope_id = st.tenant_id AND g.park_id = st.scope_id)
           )
       )
 LIMIT 1`, tenantID, taskID, shedID).Scan(
