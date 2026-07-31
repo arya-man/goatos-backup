@@ -61,12 +61,12 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 var _ ports.Repository = (*Repository)(nil)
 
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
-  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, media_refs,
+  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs,
   status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
   verified_at, closed_by::text, closed_at, row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
-  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.media_refs,
+  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
   operator.display_name::text, verifier.display_name::text,
@@ -89,10 +89,11 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	err = tx.QueryRow(ctx, `
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
-  source_ref_type, source_ref_id, subject_label, media_refs, status, operator_id, shed_id, park_id,
+  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, status, operator_id, shed_id, park_id,
   captured_at, idempotency_key
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
+  nullif($17, ''),
   $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
@@ -100,7 +101,7 @@ RETURNING item_id::text`,
 		in.TenantID, in.Vertical, in.Module, in.Category, in.Source.Module,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
-		in.CapturedAt.UTC(), in.IdempotencyKey,
+		in.CapturedAt.UTC(), in.IdempotencyKey, derefStr(in.SubjectNote),
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1657,14 +1658,14 @@ func scanItem(row rowScanner) (domain.Item, error) {
 		item                                                            domain.Item
 		sourceTaskID, sourceSubmissionID                                *string
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel                                                    *string
+		subjectLabel, subjectNote                                       *string
 		mediaJSON                                                       []byte
 		verifiedAt, closedAt                                            *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
@@ -1674,6 +1675,7 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.Source.SubmissionID = sourceSubmissionID
 	item.VerdictReason = verdictReason
 	item.SubjectLabel = subjectLabel
+	item.SubjectNote = subjectNote
 	item.OperatorID = operatorID
 	item.ShedID = shedID
 	item.ParkID = parkID
@@ -1697,7 +1699,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		item                                                            domain.Item
 		sourceTaskID, sourceSubmissionID                                *string
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel                                                    *string
+		subjectLabel, subjectNote                                       *string
 		operatorName, verifiedByName, shedLabel, parkLabel              *string
 		mediaJSON                                                       []byte
 		verifiedAt, closedAt                                            *time.Time
@@ -1705,7 +1707,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 		&operatorName, &verifiedByName, &shedLabel, &parkLabel,
@@ -1716,6 +1718,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.Source.SubmissionID = sourceSubmissionID
 	item.VerdictReason = verdictReason
 	item.SubjectLabel = subjectLabel
+	item.SubjectNote = subjectNote
 	item.OperatorID = operatorID
 	item.OperatorName = operatorName
 	item.ShedID = shedID

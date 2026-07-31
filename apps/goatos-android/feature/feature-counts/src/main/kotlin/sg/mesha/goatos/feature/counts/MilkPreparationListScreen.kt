@@ -64,7 +64,15 @@ data class MilkPreparationCardUi(
     val canOpen: Boolean = true,
     val detailLabel: String = "",
     val preparationRequired: Boolean = true,
-)
+    /** Videos already recorded for this farm-day and held in the durable draft, 0 when untouched. */
+    val capturedProofCount: Int = 0,
+) {
+    /**
+     * True when the operator started this farm's preparation and left before submitting, so the list
+     * can offer to resume instead of reading as untouched work.
+     */
+    val isInProgress: Boolean get() = capturedProofCount > 0 && bucket == MilkPreparationCardBucket.TO_PREPARE
+}
 
 @Immutable
 data class MilkPreparationListUiState(
@@ -222,12 +230,13 @@ private fun MilkPreparationCard(card: MilkPreparationCardUi, onClick: () -> Unit
                     Text(card.detailLabel.ifBlank { "${card.parkLabel} · ${card.cohortCount} cohorts · ${card.headCount} animals" }, color = MeshaColors.Faint, fontSize = 11.sp)
                 }
                 Text(
-                    card.statusLabel,
-                    color = when (card.bucket) {
-                        MilkPreparationCardBucket.COMPLETED -> MeshaColors.Ok
-                        MilkPreparationCardBucket.REWORK -> MeshaColors.Danger
-                        MilkPreparationCardBucket.IN_REVIEW -> MeshaColors.Warn
-                        MilkPreparationCardBucket.TO_PREPARE -> MeshaColors.Muted
+                    if (card.isInProgress) "In progress" else card.statusLabel,
+                    color = when {
+                        card.isInProgress -> MeshaColors.BrandD
+                        card.bucket == MilkPreparationCardBucket.COMPLETED -> MeshaColors.Ok
+                        card.bucket == MilkPreparationCardBucket.REWORK -> MeshaColors.Danger
+                        card.bucket == MilkPreparationCardBucket.IN_REVIEW -> MeshaColors.Warn
+                        else -> MeshaColors.Muted
                     },
                     fontSize = 11.sp,
                     fontWeight = FontWeight.W800,

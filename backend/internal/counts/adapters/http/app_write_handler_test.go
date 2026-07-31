@@ -2090,3 +2090,81 @@ func TestNormalizeShiftingEventRequestRequiresExplicitStageChoice(t *testing.T) 
 		t.Fatalf("target=%q", normalized.TargetManagementStage)
 	}
 }
+
+// TestNormalizeShiftingEventRequest_Comment pins the optional raise note (maintainer decision
+// 2026-07-31). The note is read by the approving park head and by the verifier reviewing the
+// evidence, so its handling has to be exact in three ways: blank must normalize to ABSENT (one
+// representation of "wrote nothing", which also keeps the request fingerprint stable across a
+// resubmission where the operator typed and then cleared the box), a real note must survive
+// verbatim apart from surrounding whitespace, and an over-long note must be REJECTED rather than
+// truncated — quietly cutting an operator's words changes what the decision-maker reads.
+func TestNormalizeShiftingEventRequest_Comment(t *testing.T) {
+	base := func(comment *string) appShiftingEventRequest {
+		return appShiftingEventRequest{
+			DestinationParkID:   testParkID,
+			DestinationShedID:   testShedID,
+			ManagementStageMode: "keep_current",
+			GoatIDs:             []string{testGoatID},
+			Comment:             comment,
+		}
+	}
+
+	t.Run("absent stays absent", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment != nil {
+			t.Fatalf("comment = %q, want nil", *out.Comment)
+		}
+	})
+
+	t.Run("whitespace-only normalizes to absent", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest("   \n\t ")))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment != nil {
+			t.Fatalf("comment = %q, want nil for a blank note", *out.Comment)
+		}
+	})
+
+	t.Run("a real note is kept, trimmed", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest("  Shed roof leaking after rain  ")))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment == nil || *out.Comment != "Shed roof leaking after rain" {
+			t.Fatalf("comment = %v, want the trimmed note", out.Comment)
+		}
+	})
+
+	t.Run("at the bound is accepted", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest(strings.Repeat("a", maxShiftingCommentRunes))))
+		if err != nil {
+			t.Fatalf("a comment of exactly the limit must be accepted, got: %v", err)
+		}
+		if out.Comment == nil || len(*out.Comment) != maxShiftingCommentRunes {
+			t.Fatalf("comment length = %v, want %d", out.Comment, maxShiftingCommentRunes)
+		}
+	})
+
+	t.Run("over the bound is rejected, never truncated", func(t *testing.T) {
+		_, err := normalizeShiftingEventRequest(base(strPtrTest(strings.Repeat("a", maxShiftingCommentRunes+1))))
+		if err == nil {
+			t.Fatal("expected an over-long comment to be rejected")
+		}
+	})
+
+	// The bound is RUNES, matching Postgres char_length() in the column CHECK. Counting bytes
+	// would reject a Kannada or Telugu note less than a third of the documented length.
+	t.Run("multi-byte characters are counted as characters", func(t *testing.T) {
+		note := strings.Repeat("ಹ", maxShiftingCommentRunes)
+		if len(note) <= maxShiftingCommentRunes {
+			t.Fatalf("fixture is not multi-byte: %d bytes for %d runes", len(note), maxShiftingCommentRunes)
+		}
+		if _, err := normalizeShiftingEventRequest(base(strPtrTest(note))); err != nil {
+			t.Fatalf("a %d-character Kannada note must be accepted, got: %v", maxShiftingCommentRunes, err)
+		}
+	})
+}

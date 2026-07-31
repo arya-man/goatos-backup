@@ -96,6 +96,7 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.SelectTargetManagementStage -> onSelectTargetManagementStage(event.stage)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
+            is ShiftingEvent.EditComment -> onEditComment(event.value)
             ShiftingEvent.Submit -> submit()
             ShiftingEvent.NavigationHandled -> _state.update {
                 it.copy(returnToActions = false, submissionNotice = null)
@@ -323,6 +324,19 @@ class ShiftingViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
+    /**
+     * The optional raise note. Deliberately NOT followed by recomputeSubmitGate(): the comment can
+     * never make a movement submittable or block one, so re-running the gate on every keystroke
+     * would be work that cannot change its answer.
+     *
+     * Capped at the server's limit so an over-long note is stopped while the operator is still
+     * typing, instead of being accepted here and rejected as comment_too_long after they submit.
+     */
+    private fun onEditComment(value: String) {
+        if (!beginEdit()) return
+        _state.update { it.copy(comment = value.take(MAX_COMMENT_LENGTH)) }
+    }
+
     // -----------------------------------------------------------------------
     // Submit
     // -----------------------------------------------------------------------
@@ -376,6 +390,10 @@ class ShiftingViewModel @Inject constructor(
         targetManagementStage = targetManagementStage.takeIf { managementStageMode != "keep_current" },
         priority = priority,
         category = category,
+        // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
+        // and sending "" for one of them would change the request fingerprint of an otherwise
+        // identical resubmission.
+        comment = comment.trim().ifBlank { null },
         // A list of exactly one: the contract's shape is a list and the client does not narrow a
         // server contract it does not own.
         goatIds = listOfNotNull(selectedAnimal?.goatId),
@@ -473,6 +491,13 @@ class ShiftingViewModel @Inject constructor(
             "Couldn't search for animals. Check your connection and try again."
         const val DESTINATIONS_FAILED_MESSAGE =
             "Couldn't load the list of farms and sheds. Check your connection and try again."
+
+        /**
+         * Mirrors the server's comment bound (maxShiftingCommentRunes / the
+         * shifting_events_raise_comment_length_check constraint). Kept in sync deliberately: the
+         * client stops the operator at the same length the server would reject.
+         */
+        const val MAX_COMMENT_LENGTH = 1000
 
         /** Mirrors the two options the screen renders; a value outside it is never stored. */
         val ALLOWED_PRIORITIES = setOf(SHIFTING_PRIORITY_HIGH, SHIFTING_PRIORITY_LOW)

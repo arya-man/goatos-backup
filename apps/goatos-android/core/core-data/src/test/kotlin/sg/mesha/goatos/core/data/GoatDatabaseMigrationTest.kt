@@ -106,6 +106,8 @@ class GoatDatabaseMigrationTest {
         MIGRATION_22_23.migrate(db)
         MIGRATION_23_24.migrate(db)
         MIGRATION_24_25.migrate(db)
+        MIGRATION_25_26.migrate(db)
+        MIGRATION_26_27.migrate(db)
         return db
     }
 
@@ -124,7 +126,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 25
+        const val CURRENT_VERSION = 27
     }
 }
 

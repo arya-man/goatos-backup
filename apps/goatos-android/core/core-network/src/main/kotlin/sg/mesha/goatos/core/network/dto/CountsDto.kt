@@ -244,6 +244,13 @@ data class CountsShiftingEventRequestDto(
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,
+    /**
+     * The raiser's optional note on why the animals are moving. Null (not "") when the operator
+     * wrote nothing: the field is omitempty on the wire, and sending an empty string would make
+     * "left blank" and "typed then cleared" two different requests for the same intent — which
+     * would also change the idempotency fingerprint of an otherwise identical resubmission.
+     */
+    @SerialName("comment") val comment: String? = null,
     @SerialName("goat_ids") val goatIds: List<String> = emptyList(),
 )
 

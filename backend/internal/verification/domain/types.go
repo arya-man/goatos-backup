@@ -55,12 +55,16 @@ type SourceRef struct {
 
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
-	ItemID         string
-	TenantID       string
-	Vertical       string
-	Module         string
-	Category       string
-	SubjectLabel   *string
+	ItemID       string
+	TenantID     string
+	Vertical     string
+	Module       string
+	Category     string
+	SubjectLabel *string
+	// SubjectNote is optional free text from whoever RAISED the underlying work, shown to the
+	// verifier during review. Kept separate from SubjectLabel on purpose: the label is
+	// system-composed identity ("Shed move · 12 animals"), this is a human's words about it.
+	SubjectNote    *string
 	Source         SourceRef
 	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
 	Status         string
@@ -89,6 +93,7 @@ type CreateItem struct {
 	Module         string
 	Category       string
 	SubjectLabel   *string
+	SubjectNote    *string
 	Source         SourceRef
 	MediaRefs      []string
 	OperatorID     *string
@@ -178,12 +183,16 @@ type QueuePageOption struct {
 	Category string `json:"category"`
 }
 
-// QueueStatusOption is one backend-defined secondary tab. Status filters are disjoint at
-// verification-item grain: pending (Due), approved, and rejected.
+// QueueStatusOption is one backend-defined secondary tab.
+//
+// The single-status tabs are disjoint at verification-item grain: pending (Due), approved, and
+// rejected. The "All" tab carries an EMPTY Status, which is omitted from the payload — a renderer
+// selecting it must send no status query parameter, and the queue then returns every status
+// together (maintainer request 2026-07-30: the Actions page needs to see all actions at once).
 type QueueStatusOption struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
-	Status string `json:"status"`
+	Status string `json:"status,omitempty"`
 }
 
 // QueueActionTypeOption is one backend-registered verification action type exposed to

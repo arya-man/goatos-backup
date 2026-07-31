@@ -89,6 +89,9 @@
     <string name="counts_group_current_location">ప్రస్తుత స్థానం</string>
     <string name="counts_group_priority">ప్రాధాన్యత</string>
     <string name="counts_group_category">వర్గం</string>
+    <string name="counts_group_comment">వ్యాఖ్య</string>
+    <string name="counts_field_comment">ఈ జంతువును ఎందుకు తరలిస్తున్నారు?</string>
+    <string name="counts_hint_comment">ఐచ్ఛికం. ఈ తరలింపును ఆమోదించే ఫారం హెడ్ మరియు మీ వీడియోను తనిఖీ చేసే సమీక్షకుడు దీన్ని చదువుతారు.</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>

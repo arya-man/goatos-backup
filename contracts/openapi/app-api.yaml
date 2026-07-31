@@ -4805,9 +4805,13 @@ paths:
         - name: status
           in: query
           required: false
-          description: Defaults to pending.
+          description: >-
+            Defaults to pending when omitted. `all` applies no status filter and returns due,
+            approved and rejected items together — it must be sent explicitly, because an absent
+            parameter means the pending landing tab.
           schema:
-            $ref: "#/components/schemas/VerificationItemStatus"
+            type: string
+            enum: [all, pending, approved, rejected]
         - name: business_date
           in: query
           required: false
@@ -16486,6 +16490,13 @@ components:
         subject_label:
           type: string
           description: Backend-owned goat/subject display label; never a raw UUID fallback.
+        subject_note:
+          type: string
+          description: >-
+            Optional free-text note written by whoever raised the underlying work (for a shifting
+            movement, the operator's reason for moving the animals), shown to the verifier during
+            evidence review. Absent when the producer supplied none. Distinct from subject_label,
+            which is system-composed identity text.
         status:
           $ref: "#/components/schemas/VerificationItemStatus"
         verdict_reason:
@@ -16588,7 +16599,9 @@ components:
             $ref: "#/components/schemas/VerificationPageOption"
         statuses:
           type: array
-          description: Ordered disjoint secondary tabs at verification-item grain.
+          description: >-
+            Ordered secondary tabs at verification-item grain. The first is the "All" tab (no status
+            filter); the remaining tabs are disjoint single statuses.
           items:
             $ref: "#/components/schemas/VerificationStatusOption"
         parks:
@@ -16640,7 +16653,7 @@ components:
     VerificationStatusOption:
       type: object
       additionalProperties: false
-      required: [key, label, status]
+      required: [key, label]
       properties:
         key:
           type: string
@@ -16648,6 +16661,10 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/VerificationItemStatus"
+          description: >-
+            The item status this tab filters to. OMITTED for the "All" tab, which applies no status
+            filter and therefore returns due, approved and rejected items together. A renderer must
+            treat an absent status as "send no status query parameter", never as a default.
     VerificationLocationOption:
       type: object
       additionalProperties: false
@@ -16866,6 +16883,14 @@ components:
             - health
             - breeding
             - delivery
+        comment:
+          description: >-
+            Optional free-text note from the operator raising the movement, explaining why the
+            animals are being shifted. Shown to the park head deciding the approval and to the
+            verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent.
+            A value longer than maxLength is rejected with comment_too_long, never truncated.
+          type: string
+          maxLength: 1000
         proof_ref:
           description: Optional reference to captured proof media for this movement.
           type: string

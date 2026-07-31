@@ -80,6 +80,8 @@ import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftDao
+import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemDao
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
@@ -153,6 +155,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
  * existing date-only cache, preserving every previously installed Room migration path.
  * v25 (see [MIGRATION_24_25]) adds Health's filter-scoped treatment worklist, page metadata,
  * keyset cursor, and bounded detail cache.
+ * v26 (see [MIGRATION_25_26]) adds `capture_evidence_drafts`, one row per (flow, work item, proof
+ * step), so captured proofs and the submit idempotency key survive Back + re-entry on every
+ * capture screen.
+ * v27 (see [MIGRATION_26_27]) adds `answers` to that same table, so the operator's typed form
+ * answers survive Back + re-entry alongside the videos they belong to.
  */
 @Database(
     entities = [
@@ -207,8 +214,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         HealthRemoteKeyEntity::class,
         HealthPageMetaEntity::class,
         HealthWorkItemDetailEntity::class,
+        CaptureEvidenceDraftEntity::class,
     ],
-    version = 25,
+    version = 27,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -241,6 +249,13 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // selected shed-bucket-wide, matching the free-flow bucket model.
     // v24 (see [MIGRATION_23_24]) adds scoped Feed Transport items and remote keys.
     // v25 (see [MIGRATION_24_25]) adds the Health Room SSOT.
+    // v26 (see [MIGRATION_25_26]) adds the shared capture evidence draft — each recorded video's
+    // outbox item id plus the submit idempotency key, durable per work item so leaving and
+    // re-entering ANY capture screen (shifting, feed distribution/packing/transport, milk
+    // preparation/feeding) keeps the evidence it already captured.
+    // v27 (see [MIGRATION_26_27]) adds `answers` to capture_evidence_drafts — the operator's typed
+    // form answers on a reserved `__answers__` row, so re-entering a capture screen restores the
+    // numbers and remarks beside the videos instead of demanding the whole sheet again.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -271,6 +286,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun countsBreakdownMetaCacheDao(): CountsBreakdownMetaCacheDao
     abstract fun countsBreakdownItemDao(): CountsBreakdownItemDao
     abstract fun countsBreakdownRemoteKeyDao(): CountsBreakdownRemoteKeyDao
+    abstract fun captureEvidenceDraftDao(): CaptureEvidenceDraftDao
     abstract fun countsApprovalItemDao(): CountsApprovalItemDao
     abstract fun countsApprovalRemoteKeyDao(): CountsApprovalRemoteKeyDao
     abstract fun countsShiftingDestinationsCacheDao(): CountsShiftingDestinationsCacheDao

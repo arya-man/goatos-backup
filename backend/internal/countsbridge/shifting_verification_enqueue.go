@@ -39,6 +39,7 @@ func (e *ShiftingVerificationEnqueuer) EnqueueShiftingMoveVerification(ctx conte
 		Module:       countsdomain.VerificationModuleShifting,
 		Category:     countsdomain.VerificationCategoryShifting,
 		SubjectLabel: ptrIfSet(in.SubjectLabel),
+		SubjectNote:  ptrIfSet(in.SubjectNote),
 		Source: verificationdomain.SourceRef{
 			Module:  countsdomain.VerificationModuleShifting,
 			RefType: countsdomain.VerificationRefTypeShifting,

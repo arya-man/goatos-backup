@@ -63,10 +63,15 @@ type ShiftingEvent struct {
 	SourceSystem            string
 	SourceRef               string
 	ProofRef                *string
-	PayloadHash             string
-	IdempotencyKey          string
-	RequestFingerprint      string
-	Impacts                 []ShiftingEventImpact
+	// RaiseComment is the raiser's optional free-text note on WHY the animals are moving. It is
+	// operator intent, never a business rule: nothing downstream branches on it. It is carried to
+	// the park head deciding the approval and to the verifier reviewing the evidence, so both read
+	// the same words the operator wrote. nil means no note; it is never defaulted to a placeholder.
+	RaiseComment       *string
+	PayloadHash        string
+	IdempotencyKey     string
+	RequestFingerprint string
+	Impacts            []ShiftingEventImpact
 }
 
 // ShiftingEventImpact is the structured cohort/stage effect of one movement.

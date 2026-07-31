@@ -39,4 +39,16 @@ class MeshaNavIconTest {
         assertNotSame(MeshaIcons.Module, feedingIcon)
         assertNotSame(preparationIcon, feedingIcon)
     }
+
+    /**
+     * The Milk MODULE drawer row (maintainer decision 2026-07-31, split out of Counts) must carry
+     * a milk glyph, not the neutral fallback tile every unmapped key lands on.
+     */
+    @Test
+    fun milkModuleDrawerRowHasItsOwnIcon() {
+        val moduleIcon = MeshaIcons.forNavKey("milk")
+
+        assertSame(MeshaIcons.MilkPreparation, moduleIcon)
+        assertNotSame(MeshaIcons.Module, moduleIcon)
+    }
 }

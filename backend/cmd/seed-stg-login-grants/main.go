@@ -60,7 +60,10 @@ import (
 // 2026-07-22), and RoleOperator already holds ProtocolRead/FeedPackingRead for
 // those two Feed tabs. Omitting feed_direction here is what left STG-seeded
 // operators without the Feed module while local (roster-seeded) operators had it.
-var defaultVaccinationModules = []string{"vaccination", "counts", "feed_direction"}
+// "milk" accompanies counts for the same reason: Milk Preparation and Milk Feeding
+// moved into their own drawer module (maintainer decision 2026-07-31), so a grant set
+// carrying counts but not milk loses those two daily pages.
+var defaultVaccinationModules = []string{"vaccination", "counts", "milk", "feed_direction"}
 
 var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 

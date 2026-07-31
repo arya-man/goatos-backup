@@ -89,6 +89,9 @@
     <string name="counts_group_current_location">ಪ್ರಸ್ತುತ ಸ್ಥಳ</string>
     <string name="counts_group_priority">ಆದ್ಯತೆ</string>
     <string name="counts_group_category">ವರ್ಗ</string>
+    <string name="counts_group_comment">ಟಿಪ್ಪಣಿ</string>
+    <string name="counts_field_comment">ಈ ಪ್ರಾಣಿಯನ್ನು ಏಕೆ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತಿದೆ?</string>
+    <string name="counts_hint_comment">ಐಚ್ಛಿಕ. ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸುವ ಫಾರ್ಮ್ ಮುಖ್ಯಸ್ಥರು ಮತ್ತು ನಿಮ್ಮ ವೀಡಿಯೊ ಪರಿಶೀಲಿಸುವವರು ಇದನ್ನು ಓದುತ್ತಾರೆ.</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 1</string>

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -240,6 +241,12 @@ type appShiftingEventRequest struct {
 	ProofRef              *string                    `json:"proof_ref,omitempty"`
 	Impacts               []appShiftingImpactRequest `json:"impacts"`
 
+	// Comment is the raiser's OPTIONAL note on why the animals are moving (maintainer decision
+	// 2026-07-31). It is read by the approving park head and by the verifier reviewing the
+	// evidence. A blank or whitespace-only value normalizes to absent, so "the operator wrote
+	// nothing" has exactly one representation downstream instead of two.
+	Comment *string `json:"comment,omitempty"`
+
 	// GoatIDs names the individual animals this movement covers. REQUIRED, and load-bearing:
 	// approving the request relocates EXACTLY these animals to the destination shed.
 	//
@@ -289,6 +296,11 @@ type appApprovalSubmitResponse struct {
 	IdempotentReplay  bool                      `json:"idempotent_replay"`
 	Children          []domain.BirthChildResult `json:"children,omitempty"`
 }
+
+// maxShiftingCommentRunes bounds the raiser's optional note. Counted in RUNES so the limit is
+// the same number of characters an operator typing Kannada, Telugu, or Hindi sees, and so it
+// matches Postgres char_length() in shifting_events_raise_comment_length_check exactly.
+const maxShiftingCommentRunes = 1000
 
 var (
 	// Governing product-doc taxonomy (maintainer decision 2026-07-20): Priority High/Low,
@@ -482,6 +494,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		SourceSystem:            appShiftingSourceSystem,
 		SourceRef:               appShiftingEventRoute + ":" + clientKey,
 		ProofRef:                normalized.ProofRef,
+		RaiseComment:            normalized.Comment,
 		PayloadHash:             stableHash("counts-app-shifting-payload", canonical),
 		IdempotencyKey:          "app-counts-shifting:" + clientKey,
 		RequestFingerprint:      stableHash("counts-app-shifting-request", canonical),
@@ -514,6 +527,10 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category              string  `json:"category,omitempty"`
 		ManagementStageMode   string  `json:"management_stage_mode"`
 		TargetManagementStage string  `json:"target_management_stage"`
+		// The raiser's note travels WITH the approval request, not just on the movement row: the
+		// park head decides from this payload, so a comment the operator wrote to justify the move
+		// has to be in front of them at the moment they approve or reject.
+		Comment *string `json:"comment,omitempty"`
 		// Never omitempty: normalizeShiftingEventRequest guarantees a non-empty set, so a stored
 		// payload without goat_ids is a corruption signal the approval path must be able to see.
 		GoatIDs []string `json:"goat_ids"`
@@ -529,6 +546,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category:              normalized.Category,
 		ManagementStageMode:   normalized.ManagementStageMode,
 		TargetManagementStage: normalized.TargetManagementStage,
+		Comment:               normalized.Comment,
 		GoatIDs:               normalized.GoatIDs,
 	})
 	if err != nil {
@@ -562,6 +580,7 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	req.SourceParkID = trimOptionalPtr(req.SourceParkID)
 	req.SourceShedID = trimOptionalPtr(req.SourceShedID)
 	req.ProofRef = trimOptionalPtr(req.ProofRef)
+	req.Comment = trimOptionalPtr(req.Comment)
 	req.DestinationParkID = strings.TrimSpace(req.DestinationParkID)
 	req.DestinationShedID = strings.TrimSpace(req.DestinationShedID)
 	req.Priority = strings.ToLower(strings.TrimSpace(req.Priority))
@@ -601,6 +620,14 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	}
 	if req.Category != "" && !allowedShiftingCategory[req.Category] {
 		return req, identityapp.BadRequest("invalid_category", "category must be growth, health, breeding, or delivery")
+	}
+	// A present-but-too-long comment is REJECTED, never silently truncated: the operator's own
+	// words go in front of an approver and a verifier, so quietly cutting them changes what the
+	// decision-maker reads. The bound matches shifting_events_raise_comment_length_check, so the
+	// API and the column agree instead of the write failing later with a constraint violation.
+	if req.Comment != nil && utf8.RuneCountInString(*req.Comment) > maxShiftingCommentRunes {
+		return req, identityapp.BadRequest("comment_too_long",
+			fmt.Sprintf("comment must be at most %d characters", maxShiftingCommentRunes))
 	}
 	// goat_ids is REQUIRED: a shifting event must name the animals it moves (maintainer decision,
 	// 2026-07-19). Rejecting here -- at SUBMIT -- rather than at approval is deliberate: the

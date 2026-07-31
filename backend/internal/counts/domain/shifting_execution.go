@@ -159,6 +159,11 @@ type ShiftingExecutionResult struct {
 	// moves nobody.
 	MovedGoatIDs []string
 
+	// RaiseComment is the note the OPERATOR WHO RAISED this movement wrote about why the animals
+	// are moving. Carried on the completion result so the evidence-review enqueue can hand it to
+	// the verifier, who otherwise sees only the video and a system-composed label.
+	RaiseComment *string
+
 	AppliedAt *time.Time
 	AppliedBy *string
 

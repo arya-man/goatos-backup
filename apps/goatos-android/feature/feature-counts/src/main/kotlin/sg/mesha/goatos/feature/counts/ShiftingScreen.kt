@@ -134,6 +134,13 @@ data class ShiftingUiState(
     val priority: String = SHIFTING_PRIORITY_LOW,
     val category: String = SHIFTING_CATEGORY_GROWTH,
 
+    // --- 6. optional note --------------------------------------------------------------------
+    /**
+     * The raiser's optional note on why the animals are moving. Never gates [canSubmit] — it is
+     * context for the park head approving and the verifier reviewing, not a required field.
+     */
+    val comment: String = "",
+
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
@@ -183,6 +190,8 @@ sealed interface ShiftingEvent {
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
+
+    data class EditComment(val value: String) : ShiftingEvent
 
     data object Submit : ShiftingEvent
     data object NavigationHandled : ShiftingEvent
@@ -370,6 +379,22 @@ fun ShiftingScreen(
                         ),
                         selectedKey = state.category,
                         onSelect = { onEvent(ShiftingEvent.SelectCategory(it)) },
+                    )
+                }
+            }
+
+            // --- 6. Comment ------------------------------------------------------------------
+            // Optional by design: it never gates Submit. It is read by the park head approving the
+            // movement and by the verifier reviewing the evidence afterwards.
+            item(key = "comment") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountsFieldGroupTitle(text = stringResource(R.string.counts_group_comment))
+                    CountsTextField(
+                        value = state.comment,
+                        onValueChange = { onEvent(ShiftingEvent.EditComment(it)) },
+                        label = stringResource(R.string.counts_field_comment),
+                        supporting = stringResource(R.string.counts_hint_comment),
+                        singleLine = false,
                     )
                 }
             }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
@@ -48,6 +49,7 @@ import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
+import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
@@ -130,6 +132,8 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_22_23,
                 MIGRATION_23_24,
                 MIGRATION_24_25,
+                MIGRATION_25_26,
+                MIGRATION_26_27,
             )
             .build()
         try {
@@ -164,6 +168,43 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals(
                 "task-1",
                 upgraded.feedTransportScopedItemDao().observe("2026-07-29|park-1||", 20).first().single().taskId,
+            )
+
+            // The v26 shared capture evidence draft (MIGRATION_25_26) exists and round-trips post-upgrade.
+            // An installed APK opening this file must find the table Room's @Entity set expects —
+            // an entity added with no migration compiles, works on a fresh install, and crashes
+            // every upgrade (docs/decisions/room-migration-safety.md).
+            upgraded.captureEvidenceDraftDao().upsert(
+                CaptureEvidenceDraftEntity(
+                    flowKey = "shifting",
+                    entityId = "move-1",
+                    step = "shifting",
+                    outboxItemId = "proof-1",
+                    updatedAt = 26L,
+                ),
+            )
+            val draft = upgraded.captureEvidenceDraftDao().findFor("shifting", "move-1").single()
+            assertEquals("proof-1", draft.outboxItemId)
+            // A row written WITHOUT answers (the v26 shape) must read back cleanly after the v27
+            // ALTER: an installed phone mid-capture keeps the clip it already recorded and simply
+            // has no typed answers yet.
+            assertNull(draft.answers)
+
+            // The v27 answers column (MIGRATION_26_27) round-trips, so the typed half of a draft
+            // survives Back + re-entry on an UPGRADED install, not only a fresh one.
+            upgraded.captureEvidenceDraftDao().upsert(
+                CaptureEvidenceDraftEntity(
+                    flowKey = "milk_preparation",
+                    entityId = "park-1:2026-07-31",
+                    step = "__answers__",
+                    answers = """{"morning":"12.5"}""",
+                    updatedAt = 27L,
+                ),
+            )
+            assertEquals(
+                """{"morning":"12.5"}""",
+                upgraded.captureEvidenceDraftDao()
+                    .findFor("milk_preparation", "park-1:2026-07-31").single().answers,
             )
 
             // 5. The v11 scan_roster_row table (R50-007/task-scoped R50 rework) is present and
@@ -440,6 +481,8 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_22_23,
                 MIGRATION_23_24,
                 MIGRATION_24_25,
+                MIGRATION_25_26,
+                MIGRATION_26_27,
             )
             .build()
         try {

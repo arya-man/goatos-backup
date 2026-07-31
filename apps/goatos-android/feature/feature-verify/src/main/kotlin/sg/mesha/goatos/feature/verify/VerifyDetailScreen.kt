@@ -85,10 +85,11 @@ data class VerifyMediaItem(
     val answer: String? = null,
 )
 
-/** The four fixed context dimensions the spec calls out (shed/park/operator/timestamp). The
+/** The context dimensions a reviewer needs: the four fixed ones the spec calls out
+ *  (shed/park/operator/timestamp), plus the raiser's own note when the producer supplied one. The
  *  LABEL for each is client UI chrome, resolved from a string resource by [ContextCard] — only
  *  [VerifyContextRow.value] is backend data. */
-enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT }
+enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT, RAISED_NOTE }
 
 /** One context line: [kind] picks the localized label, [value] is the backend-composed
  *  display string (shed/park/operator name, or a formatted capture timestamp). */
@@ -747,6 +748,7 @@ private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {
     VerifyContextKind.PARK -> stringResource(R.string.verify_detail_park_label)
     VerifyContextKind.OPERATOR -> stringResource(R.string.verify_detail_operator_label)
     VerifyContextKind.CAPTURED_AT -> stringResource(R.string.verify_detail_captured_label)
+    VerifyContextKind.RAISED_NOTE -> stringResource(R.string.verify_detail_raised_note_label)
 }
 
 @Composable

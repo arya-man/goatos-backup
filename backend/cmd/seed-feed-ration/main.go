@@ -149,10 +149,16 @@ var defaultSchedules = []struct {
 	// amended sheet per day instead of several racing ones.
 	CorrectionTime string
 	// TransportTime is the cutoff after which a correction can no longer reach the shed.
+	//
+	// 15:30, matching the hard 15:30 IST gate in MaterializeTransportTasks (adapters/postgres/
+	// transport.go) that creates the day's one-task-per-shed transport work. These were 15:45 and
+	// 15:30 respectively, which read as one rule but were two: the sheet stayed amendable for
+	// 15 minutes after the transport tasks had already been cut. Maintainer decision 2026-07-31:
+	// one time, 15:30 -- the sheet locks exactly when transport is raised.
 	TransportTime string
 }{
-	{"normal", "07:00:00", "14:00:00", "15:45:00"},
-	{"experiment", "14:00:00", "14:00:00", "15:45:00"},
+	{"normal", "07:00:00", "14:00:00", "15:30:00"},
+	{"experiment", "14:00:00", "14:00:00", "15:30:00"},
 }
 
 // parkCodes maps the source grid's farm key to the locations.location_code it must resolve to.

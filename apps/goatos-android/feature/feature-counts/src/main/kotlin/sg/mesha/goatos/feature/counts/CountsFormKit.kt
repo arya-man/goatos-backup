@@ -111,6 +111,12 @@ internal fun CountsTextField(
     readOnly: Boolean = false,
     /** Optional end-slot control (e.g. the RFID scan toggle in [CountsRfidField]). */
     trailingIcon: @Composable (() -> Unit)? = null,
+    /**
+     * False for a free-text note that should wrap and grow instead of scrolling sideways in a
+     * one-line box. Every identifier/quantity field stays single-line, which is why that is the
+     * default.
+     */
+    singleLine: Boolean = true,
 ) {
     // Modernized to a tonal filled field (no hairline border) matching the mock's coherent
     // form chrome; behavior/params are unchanged so every screen benefits without call-site edits.
@@ -120,7 +126,11 @@ internal fun CountsTextField(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 54.dp),
-        singleLine = true,
+        singleLine = singleLine,
+        // Bounded on both ends: tall enough that a note does not feel like a one-line box, capped
+        // so a long note scrolls inside the field instead of pushing Submit off the form.
+        minLines = if (singleLine) 1 else 3,
+        maxLines = if (singleLine) 1 else 6,
         readOnly = readOnly,
         isError = isError,
         shape = RoundedCornerShape(14.dp),

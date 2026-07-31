@@ -23,6 +23,9 @@ type Handler struct {
 	log     *slog.Logger
 }
 
+// statusAll is the queue's "no status filter" query value — see the QueueStatusOption kdoc.
+const statusAll = "all"
+
 func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 	l := slog.Default()
 	if len(log) > 0 && log[0] != nil {
@@ -41,11 +44,15 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 }
 
 type queueItemResponse struct {
-	ItemID            string             `json:"item_id"`
-	Vertical          string             `json:"vertical"`
-	Module            string             `json:"module"`
-	Category          string             `json:"category"`
-	SubjectLabel      *string            `json:"subject_label,omitempty"`
+	ItemID       string  `json:"item_id"`
+	Vertical     string  `json:"vertical"`
+	Module       string  `json:"module"`
+	Category     string  `json:"category"`
+	SubjectLabel *string `json:"subject_label,omitempty"`
+	// SubjectNote is the raiser's own words about this work item (e.g. why a movement was
+	// requested), shown to the verifier alongside the evidence. Distinct from SubjectLabel,
+	// which is system-composed identity.
+	SubjectNote       *string            `json:"subject_note,omitempty"`
 	Status            string             `json:"status"`
 	VerdictReason     *string            `json:"verdict_reason,omitempty"`
 	OperatorID        *string            `json:"operator_id,omitempty"`
@@ -103,6 +110,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		Module:            row.Item.Module,
 		Category:          row.Item.Category,
 		SubjectLabel:      row.Item.SubjectLabel,
+		SubjectNote:       row.Item.SubjectNote,
 		Status:            row.Item.Status,
 		VerdictReason:     row.Item.VerdictReason,
 		OperatorID:        row.Item.OperatorID,
@@ -164,8 +172,16 @@ func (h *Handler) listQueue(
 	}
 	restricted, parkIDs := verificationParkScope(r, permission)
 	status := forcedStatus
+	includeAllStatuses := actionQueue
 	if status == "" {
 		status = q.Get("status")
+		// `status=all` is the explicit "no status filter" selection. It cannot be expressed by
+		// omitting the parameter: an absent status defaults to pending in the service, which is the
+		// landing tab. Without this, an All tab would silently render Due only.
+		if strings.EqualFold(strings.TrimSpace(status), statusAll) {
+			status = ""
+			includeAllStatuses = true
+		}
 	}
 	missedOnly := false
 	if raw := strings.TrimSpace(q.Get("missed")); raw != "" {
@@ -191,7 +207,7 @@ func (h *Handler) listQueue(
 		ParkIDs:              parkIDs,
 		ScopeRestricted:      restricted,
 		ReadyForClosure:      forcedStatus == domain.StatusApproved,
-		IncludeAllStatuses:   actionQueue,
+		IncludeAllStatuses:   includeAllStatuses,
 		SubmissionScopedOnly: actionQueue,
 		OpenOnly:             actionQueue,
 	}

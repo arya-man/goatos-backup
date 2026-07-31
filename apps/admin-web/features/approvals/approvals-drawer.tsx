@@ -54,6 +54,11 @@ function readableDetail(
   if (to) out.push({ label: "To", value: to });
   const reason = str("reason");
   if (reason) out.push({ label: "Reason", value: reason });
+  // The raiser's own words on WHY the animals are moving, captured on the phone at raise time.
+  // Last, because it is the operator's narrative rather than a classified field — the approver
+  // reads the structured facts first, then the note explaining them.
+  const comment = str("comment");
+  if (comment) out.push({ label: "Operator note", value: comment });
   return out;
 }
 

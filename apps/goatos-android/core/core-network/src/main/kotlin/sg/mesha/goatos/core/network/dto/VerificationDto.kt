@@ -55,6 +55,8 @@ data class VerificationQueueItem(
     @SerialName("module") val module: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("subject_label") val subjectLabel: String? = null,
+    /** The raiser's own note about this work item (e.g. why a movement was requested). */
+    @SerialName("subject_note") val subjectNote: String? = null,
     @SerialName("status") val status: String = "",
     @SerialName("captured_at") val capturedAt: String = "",
     @SerialName("row_version") val rowVersion: Int = 1,
