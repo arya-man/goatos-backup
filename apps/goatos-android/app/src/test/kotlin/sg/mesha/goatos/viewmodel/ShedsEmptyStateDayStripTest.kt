@@ -18,7 +18,10 @@ import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -52,7 +55,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `empty response anchors the day strip on yesterday and lands on today`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), FakeShedsBootstrapRepository(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -70,7 +73,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `yesterday tab is selectable`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), FakeShedsBootstrapRepository(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -118,6 +121,7 @@ class ShedsEmptyStateDayStripTest {
                 ),
             ),
             NoopCrashReporter(),
+            FakeShedsBootstrapRepository(),
             SavedStateHandle(),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -131,6 +135,28 @@ class ShedsEmptyStateDayStripTest {
         assertEquals(5, state.doneCount)
         assertEquals("5 / 5 done", state.daySummary)
     }
+
+    @Test
+    fun `pc director gets leadership shed presentation even when execution is allowed`() = runTest(dispatcher) {
+        val vm = ShedsViewModel(
+            EmptyExecutionRepository(),
+            NoopCrashReporter(),
+            FakeShedsBootstrapRepository(role = "pc_director"),
+            SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.leadershipMode)
+    }
+}
+
+private class FakeShedsBootstrapRepository(
+    private val role: String = "operator",
+) : BootstrapRepository {
+    override suspend fun loadNavState(): NavState = error("unused")
+    override suspend fun operatorProfile(): BootstrapOperatorProfileDto =
+        BootstrapOperatorProfileDto(primaryRoleHint = role)
 }
 
 /** Emits a single empty-but-present execution response (hasData = true, zero rows). */

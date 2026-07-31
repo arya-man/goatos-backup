@@ -366,7 +366,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
-            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) })
+            EventCard(
+                item = item,
+                onClick = {
+                    onEvent(
+                        CalendarEvent.TapItem(
+                            itemId = item.id,
+                            target = item.target,
+                            dateKey = item.dateKey,
+                            parkId = item.parkId,
+                        ),
+                    )
+                },
+            )
         }
         if (state.weekLoadingMore) {
             item {
@@ -948,7 +960,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             EventCard(
                 item = item,
                 showScheduleContext = true,
-                onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
+                onClick = {
+                    onEvent(
+                        CalendarEvent.TapItem(
+                            itemId = item.id,
+                            target = item.target,
+                            dateKey = item.dateKey,
+                            parkId = item.parkId,
+                        ),
+                    )
+                },
             )
         }
 
@@ -968,7 +989,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 EventCard(
                     item = item,
                     showScheduleContext = true,
-                    onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
+                    onClick = {
+                        onEvent(
+                            CalendarEvent.TapItem(
+                                itemId = item.id,
+                                target = item.target,
+                                dateKey = item.dateKey,
+                                parkId = item.parkId,
+                            ),
+                        )
+                    },
                 )
             }
         }

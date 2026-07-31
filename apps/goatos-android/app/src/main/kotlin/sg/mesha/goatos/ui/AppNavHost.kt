@@ -149,6 +149,7 @@ object Routes {
     const val CALENDAR_DRIVE = "/calendar/drive"
     const val CALENDAR_DRIVE_DATE_ARG = "dateKey"
     const val CALENDAR_DRIVE_HOSTED_ARG = "calendarHosted"
+    const val CALENDAR_DRIVE_PARK_ARG = "parkId"
     const val SCAN = "/scan"
     const val SUBMIT = "/submit"
     const val RECORD = "/record"
@@ -454,11 +455,14 @@ object Routes {
             if (showCompletedHistory) append("&$CALENDAR_DAY_STATUS_ARG=completed")
         }
 
-    fun calendarDriveRoute(dateKey: String?): String =
+    fun calendarDriveRoute(dateKey: String?, parkId: String? = null): String =
         buildString {
             append("$CALENDAR_DRIVE?$CALENDAR_DRIVE_HOSTED_ARG=true")
             dateKey?.takeIf { it.isNotBlank() }?.let {
                 append("&$CALENDAR_DRIVE_DATE_ARG=${Uri.encode(it)}")
+            }
+            parkId?.takeIf { it.isNotBlank() }?.let {
+                append("&$CALENDAR_DRIVE_PARK_ARG=${Uri.encode(it)}")
             }
         }
 
@@ -487,8 +491,12 @@ private fun String.isPerShedPartitionCategory(): Boolean =
  * backend-href -> route mapping for an FCM push carrying an explicit `target`/`href`, so a
  * notification tap opens exactly where a Calendar tap on the same backend item would.
  */
-internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
-    val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
+internal fun calendarTargetRoute(
+    target: String?,
+    fallbackDateKey: String? = null,
+    fallbackParkId: String? = null,
+): String {
+    val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey, fallbackParkId)
     if (target.isNullOrBlank()) return fallbackDriveRoute
     val normalizedTarget = target.substringBefore('?').trimEnd('/')
     if (normalizedTarget == Routes.WEIGHING || normalizedTarget == Routes.WEIGHING_SCAN) return target
@@ -620,7 +628,9 @@ fun AppNavHost(
                             // The paged row carries its backend target directly; navigation is O(1)
                             // and never searches/copies a growing list in ViewModel memory.
                             vm.onEvent(event)
-                            navController.navigate(calendarTargetRoute(event.target, event.dateKey)) { launchSingleTop = true }
+                            navController.navigate(calendarTargetRoute(event.target, event.dateKey, event.parkId)) {
+                                launchSingleTop = true
+                            }
                         }
                         // A MONTH-grid day tap opens the day's own L1 screen (real drill),
                         // never an inline sheet under the grid.
@@ -674,8 +684,10 @@ fun AppNavHost(
                 state = state,
                 onBack = { navController.popBackStack() },
                 onItemTap = { itemId ->
-                    val target = state.items.firstOrNull { it.id == itemId }?.target
-                    navController.navigate(calendarTargetRoute(target, fallbackDateKey)) { launchSingleTop = true }
+                    val item = state.items.firstOrNull { it.id == itemId }
+                    navController.navigate(calendarTargetRoute(item?.target, fallbackDateKey, item?.parkId)) {
+                        launchSingleTop = true
+                    }
                 },
                 onLoadMore = vm::loadMore,
             )
@@ -870,7 +882,7 @@ fun AppNavHost(
             }
         }
         composable(
-            route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}",
+            route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}&${Routes.CALENDAR_DRIVE_PARK_ARG}={${Routes.CALENDAR_DRIVE_PARK_ARG}}",
             arguments = listOf(
                 navArgument(Routes.CALENDAR_DRIVE_HOSTED_ARG) {
                     type = NavType.StringType
@@ -878,6 +890,11 @@ fun AppNavHost(
                     defaultValue = null
                 },
                 navArgument(Routes.CALENDAR_DRIVE_DATE_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.CALENDAR_DRIVE_PARK_ARG) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
