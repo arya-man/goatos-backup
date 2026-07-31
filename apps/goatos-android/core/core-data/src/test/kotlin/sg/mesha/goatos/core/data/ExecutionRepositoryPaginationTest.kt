@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import retrofit2.HttpException
 
 /**
  * Scan roster is a per-row SSOT ([ScanRosterRowDao]), never a whole-collection JSON blob
@@ -192,6 +193,37 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `task-scoped roster falls back to shed roster but publishes into task scope`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 404
+            backend.response = ::numberedPage
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+            assertEquals(
+                listOf(TASK_ID, null, null, null),
+                requests.map { it.taskId },
+            )
+        }
+    }
+
+    @Test
+    fun `task-scoped roster non-404 failure does not fall back to shed roster`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 500
+            backend.response = ::numberedPage
+
+            val result = repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE)
+
+            assertTrue(result.exceptionOrNull() is HttpException)
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(listOf(TASK_ID), requests.map { it.taskId })
+        }
+    }
+
+    @Test
     fun `large multi-page roster streams every page into the SSOT with a bounded window`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = ::largeNumberedPage
@@ -230,6 +262,11 @@ class ExecutionRepositoryPaginationTest {
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
                             throw IOException("offline")
                         }
+                        backend.taskScopedFailureStatus?.let { status ->
+                            if (request.taskId != null) {
+                                throw HttpException(status)
+                            }
+                        }
                         backend.response(request.cursor)
                     }
                     "toString" -> "ScanRosterAppApiTestProxy"
@@ -257,6 +294,7 @@ class ExecutionRepositoryPaginationTest {
 
     private class Backend {
         var offlineCursor: String? = null
+        var taskScopedFailureStatus: Int? = null
         var response: (String?) -> ScanRosterResponseDto = { error("response not configured") }
     }
 
