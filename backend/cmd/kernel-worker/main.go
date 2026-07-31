@@ -167,6 +167,13 @@ func run(ctx context.Context, args []string) error {
 		supervisor.RegisterCadence("operational", 5*time.Minute,
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
 			kernelstages.NewFeedTransportStage(deps, tenantID),
+			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
+			// work-item kernel (terminal reconcile -> roll-forward ->
+			// delayed/escalation -> day-start) runs as one bounded stage on this
+			// existing operational lane, so day-start surfacing lands within
+			// minutes of the Asia/Kolkata business-day boundary and escalation
+			// does not wait an hour.
+			kernelstages.NewWeighingKernelStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),

@@ -21,9 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -90,6 +92,7 @@ data class WeighingUiState(
     val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
     val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
+    val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
@@ -264,6 +267,7 @@ fun WeighingScreen(
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onAssignmentRowVisible: (Int) -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
     onTogglePlannerShed: (String) -> Unit = {},
@@ -402,12 +406,19 @@ fun WeighingScreen(
                         )
                     }
                 }
-                items(state.assignments, key = { it.campaignShedId }) { row ->
+                itemsIndexed(state.assignments, key = { _, row -> row.campaignShedId }) { index, row ->
+                    // The list itself pulls the next page as the operator scrolls near the end.
+                    LaunchedEffect(row.campaignShedId, index, state.assignments.size) {
+                        onAssignmentRowVisible(index)
+                    }
                     AssignmentRow(
                         row = row,
                         onOpen = { onOpenAssignment(row) },
                         onReopen = { onReopenAssignment(row) },
                     )
+                }
+                if (state.assignmentsLoadingMore) {
+                    item(key = "assignments-loading-more") { ListLoadingFooter() }
                 }
             }
 
@@ -432,6 +443,29 @@ fun WeighingScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun ListLoadingFooter() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            color = MeshaColors.Brand,
+            strokeWidth = 2.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "Loading more work",
+            color = MeshaColors.Muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

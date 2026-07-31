@@ -70,6 +70,14 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | POST /weighing/campaigns, /weighing/campaigns/{campaign_id}/publish | EXCLUDED | Leadership write/publish workflow, not a read metric. Result remains visible through `GET /weighing/campaigns`. |
 | POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen (func:ReopenScope) | EXCLUDED | Growth Director/CEO write path that reopens a completed weighing shed bucket for more free-flow scans. It adds no new CEO assistant read API, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. Leadership sees the result through existing `GET /weighing/campaigns` campaign/shed status and progress reads. |
 | POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations | EXCLUDED | Operator write-flow submissions with mandatory proof; leadership sees progress/review state through `/weighing/campaigns`. |
+| func:RegisterVerificationAppliers | EXCLUDED | Phase 1 write-path and verification consumer plumbing; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:NewWeighingLifecycleEventConsumer | EXCLUDED | Phase 1 write-path consumer factory; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:Register (weighing lifecycle event consumer) | EXCLUDED | Phase 1 write-path consumer registration into kernel; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:HandleEvent (weighing lifecycle event consumer) | EXCLUDED | Phase 1 write-path event consumption; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership sees weighing state through `GET /weighing/campaigns`. |
+| func:CloseScope (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:CloseCampaign (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:ApplyVerificationVerdict (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership sees weighing verification state through `GET /weighing/campaigns`. |
+| func:NewVerificationVerdictHandler (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer factory; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
 | GET /control-tower/vaccination (func:ControlTower) | api + view:action_center_current | Leadership control tower |
 | GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/*. Runtime contract: operator execution and scan rosters must filter split-shed work by `vaccination_drive_assignments` plus `goat_shed_partitions`, so one operator cannot see another operator's partition animals inside the same batch/shed. |
@@ -575,3 +583,54 @@ choice. These are operator-entry and per-animal detail facts, not an official
 leadership KPI or aggregate read surface. Leadership birth/mortality answers
 remain on the existing governed Counts aggregates; no `ceo_ai.*` view, Cube
 metric, or Toolbox row-level tool is warranted.
+
+## Explicit exclusion: weighing verification bridge and lifecycle consumer (2026-07-31)
+
+The weighing verification bridge writes newly-captured animals' observations into
+the existing Verification workstream. The following are Phase 1 implementation
+internals for the weighing-to-verification integration and operator lifecycle
+event handling. Leadership visibility on weighing state remains through the
+existing `GET /weighing/campaigns` read API and its shed/campaign status surfaces.
+
+**EXCLUDED — `func:RegisterVerificationAppliers`** — internal registry function
+that wires weighing verification appliers into the verification consumer. It is
+plumbing on the write path with no leadership read API, KPI, Cube metric, `ceo_ai`
+view, or Toolbox tool.
+
+**EXCLUDED — `func:NewWeighingLifecycleEventConsumer`** — internal constructor
+for the weighing lifecycle event consumer. It is write-path consumer factory code
+with no leadership read surface.
+
+**EXCLUDED — `func:Register`** (on the weighing lifecycle event consumer) —
+internal Stage interface implementation to register the consumer into the kernel
+worker. It is scheduler/kernel plumbing, not a leadership read.
+
+**EXCLUDED — `func:HandleEvent`** (on the weighing lifecycle event consumer) —
+internal consumer event handler that processes weighing state transitions. It is
+write-path event consumption with no leadership-facing read API, Cube metric,
+`ceo_ai` view, or Toolbox tool.
+
+**EXCLUDED — `func:CloseScope`** (on the weighing verification verdict handler) —
+internal helper that closes a weighing campaign/shed scope after a verifier
+approval/reject. It is part of the verification write path with no leadership
+aggregate read surface.
+
+**EXCLUDED — `func:CloseCampaign`** (on the weighing verification verdict
+handler) — internal helper that marks a weighing campaign as complete when all
+sheds are done. It is verification consumer plumbing with no leadership KPI.
+
+**EXCLUDED — `func:ApplyVerificationVerdict`** (on the weighing verification
+verdict handler) — internal function that applies a verifier approval or reject
+to a weighing observation. It is verification write-path application logic, not a
+leadership read. Leadership sees the result (campaign/shed status, progress) through
+the existing `GET /weighing/campaigns` API.
+
+**EXCLUDED — `func:NewVerificationVerdictHandler`** (on the weighing verification
+verdict handler) — internal constructor for the verification verdict consumer
+listening to `verification.verdict.approved`/`.rework` events scoped to weighing.
+It is consumer factory code with no leadership read surface.
+
+A future Phase 2 Calendar/Control Tower binding may add leadership views; that
+will graduate some surfaces from excluded to covered. For now, the weighing write
+path and verification consumer are Phase 1 operational internals covered only by
+their existing operational surface read APIs (`GET /weighing/campaigns`).

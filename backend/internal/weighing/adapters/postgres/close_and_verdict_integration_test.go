@@ -1,0 +1,869 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
+)
+
+const (
+	repoExpectedShedProof = "00000000-0000-4000-8000-000000009401"
+	repoVerifier          = "00000000-0000-4000-8000-000000000401"
+
+	// Roster rows seeded ALREADY terminal, to prove close leaves them alone.
+	repoTerminalUnavailableAnimal = "00000000-0000-4000-8000-000000009291"
+	repoTerminalCanceledAnimal    = "00000000-0000-4000-8000-000000009292"
+)
+
+// -----------------------------------------------------------------------------
+// EXPLICIT CLOSE
+// -----------------------------------------------------------------------------
+
+// Closing a bucket that still holds work is the whole point of explicit close, and
+// it must NOT launder that work into accepted work. The bucket reaches its own
+// terminal status 'closed' (never 'completed'), the expected animal stays 'pending',
+// and the reason/actor/not-accepted count are recorded on the row, in the audit
+// trail, and on the outbox event.
+func TestCloseScopeEndsBucketWithOpenWorkWithoutEverAcceptingIt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	result, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		CampaignShedID: repoAnimalScope,
+		Reason:         "shed emptied early",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:scope-open-work",
+	})
+	if err != nil {
+		t.Fatalf("close scope with open work: %v", err)
+	}
+	if result.Status != domain.StatusClosed {
+		t.Fatalf("close result status=%q, want %q", result.Status, domain.StatusClosed)
+	}
+	if result.NotAcceptedCount != 1 {
+		t.Fatalf("not accepted count=%d, want 1 (the pending expected animal)", result.NotAcceptedCount)
+	}
+	if len(result.NotAccepted) != 1 {
+		t.Fatalf("not accepted sample=%v, want one identifier", result.NotAccepted)
+	}
+	if result.ClosedAt.IsZero() {
+		t.Fatal("close result carries no closed_at")
+	}
+
+	// 'closed' is a DISTINCT terminal status; a closed bucket must never read as completed.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	// The unaccepted work stays unaccepted.
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
+	if weighed := countExpectedAnimalsWithStatus(t, ctx, pool, "weighed"); weighed != 0 {
+		t.Fatalf("close marked %d expected animals weighed; close must never accept work", weighed)
+	}
+
+	var reason, closedBy string
+	var notAcceptedCount int
+	if err := pool.QueryRow(ctx, `
+SELECT close_reason, closed_by::text, closed_not_accepted_count
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&reason, &closedBy, &notAcceptedCount); err != nil {
+		t.Fatalf("read close columns: %v", err)
+	}
+	if reason != "shed emptied early" || closedBy != repoVerifier || notAcceptedCount != 1 {
+		t.Fatalf("close row reason=%q closedBy=%q notAccepted=%d", reason, closedBy, notAcceptedCount)
+	}
+
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
+		t.Fatalf("weighing.shed.closed outbox rows=%d, want 1", got)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.scope_closed"); got != 1 {
+		t.Fatalf("weighing.scope_closed audit rows=%d, want 1", got)
+	}
+	var payloadReason string
+	var payloadNotAccepted int
+	if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'reason', (payload->'payload'->>'not_accepted_count')::int
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type='weighing.shed.closed'`, repoTenant).Scan(&payloadReason, &payloadNotAccepted); err != nil {
+		t.Fatalf("read close event payload: %v", err)
+	}
+	if payloadReason != "shed emptied early" || payloadNotAccepted != 1 {
+		t.Fatalf("close event payload reason=%q notAccepted=%d", payloadReason, payloadNotAccepted)
+	}
+}
+
+// Exact replay: same key, same payload. The original result comes back and NO new
+// side effect is produced -- no second outbox row, no second audit row, and the
+// stored closed_at is untouched.
+func TestCloseScopeExactReplayReturnsOriginalResultWithNoNewSideEffects(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	cmd := domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		CampaignShedID: repoAnimalScope,
+		Reason:         "shed emptied early",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:scope-replay",
+	}
+	first, err := repo.CloseScope(ctx, cmd)
+	if err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	firstClosedAt := readScopeClosedAt(t, ctx, pool, repoAnimalScope)
+
+	replay, err := repo.CloseScope(ctx, cmd)
+	if err != nil {
+		t.Fatalf("exact replay close: %v", err)
+	}
+	if replay.CampaignShedID != first.CampaignShedID || replay.Status != first.Status ||
+		replay.Reason != first.Reason || replay.ClosedBy != first.ClosedBy ||
+		replay.NotAcceptedCount != first.NotAcceptedCount {
+		t.Fatalf("replay result %+v != original %+v", replay, first)
+	}
+	if !replay.ClosedAt.Equal(first.ClosedAt) {
+		t.Fatalf("replay closed_at=%s != original %s", replay.ClosedAt, first.ClosedAt)
+	}
+	if got := readScopeClosedAt(t, ctx, pool, repoAnimalScope); !got.Equal(firstClosedAt) {
+		t.Fatalf("replay rewrote closed_at from %s to %s", firstClosedAt, got)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
+		t.Fatalf("outbox rows after replay=%d, want 1", got)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.scope_closed"); got != 1 {
+		t.Fatalf("audit rows after replay=%d, want 1", got)
+	}
+}
+
+// Same key, DIFFERENT payload is a client bug, not a replay: it must conflict and
+// leave the recorded close exactly as it was.
+func TestCloseSameKeyDifferentPayloadConflictsWithoutMutatingState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	base := domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		CampaignShedID: repoAnimalScope,
+		Reason:         "shed emptied early",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:scope-conflict",
+	}
+	if _, err := repo.CloseScope(ctx, base); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	closedAt := readScopeClosedAt(t, ctx, pool, repoAnimalScope)
+
+	conflicting := base
+	conflicting.Reason = "a completely different reason"
+	if _, err := repo.CloseScope(ctx, conflicting); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same-key-different-payload err=%v, want ErrIdempotencyConflict", err)
+	}
+
+	var storedReason string
+	if err := pool.QueryRow(ctx, `
+SELECT close_reason FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&storedReason); err != nil {
+		t.Fatalf("read stored reason: %v", err)
+	}
+	if storedReason != "shed emptied early" {
+		t.Fatalf("conflicting replay overwrote the reason with %q", storedReason)
+	}
+	if got := readScopeClosedAt(t, ctx, pool, repoAnimalScope); !got.Equal(closedAt) {
+		t.Fatalf("conflicting replay rewrote closed_at")
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
+		t.Fatalf("outbox rows after conflict=%d, want 1", got)
+	}
+}
+
+// Campaign close cascades to every bucket that was NOT already accepted, leaves an
+// accepted (completed) bucket alone, and publishes the affected-bucket list with its
+// assigned operator so the notifier can reach exactly those operators.
+func TestCloseCampaignClosesOpenBucketsKeepsCompletedOnesAndPublishesAffectedBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// The lump-sum bucket is genuinely finished: accepted work must survive a close.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds SET status='completed', completed_at=now()
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoShedScope)
+
+	result, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		Reason:         "monsoon",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:campaign-1",
+	})
+	if err != nil {
+		t.Fatalf("close campaign: %v", err)
+	}
+	if result.NotAcceptedCount != 1 {
+		t.Fatalf("campaign not-accepted bucket count=%d, want 1 (only the open individual bucket)", result.NotAcceptedCount)
+	}
+	assertCampaignStatus(t, ctx, pool, domain.StatusClosed)
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	// An already-accepted bucket keeps its accepted status.
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+	// And the stranded roster row is still stranded, not accepted.
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
+
+	var bucketCount int
+	var bucketOperator, bucketShed string
+	if err := pool.QueryRow(ctx, `
+SELECT jsonb_array_length(payload->'payload'->'buckets'),
+  payload->'payload'->'buckets'->0->>'operator_id',
+  payload->'payload'->'buckets'->0->>'campaign_shed_id'
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type='weighing.campaign.closed'`, repoTenant).Scan(&bucketCount, &bucketOperator, &bucketShed); err != nil {
+		t.Fatalf("read campaign close payload: %v", err)
+	}
+	if bucketCount != 1 || bucketOperator != repoOperator || bucketShed != repoAnimalScope {
+		t.Fatalf("campaign close buckets=%d operator=%q shed=%q, want the one open bucket and its assigned operator", bucketCount, bucketOperator, bucketShed)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.campaign_closed"); got != 1 {
+		t.Fatalf("weighing.campaign_closed audit rows=%d, want 1", got)
+	}
+
+	// Exact replay of the campaign close: original result, no new side effects.
+	replay, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		Reason:         "monsoon",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:campaign-1",
+	})
+	if err != nil {
+		t.Fatalf("campaign close replay: %v", err)
+	}
+	if replay.NotAcceptedCount != result.NotAcceptedCount || !replay.ClosedAt.Equal(result.ClosedAt) {
+		t.Fatalf("campaign close replay %+v != original %+v", replay, result)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.campaign.closed"); got != 1 {
+		t.Fatalf("campaign close outbox rows after replay=%d, want 1", got)
+	}
+}
+
+// A campaign already closed cannot be closed again under a NEW key: that is a state
+// error, not a replay.
+func TestCloseCampaignUnderNewKeyAfterCloseIsRejected(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	cmd := domain.CloseCommand{TenantID: repoTenant, CampaignID: repoCampaign, Reason: "monsoon", ClosedBy: repoVerifier, IdempotencyKey: "close:campaign-a"}
+	if _, err := repo.CloseCampaign(ctx, cmd); err != nil {
+		t.Fatalf("first campaign close: %v", err)
+	}
+	cmd.IdempotencyKey = "close:campaign-b"
+	if _, err := repo.CloseCampaign(ctx, cmd); !errors.Is(err, ports.ErrImmutable) {
+		t.Fatalf("second close under a new key err=%v, want ErrImmutable", err)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// VERIFICATION VERDICT
+// -----------------------------------------------------------------------------
+
+// APPROVED marks the observation verified and leaves the bucket where it was. The
+// replay is a no-op on state, emits no second event, and returns Applied=false.
+func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-approve", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation: %v", err)
+	}
+	if got := readObservationVerificationStatus(t, ctx, pool, obs.ObservationID); got != domain.VerificationStatusPending {
+		t.Fatalf("fresh observation verification_status=%q, want %q", got, domain.VerificationStatusPending)
+	}
+
+	verdict := domain.VerificationVerdict{
+		TenantID:      repoTenant,
+		ObservationID: obs.ObservationID,
+		RefType:       domain.VerificationRefTypeAnimal,
+		Status:        domain.VerificationStatusVerified,
+		VerifiedBy:    repoVerifier,
+		EventID:       "11111111-1111-4111-8111-111111111abc",
+	}
+	first, err := repo.ApplyVerificationVerdict(ctx, verdict)
+	if err != nil {
+		t.Fatalf("apply approved verdict: %v", err)
+	}
+	if !first.Applied || first.Status != domain.VerificationStatusVerified {
+		t.Fatalf("first verdict result=%+v, want applied verified", first)
+	}
+	if first.OperatorID != repoOperator || first.CampaignShedID != repoAnimalScope {
+		t.Fatalf("verdict result operator=%q shed=%q, want the bucket's assigned operator", first.OperatorID, first.CampaignShedID)
+	}
+	if got := readObservationVerificationStatus(t, ctx, pool, obs.ObservationID); got != domain.VerificationStatusVerified {
+		t.Fatalf("observation verification_status=%q, want verified", got)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.observation.verified"); got != 1 {
+		t.Fatalf("weighing.observation.verified outbox rows=%d, want 1", got)
+	}
+	// Approval must NOT reopen the bucket.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+
+	replay, err := repo.ApplyVerificationVerdict(ctx, verdict)
+	if err != nil {
+		t.Fatalf("replay approved verdict: %v", err)
+	}
+	// The contract is "exact replay returns the ORIGINAL result": the readback is the
+	// stored snapshot of the first application, Applied flag included. Proof that the
+	// replay did no work is the unchanged outbox/audit counts asserted below.
+	//
+	// DecidedAt is compared with Equal, not ==: the replay value is rehydrated from
+	// the JSON idempotency snapshot, so it carries a fixed-offset location while the
+	// first value carries the named Asia/Kolkata location. Those are the SAME INSTANT
+	// and struct equality would wrongly call them different (time.Time's == compares
+	// the location pointer).
+	if !replay.DecidedAt.Equal(first.DecidedAt) {
+		t.Fatalf("replay decided_at=%s != original %s", replay.DecidedAt, first.DecidedAt)
+	}
+	replayComparable, firstComparable := replay, first
+	replayComparable.DecidedAt, firstComparable.DecidedAt = time.Time{}, time.Time{}
+	if replayComparable != firstComparable {
+		t.Fatalf("replay result %+v != original %+v", replay, first)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.observation.verified"); got != 1 {
+		t.Fatalf("outbox rows after replay=%d, want 1", got)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.observation_verified"); got != 1 {
+		t.Fatalf("audit rows after replay=%d, want 1", got)
+	}
+}
+
+// REWORK bounces the observation AND makes the owning bucket operator-actionable
+// again: the auto-completed bucket returns to in_progress and the roster row returns
+// to pending so the operator's app shows the work.
+func TestApplyVerificationVerdictReworkMakesOwningBucketOperatorActionableAgain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-rework", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "weighed")
+
+	result, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID:      repoTenant,
+		ObservationID: obs.ObservationID,
+		RefType:       domain.VerificationRefTypeAnimal,
+		Status:        domain.VerificationStatusRework,
+		VerifiedBy:    repoVerifier,
+		Reason:        "video too dark",
+		EventID:       "22222222-2222-4222-8222-222222222abc",
+	})
+	if err != nil {
+		t.Fatalf("apply rework verdict: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("rework verdict was not applied")
+	}
+	if got := readObservationVerificationStatus(t, ctx, pool, obs.ObservationID); got != domain.VerificationStatusRework {
+		t.Fatalf("observation verification_status=%q, want rework", got)
+	}
+	var reworkReason string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(rework_reason,'') FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, obs.ObservationID).Scan(&reworkReason); err != nil {
+		t.Fatalf("read rework reason: %v", err)
+	}
+	if reworkReason != "video too dark" {
+		t.Fatalf("rework reason=%q, want the verifier reason", reworkReason)
+	}
+	// Operator-actionable again.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusInProgress)
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
+	if got := countOutbox(t, ctx, pool, "weighing.observation.rework"); got != 1 {
+		t.Fatalf("weighing.observation.rework outbox rows=%d, want 1", got)
+	}
+	var operatorActionable bool
+	if err := pool.QueryRow(ctx, `
+SELECT (payload->'payload'->>'operator_actionable')::bool
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type='weighing.observation.rework'`, repoTenant).Scan(&operatorActionable); err != nil {
+		t.Fatalf("read rework payload: %v", err)
+	}
+	if !operatorActionable {
+		t.Fatal("rework event says operator_actionable=false; the operator owns the redo")
+	}
+}
+
+// A CLOSED bucket is a deliberate leadership decision. A verifier's rework verdict
+// must not silently undo it.
+func TestApplyVerificationVerdictReworkDoesNotReopenAClosedBucket(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-closed", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation: %v", err)
+	}
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "week over", ClosedBy: repoVerifier, IdempotencyKey: "close:before-verdict",
+	}); err != nil {
+		t.Fatalf("close scope: %v", err)
+	}
+
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs.ObservationID, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "blurry",
+		EventID: "33333333-3333-4333-8333-333333333abc",
+	}); err != nil {
+		t.Fatalf("apply rework on closed bucket: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+}
+
+// A verdict for an observation this tenant does not have must be ErrNotFound, which
+// the consumer turns into a permanent (DLQ) failure instead of retrying forever.
+func TestApplyVerificationVerdictRejectsUnknownObservation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	_, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: "99999999-9999-4999-8999-999999999999",
+		RefType: domain.VerificationRefTypeAnimal, Status: domain.VerificationStatusVerified,
+		VerifiedBy: repoVerifier, EventID: "44444444-4444-4444-8444-444444444abc",
+	})
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("unknown observation err=%v, want ErrNotFound", err)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// FREE-FLOW REGRESSION
+// -----------------------------------------------------------------------------
+
+// Weighing is FREE-FLOW. An observation with NULL animal_id and only a raw scanned
+// identifier must be accepted on its own merits: no goat row, no herd roster entry,
+// no vaccination record, and no expected-animal row is required or created. The same
+// raw identifier must ALSO be independently acceptable in a different bucket, so no
+// constraint collapses it across campaign_shed_id.
+func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHerdOrVaccination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// A shed-scoped proof for the individual bucket's location. The lump-sum bucket
+	// already has repoShedProof scoped to its own location.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+
+	const freeFlowTag = "FREE-RFID-NO-SUCH-GOAT"
+	goatsBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant)
+	rosterBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant)
+
+	firstBucket, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		ScannedIdentifier: freeFlowTag, WeightKg: 11.25, ProofArtifactID: repoExpectedShedProof,
+		IdempotencyKey: "free-flow:bucket-a", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("free-flow observation with only a scanned identifier was rejected: %v", err)
+	}
+	if firstBucket.ObservationID == "" {
+		t.Fatal("free-flow observation returned no observation id")
+	}
+
+	// The stored row genuinely has a NULL animal_id -- it was never resolved to a goat.
+	var animalIDIsNull bool
+	var storedTag string
+	if err := pool.QueryRow(ctx, `
+SELECT animal_id IS NULL, scanned_identifier
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.ObservationID).Scan(&animalIDIsNull, &storedTag); err != nil {
+		t.Fatalf("read free-flow observation: %v", err)
+	}
+	if !animalIDIsNull {
+		t.Fatal("free-flow observation was resolved to an animal_id; weighing must not require or infer herd identity")
+	}
+	if storedTag != freeFlowTag {
+		t.Fatalf("stored scanned_identifier=%q, want the raw tag %q kept verbatim", storedTag, freeFlowTag)
+	}
+
+	// SAME raw identifier in a DIFFERENT bucket is its own independent observation.
+	secondBucket, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		ScannedIdentifier: freeFlowTag, WeightKg: 13.5, ProofArtifactID: repoShedProof,
+		IdempotencyKey: "free-flow:bucket-b", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("same scanned identifier in a second bucket was rejected: %v", err)
+	}
+	if secondBucket.ObservationID == firstBucket.ObservationID {
+		t.Fatal("the second bucket reused the first bucket's observation; buckets must not collapse on scanned_identifier")
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)::int FROM weighing_observations
+WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoTenant, freeFlowTag); got != 2 {
+		t.Fatalf("free-flow rows for %q=%d, want one per bucket", freeFlowTag, got)
+	}
+
+	// Nothing was written to, or required from, the herd or the roster.
+	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant); got != goatsBefore {
+		t.Fatalf("goat rows changed from %d to %d; free-flow weighing must not touch herd identity", goatsBefore, got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
+		t.Fatalf("expected-animal rows changed from %d to %d; a free-flow scan must not create a roster row", rosterBefore, got)
+	}
+
+	// And a verdict on a free-flow observation stays free-flow: no roster row to reopen.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: firstBucket.ObservationID, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot",
+		EventID: "55555555-5555-4555-8555-555555555abc",
+	}); err != nil {
+		t.Fatalf("verdict on a free-flow observation errored: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
+		t.Fatalf("a free-flow rework created %d roster rows", got-rosterBefore)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// PAGINATION
+// -----------------------------------------------------------------------------
+
+// The operator predicate must be part of the WHERE clause, evaluated BEFORE LIMIT.
+// If it were applied after the page was cut, an operator paging through their work
+// would hit a page that is empty (or worse, shows a foreign operator's campaign)
+// purely because an unassigned campaign happened to sort into that page. This drives
+// page 2 explicitly with a foreign campaign sorting between the operator's two.
+func TestListCampaignsForOperatorAppliesOperatorPredicateBeforeLimitOnPageTwo(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Sort order is period_start_date DESC. Newest = a foreign operator's campaign,
+	// middle = ours, oldest (fixture, 2026-07-27) = ours. So page 1 and page 2 for our
+	// operator are both ours only if the predicate runs before LIMIT.
+	foreignCampaign := "00000000-0000-4000-8000-00000000a001"
+	foreignShed := "00000000-0000-4000-8000-00000000a002"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-08-17', '2026-08-23', '2026-08-17', 'published', 100, $4::uuid, $4::uuid)`,
+		foreignCampaign, repoTenant, repoPark, repoOtherOp)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Foreign Shed', 'individual_animal', $5::uuid, 1)`,
+		foreignShed, foreignCampaign, repoTenant, repoActualShed, repoOtherOp)
+
+	ourSecondCampaign := "00000000-0000-4000-8000-00000000a003"
+	ourSecondShed := "00000000-0000-4000-8000-00000000a004"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-08-10', '2026-08-16', '2026-08-10', 'published', 100, $4::uuid, $4::uuid)`,
+		ourSecondCampaign, repoTenant, repoPark, repoOperator)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'individual_animal', $5::uuid, 1)`,
+		ourSecondShed, ourSecondCampaign, repoTenant, repoPark, repoOperator)
+
+	pageOne, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 1)
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(pageOne.Items) != 1 || pageOne.Items[0].CampaignID != ourSecondCampaign {
+		t.Fatalf("page 1=%+v, want only our newest campaign (the foreign newer campaign must be filtered before LIMIT)", pageOne.Items)
+	}
+	if pageOne.NextCursor == "" {
+		t.Fatal("page 1 returned no cursor; the operator's second campaign is unreachable")
+	}
+
+	pageTwo, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, pageOne.NextCursor, 1)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(pageTwo.Items) != 1 {
+		t.Fatalf("page 2 items=%d, want 1; an empty page 2 means the operator predicate ran after LIMIT", len(pageTwo.Items))
+	}
+	if pageTwo.Items[0].CampaignID != repoCampaign {
+		t.Fatalf("page 2 campaign=%q, want the operator's older campaign %q", pageTwo.Items[0].CampaignID, repoCampaign)
+	}
+	for _, item := range append(pageOne.Items, pageTwo.Items...) {
+		if item.CampaignID == foreignCampaign {
+			t.Fatal("a foreign operator's campaign leaked into the operator's pages")
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// helpers
+// -----------------------------------------------------------------------------
+
+func countOutbox(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventType string) int {
+	t.Helper()
+	return countRows(t, ctx, pool, `
+SELECT count(*)::int FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2`, repoTenant, eventType)
+}
+
+func countAudit(t *testing.T, ctx context.Context, pool *pgxpool.Pool, action string) int {
+	t.Helper()
+	return countRows(t, ctx, pool, `
+SELECT count(*)::int FROM audit_log WHERE tenant_id=$1::uuid AND action=$2`, repoTenant, action)
+}
+
+func countExpectedAnimalsWithStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) int {
+	t.Helper()
+	return countRows(t, ctx, pool, `
+SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND status=$2`, repoTenant, status)
+}
+
+func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) int {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(ctx, sql, args...).Scan(&count); err != nil {
+		t.Fatalf("count query failed: %v\n%s", err, sql)
+	}
+	return count
+}
+
+func readScopeClosedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignShedID string) time.Time {
+	t.Helper()
+	var closedAt time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT closed_at FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, campaignShedID).Scan(&closedAt); err != nil {
+		t.Fatalf("read closed_at: %v", err)
+	}
+	return closedAt
+}
+
+func readObservationVerificationStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, observationID string) string {
+	t.Helper()
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT verification_status FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, observationID).Scan(&status); err != nil {
+		t.Fatalf("read verification_status: %v", err)
+	}
+	return status
+}
+
+// -----------------------------------------------------------------------------
+// BLOCKER 11 — the verdict's decision time
+// -----------------------------------------------------------------------------
+
+// The decision time must be the instant the verdict was PERSISTED, expressed in
+// India business time, and it must survive redelivery unchanged.
+//
+// The original defect had two halves. (1) The payload read `time.Now().UTC()`,
+// but every Goat OS business meaning derives from Asia/Kolkata, never UTC
+// (AGENTS.md). (2) More seriously, that wall-clock read was a SECOND clock: the
+// row stored `verified_at = now()` from the database while the event payload
+// stamped its own time, so the two could disagree — and on an at-least-once
+// redelivery the payload would mint a brand-new decision time for a decision
+// that had already happened, telling downstream consumers the verifier acted at
+// a moment they did not.
+//
+// The fix makes the persisted `verified_at` the single source: it is RETURNED by
+// the same UPDATE, carried on the result, and therefore captured in the
+// idempotency snapshot that a replay reads back.
+func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-decided-at", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation: %v", err)
+	}
+
+	verdict := domain.VerificationVerdict{
+		TenantID:      repoTenant,
+		ObservationID: obs.ObservationID,
+		RefType:       domain.VerificationRefTypeAnimal,
+		Status:        domain.VerificationStatusVerified,
+		VerifiedBy:    repoVerifier,
+		EventID:       "11111111-1111-4111-8111-1111111decaf",
+	}
+	first, err := repo.ApplyVerificationVerdict(ctx, verdict)
+	if err != nil {
+		t.Fatalf("apply verdict: %v", err)
+	}
+	if first.DecidedAt.IsZero() {
+		t.Fatal("verdict result carries no decided_at")
+	}
+
+	// (1) India business time, not UTC.
+	if got := first.DecidedAt.Location().String(); got != biztime.DefaultLocation().String() {
+		t.Fatalf("decided_at location=%q, want %q — business meaning must derive from India business time, never UTC",
+			got, biztime.DefaultLocation().String())
+	}
+
+	// (2) It is the PERSISTED instant, not a second wall-clock read.
+	var storedVerifiedAt time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT verified_at FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
+		repoTenant, obs.ObservationID).Scan(&storedVerifiedAt); err != nil {
+		t.Fatalf("read stored verified_at: %v", err)
+	}
+	if !first.DecidedAt.Equal(storedVerifiedAt) {
+		t.Fatalf("decided_at=%s but the row stored verified_at=%s — the event and the row must report the SAME decision instant",
+			first.DecidedAt, storedVerifiedAt)
+	}
+
+	// (3) A redelivery replays the original instant; it never mints a new one.
+	replay, err := repo.ApplyVerificationVerdict(ctx, verdict)
+	if err != nil {
+		t.Fatalf("replay verdict: %v", err)
+	}
+	if !replay.DecidedAt.Equal(first.DecidedAt) {
+		t.Fatalf("replay decided_at=%s != original %s — an at-least-once redelivery must not invent a new decision time",
+			replay.DecidedAt, first.DecidedAt)
+	}
+	if !replay.DecidedAt.Equal(storedVerifiedAt) {
+		t.Fatalf("replay decided_at=%s drifted from the persisted verified_at=%s", replay.DecidedAt, storedVerifiedAt)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// BLOCKER 4 — close must never clobber a terminal roster state
+// -----------------------------------------------------------------------------
+
+// Close ends a BUCKET; it must not rewrite per-animal roster rows that already
+// reached a terminal state. An animal recorded 'unavailable' (clinically held or
+// absent) or 'canceled' is settled truth, and laundering it into a close outcome
+// would misreport what happened to that animal.
+//
+// Today this holds by ABSENCE — no production path writes weighing_expected_animals
+// during close — rather than by a WHERE-clause guard. That is exactly why the
+// assertion is worth pinning: the schema's CHECK constraint still admits a
+// 'closed_by_override' value, so a future per-animal override writer is
+// anticipated, and this test is what will catch it shipping with a WHERE clause
+// that sweeps terminal rows along with the open ones.
+func TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Two roster rows that are ALREADY terminal before the close happens.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990091', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO NOTHING`, repoTerminalUnavailableAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990092', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO NOTHING`, repoTerminalCanceledAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'unavailable')
+ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='unavailable'`,
+		repoCampaign, repoTenant, repoTerminalUnavailableAnimal, repoExpectedShed, repoAnimalScope)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'canceled')
+ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='canceled'`,
+		repoCampaign, repoTenant, repoTerminalCanceledAnimal, repoExpectedShed, repoAnimalScope)
+
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID:       repoTenant,
+		CampaignID:     repoCampaign,
+		CampaignShedID: repoAnimalScope,
+		Reason:         "shed emptied early",
+		ClosedBy:       repoVerifier,
+		IdempotencyKey: "close:scope-preserves-terminal",
+	}); err != nil {
+		t.Fatalf("close scope: %v", err)
+	}
+
+	for animalID, want := range map[string]string{
+		repoTerminalUnavailableAnimal: "unavailable",
+		repoTerminalCanceledAnimal:    "canceled",
+	} {
+		var got string
+		if err := pool.QueryRow(ctx,
+			`SELECT status FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
+			repoTenant, repoCampaign, animalID).Scan(&got); err != nil {
+			t.Fatalf("read roster status for %s: %v", animalID, err)
+		}
+		if got != want {
+			t.Fatalf("roster status for %s = %q after close, want %q preserved — close must never overwrite a terminal roster state",
+				animalID, got, want)
+		}
+	}
+
+	// And the close must not have laundered anything into an accepted outcome.
+	if got := countExpectedAnimalsWithStatus(t, ctx, pool, "closed_by_override"); got != 0 {
+		t.Fatalf("closed_by_override roster rows=%d, want 0 — close ends the BUCKET, it does not rewrite per-animal outcomes", got)
+	}
+}

@@ -36,7 +36,14 @@
     "weighing.observation_accepted",
     "weighing.shed_observation_accepted",
     "weighing.shed_submission.completed",
-    "weighing.shed.reopened"
+    "weighing.shed.reopened",
+    "weighing.observation.verified",
+    "weighing.observation.rework",
+    "weighing.shed.closed",
+    "weighing.campaign.closed",
+    "weighing.work_item.day_start",
+    "weighing.work_item.rolled_forward",
+    "weighing.work_item.delayed"
   ],
   "events": [
     {
@@ -60,12 +67,19 @@
       "eventType": "weighing.campaign_published",
       "producer": "weighing campaign publish transaction",
       "producerFiles": [
-        "backend/internal/weighing/adapters/postgres/repository.go"
+        "backend/internal/weighing/adapters/postgres/repository.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
       ],
-      "consumers": [],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
-        "backend/internal/weighing/app/service_test.go"
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
       ],
       "surfaces": [
         "backend",
@@ -148,6 +162,181 @@
       "e2eProof": [
         "backend/internal/weighing/app/service_test.go",
         "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.verified",
+      "producer": "weighing verification verdict applier (verification.verdict.approved consumer transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/verification_verdict_handler_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.rework",
+      "producer": "weighing verification verdict applier (verification.verdict.rework consumer transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/verification_verdict_handler_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.closed",
+      "producer": "weighing explicit bucket close transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/close.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign.closed",
+      "producer": "weighing explicit campaign close transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/close.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.day_start",
+      "producer": "weighing kernel day-start cadence pass (kernel-worker operational lane); one event per (campaign, assigned operator, Asia/Kolkata business date), enqueued in the same transaction as the day_start_surfaced_on claim",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "DOWNWARD ONLY to the assigned bucket operator resolved via ResolveMemberRecipients from the assignment-row operator_user_id. No leadership push for routine daily work."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.rolled_forward",
+      "producer": "weighing kernel roll-forward pass; unfinished work at the business-day boundary stays executable and its due business date moves to today while planned_business_date is preserved for audit",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "DOWNWARD to the assigned operator (work is still executable today) plus UPWARD to growth_director + ceo_internal resolved from active role grants (the plan slipped)."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.delayed",
+      "producer": "weighing kernel delayed/escalation pass; open work past its ORIGINAL planned business date becomes work_state='delayed' and escalates",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "UPWARD ESCALATION ONLY to growth_director + ceo_internal resolved from active role grants via ResolvePositionRecipients. The operator is deliberately not re-pushed; the work is already in their day-start list."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
       ],
       "surfaces": [
         "backend",

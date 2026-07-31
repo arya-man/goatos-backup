@@ -18,6 +18,8 @@ import (
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
+	weighingports "github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // ShiftingVerificationRepo is the counts slice the shifting applier drives. Exported so the shared
@@ -35,14 +37,22 @@ type FeedCompletionStore interface {
 	feeddirectionports.TransportStore
 }
 
+// WeighingVerdictStore is satisfied by *weighingpg.Repository. Weighing enqueued a verification item
+// for every observation but had NO verdict consumer, so every approve/reject was a silent drop; the
+// applier registered here is that missing half.
+type WeighingVerdictStore interface {
+	weighingports.VerificationVerdictStore
+}
+
 // RegisterVerificationAppliers subscribes the shifting, feed-distribution, and feed-packing appliers to
 // the generic verification verdict events on `bus`. Each handler filters strictly on
 // source.module + source.ref_type (counts/shifting_event, feed/feed_distribution_completion,
 // feed/feed_packing_completion), so cross-fire is impossible. This is the ONE place these three are
 // registered; bootstrap/api.go, cmd/outbox-relay, and cmd/domain-event-consumer all call it.
-func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, shifting ShiftingVerificationRepo, log *slog.Logger) {
+func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, shifting ShiftingVerificationRepo, weighing WeighingVerdictStore, log *slog.Logger) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
+	weighingapp.NewVerificationVerdictHandler(weighing, log).Register(bus)
 }

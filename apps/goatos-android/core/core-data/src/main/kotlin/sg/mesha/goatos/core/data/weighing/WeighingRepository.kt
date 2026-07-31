@@ -26,8 +26,12 @@ import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
+import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
+import sg.mesha.goatos.core.network.MAX_OBSERVED_WINDOW
+import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import java.util.UUID
 import java.time.Instant
 
@@ -180,14 +184,24 @@ data class ShedPartitionWeighingCapture(
     val capturedAtMs: Long? = null,
 )
 
+/**
+ * One keyset page of a weighing list read. [nextCursor] is null or blank on the last page, so a
+ * caller stops appending as soon as it is not a usable cursor. Pagination is app-owned viewport
+ * behaviour: one page is one screen of work, never the whole list.
+ */
+data class WeighingPage<T>(
+    val items: List<T> = emptyList(),
+    val nextCursor: String? = null,
+)
+
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
-    suspend fun listAssignments(): AppResult<List<WeighingAssignment>>
-    suspend fun listLeadershipVideos(): AppResult<List<WeighingLeadershipShed>>
+    suspend fun listAssignments(cursor: String? = null): AppResult<WeighingPage<WeighingAssignment>>
+    suspend fun listLeadershipVideos(cursor: String? = null): AppResult<WeighingPage<WeighingLeadershipShed>>
     suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
     suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
-    suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = 10_000): AppResult<Int>
+    suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = WEIGHING_PAGE_SIZE): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
@@ -210,6 +224,15 @@ interface WeighingRepository {
         campaignShedId: String,
         reason: String = "",
     ): AppResult<Unit>
+    suspend fun closeShedCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String = "",
+    ): AppResult<Unit>
+    suspend fun closeCampaign(
+        campaignId: String,
+        reason: String = "",
+    ): AppResult<Unit>
 }
 
 class DefaultWeighingRepository(
@@ -229,7 +252,7 @@ class DefaultWeighingRepository(
 
     override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
         combine(
-            rosterDao.observeWindow(scopeKey, windowSize.coerceIn(1, 250)),
+            rosterDao.observeWindow(scopeKey, windowSize.coerceIn(1, MAX_OBSERVED_WINDOW)),
             rosterDao.observeScopeTotal(scopeKey),
             observationDao.observeForScope(scopeKey),
             shedObservationDao.observeForScope(scopeKey),
@@ -246,18 +269,27 @@ class DefaultWeighingRepository(
         rosterDao.replaceScope(scopeKey, rows)
     }
 
-    override suspend fun listAssignments(): AppResult<List<WeighingAssignment>> = withContext(Dispatchers.IO) {
+    override suspend fun listAssignments(cursor: String?): AppResult<WeighingPage<WeighingAssignment>> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing assignments are not configured.")
+        val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val campaigns = client.listWeighingCampaigns().items
-            AppResult.Ok(campaigns.flatMap { it.toAssignments() })
+            val response = client.listWeighingCampaigns(cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            val assignments = response.items.flatMap { it.toAssignments() }
+            AppResult.Ok(
+                WeighingPage(
+                    items = assignments,
+                    nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                ),
+            )
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
     }
 
-    override suspend fun listLeadershipVideos(): AppResult<List<WeighingLeadershipShed>> = withContext(Dispatchers.IO) {
+    override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val assignments = client.listWeighingCampaigns().items.flatMap { it.toAssignments() }
+            val response = client.listWeighingCampaigns(cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            val assignments = response.items.flatMap { it.toAssignments() }
             val sheds = assignments.map { assignment ->
                 val detail = client.getWeighingLeadershipShedVideos(
                     campaignId = assignment.campaignId,
@@ -285,7 +317,12 @@ class DefaultWeighingRepository(
                     videos = lump?.media.orEmpty().map { WeighingLeadershipVideo(it.proofId, it.downloadUrl) },
                 )
             }
-            AppResult.Ok(sheds)
+            AppResult.Ok(
+                WeighingPage(
+                    items = sheds,
+                    nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                ),
+            )
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing videos.") }
     }
 
@@ -337,25 +374,39 @@ class DefaultWeighingRepository(
         val client = api ?: return@withContext AppResult.Err("Weighing roster sync is not configured.")
         val key = weighingScopeKey(campaignId, workGroupId, campaignShedId)
         runCatching {
-            val safetyLimit = maxRows.coerceIn(1, MAX_ROSTER_SYNC_ROWS)
+            val safetyLimit = maxRows.coerceIn(1, MAX_SCOPE_HYDRATION_ROWS)
             val rows = mutableListOf<WeighingRosterRowEntity>() // mobile-guard:ignore: bounded by safetyLimit and kept until successful atomic Room replace
-            val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>() // mobile-guard:ignore: bounded by safetyLimit/MAX_ROSTER_SYNC_ROWS within one refreshScope call, then discarded
+            val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>() // mobile-guard:ignore: bounded by safetyLimit within one refreshScope call, then discarded
+            // The roster and the accepted observations are paginated INDEPENDENTLY:
+            // one shed can hold far more observations than roster rows (re-weighs,
+            // free-flow scans with no roster row at all). Draining only the roster
+            // cursor would silently keep whatever observations happened to fit in the
+            // first page and drop the rest, so a re-weighed animal could keep showing
+            // as un-weighed on the device. Both cursors advance until BOTH are
+            // exhausted, and the loop stays bounded by safetyLimit on either stream.
             var cursor: String? = null
+            var observationsCursor: String? = null
             do {
-                val remaining = safetyLimit - rows.size
+                val remainingRows = safetyLimit - rows.size
+                val remainingObservations = safetyLimit - accepted.size
                 val response = client.getWeighingRoster(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     cursor = cursor,
-                    limit = minOf(ROSTER_SYNC_PAGE_SIZE, remaining),
+                    observationsCursor = observationsCursor,
+                    limit = minOf(WEIGHING_PAGE_SIZE, maxOf(remainingRows, remainingObservations)),
                 )
                 rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
                 response.observations.forEach { observation ->
                     accepted[observation.observationId] = observation
                 }
-                val next = response.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
-                cursor = next
-            } while (cursor != null && rows.size < safetyLimit)
+                // A cursor that does not strictly change is treated as exhausted, so a
+                // server that echoes the same cursor cannot spin this loop forever.
+                cursor = response.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                observationsCursor = response.nextObservationsCursor?.takeIf { it.isNotBlank() && it != observationsCursor }
+                if (rows.size >= safetyLimit) cursor = null
+                if (accepted.size >= safetyLimit) observationsCursor = null
+            } while (cursor != null || observationsCursor != null)
             rosterDao.replaceScope(key, rows)
             accepted.values.forEach { observation ->
                 val animalId = observation.animalId.trim()
@@ -453,6 +504,46 @@ class DefaultWeighingRepository(
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't reopen weighing shed.", error)
+            }
+        }
+
+    override suspend fun closeShedCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String,
+    ): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                val idempotencyKey = "weighing:close-shed:$campaignId:$campaignShedId"
+                service.closeShedWeighingCampaign(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
+                )
+                AppResult.Ok(Unit)
+            } catch (error: Throwable) {
+                AppResult.Err(error.message ?: "Couldn't close weighing shed.", error)
+            }
+        }
+
+    override suspend fun closeCampaign(
+        campaignId: String,
+        reason: String,
+    ): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                val idempotencyKey = "weighing:close-campaign:$campaignId"
+                service.closeWeighingCampaign(
+                    campaignId = campaignId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
+                )
+                AppResult.Ok(Unit)
+            } catch (error: Throwable) {
+                AppResult.Err(error.message ?: "Couldn't close weighing campaign.", error)
             }
         }
 
@@ -743,8 +834,6 @@ class DefaultWeighingRepository(
     }
 
     private companion object {
-        const val ROSTER_SYNC_PAGE_SIZE = 20
-        const val MAX_ROSTER_SYNC_ROWS = 10_000
     }
 }
 
@@ -806,6 +895,13 @@ private fun WeighingRosterRowDto.toEntity(scopeKey: String, workGroupId: String,
         seq = seq,
         updatedAt = System.currentTimeMillis(),
     )
+
+/**
+ * A cursor is only usable when the backend returned a non-blank value that actually advanced past
+ * the cursor we just sent, so a repeated cursor terminates instead of looping on the same page.
+ */
+private fun String?.nextWeighingCursorAfter(requestCursor: String?): String? =
+    this?.trim()?.takeIf { it.isNotEmpty() && it != requestCursor }
 
 private fun String.toEpochMillisOrNow(): Long =
     runCatching { Instant.parse(this).toEpochMilli() }.getOrDefault(System.currentTimeMillis())

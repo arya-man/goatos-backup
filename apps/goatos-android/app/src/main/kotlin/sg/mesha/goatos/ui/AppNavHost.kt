@@ -760,11 +760,15 @@ fun AppNavHost(
                         }
                     },
                     onReopenAssignment = vm::reopenAssignment,
+                    onAssignmentRowVisible = vm::onAssignmentRowVisible,
                 )
             } else {
                 LeadershipWeighingScreen(
                     state = state,
                     onRefresh = vm::refresh,
+                    onReopenAssignment = vm::reopenAssignment,
+                    onCloseAssignment = vm::closeShedCampaign,
+                    onAssignmentRowVisible = vm::onAssignmentRowVisible,
                 )
             }
         }
@@ -772,7 +776,7 @@ fun AppNavHost(
         composable(Routes.WEIGHING_VIDEOS) {
             val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            WeighingLeadershipVideosScreen(state = state)
+            WeighingLeadershipVideosScreen(state = state, onShedVisible = vm::onShedVisible)
         }
 
         composable(

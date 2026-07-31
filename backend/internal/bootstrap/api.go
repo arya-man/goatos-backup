@@ -378,7 +378,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
-	weighingService := weighingapp.NewService(weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// PHASE 2: the same repository also serves the Calendar / Control Tower
+	// weighing process-state read model (declared `weighing_work_item` grain).
+	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
@@ -669,7 +672,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, weighingRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -679,6 +682,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
+	// Weighing publish/verdict/close pushes. Registered next to the submission
+	// consumer so no weighing state change is push-silent.
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).

@@ -40,6 +40,7 @@ import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
+import sg.mesha.goatos.core.data.weighing.WeighingPage
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
@@ -460,10 +461,11 @@ class WeighingViewModelTest {
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
 
-        override suspend fun listAssignments(): AppResult<List<WeighingAssignment>> = AppResult.Ok(emptyList())
+        override suspend fun listAssignments(cursor: String?): AppResult<WeighingPage<WeighingAssignment>> =
+            AppResult.Ok(WeighingPage(emptyList(), null))
 
-        override suspend fun listLeadershipVideos(): AppResult<List<WeighingLeadershipShed>> =
-            AppResult.Ok(emptyList())
+        override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> =
+            AppResult.Ok(WeighingPage(emptyList(), null))
 
         override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> =
             plannerCatalogResult ?: AppResult.Ok(
@@ -537,6 +539,17 @@ class WeighingViewModelTest {
             reason: String,
         ): AppResult<Unit> =
             AppResult.Ok(Unit)
+
+        override suspend fun closeShedCampaign(
+            campaignId: String,
+            campaignShedId: String,
+            reason: String,
+        ): AppResult<Unit> = AppResult.Ok(Unit)
+
+        override suspend fun closeCampaign(
+            campaignId: String,
+            reason: String,
+        ): AppResult<Unit> = AppResult.Ok(Unit)
 
         override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) {}
     }

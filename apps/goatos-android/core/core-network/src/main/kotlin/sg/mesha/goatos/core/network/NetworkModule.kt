@@ -101,6 +101,7 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
@@ -214,7 +215,10 @@ interface AppApiService {
     ): ShedCompletionSummaryDto
 
     @GET("app/weighing/campaigns")
-    suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+    suspend fun listWeighingCampaigns(
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingCampaignListResponseDto
 
     @GET("app/weighing/planner/catalog")
     suspend fun getWeighingPlannerCatalog(
@@ -245,6 +249,7 @@ interface AppApiService {
         @Path("campaign_id") campaignId: String,
         @Path("campaign_shed_id") campaignShedId: String,
         @Query("cursor") cursor: String?,
+        @Query("observations_cursor") observationsCursor: String?,
         @Query("limit") limit: Int,
     ): WeighingRosterResponseDto
 
@@ -303,6 +308,21 @@ interface AppApiService {
         @Path("campaign_shed_id") campaignShedId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: WeighingScopeReopenRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close")
+    suspend fun closeShedWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeCloseRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/close")
+    suspend fun closeWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeCloseRequestDto,
     )
 
     @POST("admin/tasks/{task_id}/verify")
@@ -718,8 +738,8 @@ class RetrofitAppApi(
     override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         service.getShedCompletionSummary(taskId, shedId)
 
-    override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto =
-        service.listWeighingCampaigns()
+    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns(cursor = cursor, limit = limit)
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         service.getWeighingPlannerCatalog(periodStartDate)
@@ -744,8 +764,9 @@ class RetrofitAppApi(
         campaignId: String,
         campaignShedId: String,
         cursor: String?,
+        observationsCursor: String?,
         limit: Int,
-    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, limit)
+    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, observationsCursor, limit)
 
     override suspend fun getWeighingLeadershipShedVideos(
         campaignId: String,
@@ -796,6 +817,19 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: WeighingScopeReopenRequestDto,
     ) = service.reopenWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = service.closeShedWeighingCampaign(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = service.closeWeighingCampaign(campaignId, idempotencyKey, request)
 
     override suspend fun verifyAppTask(
         taskId: String,
