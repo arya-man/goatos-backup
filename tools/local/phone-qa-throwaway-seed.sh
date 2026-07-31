@@ -197,6 +197,75 @@ SET scope_id = '91000000-0000-4000-8000-000000000101',
 WHERE tenant_id = '${tenant_id}'::uuid
   AND batch_id = '91000000-0000-4000-8000-000000000701';
 
+-- A vaccination drive is a PARK VISIT: one batch + one park-scoped sop_task per park.
+-- The Go seed creates the CBE drive (batch ...0701 / task ...0702). This fixture adds the
+-- second park (CPT), so CPT needs its OWN drive too. Hanging CPT goats off the CBE task made
+-- taskExecutionIdentity() return no row for a CPT shed (the task's park never matches the
+-- goat's park), which the app surfaced as an unscannable, empty shed.
+INSERT INTO sop_tasks (
+  task_id, tenant_id, sop_id, sop_version_id, task_type, title, description, state,
+  assigned_to, scope_type, scope_id, priority, due_at, context, created_by, created_at, updated_at
+)
+VALUES (
+  '92000000-0000-4000-8000-000000000712',
+  '${tenant_id}'::uuid,
+  '91000000-0000-4000-8000-000000000401',
+  '91000000-0000-4000-8000-000000000402',
+  'vaccination',
+  'Per-animal vaccination proof QA (CPT)',
+  'CPT park drive for the phone-QA throwaway fixture.',
+  'assigned',
+  '90000000-0000-4000-8000-000000000201',
+  'park',
+  '92000000-0000-4000-8000-000000000101',
+  'normal',
+  now() + interval '6 hours',
+  jsonb_build_object('obligation_batch_id', '92000000-0000-4000-8000-000000000711'),
+  '90000000-0000-4000-8000-000000000201',
+  now(), now()
+)
+ON CONFLICT (task_id) DO UPDATE
+SET assigned_to = EXCLUDED.assigned_to,
+    scope_type = EXCLUDED.scope_type,
+    scope_id = EXCLUDED.scope_id,
+    state = EXCLUDED.state,
+    due_at = EXCLUDED.due_at,
+    context = EXCLUDED.context,
+    updated_at = now();
+
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date,
+  window_start, window_end, status, estimated_targets, planned_quantity, quantity_unit,
+  primary_inventory_lot_id, sop_task_id, conducted_by, created_at, updated_at
+)
+VALUES (
+  '92000000-0000-4000-8000-000000000711',
+  '${tenant_id}'::uuid,
+  '91000000-0000-4000-8000-000000000502',
+  'park',
+  '92000000-0000-4000-8000-000000000101',
+  'qa-per-goat-proof-cpt',
+  ${today_sql},
+  now() - interval '1 hour',
+  now() + interval '3 days',
+  'in_progress',
+  5, 5, 'dose',
+  '91000000-0000-4000-8000-000000000602',
+  '92000000-0000-4000-8000-000000000712',
+  '93000000-0000-4000-8000-000000000201',
+  now(), now()
+)
+ON CONFLICT (batch_id) DO UPDATE
+SET scope_type = EXCLUDED.scope_type,
+    scope_id = EXCLUDED.scope_id,
+    planned_date = EXCLUDED.planned_date,
+    window_start = EXCLUDED.window_start,
+    window_end = EXCLUDED.window_end,
+    status = EXCLUDED.status,
+    sop_task_id = EXCLUDED.sop_task_id,
+    conducted_by = EXCLUDED.conducted_by,
+    updated_at = now();
+
 UPDATE vaccination_drive_assignments
 SET planned_date = ${today_sql},
     operator_id = CASE WHEN assignment_id = '91000000-0000-4000-8000-000000000801'
@@ -337,22 +406,25 @@ SET goat_id = EXCLUDED.goat_id,
     status = 'active',
     updated_at = now();
 
+-- The CBE batch stays PARK-scoped. It was previously widened to tenant scope only because it
+-- straddled both parks; now that CPT owns its own drive this batch holds CBE animals only, and a
+-- drive is a park visit. Five CBE animals, not ten.
 UPDATE obligation_batches
-SET estimated_targets = 10,
-    planned_quantity = 10,
-    scope_type = 'tenant',
-    scope_id = '${tenant_id}'::uuid,
+SET estimated_targets = 5,
+    planned_quantity = 5,
+    scope_type = 'park',
+    scope_id = '91000000-0000-4000-8000-000000000101',
     updated_at = now()
 WHERE tenant_id = '${tenant_id}'::uuid
   AND batch_id = '91000000-0000-4000-8000-000000000701';
 
 INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, window_start, window_end, status, sop_task_id, idempotency_key, sequence)
 VALUES
-  ('92000000-0000-4000-8000-000000003001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001001', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-1', 1),
-  ('92000000-0000-4000-8000-000000003002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001002', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-2', 1),
-  ('92000000-0000-4000-8000-000000003003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001003', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-3', 1),
-  ('92000000-0000-4000-8000-000000003004', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001004', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-4', 1),
-  ('92000000-0000-4000-8000-000000003005', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '91000000-0000-4000-8000-000000000701', 'goat', '92000000-0000-4000-8000-000000001005', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '91000000-0000-4000-8000-000000000702', 'qa-vax-per-goat-cpt-5', 1)
+  ('92000000-0000-4000-8000-000000003001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '92000000-0000-4000-8000-000000000711', 'goat', '92000000-0000-4000-8000-000000001001', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '92000000-0000-4000-8000-000000000712', 'qa-vax-per-goat-cpt-1', 1),
+  ('92000000-0000-4000-8000-000000003002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '92000000-0000-4000-8000-000000000711', 'goat', '92000000-0000-4000-8000-000000001002', 'shed', '91000000-0000-4000-8000-000000000202', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '92000000-0000-4000-8000-000000000712', 'qa-vax-per-goat-cpt-2', 1),
+  ('92000000-0000-4000-8000-000000003003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '92000000-0000-4000-8000-000000000711', 'goat', '92000000-0000-4000-8000-000000001003', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '92000000-0000-4000-8000-000000000712', 'qa-vax-per-goat-cpt-3', 1),
+  ('92000000-0000-4000-8000-000000003004', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '92000000-0000-4000-8000-000000000711', 'goat', '92000000-0000-4000-8000-000000001004', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '92000000-0000-4000-8000-000000000712', 'qa-vax-per-goat-cpt-4', 1),
+  ('92000000-0000-4000-8000-000000003005', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502', '91000000-0000-4000-8000-000000000503', '92000000-0000-4000-8000-000000000711', 'goat', '92000000-0000-4000-8000-000000001005', 'shed', '92000000-0000-4000-8000-000000000203', now(), now() - interval '1 hour', now() + interval '3 days', 'due', '92000000-0000-4000-8000-000000000712', 'qa-vax-per-goat-cpt-5', 1)
 ON CONFLICT (obligation_id) DO UPDATE
 SET batch_id = EXCLUDED.batch_id,
     status = 'due',
@@ -385,8 +457,8 @@ INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, p
 VALUES
   ('91000000-0000-4000-8000-000000000801', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'CBE - Godel 1 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
   ('91000000-0000-4000-8000-000000000803', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 'CBE - Godel 1 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3),
-  ('91000000-0000-4000-8000-000000000802', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 'CPT - Mandela 2 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
-  ('91000000-0000-4000-8000-000000000804', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000701', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 'CPT - Mandela 2 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3)
+  ('91000000-0000-4000-8000-000000000802', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000711', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 'CPT - Mandela 2 Parts 1-2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 2),
+  ('91000000-0000-4000-8000-000000000804', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000711', ${today_sql}, '93000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 'CPT - Mandela 2 Parts 3-5', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['91000000-0000-4000-8000-000000000503']::uuid[], 3)
 ON CONFLICT (assignment_id) DO UPDATE
 SET planned_date = EXCLUDED.planned_date,
     operator_id = EXCLUDED.operator_id,
@@ -418,7 +490,7 @@ SELECT '${tenant_id}'::uuid,
        oi.target_id
 FROM obligation_instances oi
 WHERE oi.tenant_id = '${tenant_id}'::uuid
-  AND oi.batch_id = '91000000-0000-4000-8000-000000000701'
+  AND oi.batch_id IN ('91000000-0000-4000-8000-000000000701', '92000000-0000-4000-8000-000000000711')
   AND oi.target_id IN (
     '91000000-0000-4000-8000-000000001001',
     '91000000-0000-4000-8000-000000001002',
@@ -608,7 +680,7 @@ FROM goats g
 WHERE oi.tenant_id = '${tenant_id}'::uuid
   AND g.tenant_id = oi.tenant_id
   AND g.goat_id = oi.target_id
-  AND oi.batch_id = '91000000-0000-4000-8000-000000000701'
+  AND oi.batch_id IN ('91000000-0000-4000-8000-000000000701', '92000000-0000-4000-8000-000000000711')
   AND oi.target_id IN (
     '91000000-0000-4000-8000-000000001001',
     '91000000-0000-4000-8000-000000001002',
