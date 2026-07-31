@@ -2271,7 +2271,6 @@ SELECT st.task_id::text, ob.batch_id::text, st.sop_version_id::text, st.row_vers
 FROM sop_tasks st
 JOIN obligation_batches ob
   ON ob.tenant_id = st.tenant_id
- AND ob.sop_task_id = st.task_id
  AND ob.batch_id = nullif(st.context ->> 'obligation_batch_id', '')::uuid
 WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid

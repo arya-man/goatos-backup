@@ -295,6 +295,42 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `task-scoped roster fallback does not prune synced local scan evidence`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.taskScopedFailureStatus = 404
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "due", obligationId = "obl-1"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            assertEquals(listOf("scan-synced"), scans.map { it.id })
+        }
+    }
+
+    @Test
     fun `task-scoped roster non-404 failure does not fall back to shed roster`() = runTest {
         withRepository { repository, backend, requests ->
             backend.taskScopedFailureStatus = 500
