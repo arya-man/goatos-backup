@@ -15,7 +15,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import androidx.compose.material3.Text
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -35,6 +37,9 @@ fun WeighingTasksScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
+    onCreateOrEditTask: () -> Unit = {},
+    onTogglePlannerShed: (String) -> Unit = {},
+    onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -64,6 +69,24 @@ fun WeighingTasksScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Planning comes first: this surface is where the week's weighing work is authored.
+            if (state.plannerMode) {
+                item(key = "planner") {
+                    PlannerRootContent(
+                        state = state,
+                        onCreateOrEditTask = onCreateOrEditTask,
+                        onTogglePlannerShed = onTogglePlannerShed,
+                        onPlannerShedCategory = onPlannerShedCategory,
+                    )
+                }
+                item(key = "scheduled-heading") {
+                    Text(
+                        text = "SCHEDULED WORK",
+                        color = MeshaColors.Muted,
+                        style = MeshaType.cardSubtitle,
+                    )
+                }
+            }
             if (state.assignments.isEmpty()) {
                 item { WeighingReadOnlyEmptyCard(loading = state.loading, title = "No weighing tasks") }
             } else {

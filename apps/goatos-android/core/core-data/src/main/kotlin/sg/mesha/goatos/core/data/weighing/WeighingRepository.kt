@@ -33,7 +33,7 @@ import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
-import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.MAX_OBSERVED_WINDOW
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import java.util.UUID
@@ -301,7 +301,10 @@ class DefaultWeighingRepository(
         val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val response = client.listWeighingCampaigns(scope = WEIGHING_SCOPE_OPERATORS, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            // Leadership video review is a MONITOR surface, not the operators surface: the CEO holds
+            // weighing.monitor but not weighing.oversee_operators, so asking for the oversight scope
+            // here 403'd the whole Videos screen for him.
+            val response = client.listWeighingCampaigns(scope = WEIGHING_SCOPE_ALL, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
             val assignments = response.items.flatMap { it.toAssignments() }
             val sheds = assignments.map { assignment ->
                 val detail = client.getWeighingLeadershipShedVideos(
