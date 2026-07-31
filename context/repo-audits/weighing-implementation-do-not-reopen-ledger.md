@@ -135,6 +135,52 @@ Each row: **what broke** | **fix SHA** | **regression guard**
 
 ## Section B: BANNED DESIGNS — Do Not Reintroduce
 
+### B-0: Clinical-State Gate On The Weighing Write Path (RETIRED BLOCKER 2/9)
+
+**Authority:** maintainer decision 2026-07-31, superseding blocker 2/9 in
+`weighing-phase1-2-do-not-merge-blockers.md` and the weighing reading of
+`docs/features/critical-animal-action-guardrails.md`.
+
+**Ban:** the weighing observation/submit path must NOT read `goats.health_status`,
+`goats.lifecycle_status`, `protocol/domain.MandatoryClinicalDeferStates`,
+`ExitLifecycleStates`, or any equivalent clinical vocabulary in order to accept or
+refuse a scan. It must not resolve a scanned RFID to goat identity as a
+precondition for the write.
+
+**History:** a "critical-animal-action" gate was implemented against blocker 2/9
+and landed in `9ce724db3`, then removed. It refused weights for sick / under
+treatment / recovering / quarantine / ICU / exited animals. It was wrong: weighing
+is an observation, not a clinical action, and refusing the measurement destroys the
+weight trend a vet needs most.
+
+**The roster variant is banned too, and it also shipped.** The known-animal write
+CTE INNER JOINed `weighing_expected_animals` carrying
+`AND ea.status <> 'unavailable' AND ea.availability_status NOT IN
+('icu','quarantine','dead','culled','sold_transferred','exited')`. A resolved
+animal that was off-roster, or whose roster snapshot said it was away, produced an
+empty CTE, inserted no row, and reached the operator as a **404**. That is the same
+ban one table over — and worse, `availability_status` is a periodically-refreshed
+snapshot, so it gated on stale data. The join is now a LEFT JOIN with no status
+predicate: the roster supplies `expected_location_id` for wrong-shed
+classification only, an off-roster scan records as `extra_scan`, and the bucket the
+operator is working owns the row. Writing progress BACK to the roster
+(`SET status='weighed'`) remains allowed — the ban is on the roster deciding
+whether the write happens.
+
+**Bucket category is NOT a herd check and stays.** The write requires
+`weighing_campaign_sheds.weighing_category='individual_animal'`; a per-animal
+weight does not belong in a lump-sum bucket. That predicate says nothing about the
+animal and was previously enforced only as a side effect of the roster join.
+
+**Vaccination stays strict.** Do not loosen vaccination to match weighing.
+
+**How to check:** `make weighing-free-flow-guard` (failure mode 5,
+`clinical-state-read-in-write-path`, with adversarial self-tests reproducing the
+exact gate that shipped). Behavioural proof:
+`repository_free_flow_no_herd_crosscheck_integration_test.go`.
+
+---
+
 ### B-1: Weighing Operator Scope Only Via Shed Assignment (No Broad Campaign Grant)
 
 **Authority:** `AGENTS.md` → Operator scope invariant + `docs/decisions/shifting-verification.md` (movement scope rule applies here)

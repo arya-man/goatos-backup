@@ -21,6 +21,10 @@ const (
 	// Roster rows seeded ALREADY terminal, to prove close leaves them alone.
 	repoTerminalUnavailableAnimal = "00000000-0000-4000-8000-000000009291"
 	repoTerminalCanceledAnimal    = "00000000-0000-4000-8000-000000009292"
+
+	// A second individual_animal bucket, to prove the same tag can be weighed once per bucket.
+	freeFlowSecondBucket      = "00000000-0000-4000-8000-000000009103"
+	freeFlowSecondBucketProof = "00000000-0000-4000-8000-000000009404"
 )
 
 // -----------------------------------------------------------------------------
@@ -301,11 +305,14 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
+	// Proof requirement is now SHED-scoped to the bucket's location, not goat-scoped.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
-		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ScannedIdentifier: "verdict-approve-rfid",
+		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-approve", RecordedBy: repoOperator,
 	})
 	if err != nil {
@@ -314,6 +321,13 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	if got := readObservationVerificationStatus(t, ctx, pool, obs.ObservationID); got != domain.VerificationStatusPending {
 		t.Fatalf("fresh observation verification_status=%q, want %q", got, domain.VerificationStatusPending)
 	}
+
+	// Free-flow: the bucket only reaches 'completed' via an explicit
+	// SubmitIndividualScope call, not automatically when a weight is recorded.
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:verdict-approve", []string{"verdict-approve-rfid"}); err != nil {
+		t.Fatalf("submit individual scope: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 
 	verdict := domain.VerificationVerdict{
 		TenantID:      repoTenant,
@@ -372,26 +386,38 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 }
 
 // REWORK bounces the observation AND makes the owning bucket operator-actionable
-// again: the auto-completed bucket returns to in_progress and the roster row returns
-// to pending so the operator's app shows the work.
+// again: a bucket completed via SubmitIndividualScope returns to in_progress so the
+// operator's app shows the work. Free-flow: RecordAnimalObservation never resolves
+// an animal_id or writes weighing_expected_animals (that roster is a label source
+// only, never populated by a scan), so the roster row for repoAnimal is never
+// flipped to 'weighed' in the first place -- it stays 'pending' throughout, which
+// this test still pins so a future roster write-back regression is caught.
 func TestApplyVerificationVerdictReworkMakesOwningBucketOperatorActionableAgain(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
+	// Proof requirement is now SHED-scoped to the bucket's location, not goat-scoped.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
-		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ScannedIdentifier: "verdict-rework-rfid",
+		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-rework", RecordedBy: repoOperator,
 	})
 	if err != nil {
 		t.Fatalf("record observation: %v", err)
 	}
+	// Free-flow: the bucket only reaches 'completed' via an explicit
+	// SubmitIndividualScope call, not automatically when a weight is recorded.
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:verdict-rework", []string{"verdict-rework-rfid"}); err != nil {
+		t.Fatalf("submit individual scope: %v", err)
+	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
-	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "weighed")
+	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
 
 	result, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
 		TenantID:      repoTenant,
@@ -446,11 +472,14 @@ func TestApplyVerificationVerdictReworkDoesNotReopenAClosedBucket(t *testing.T) 
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
+	// Proof requirement is now SHED-scoped to the bucket's location, not goat-scoped.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
-		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ScannedIdentifier: "verdict-closed-rfid",
+		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-closed", RecordedBy: repoOperator,
 	})
 	if err != nil {
@@ -547,9 +576,17 @@ WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.O
 	}
 
 	// SAME raw identifier in a DIFFERENT bucket is its own independent observation.
+	// The second bucket must also be an individual_animal bucket: the per-animal writer
+	// refuses a lump-sum bucket on MODE, which is a weighing-owned check, not a herd one.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Gandhi 1 - Part 2', 'individual_animal', $5::uuid, 1)
+ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category='individual_animal'`,
+		freeFlowSecondBucket, repoCampaign, repoTenant, repoActualShed, repoOperator)
+	insertProof(t, ctx, pool, freeFlowSecondBucketProof, "video", "completed", "shed", repoActualShed, "shed", repoActualShed)
 	secondBucket, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
-		ScannedIdentifier: freeFlowTag, WeightKg: 13.5, ProofArtifactID: repoShedProof,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: freeFlowSecondBucket,
+		ScannedIdentifier: freeFlowTag, WeightKg: 13.5, ProofArtifactID: freeFlowSecondBucketProof,
 		IdempotencyKey: "free-flow:bucket-b", RecordedBy: repoOperator,
 	})
 	if err != nil {
@@ -733,11 +770,14 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
+	// Proof requirement is now SHED-scoped to the bucket's location, not goat-scoped.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
-		WeightKg: 12.4, ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ScannedIdentifier: "verdict-decided-at-rfid",
+		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-decided-at", RecordedBy: repoOperator,
 	})
 	if err != nil {

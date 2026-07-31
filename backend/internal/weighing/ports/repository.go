@@ -14,14 +14,6 @@ var (
 	ErrIdempotencyConflict = errors.New("weighing: idempotency conflict")
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
-	// ErrAnimalUnavailable is the critical-animal-action gate: the scanned
-	// identifier resolved to a REAL animal that is clinically held (sick, under
-	// treatment, recovering, quarantine, ICU) or has already left the herd. It is
-	// deliberately distinct from ErrNotFound (the animal exists) and from
-	// ErrInvalidArgument (the caller did nothing wrong) — it reports a state, not
-	// a mistake. Free-flow is unaffected: an identifier that resolves to NO animal
-	// never reaches this error.
-	ErrAnimalUnavailable = errors.New("weighing: animal unavailable")
 )
 
 type Repository interface {

@@ -204,7 +204,12 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	if !uuidutil.IsUUIDString(cmd.AnimalID) && strings.TrimSpace(cmd.ScannedIdentifier) == "" {
+	// FREE-FLOW: the scanned RFID is the required identity. animal_id is NOT
+	// accepted as a substitute and is ignored by the write path entirely
+	// (maintainer decision 2026-07-31), so a request carrying only a goat UUID is
+	// an invalid weighing capture — there is nothing to record as the scan.
+	cmd.AnimalID = ""
+	if strings.TrimSpace(cmd.ScannedIdentifier) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
