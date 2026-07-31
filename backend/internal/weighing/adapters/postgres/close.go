@@ -249,10 +249,36 @@ func (r *Repository) CloseCampaign(ctx context.Context, cmd domain.CloseCommand)
 SELECT status
 FROM weighing_campaigns
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid
-FOR UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
+-- FOR NO KEY UPDATE, not FOR UPDATE: a plain FOR UPDATE on the parent campaign row
+-- conflicts with the FOR KEY SHARE locks that foreign-key checks take when a
+-- concurrent observation is inserted, so an in-flight capture DEADLOCKED against a
+-- campaign close. NO KEY UPDATE still serialises closers against each other while
+-- letting child rows reference the campaign.
+FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.CloseResult{}, ports.ErrNotFound
 		}
+		return domain.CloseResult{}, err
+	}
+	// Lock every non-terminal bucket too, not just the campaign row.
+	//
+	// The gate below asks "does any bucket hold unverified submitted evidence?".
+	// Locking only the campaign row left a write-skew window: a submit could commit
+	// between that SELECT and the cascade, so a freshly-submitted bucket's unverified
+	// video was never weighed by the gate and ended up stranded under a closed
+	// campaign. Taking the bucket locks first serialises this close against
+	// SubmitIndividualScope / RecordShedObservation, which both update these rows.
+	//
+	// Bounded by the number of buckets in ONE campaign (tens), and ordered by
+	// campaign_shed_id so two concurrent closes cannot deadlock against each other.
+	if _, err := tx.Exec(ctx, `
+SELECT 1
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status NOT IN ('closed','canceled')
+ORDER BY campaign_shed_id
+FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.CloseResult{}, err
 	}
 	if status == domain.StatusClosed || status == "canceled" {
@@ -262,22 +288,29 @@ FOR UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
 	// THE SAME CLOSE GATE, at campaign grain.
 	//
 	// CloseScope refuses to close one bucket with unreviewed videos, but this
-	// cascade was a SECOND, ungated door to status='closed': it required no
-	// reason and is not the explicit abandon path, so it is a normal close and
-	// must obey the same rule. Without this, leadership could sweep the exact
-	// bucket the per-bucket gate just refused.
+	// cascade is a SECOND door to status='closed': it requires no reason and is
+	// not the explicit abandon path, so it is a normal close and must obey the
+	// same rule.
 	//
-	// Note the cascade below deliberately skips buckets already at 'completed'
-	// (accepted work is never rewritten), so the only buckets it can close are
-	// pending/in_progress ones — but those can still hold submitted, unverified
-	// evidence after a partial submit, which is exactly the case being guarded.
+	// The predicate below deliberately includes 'completed' buckets. An earlier
+	// version excluded them by reasoning about which buckets the CASCADE rewrites
+	// — but `completed` IS the status of a bucket the operator has submitted and
+	// whose videos are waiting on the verifier, i.e. precisely the case this gate
+	// exists to catch. Excluding it let the entire normal flow (submit -> pending
+	// verification -> campaign close) walk straight through the gate. The question
+	// is "does any bucket in this campaign hold unverified submitted evidence",
+	// NOT "which buckets would this UPDATE touch".
+	//
+	// Only genuinely terminal buckets are exempt: 'closed' was already settled
+	// (via the gated per-bucket close or an explicit abandon), and 'canceled' work
+	// was withdrawn and never needs a verdict.
 	var campaignPending int
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)
 FROM weighing_campaign_sheds cs
 WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
-  AND cs.status NOT IN ('completed','closed','canceled')
+  AND cs.status NOT IN ('closed','canceled')
   AND (
     EXISTS (
       SELECT 1 FROM weighing_observations o

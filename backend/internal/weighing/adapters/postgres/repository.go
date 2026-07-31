@@ -950,7 +950,7 @@ WITH campaign AS (
     AND observation.campaign_id=$2::uuid
 	    AND observation.campaign_shed_id=s.campaign_shed_id
 	    AND observation.animal_id IS NULL
-	    AND lower(observation.scanned_identifier)=lower($3)
+	    AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
 	    -- Only the current, un-submitted round may be updated in place. A row
 	    -- already submitted in an earlier round is frozen; classify() turns
 	    -- this into ErrDuplicateScan via submitted_duplicate above.
@@ -1290,7 +1290,7 @@ SELECT EXISTS (
     AND observation.campaign_id=$2::uuid
     AND observation.campaign_shed_id=$3::uuid
     AND observation.weight_kg > 0
-    AND observation.scanned_identifier <> ALL($4::text[])
+    AND lower(btrim(observation.scanned_identifier)) <> ALL(SELECT lower(btrim(unnest($4::text[]))))
 )`, tenantID, campaignID, campaignShedID, scannedIdentifiers).Scan(&omitsObserved); err != nil {
 		return fmt.Errorf("check individual scope submit omits observed animals: %w", err)
 	}
@@ -1352,7 +1352,7 @@ WHERE cs.tenant_id=$1::uuid
     WHERE observation.tenant_id=cs.tenant_id
       AND observation.campaign_id=cs.campaign_id
       AND observation.campaign_shed_id=cs.campaign_shed_id
-      AND observation.scanned_identifier=captured.scanned_identifier
+      AND lower(btrim(observation.scanned_identifier))=lower(btrim(captured.scanned_identifier))
       AND observation.weight_kg > 0
     )
   )
@@ -1367,7 +1367,7 @@ WHERE cs.tenant_id=$1::uuid
       AND observation.campaign_id=cs.campaign_id
       AND observation.campaign_shed_id=cs.campaign_shed_id
       AND observation.weight_kg > 0
-      AND observation.scanned_identifier <> ALL($5::text[])
+      AND lower(btrim(observation.scanned_identifier)) <> ALL(SELECT lower(btrim(unnest($5::text[]))))
   )`, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
 	if err != nil {
 		return err
@@ -1388,7 +1388,7 @@ WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND campaign_shed_id=$3::uuid
   AND submitted_at IS NULL
-  AND scanned_identifier=ANY($4::text[])`, tenantID, campaignID, campaignShedID, scannedIdentifiers); err != nil {
+  AND lower(btrim(scanned_identifier))=ANY(SELECT lower(btrim(unnest($4::text[]))))`, tenantID, campaignID, campaignShedID, scannedIdentifiers); err != nil {
 		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
@@ -1945,7 +1945,7 @@ WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND campaign_shed_id=$3::uuid
   AND animal_id IS NULL
-  AND lower(scanned_identifier)=lower($4)
+  AND lower(btrim(scanned_identifier))=lower(btrim($4))
 ORDER BY accepted_at DESC, observation_id
 LIMIT 1`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, tag).
 		Scan(&before.ObservationID, &before.CampaignID, &before.CampaignShedID, &before.AnimalID, &before.WeightKg, &before.ProofArtifactID, &before.ExpectedLocationID, &before.ActualLocationID, &before.ActualLocationLabel, &before.AcceptedAt)

@@ -188,7 +188,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
       {notice ? <WeighingNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
       <div className="phead">
         <div>
-          <div className="crumb">Preventive Care (PC) / Weighing</div>
+          <div className="crumb">Weighing</div>
           <h1>{pageContract.title}</h1>
           <div className="sub">{pageContract.subtitle}</div>
         </div>
@@ -267,10 +267,9 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
         </div>
         <div className="card pad weighing-metric">
           <div className="k">Needs attention</div>
-          <div className="v">{campaign.wrongShedScans + campaign.unavailableAnimals + campaign.proofPending}</div>
+          <div className="v">{campaign.wrongShedScans + campaign.proofPending}</div>
           <div className="weighing-attention">
             <Tag tone="warn">{campaign.wrongShedScans} bucket flags</Tag>
-            <Tag tone="pur">{campaign.unavailableAnimals} unavailable</Tag>
             <Tag tone="info">{campaign.proofPending} proof pending</Tag>
           </div>
         </div>
@@ -309,7 +308,6 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   <td><Tag tone={categoryTone[row.category]}>{categoryLabel[row.category]}</Tag></td>
                   <td>
                     <b>{row.completedCount}</b> captured
-                    <span className="muted small blockish">{row.unavailableCount} unavailable</span>
                   </td>
                   <td><Tag tone={row.proofPendingCount > 0 ? "warn" : "ok"}><Video className="ic" aria-hidden="true" />{row.proofPendingCount > 0 ? `${row.proofPendingCount} pending` : "linked"}</Tag></td>
                   <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>
@@ -329,7 +327,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
             <AlertTriangle className="ic" aria-hidden="true" />
             <h3>Wrong-shed scans</h3>
             <div className="sp" />
-            <Tag tone="warn">expected vs actual</Tag>
+            <Tag tone="warn">bucket assignment mismatch</Tag>
           </div>
           <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
             <table className="weighing-table compact">
@@ -345,7 +343,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                 {campaign.wrongShedRows.map((row) => (
                   <tr key={row.id}>
                     <td><b>{row.animalDisplayId}</b><span className="muted small blockish">{row.rfid}</span></td>
-                    <td>{row.expectedShed}<span className="muted small blockish">{row.originalPartition}</span></td>
+                    <td>{row.originalShed}<span className="muted small blockish">{row.originalPartition}</span></td>
                     <td>{row.actualShed}<span className="muted small blockish">{row.currentPartition}</span></td>
                     <td>{fmtDate(row.scannedAt)}<span className="muted small blockish">{row.operatorName}</span></td>
                   </tr>
@@ -355,36 +353,38 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
           </div>
         </section>
 
-        <section className="card">
-          <div className="hd">
-            <CheckCircle2 className="ic" aria-hidden="true" />
-            <h3>Missing / unavailable</h3>
-            <div className="sp" />
-            <Tag tone="pur">current herd truth</Tag>
-          </div>
-          <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-            <table className="weighing-table compact">
-              <thead>
-                <tr>
-                  <th>Animal</th>
-                  <th>Expected</th>
-                  <th>Classification</th>
-                  <th>Checked</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaign.missingRows.map((row) => (
-                  <tr key={row.id}>
-                    <td><b>{row.animalDisplayId}</b></td>
-                    <td>{row.expectedShed}</td>
-                    <td><Tag tone="pur">{reviewLabel(row.classification)}</Tag><span className="muted small blockish">{row.currentTruth}</span></td>
-                    <td>{fmtDate(row.checkedAt)}</td>
+        {campaign.missingRows.length > 0 && (
+          <section className="card">
+            <div className="hd">
+              <CheckCircle2 className="ic" aria-hidden="true" />
+              <h3>Animal review notes</h3>
+              <div className="sp" />
+              <Tag tone="pur">as observed</Tag>
+            </div>
+            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+              <table className="weighing-table compact">
+                <thead>
+                  <tr>
+                    <th>Animal</th>
+                    <th>Original shed</th>
+                    <th>Observation</th>
+                    <th>Noted</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {campaign.missingRows.map((row) => (
+                    <tr key={row.id}>
+                      <td><b>{row.animalDisplayId}</b></td>
+                      <td>{row.originalShed}</td>
+                      <td><Tag tone="pur">{reviewLabel(row.classification)}</Tag><span className="muted small blockish">{row.currentTruth}</span></td>
+                      <td>{fmtDate(row.checkedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
 
       <section className="card weighing-integration">
