@@ -341,12 +341,14 @@ class DefaultExecutionRepository(
             var seq = 0L
             var cursor: String? = null
             var fetchTaskId = taskId
+            var authoritativeForTask = !taskId.isNullOrBlank()
             while (true) {
                 val page = try {
                     scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit)
                 } catch (error: Throwable) {
                     if (cursor != null || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
                     fetchTaskId = null
+                    authoritativeForTask = false
                     scanRoster(shedId, taskId = null, cursor = null, limit = limit)
                 }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
@@ -369,7 +371,7 @@ class DefaultExecutionRepository(
             database.withTransaction {
                 scanRosterRowDao.deleteForScope(rowScope)
                 scanRosterRowDao.upsertAll(rows)
-                taskId?.takeIf(String::isNotBlank)?.let { id ->
+                taskId?.takeIf { authoritativeForTask && it.isNotBlank() }?.let { id ->
                     database.scannedGoatDao().pruneSyncedFieldToServerDone(
                         taskId = id,
                         fieldKey = ROSTER_SCAN_FIELD_KEY,
