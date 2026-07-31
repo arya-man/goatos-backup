@@ -922,6 +922,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.aria":                   "Action details",
 			"drawer.close_label":            "Close action details",
 			"drawer.meta.status":            "Status",
+			"drawer.meta.subject_note":      "Operator note",
 			"drawer.meta.reason":            "Verdict reason",
 			"drawer.meta.verified_by":       "Verified by",
 			"drawer.meta.verified_at":       "Verified at",

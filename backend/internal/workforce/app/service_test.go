@@ -357,18 +357,28 @@ func TestVisibleNavigationFor(t *testing.T) {
 			},
 		},
 		{
-			// An Operator captures ground events but does not get the tenant-wide census
-			// page: counts.read is Admin/CEO-only (maintainer decision 2026-07-18).
-			// Counts contributes Approval in the trailing slot other modules give to You,
-			// and an Operator holds neither approval permission -- so their Counts bar is
-			// exactly these two capture tabs (maintainer decision 2026-07-19).
-			name:    "counts-only operator gets the capture pages, not the census",
+			// The phone Counts module is capture-only for EVERY role: the tenant-wide census
+			// read page was removed from mobile (maintainer decision 2026-07-30) and lives on
+			// admin-web. Counts also contributes no Approval tab (moved to admin-web,
+			// maintainer decision 2026-07-21), so this bar is exactly the capture tabs.
+			name:    "counts operator gets the capture pages; there is no census tab",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"counts"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "birth", Label: "Birth", Href: "/counts/birth"},
 				{Key: "death", Label: "Death", Href: "/counts/death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
+			},
+		},
+		{
+			// Milk Prep and Milk Feeding moved OUT of Counts into their own drawer module
+			// (maintainer decision 2026-07-31). The routes are unchanged; only the grouping
+			// moved, so a department granted counts is also granted milk (migration 000064)
+			// and the operator still reaches both pages.
+			name:    "milk operator gets the two daily milk pages",
+			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			modules: []string{"milk"},
+			want: []domain.BootstrapNavigationItem{
 				{Key: "milk_preparation", Label: "Milk Prep", Href: "/counts/milk-preparation"},
 				{Key: "milk_feeding", Label: "Milk Feeding", Href: "/counts/milk-feeding"},
 			},
@@ -740,8 +750,9 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // The Counts module exposes capture pages on the phone; who sees which is decided by permission
 // (counts.read / counts.write), never by a per-role nav template.
 //
-// The mobile Counts bar carries capture tabs; an Operator gets
-// [birth_death, shifting], and Admin/CEO additionally get census and approval. Permanent RFID
+// The mobile Counts bar carries capture tabs only: EVERY role that holds the module gets the
+// same [birth, death, shifting, milk prep, milk feeding] bar. The census read page was removed
+// from mobile (maintainer decision 2026-07-30) and approvals live on admin-web. Permanent RFID
 // assignment is the final action inside each kid's Birth workflow, not a separate Counts page.
 // Birth and Death were recombined into one work-list tab
 // (docs/decisions/birth-death-workflows.md).
@@ -754,7 +765,7 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 //	role          | census | birth/death | shifting | approval | module in drawer
 //	operator      |   -    |      x      |    x     |    -     | yes
 //	park_head     |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
-//	ceo_internal  |   x    |      x      |    x     |    x     | yes
+//	ceo_internal  |   -    |      x      |    x     |    -     | yes
 //	pc_director   |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
 //	verifier      | review |    review   |  review  |    -     | evidence lens
 func TestCountsModuleRoleMatrix(t *testing.T) {
@@ -762,9 +773,9 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}},
+		{permissions.RoleOperator, []string{"birth", "death", "shifting"}},
 		{permissions.RoleParkHead, nil},
-		{permissions.RoleCEOInternal, []string{"counts", "birth", "death", "shifting", "milk_preparation", "milk_feeding"}},
+		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, []string{"videos", "you"}},
 	}
@@ -895,13 +906,13 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	}
 
 	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth death shifting milk_preparation milk_feeding]", got)
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth", "death", "shifting"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth death shifting]", got)
 	}
 
 	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting", "milk_preparation", "milk_feeding"}) {
-		t.Fatalf("park_head counts bar=%v want [birth death shifting milk_preparation milk_feeding] (no approval on mobile)", got)
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth", "death", "shifting"}) {
+		t.Fatalf("park_head counts bar=%v want [birth death shifting] (no approval on mobile)", got)
 	}
 
 	// No role gets a global "You" tab from Counts on mobile.

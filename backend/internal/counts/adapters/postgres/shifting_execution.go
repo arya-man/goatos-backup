@@ -114,6 +114,7 @@ func (r *Repository) CompleteShiftingEvent(
 			DestinationParkID: destParkID,
 			DestinationShedID: destShedID,
 			MovedGoatIDs:      goatIDs,
+			RaiseComment:      current.RaiseComment,
 			AppliedAt:         current.AppliedAt,
 			AppliedBy:         current.AppliedBy,
 		}, true, nil
@@ -222,6 +223,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 		DestinationParkID: destParkID,
 		DestinationShedID: destShedID,
 		MovedGoatIDs:      goatIDs,
+		RaiseComment:      current.RaiseComment,
 	}, false, nil
 }
 
@@ -481,6 +483,9 @@ type lockedShiftingEvent struct {
 	CompletionDestinationTag *string
 	ManagementStageMode      *string
 	TargetManagementStage    *string
+	// RaiseComment is read under the SAME row lock as everything else, so the note handed to the
+	// verifier is the one stored on the movement being completed, not a value re-read afterwards.
+	RaiseComment *string
 
 	CanceledAt   *time.Time
 	CanceledBy   *string
@@ -501,6 +506,7 @@ SELECT event_status, authorization_state, verification_state, priority,
        destination_park_id::text, destination_shed_id::text,
        applied_at, applied_by::text, completed_at, completed_by::text,
        completion_destination_tag, management_stage_mode, target_management_stage,
+       raise_comment,
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
        cancel_idempotency_key, cancel_request_fingerprint
@@ -511,6 +517,7 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.DestinationParkID, &out.DestinationShedID,
 		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
 		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage,
+		&out.RaiseComment,
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
 		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint)

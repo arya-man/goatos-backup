@@ -247,7 +247,9 @@ object MeshaIcons {
         "feed_direction" -> Feed
         "feed_packing" -> Package
         "feed_transport" -> Truck
-        "milk_preparation" -> MilkPreparation
+        // Milk vertical: the drawer row reuses the preparation can, its two destinations keep
+        // their own glyphs.
+        "milk", "milk_preparation" -> MilkPreparation
         "milk_feeding" -> MilkFeeding
         "breeding" -> Goat
         "aas_health", "health_adults", "health_kids" -> Health

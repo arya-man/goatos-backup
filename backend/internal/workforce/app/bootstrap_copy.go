@@ -119,34 +119,34 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                  //nav-composition:ignore: registry entry
 		},
 	},
-	// "counts" is the Counts vertical: herd census plus the field events that move it.
+	// "counts" is the Counts vertical: the field events that move the herd register.
 	// Birth and death are goat-lifecycle writes that feed the herd-register projection;
-	// shifting records an animal movement between sheds/parks.
+	// shifting records an animal movement between sheds/parks; milk prep/feeding are the
+	// daily kid-milk tasks.
+	//
+	// The tenant-wide census READ page (/counts) was REMOVED from mobile (maintainer
+	// decision 2026-07-30): the phone module is capture-only work lists, and population
+	// visibility stays on admin-web. Its permission (counts.read) still gates admin-web.
 	"counts": {
 		key:               "counts",
 		labelKey:          "module.counts",
-		landingHref:       "/counts",        //nav-composition:ignore: registry entry
+		landingHref:       "/counts/birth",  //nav-composition:ignore: registry entry
 		reviewLandingHref: "/verify/counts", //nav-composition:ignore: registry entry
 		status:            moduleStatusAvailable,
-		priority:          2,
+		priority:          3,
 		contributions: []moduleNavContribution{
-			// The census page is Admin/CEO-only: field capture and tenant-wide population
-			// visibility are different authorities (maintainer decision 2026-07-18).
-			{key: "counts", labelKey: "nav.counts", href: "/counts", shared_key: "", priority: 1, requiredPermission: permissions.CountsRead}, //nav-composition:ignore: registry entry
-			// The capture pages follow CountsWrite, so an Operator or Park Head gets a
-			// capture-only Counts module while Admin/CEO also get census.
+			// Every page here follows CountsWrite: the phone module is field capture only.
 			// Birth and Death split into two modules-with-work-lists (maintainer decision
 			// 2026-07-27, docs/decisions/birth-death-workflows.md): each opens on the
 			// outstanding per-goat SOP actions; recording moves behind the ＋ button.
-			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},                                  //nav-composition:ignore: registry entry
-			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},                                  //nav-composition:ignore: registry entry
-			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite},                         //nav-composition:ignore: registry entry
-			{key: "milk_preparation", labelKey: "nav.milk_preparation", href: "/counts/milk-preparation", shared_key: "", priority: 5, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
-			{key: "milk_feeding", labelKey: "nav.milk_feeding", href: "/counts/milk-feeding", shared_key: "", priority: 6, requiredPermission: permissions.CountsWrite},             //nav-composition:ignore: registry entry
+			{key: "birth", labelKey: "nav.birth", href: "/counts/birth", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			// Milk prep/feeding MOVED OUT to the "milk" module (maintainer decision 2026-07-31).
 			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
 			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
-			// its bar is capture-only (birth_death + shifting, plus census for Admin/CEO).
+			// its bar is capture-only (birth, death, shifting).
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/counts", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -166,7 +166,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref:       "/feed/direction", //nav-composition:ignore: registry entry
 		reviewLandingHref: "/verify/feed",    //nav-composition:ignore: registry entry
 		status:            moduleStatusAvailable,
-		priority:          3,
+		priority:          4,
 		contributions: []moduleNavContribution{
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
@@ -183,7 +183,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref:       "/health/adults", //nav-composition:ignore: registry entry
 		reviewLandingHref: "/verify/health", //nav-composition:ignore: registry entry
 		status:            moduleStatusAvailable,
-		priority:          4,
+		priority:          5,
 		contributions: []moduleNavContribution{
 			{key: "health_adults", labelKey: "nav.health_adults", href: "/health/adults", priority: 1, requiredPermission: permissions.HealthRead}, //nav-composition:ignore: registry entry
 			{key: "health_kids", labelKey: "nav.health_kids", href: "/health/kids", priority: 2, requiredPermission: permissions.HealthRead},       //nav-composition:ignore: registry entry
@@ -194,6 +194,30 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                //nav-composition:ignore: registry entry
 		},
 	},
+	// "milk" is the kid-milk vertical: the two daily tasks that prepare the feed and give it.
+	// Split out of Counts (maintainer decision 2026-07-31) because Counts owns herd-register
+	// events (birth, death, shifting) while milk prep/feeding are a daily operational routine
+	// that shares neither their grain nor their read models.
+	//
+	// The two pages KEEP their existing /counts/... hrefs: the move is a nav regrouping, not a
+	// route change, so installed deep links, the Android L0 route set, and the admin-web
+	// milk-preparation page all keep working. Verification also stays in the Counts verify
+	// lens (bootstrap/api.go), so there is deliberately no reviewContributions here — a milk
+	// proof is still reviewed where every other Counts proof is reviewed.
+	"milk": {
+		key:         "milk",
+		labelKey:    "module.milk",
+		landingHref: "/counts/milk-preparation", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    6,
+		contributions: []moduleNavContribution{
+			// CountsWrite is deliberately retained: these are the same capture routes with the
+			// same server-side authority (permissions/routes.go). Regrouping the drawer must not
+			// silently widen or narrow who may write — hiding an item is not access control.
+			{key: "milk_preparation", labelKey: "nav.milk_preparation", href: "/counts/milk-preparation", shared_key: "", priority: 1, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
+			{key: "milk_feeding", labelKey: "nav.milk_feeding", href: "/counts/milk-feeding", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},             //nav-composition:ignore: registry entry
+		},
+	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
 	// client no longer needs its own hardcoded coming-soon list.
 	"breeding": {
@@ -201,7 +225,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		labelKey:    "module.breeding",
 		landingHref: "",
 		status:      moduleStatusSoon,
-		priority:    4,
+		priority:    6,
 	},
 }
 
@@ -330,7 +354,16 @@ func reviewableModuleKeys() []string {
 			defs = append(defs, def)
 		}
 	}
-	sort.SliceStable(defs, func(i, j int) bool { return defs[i].priority < defs[j].priority })
+	// Total order: the registry is a map, so equal priorities would leave the drawer order
+	// at the mercy of Go's randomized map iteration (the same principal could get a
+	// different module order on two requests). Priorities are unique today; the key
+	// tie-break keeps that a lock rather than a convention.
+	sort.SliceStable(defs, func(i, j int) bool {
+		if defs[i].priority != defs[j].priority {
+			return defs[i].priority < defs[j].priority
+		}
+		return defs[i].key < defs[j].key
+	})
 	keys := make([]string, 0, len(defs))
 	for _, def := range defs {
 		keys = append(keys, def.key)
@@ -352,7 +385,7 @@ func reviewableModuleKeys() []string {
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "breeding"}
+		return []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding"}
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
 	return []string{"vaccination", "weighing", "aas_health"}
@@ -433,7 +466,14 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		seen[def.key] = true
 		available = append(available, def)
 	}
-	sort.SliceStable(available, func(i, j int) bool { return available[i].priority < available[j].priority })
+	// Same total-order rule as reviewableModuleKeys: never let map iteration decide the
+	// drawer order when two modules share a priority.
+	sort.SliceStable(available, func(i, j int) bool {
+		if available[i].priority != available[j].priority {
+			return available[i].priority < available[j].priority
+		}
+		return available[i].key < available[j].key
+	})
 
 	out := make([]domain.BootstrapModule, 0, len(available)+len(soonModuleKeys))
 	for _, def := range available {
@@ -567,7 +607,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.calendar":         "Calendar",
 		"nav.alerts":           "Alerts",
 		"nav.drives":           "Drives",
-		"nav.counts":           "Counts",
 		"nav.birth":            "Birth",
 		"nav.death":            "Death",
 		"nav.shifting":         "Shifting",
@@ -586,10 +625,11 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
-		"module.counts":         "Counts",
+		"module.counts":         "Herd Operations",
 		"module.feed_direction": "Feed",
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
+		"module.milk":           "Milk",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -599,7 +639,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.calendar":         "कैलेंडर",
 		"nav.alerts":           "अलर्ट",
 		"nav.drives":           "ड्राइव",
-		"nav.counts":           "गिनती",
 		"nav.birth":            "जन्म",
 		"nav.death":            "मृत्यु",
 		"nav.shifting":         "शिफ्टिंग",
@@ -618,10 +657,11 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
-		"module.counts":         "गिनती",
+		"module.counts":         "झुंड संचालन",
 		"module.feed_direction": "फ़ीड",
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
+		"module.milk":           "दूध",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -631,7 +671,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.calendar":         "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":           "ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":           "ಡ್ರೈವ್‌ಗಳು",
-		"nav.counts":           "ಎಣಿಕೆ",
 		"nav.birth":            "ಜನನ",
 		"nav.death":            "ಮರಣ",
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
@@ -650,10 +689,11 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
-		"module.counts":         "ಎಣಿಕೆ",
+		"module.counts":         "ಹಿಂಡು ಕಾರ್ಯಾಚರಣೆ",
 		"module.feed_direction": "ಆಹಾರ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
+		"module.milk":           "ಹಾಲು",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -663,7 +703,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.calendar":         "క్యాలెండర్",
 		"nav.alerts":           "అలర్ట్లు",
 		"nav.drives":           "డ్రైవ్‌లు",
-		"nav.counts":           "లెక్కలు",
 		"nav.birth":            "జననం",
 		"nav.death":            "మరణం",
 		"nav.shifting":         "షిఫ్టింగ్",
@@ -682,10 +721,11 @@ var bootstrapLabels = map[string]map[string]string{
 
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",
-		"module.counts":         "లెక్కలు",
+		"module.counts":         "మంద కార్యకలాపాలు",
 		"module.feed_direction": "ఫీడ్",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
+		"module.milk":           "పాలు",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",

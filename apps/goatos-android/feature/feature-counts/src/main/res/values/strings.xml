@@ -117,6 +117,9 @@
     <string name="counts_group_current_location">CURRENT LOCATION</string>
     <string name="counts_group_priority">PRIORITY</string>
     <string name="counts_group_category">CATEGORY</string>
+    <string name="counts_group_comment">COMMENT</string>
+    <string name="counts_field_comment">Why is this animal being moved?</string>
+    <string name="counts_hint_comment">Optional. The farm head approving this move and the reviewer checking your video will read it.</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">Animal identifier 1</string>
@@ -249,4 +252,5 @@
     <string name="counts_shifting_no_stage">No stage available</string>
     <string name="counts_shifting_select_stage">Select stage</string>
     <string name="counts_shifting_stage_notice">This changes only management stage. It does not create pregnancy or lactation records.</string>
+    <string name="counts_shifting_videos_label">Videos recorded</string>
 </resources>

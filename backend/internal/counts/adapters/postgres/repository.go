@@ -1732,7 +1732,7 @@ INSERT INTO shifting_events (
   destination_park_id, destination_shed_id, raised_at, effective_at, authorized_at, authorized_by,
   authorization_state, verification_state, event_status, source_system, source_ref, proof_ref,
   payload_hash, idempotency_key, request_fingerprint, applied_at,
-  management_stage_mode, target_management_stage
+  management_stage_mode, target_management_stage, raise_comment
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
@@ -1747,14 +1747,18 @@ INSERT INTO shifting_events (
   -- Both binds are cast explicitly: $10 and $15 are each already used bare above, and reusing them
   -- inside a CASE leaves Postgres unable to deduce one consistent type (SQLSTATE 42P08).
   CASE WHEN $15::text = 'applied' THEN $10::timestamptz ELSE NULL END,
-  nullif($22, ''), nullif($23, '')
+  nullif($22, ''), nullif($23, ''),
+  -- Left as a bare nullable bind, NOT nullif($24, ''): the handler already normalizes a blank
+  -- comment to absent, so an empty string reaching here would be a real (if odd) operator value
+  -- rather than "unset", and collapsing it would hide that.
+  $24
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),
 		in.DestinationParkID, in.DestinationShedID, in.RaisedAt, in.EffectiveAt, nullableTime(in.AuthorizedAt), ptrValue(in.AuthorizedBy),
 		in.AuthorizationState, in.VerificationState, in.EventStatus, in.SourceSystem, in.SourceRef, ptrValue(in.ProofRef),
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
-		in.ManagementStageMode, in.TargetManagementStage).Scan(&id)
+		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}

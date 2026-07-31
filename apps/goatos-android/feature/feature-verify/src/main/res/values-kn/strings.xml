@@ -38,6 +38,7 @@
     <string name="verify_detail_shed_label">ಶೆಡ್</string>
     <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
     <string name="verify_detail_operator_label">ಆಪರೇಟರ್</string>
+    <string name="verify_detail_raised_note_label">ಆಪರೇಟರ್ ಟಿಪ್ಪಣಿ</string>
     <string name="verify_detail_captured_label">ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ</string>
     <string name="verify_detail_recorded_answer">ದಾಖಲಿಸಲಾಗಿದೆ: %1$s</string>
     <string name="verify_detail_no_media">ಈ ಐಟಂಗೆ ಯಾವುದೇ ವೀಡಿಯೊ ಲಗತ್ತಿಸಿಲ್ಲ</string>

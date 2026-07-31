@@ -71,8 +71,14 @@ data class MilkFeedingUiState(
         ors != null && ors!! in 0..udder!! && proofs.all { it.captured }
 }
 
-@Immutable data class MilkFeedingCardUi(val taskId: String, val parkLabel: String, val sessionNo: Int, val dueTime: String, val headCount: Int, val status: String, val reworkReason: String = "", val available: Boolean = true, val blockedReason: String = "") {
+@Immutable data class MilkFeedingCardUi(val taskId: String, val parkLabel: String, val sessionNo: Int, val dueTime: String, val headCount: Int, val status: String, val reworkReason: String = "", val available: Boolean = true, val blockedReason: String = "", val capturedProofCount: Int = 0) {
     val canOpen: Boolean get() = available && status in setOf("not_submitted", "rework")
+
+    /**
+     * True when the operator started this session and left before submitting, so the list can offer
+     * to resume instead of reading as untouched work.
+     */
+    val isInProgress: Boolean get() = capturedProofCount > 0 && canOpen
 }
 @Immutable data class MilkFeedingListUiState(
     val subtitle: String = "", val dateLabel: String = "", val chips: List<MilkPreparationChipUi> = emptyList(),
@@ -127,11 +133,12 @@ private fun MilkFeedingWorkCard(task: MilkFeedingCardUi, onClick: () -> Unit) {
         MilkPreparationCardBucket.IN_REVIEW -> MeshaColors.Warn
         MilkPreparationCardBucket.TO_PREPARE -> Color.Transparent
     }
-    val statusLabel = when (bucket) {
-        MilkPreparationCardBucket.COMPLETED -> "Completed"
-        MilkPreparationCardBucket.REWORK -> "Rework"
-        MilkPreparationCardBucket.IN_REVIEW -> "In review"
-        MilkPreparationCardBucket.TO_PREPARE -> if (task.available) "Need action" else "Locked"
+    val statusLabel = when {
+        task.isInProgress -> "In progress"
+        bucket == MilkPreparationCardBucket.COMPLETED -> "Completed"
+        bucket == MilkPreparationCardBucket.REWORK -> "Rework"
+        bucket == MilkPreparationCardBucket.IN_REVIEW -> "In review"
+        else -> if (task.available) "Need action" else "Locked"
     }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min)
@@ -151,7 +158,7 @@ private fun MilkFeedingWorkCard(task: MilkFeedingCardUi, onClick: () -> Unit) {
                 Text(statusLabel, color = if (bucket == MilkPreparationCardBucket.REWORK) MeshaColors.Danger else MeshaColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.W800, modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(MeshaColors.Surf3).padding(horizontal = 8.dp, vertical = 3.dp))
             }
             Text("${task.headCount} milk kids", color = MeshaColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.W700, modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(MeshaColors.Surf2).padding(horizontal = 9.dp, vertical = 7.dp))
-            Text(task.blockedReason.ifBlank { task.reworkReason.ifBlank { if (bucket == MilkPreparationCardBucket.TO_PREPARE) "Open feeding report" else statusLabel } }, color = if (bucket == MilkPreparationCardBucket.REWORK) MeshaColors.Danger else if (!task.available) MeshaColors.Faint else MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.W600)
+            Text(task.blockedReason.ifBlank { task.reworkReason.ifBlank { if (task.isInProgress) "Resume · ${if (task.capturedProofCount == 1) "1 video" else "${task.capturedProofCount} videos"} saved" else if (bucket == MilkPreparationCardBucket.TO_PREPARE) "Open feeding report" else statusLabel } }, color = if (bucket == MilkPreparationCardBucket.REWORK) MeshaColors.Danger else if (!task.available) MeshaColors.Faint else MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.W600)
         }
     }
 }
@@ -161,6 +168,9 @@ sealed interface MilkFeedingEvent {
     data class SetNumber(val field: String, val value: String) : MilkFeedingEvent
     data class SetText(val field: String, val value: String) : MilkFeedingEvent
     data class CaptureProof(val code: String) : MilkFeedingEvent
+
+    /** Replace a captured clip; the ViewModel drops the discarded take's queued upload. */
+    data class ReCaptureProof(val code: String) : MilkFeedingEvent
     data object Submit : MilkFeedingEvent
     data object Back : MilkFeedingEvent
 }
@@ -203,7 +213,25 @@ fun MilkFeedingScreen(state: MilkFeedingUiState, onEvent: (MilkFeedingEvent) -> 
             if ((state.attempt2NotDrinking.toIntOrNull() ?: 0) > 0) item(key = "udder") { NumberField("How many did not drink udder milk?", state.udderNotDrinking) { onEvent(MilkFeedingEvent.SetNumber("udder", it)) } }
             if ((state.udderNotDrinking.toIntOrNull() ?: 0) > 0) item(key = "ors") { NumberField("How many did not drink ORS?", state.orsNotDrinking) { onEvent(MilkFeedingEvent.SetNumber("ors", it)) } }
             item(key = "proof-title") { Title("Mandatory proof videos") }
-            items(state.proofs, key = { it.code }) { proof -> Card { Text(proof.label, color = MeshaColors.Ink, fontWeight = FontWeight.W700); Action(if (proof.captured) "Recorded" else "Record live video", !proof.captured && !proof.capturing) { onEvent(MilkFeedingEvent.CaptureProof(proof.code)) } } }
+            // A captured proof stays replaceable: an unusable clip is re-recorded here instead of
+            // being submitted and bounced by the verifier (maintainer request 2026-07-30).
+            items(state.proofs, key = { it.code }) { proof ->
+                Card {
+                    Text(proof.label, color = MeshaColors.Ink, fontWeight = FontWeight.W700)
+                    Action(
+                        if (proof.captured) "Recorded · Re-record" else "Record live video",
+                        !proof.capturing,
+                    ) {
+                        onEvent(
+                            if (proof.captured) {
+                                MilkFeedingEvent.ReCaptureProof(proof.code)
+                            } else {
+                                MilkFeedingEvent.CaptureProof(proof.code)
+                            },
+                        )
+                    }
+                }
+            }
             item(key = "submit") { Action(if (state.submitting) "Submitting…" else "Submit answers & proofs", state.canSubmit) { onEvent(MilkFeedingEvent.Submit) } }
             state.message?.let { item(key = "message") { Text(it, color = MeshaColors.Danger, fontSize = 12.sp) } }
         }

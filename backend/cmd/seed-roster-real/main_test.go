@@ -12,11 +12,12 @@ func TestHealthDepartmentReceivesHealthModuleByDefault(t *testing.T) {
 	want := map[string]bool{
 		"aas_health":     true,
 		"counts":         true,
+		"milk":           true,
 		"feed_direction": true,
 		"vaccination":    true,
 	}
 	if len(modules) != len(want) {
-		t.Fatalf("health default modules = %v, want exactly Health + Counts + Feed + Vaccination", modules)
+		t.Fatalf("health default modules = %v, want exactly Health + Counts + Milk + Feed + Vaccination", modules)
 	}
 	for _, module := range modules {
 		if !want[module] {
@@ -26,6 +27,28 @@ func TestHealthDepartmentReceivesHealthModuleByDefault(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("health default modules = %v, missing %v", modules, want)
+	}
+}
+
+// TestCountsDepartmentsAlsoReceiveMilkModule locks the seed half of the 2026-07-31 module
+// split. Milk Preparation and Milk Feeding moved out of the Counts module into their own
+// "milk" drawer module while KEEPING their /counts/... routes and CountsWrite authority.
+// The bottom bar is composed from department_module_grants, so any department seeded with
+// counts but not milk silently loses both daily pages. Migration 000064 applies the same
+// rule to already-seeded databases; this pins it for fresh seeds.
+func TestCountsDepartmentsAlsoReceiveMilkModule(t *testing.T) {
+	for department, modules := range defaultDepartmentModules {
+		has := func(key string) bool {
+			for _, module := range modules {
+				if module == key {
+					return true
+				}
+			}
+			return false
+		}
+		if has("counts") && !has("milk") {
+			t.Fatalf("department %q is granted counts but not milk: %v — Milk Prep and Milk Feeding would vanish from its bottom bar", department, modules)
+		}
 	}
 }
 

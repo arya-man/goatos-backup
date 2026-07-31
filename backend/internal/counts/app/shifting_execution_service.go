@@ -69,8 +69,11 @@ type ShiftingVerificationEnqueueRequest struct {
 	ShedID          string
 	MediaRefs       []string
 	SubjectLabel    string
-	CapturedAt      time.Time
-	IdempotencyKey  string
+	// SubjectNote is the raiser's note on why the animals are moving, passed through to the
+	// verification item so the verifier reads the operator's reason beside the video.
+	SubjectNote    string
+	CapturedAt     time.Time
+	IdempotencyKey string
 }
 
 // WithVerificationEnqueuer wires the evidence-review enqueue seam. Without it, Complete fails
@@ -168,6 +171,7 @@ func (s *ShiftingExecutionService) Complete(
 			ShedID:          result.DestinationShedID,
 			MediaRefs:       mediaRefs,
 			SubjectLabel:    subject,
+			SubjectNote:     derefString(result.RaiseComment),
 			CapturedAt:      s.now().UTC(),
 			// Keyed to the EVENT + complete proof set so a retry collapses onto one queue item.
 			IdempotencyKey: "counts-shifting-verification:" + in.ShiftingEventID + ":" + strings.Join(mediaRefs, ":"),
@@ -257,4 +261,14 @@ func (s *ShiftingExecutionService) ListPendingExecution(
 		PageSize:     pageSize,
 		Cursor:       decoded,
 	})
+}
+
+// derefString reads an optional string as a value, mapping absent to empty. The enqueue request
+// carries strings rather than pointers, and ptrIfSet on the bridge side maps empty back to absent —
+// so "no note" survives the round trip as absent rather than becoming an empty note.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

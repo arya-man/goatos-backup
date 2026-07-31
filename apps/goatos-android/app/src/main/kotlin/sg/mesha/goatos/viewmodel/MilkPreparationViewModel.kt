@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -21,6 +25,9 @@ import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkPreparationRepository
+import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
@@ -46,6 +53,7 @@ private data class MilkPreparationRefreshState(
 @HiltViewModel
 class MilkPreparationListViewModel @Inject constructor(
     private val repo: MilkPreparationRepository,
+    drafts: CaptureDraftRepository,
 ) : ViewModel() {
     private val today = LocalDate.now(MILK_IST).toString()
     private val selectedFilter = MutableStateFlow("all")
@@ -55,7 +63,10 @@ class MilkPreparationListViewModel @Inject constructor(
         repo.observe(today),
         selectedFilter,
         refresh,
-    ) { resource, selected, sync ->
+        // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
+        // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
+        drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
+    ) { resource, selected, sync, capturedByEntity ->
         val page = resource.data
         if (page == null) {
             MilkPreparationListUiState(
@@ -66,7 +77,7 @@ class MilkPreparationListViewModel @Inject constructor(
                 emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
             )
         } else {
-            buildMilkPreparationListUi(page, selected).copy(
+            buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = today).copy(
                 isRefreshing = sync.isRefreshing,
                 isOffline = sync.isOffline,
                 lastSyncedAt = resource.lastSyncedAt,
@@ -98,8 +109,18 @@ class MilkPreparationListViewModel @Inject constructor(
 internal fun buildMilkPreparationListUi(
     page: MilkPreparationPageDto?,
     selectedFilter: String,
+    capturedByEntity: Map<String, Int> = emptyMap(),
+    draftDate: String = "",
 ): MilkPreparationListUiState {
-    val allCards = page?.farmTasks.orEmpty().map(::milkPreparationCard).sortedBy { it.parkLabel }
+    val allCards = page?.farmTasks.orEmpty()
+        .map { task ->
+            // MUST be the same key the detail screen writes its draft under
+            // (MilkPreparationViewModel.entityId = "$parkId:$preparationDate", where the date is the
+            // LOCAL IST business day). Keying off page.preparationDate instead would silently miss
+            // every draft on any day the backend's sheet date differs from the phone's.
+            milkPreparationCard(task, capturedByEntity["${task.parkId}:$draftDate"] ?: 0)
+        }
+        .sortedBy { it.parkLabel }
     val cards = if (selectedFilter == "all") allCards else allCards.filter { card ->
         when (selectedFilter) {
             "not_submitted" -> card.bucket == MilkPreparationCardBucket.TO_PREPARE
@@ -128,7 +149,7 @@ internal fun buildMilkPreparationListUi(
     )
 }
 
-private fun milkPreparationCard(task: MilkPreparationFarmTaskDto): MilkPreparationCardUi {
+private fun milkPreparationCard(task: MilkPreparationFarmTaskDto, capturedProofCount: Int): MilkPreparationCardUi {
     val bucket = when (task.verificationStatus) {
         "pending_verification" -> MilkPreparationCardBucket.IN_REVIEW
         "completed" -> MilkPreparationCardBucket.COMPLETED
@@ -141,6 +162,9 @@ private fun milkPreparationCard(task: MilkPreparationFarmTaskDto): MilkPreparati
         MilkPreparationCardBucket.COMPLETED -> "Completed" to "Preparation verified"
         MilkPreparationCardBucket.REWORK -> "Rework" to "Record a fresh proof set"
     }
+    // Unfinished work the operator can pick up where they left off. Only meaningful before submit —
+    // once the sheet is with the verifier the draft is history, not a resume point.
+    val resumable = capturedProofCount > 0 && bucket == MilkPreparationCardBucket.TO_PREPARE
     return MilkPreparationCardUi(
         parkId = task.parkId,
         parkLabel = task.parkLabel,
@@ -151,12 +175,20 @@ private fun milkPreparationCard(task: MilkPreparationFarmTaskDto): MilkPreparati
         totalMilkLabel = "${formatLitres(task.totalRequiredMl)} milk",
         citricAcidLabel = "${formatDecimal(task.citricAcidGrams)} g citric acid",
         statusLabel = status,
-        actionLabel = if (bucket == MilkPreparationCardBucket.TO_PREPARE) "Prepare" else action,
+        actionLabel = when {
+            resumable -> "Resume · ${capturedProofCount.videosRecorded()} saved"
+            bucket == MilkPreparationCardBucket.TO_PREPARE -> "Prepare"
+            else -> action
+        },
         reworkReason = task.reworkReason,
         bucket = bucket,
         detailLabel = "${task.cohortCount} cohorts · ${task.headCount} animals",
+        capturedProofCount = capturedProofCount,
     )
 }
+
+/** "1 video" / "3 videos" — operator-facing copy, never a bare count. */
+internal fun Int.videosRecorded(): String = if (this == 1) "1 video" else "$this videos"
 
 private fun String.toMilkDateLabel(prefix: String = ""): String =
     runCatching { prefix + LocalDate.parse(this).format(MILK_DAY_LABEL) }.getOrDefault(this)
@@ -164,6 +196,11 @@ private fun String.toMilkDateLabel(prefix: String = ""): String =
 private fun formatLitres(millilitres: Long): String = formatDecimal(millilitres.toDouble() / 1_000.0) + " L"
 private fun formatDecimal(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else String.format(Locale.US, "%.1f", value)
+
+private const val FIELD_GOAT_MILK_USED = "goat_milk_used"
+private const val FIELD_MORNING = "morning"
+private const val FIELD_EVENING = "evening"
+private const val STEP_PREFIX = "step:"
 
 private data class MilkPreparationDraftState(
     val goatMilkUsed: Boolean?,
@@ -180,28 +217,20 @@ class MilkPreparationViewModel @Inject constructor(
     private val sync: SyncRepository,
     private val repo: MilkPreparationRepository,
     private val capture: ProofCaptureSource,
+    private val drafts: CaptureDraftRepository,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val parkId = saved.get<String>(ARG_PARK_ID).orEmpty()
     private val preparationDate = LocalDate.now(MILK_IST).toString()
     private val submitKey = DraftIdempotencyKey(saved, "milkPreparation.submitKey", "milk-preparation-submit")
     private val proofKeys = allSteps.associateWith { DraftIdempotencyKey(saved, "milkPreparation.proofKey.$it", "milk-preparation-$it") }
-    private val initialGoatMilkUsed = saved.get<Boolean>("milkPreparation.goatMilkUsed")
     private val refresh = MutableStateFlow(MilkPreparationRefreshState())
-    private val draft = MutableStateFlow(
-        MilkPreparationDraftState(
-            goatMilkUsed = initialGoatMilkUsed,
-            steps = initialGoatMilkUsed?.let(::applicableSteps).orEmpty().map { step ->
-                step.copy(
-                    captured = !saved.get<String>(proofItemKey(step.code)).isNullOrBlank(),
-                    answer = saved.get<String>(answerKey(step.code)).orEmpty(),
-                )
-            },
-            morningMilkCollected = saved.get<String>("milkPreparation.answer.morning").orEmpty(),
-            eveningMilkCollected = saved.get<String>("milkPreparation.answer.evening").orEmpty(),
-            queued = !saved.get<String>("milkPreparation.submitItem").isNullOrBlank(),
-        ),
-    )
+
+    // Starts empty and is rehydrated from the DURABLE draft in init. Answers used to be mirrored
+    // into SavedStateHandle, which dies with the nav backstack entry: Back + re-entry showed the
+    // recorded videos beside blank fields, and every step gates on answerComplete && captured, so
+    // the whole sheet had to be retyped before Submit re-enabled.
+    private val draft = MutableStateFlow(MilkPreparationDraftState(goatMilkUsed = null, steps = emptyList()))
 
     val state: StateFlow<MilkPreparationUiState> = combine(repo.observe(preparationDate), draft, refresh) { resource, local, syncState ->
         val page = resource.data
@@ -243,7 +272,7 @@ class MilkPreparationViewModel @Inject constructor(
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        MilkPreparationUiState(preparationDate = preparationDate, selectedParkId = parkId, goatMilkUsed = initialGoatMilkUsed, steps = initialGoatMilkUsed?.let(::applicableSteps).orEmpty()),
+        MilkPreparationUiState(preparationDate = preparationDate, selectedParkId = parkId),
     )
 
     init { refresh() }
@@ -251,20 +280,28 @@ class MilkPreparationViewModel @Inject constructor(
     fun onEvent(event: MilkPreparationEvent) {
         when (event) {
             is MilkPreparationEvent.SetGoatMilkUsed -> if (state.value.goatMilkQuestionEnabled) {
-                saved["milkPreparation.goatMilkUsed"] = event.used
-                draft.update { current -> current.copy(goatMilkUsed = event.used, steps = applicableSteps(event.used).map { step -> step.copy(answer = saved.get<String>(answerKey(step.code)).orEmpty()) }) }
+                // Answers already typed are carried across the step-set change, so toggling the
+                // question back and forth does not silently discard them.
+                draft.update { current ->
+                    val answered = current.steps.associate { it.code to it.answer }
+                    val captured = current.steps.filter { it.captured }.map { it.code }.toSet()
+                    current.copy(
+                        goatMilkUsed = event.used,
+                        steps = applicableSteps(event.used).map { step ->
+                            step.copy(answer = answered[step.code].orEmpty(), captured = step.code in captured)
+                        },
+                    )
+                }
             }
             is MilkPreparationEvent.CaptureStep -> captureStep(event.stepCode)
+            is MilkPreparationEvent.ReCaptureStep -> reCaptureStep(event.stepCode)
             is MilkPreparationEvent.SetCollectedMilk -> {
                 val current = state.value
                 if ((event.shift == "morning" && !current.morningQuestionEnabled) || (event.shift == "evening" && !current.eveningQuestionEnabled)) return
-                val key = "milkPreparation.answer.${event.shift}"
-                saved[key] = event.value
                 draft.update { if (event.shift == "morning") it.copy(morningMilkCollected = event.value) else it.copy(eveningMilkCollected = event.value) }
             }
             is MilkPreparationEvent.SetStepAnswer -> {
                 if (state.value.steps.firstOrNull { it.code == event.stepCode }?.enabled != true) return
-                saved[answerKey(event.stepCode)] = event.value
                 draft.update { current -> current.copy(steps = current.steps.map { if (it.code == event.stepCode) it.copy(answer = event.value) else it }) }
             }
             MilkPreparationEvent.Submit -> submit()
@@ -273,10 +310,81 @@ class MilkPreparationViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The park-day's DURABLE captured evidence: each step's PROOF_UPLOAD outbox item id plus the
+     * submit key, in the shared capture-draft store. Held here (not in [saved]) so leaving and
+     * re-entering the screen keeps the videos already recorded.
+     */
+    private var captureDraft = CaptureDraft()
+
+    init {
+        viewModelScope.launch {
+            captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+            val answers = captureDraft.answers
+            val goatMilkUsed = answers[FIELD_GOAT_MILK_USED]?.toBooleanStrictOrNull()
+            draft.update { current ->
+                current.copy(
+                    goatMilkUsed = goatMilkUsed,
+                    morningMilkCollected = answers[FIELD_MORNING].orEmpty(),
+                    eveningMilkCollected = answers[FIELD_EVENING].orEmpty(),
+                    steps = goatMilkUsed?.let(::applicableSteps).orEmpty().map { step ->
+                        step.copy(
+                            answer = answers["$STEP_PREFIX${step.code}"].orEmpty(),
+                            captured = captureDraft.hasProof(step.code),
+                        )
+                    },
+                )
+            }
+            // Restore BEFORE the writer starts, or the empty initial state would immediately
+            // overwrite the answers just read back.
+            persistAnswers()
+        }
+    }
+
+    /**
+     * Mirrors every typed answer into the durable draft so Back + re-entry restores the sheet rather
+     * than asking the operator to key it in again beside videos they can already see are recorded.
+     */
+    private fun persistAnswers() = viewModelScope.launch {
+        draft
+            .map { local ->
+                buildMap {
+                    local.goatMilkUsed?.let { put(FIELD_GOAT_MILK_USED, it.toString()) }
+                    put(FIELD_MORNING, local.morningMilkCollected)
+                    put(FIELD_EVENING, local.eveningMilkCollected)
+                    local.steps.forEach { put("$STEP_PREFIX${it.code}", it.answer) }
+                }
+            }
+            .distinctUntilChanged()
+            .drop(1)
+            // conflate, NOT debounce: a time window would drop the pending write when Back cancels
+            // viewModelScope — the very loss this exists to prevent. Conflate coalesces a burst of
+            // keystrokes into the latest value without delaying it.
+            .conflate()
+            .collect { drafts.putAnswers(CaptureFlow.MILK_PREPARATION, entityId, it) }
+    }
+
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
         val preparationResult = repo.refresh(preparationDate)
         refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
+    }
+
+    /**
+     * Replaces one step's clip: the discarded take's queued upload is deleted (it must not reach the
+     * verifier as a second video), then the normal capture path runs again.
+     */
+    private fun reCaptureStep(stepCode: String) {
+        val current = state.value
+        if (!current.isEditable) return
+        viewModelScope.launch {
+            captureDraft.proofs[stepCode]?.let { sync.deleteOutboxItem(it) }
+            drafts.clearProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode)
+            captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+            proofKeys[stepCode]?.invalidate()
+            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = false) else row }) }
+            captureStep(stepCode)
+        }
     }
 
     private fun captureStep(stepCode: String) {
@@ -300,7 +408,9 @@ class MilkPreparationViewModel @Inject constructor(
             )
             when (val result = sync.enqueueProofUpload(groupKey(), proofKeys.getValue(stepCode).current(), request, video.localUri, video.endedAtMs - video.startedAtMs)) {
                 is AppResult.Ok -> {
-                    saved[proofItemKey(stepCode)] = result.value
+                    // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
+                    drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, result.value)
+                    captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
                     draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
                 }
                 is AppResult.Err -> {
@@ -315,15 +425,22 @@ class MilkPreparationViewModel @Inject constructor(
     private fun submit() {
         val current = state.value
         if (!current.canSubmit) return
-        val proofItems = current.steps.associate { it.code to saved.get<String>(proofItemKey(it.code)).orEmpty() }
+        val proofItems = current.steps.associate { it.code to captureDraft.proofs[it.code].orEmpty() }
         if (proofItems.values.any(String::isBlank)) return
         draft.update { it.copy(submitting = true, message = null) }
         viewModelScope.launch {
             val answers = milkPreparationAnswers(current)
             val goatMilkUsed = current.goatMilkUsed ?: return@launch
-            when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitKey.current(), current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
+            // STABLE per park-day and durable: a re-entered screen resends the SAME key.
+            val submitIdempotencyKey = captureDraft.submitIdempotencyKey ?: "milk-preparation-submit:$entityId"
+            if (captureDraft.submitIdempotencyKey == null) {
+                drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, null)
+                captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+            }
+            when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitIdempotencyKey, current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
                 is AppResult.Ok -> {
-                    saved["milkPreparation.submitItem"] = result.value
+                    drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
+                    captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
                     draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
                 }
                 is AppResult.Err -> draft.update { it.copy(submitting = false, message = result.message) }
@@ -332,8 +449,9 @@ class MilkPreparationViewModel @Inject constructor(
     }
 
     private fun groupKey() = "milk-preparation:$parkId:$preparationDate"
-    private fun proofItemKey(step: String) = "milkPreparation.proofItem.$step"
-    private fun answerKey(step: String) = "milkPreparation.answer.$step"
+
+    /** The work item the durable draft belongs to: this park's preparation for this business day. */
+    private val entityId get() = "$parkId:$preparationDate"
     private fun setCapturing(step: String, value: Boolean) = draft.update { current ->
         current.copy(steps = current.steps.map { row -> if (row.code == step) row.copy(capturing = value) else row })
     }

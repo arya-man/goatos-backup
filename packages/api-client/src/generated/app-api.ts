@@ -6370,6 +6370,8 @@ export interface components {
             category: string;
             /** @description Backend-owned goat/subject display label; never a raw UUID fallback. */
             subject_label?: string;
+            /** @description Optional free-text note written by whoever raised the underlying work (for a shifting movement, the operator's reason for moving the animals), shown to the verifier during evidence review. Absent when the producer supplied none. Distinct from subject_label, which is system-composed identity text. */
+            subject_note?: string;
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
@@ -6416,7 +6418,7 @@ export interface components {
             action_types: components["schemas"]["VerificationActionTypeOption"][];
             /** @description Complete ordered page-tab set for the selected verifier module, independent of current queue rows. */
             pages: components["schemas"]["VerificationPageOption"][];
-            /** @description Ordered disjoint secondary tabs at verification-item grain. */
+            /** @description Ordered secondary tabs at verification-item grain. The first is the "All" tab (no status filter); the remaining tabs are disjoint single statuses. */
             statuses: components["schemas"]["VerificationStatusOption"][];
             parks: components["schemas"]["VerificationLocationOption"][];
             sheds: components["schemas"]["VerificationLocationOption"][];
@@ -6444,7 +6446,8 @@ export interface components {
         VerificationStatusOption: {
             key: string;
             label: string;
-            status: components["schemas"]["VerificationItemStatus"];
+            /** @description The item status this tab filters to. OMITTED for the "All" tab, which applies no status filter and therefore returns due, approved and rejected items together. A renderer must treat an absent status as "send no status query parameter", never as a default. */
+            status?: components["schemas"]["VerificationItemStatus"];
         };
         VerificationLocationOption: {
             /** Format: uuid */
@@ -6562,6 +6565,8 @@ export interface components {
              * @enum {string}
              */
             category?: "growth" | "health" | "breeding" | "delivery";
+            /** @description Optional free-text note from the operator raising the movement, explaining why the animals are being shifted. Shown to the park head deciding the approval and to the verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent. A value longer than maxLength is rejected with comment_too_long, never truncated. */
+            comment?: string;
             /** @description Optional reference to captured proof media for this movement. */
             proof_ref?: string;
             /** @description The structured cohort effect of the movement, at breed grain. OPTIONAL when goat_ids names EXACTLY ONE animal: the server then derives a single impact from that animal's own canonical facts (breed key/label, stage tag, age class, sex, head_count 1), so an operator moving one animal via RFID search does not have to describe a cohort the system already knows. REQUIRED for two or more animals, because the server will not invent the cohort split or the pregnancy/lactation/warm-up distribution across cohorts - omitting it there is rejected with 400 missing_impacts. When supplied, it is stored verbatim and no derivation runs. A derived impact never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts explicitly. */
@@ -10854,8 +10859,8 @@ export interface operations {
                 category?: string;
                 vertical?: string;
                 module?: string;
-                /** @description Defaults to pending. */
-                status?: components["schemas"]["VerificationItemStatus"];
+                /** @description Defaults to pending when omitted. `all` applies no status filter and returns due, approved and rejected items together — it must be sent explicitly, because an absent parameter means the pending landing tab. */
+                status?: "all" | "pending" | "approved" | "rejected";
                 /** @description Asia/Kolkata capture date. Defaults to today's business date for the verifier queue. */
                 business_date?: string;
                 /** @description When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status. */

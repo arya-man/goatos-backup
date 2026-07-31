@@ -341,6 +341,9 @@ class VerifyDetailViewModel @Inject constructor(
             item.parkLabel?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
             item.operatorName?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
             item.capturedAt.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
+            // Last, and only when present: the operator's reason for raising this work, so the
+            // reviewer reads it beside the video instead of judging the evidence without it.
+            item.subjectNote?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.RAISED_NOTE, it) },
         )
     }
 }

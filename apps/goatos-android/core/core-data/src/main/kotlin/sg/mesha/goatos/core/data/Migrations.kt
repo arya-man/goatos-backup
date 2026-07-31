@@ -695,3 +695,42 @@ val MIGRATION_24_25: Migration = object : Migration(24, 25) {
         )
     }
 }
+
+/**
+ * v25 -> v26: the shared capture evidence draft.
+ *
+ * One row per (capture flow, work item, proof step) holding the captured proof's outbox item id, plus
+ * a reserved `__submit__` step row holding the submit's idempotency key. Purely additive (a new
+ * table, no column or index touched), and rows are deleted once a submit is accepted, so an upgrade
+ * carries no data and the table stays bounded by the work an operator is mid-way through.
+ */
+val MIGRATION_25_26: Migration = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Self-healing DROP: an intermediate build of this change shipped a shifting-only draft table
+        // before the store was generalized. A device that installed it sits at v26 with the old table,
+        // and Room validates the schema hash on open — so the stale table is removed here rather than
+        // left to fail an install. (docs/decisions/room-migration-safety.md: a schema is validated,
+        // never assumed.)
+        db.execSQL("DROP TABLE IF EXISTS `shifting_evidence_drafts`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `capture_evidence_drafts` " +
+                "(`flowKey` TEXT NOT NULL, `entityId` TEXT NOT NULL, `step` TEXT NOT NULL, " +
+                "`outboxItemId` TEXT, `idempotencyKey` TEXT, `fingerprint` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`flowKey`, `entityId`, `step`))",
+        )
+    }
+}
+
+/**
+ * v26 -> v27: the operator's typed form answers join their proofs in the capture draft.
+ *
+ * Purely additive — one nullable column on `capture_evidence_drafts`, no table rebuilt, no index
+ * touched, no data rewritten. Existing v26 rows keep their proofs and submit keys and simply read
+ * back a null `answers`, which the repository maps to "nothing typed yet", so an upgrade mid-capture
+ * still restores the videos it already had.
+ */
+val MIGRATION_26_27: Migration = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `capture_evidence_drafts` ADD COLUMN `answers` TEXT")
+    }
+}

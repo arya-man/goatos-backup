@@ -208,6 +208,10 @@ function VerificationReviewDrawerPanel({
               <Tag tone={statusTone(item.status)}>{statusLabel}</Tag>
             </Meta>
             <Meta label={text("drawer.meta.reason")}>{item.verdict_reason || "—"}</Meta>
+            {/* The raiser's own words about this work item (for a movement: why the animals are
+                moving). Rendered right after status so the reviewer reads the operator's reason
+                before the provenance fields. */}
+            <Meta label={text("drawer.meta.subject_note")}>{item.subject_note || "—"}</Meta>
             <Meta label={text("drawer.meta.verified_by")}>
               {item.verified_by_name || (item.verified_by ? shortId(item.verified_by) : "—")}
             </Meta>
