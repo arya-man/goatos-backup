@@ -627,11 +627,16 @@ func TestCalendarListIncludesTenantScopedBatchDriveByResolvedGoatLocation(t *tes
 	versionID := "86000000-0000-4000-8000-00000000e102"
 	ruleID := "86000000-0000-4000-8000-00000000e103"
 	obligationID := "86000000-0000-4000-8000-00000000e104"
+	obligationIDB := "86000000-0000-4000-8000-00000000e106"
 	batchID := "86000000-0000-4000-8000-00000000e105"
 	dueAt := time.Date(2026, 7, 31, 6, 0, 0, 0, time.UTC)
 
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
-	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationID)
+	attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "shed", testShedA)
+	setCalendarGoatCurrentShed(t, ctx, pool, obligationID, testParkA, testShedA)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationIDB, dueAt)
+	setCalendarGoatCurrentShed(t, ctx, pool, obligationIDB, testParkB, testShedB)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationID, obligationIDB)
 	if _, err := pool.Exec(ctx, `
 UPDATE obligation_batches
 SET scope_type = 'tenant',
@@ -652,9 +657,14 @@ WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, batchID); err
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	wantID := parkDriveEventID(testParkA, dueAt)
-	if len(list.Items) != 1 || list.Items[0].EventID != wantID {
-		t.Fatalf("list items=%#v, want tenant-scoped batch resolved to park-drive %s", list.Items, wantID)
+	wantIDs := []string{parkDriveEventID(testParkA, dueAt), parkDriveEventID(testParkB, dueAt)}
+	gotIDs := make([]string, 0, len(list.Items))
+	for _, item := range list.Items {
+		gotIDs = append(gotIDs, item.EventID)
+	}
+	slices.Sort(gotIDs)
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Fatalf("list item ids=%#v, want tenant-scoped batch split by resolved goat park %#v", gotIDs, wantIDs)
 	}
 }
 

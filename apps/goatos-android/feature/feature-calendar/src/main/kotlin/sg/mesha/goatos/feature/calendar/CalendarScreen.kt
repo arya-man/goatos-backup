@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -639,10 +638,12 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
     Column(modifier.fillMaxWidth()) {
         if (summary.vaccineLabels.isNotEmpty()) {
             Text(
-                text = stringResource(R.string.calendar_drive_vaccines_fmt, summary.vaccineLabels.size),
+                text = summary.vaccineLabels.joinToString(" · "),
                 color = MeshaColors.Muted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W600,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.size(10.dp))
         }
@@ -650,7 +651,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
         // the same day is one animal, completed only when all its drive obligations are), but fall back
         // to the dose counts when a legacy cache / mixed-version response lacks animal counts (CDR-R1),
         // labelled accordingly. Round (not truncate) to match web. due/overdue/deferred chips stay doses.
-        val coverage = driveCoverage(summary.completedAnimals, summary.totalAnimals, summary.completedCount, summary.totalCount)
+        val coverage = driveVisibleProgress(summary)
         val pct = driveCoveragePct(coverage.completed, coverage.total)
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1089,7 +1090,7 @@ private fun MonthFilterSheet(
                     options = options.parks,
                     selectedValue = draft.parkId,
                     onSelect = { parkId ->
-                        val currentShedStillValid = parkId == null || options.sheds.any {
+                        val currentShedStillValid = parkId != null && options.sheds.any {
                             it.value == draft.shedId && it.parentValue == parkId
                         }
                         draft = draft.copy(
@@ -1164,21 +1165,53 @@ private fun FilterChoiceSection(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (includeAll) {
                 item(key = "all") {
-                    FilterChip(
+                    CalendarFilterChip(
                         selected = selectedValue == null,
                         onClick = { onSelect(null) },
-                        label = { Text(stringResource(R.string.calendar_filter_all)) },
+                        label = stringResource(R.string.calendar_filter_all),
                     )
                 }
             }
             items(options, key = { it.value }) { option ->
-                FilterChip(
+                CalendarFilterChip(
                     selected = selectedValue == option.value,
                     onClick = { onSelect(option.value) },
-                    label = { Text(option.label, maxLines = 1) },
+                    label = option.label,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CalendarFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val background = if (selected) MeshaColors.Brand else MeshaColors.Surf
+    val border = if (selected) MeshaColors.Brand else MeshaColors.Hair
+    val foreground = if (selected) MeshaColors.PageBg else MeshaColors.Ink
+
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(shape)
+            .background(background)
+            .border(1.dp, border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = foreground,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W800,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

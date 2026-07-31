@@ -262,6 +262,8 @@ class ShedsViewModel @Inject constructor(
             ShedRow(
                 id = identity.cardId,
                 name = first.shedName,
+                parkId = first.parkId,
+                parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),
                 physicalShed = first.physicalShed.ifBlank { first.shedName },
                 partition = first.partition,

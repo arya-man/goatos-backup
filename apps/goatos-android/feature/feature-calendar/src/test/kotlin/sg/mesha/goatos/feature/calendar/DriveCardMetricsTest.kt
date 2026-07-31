@@ -86,6 +86,30 @@ class DriveCardMetricsTest {
         assertTrue(driveCoverage(0, 0, 4, 8).usesAnimals)
     }
 
+    @Test
+    fun visibleProgressUsesSubmittedAnimalsWhileWaitingForVerification() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            shedCount = 2,
+            shedsCompleted = 0,
+            totalAnimals = 5,
+            completedAnimals = 0,
+            submittedAnimals = 2,
+            completedCount = 0,
+            submittedCount = 2,
+            dueCount = 3,
+            totalCount = 5,
+            remainingCount = 5,
+        )
+
+        val coverage = driveVisibleProgress(summary)
+
+        assertEquals(2, coverage.completed)
+        assertEquals(5, coverage.total)
+        assertTrue(coverage.usesAnimals)
+        assertEquals(40, driveCoveragePct(coverage.completed, coverage.total))
+    }
+
     // Redesigned status chips: returns ALL nonzero buckets in fixed order completed/due/overdue/deferred.
     @Test
     fun driveStatusChipsReturnsAllNonzero() {
@@ -95,7 +119,9 @@ class DriveCardMetricsTest {
             shedsCompleted = 1,
             totalAnimals = 77,
             completedAnimals = 20,
+            submittedAnimals = 30,
             completedCount = 20,
+            submittedCount = 30,
             dueCount = 40,
             overdueCount = 12,
             deferredCount = 3,
@@ -104,15 +130,17 @@ class DriveCardMetricsTest {
             vaccineLabels = listOf("FMD"),
         )
         val chips = driveStatusChips(summary)
-        assertEquals(4, chips.size)
+        assertEquals(5, chips.size)
         assertEquals("completed", chips[0].key)
         assertEquals(20, chips[0].count)
-        assertEquals("due", chips[1].key)
-        assertEquals(40, chips[1].count)
-        assertEquals("overdue", chips[2].key)
-        assertEquals(12, chips[2].count)
-        assertEquals("deferred", chips[3].key)
-        assertEquals(3, chips[3].count)
+        assertEquals("submitted", chips[1].key)
+        assertEquals(30, chips[1].count)
+        assertEquals("due", chips[2].key)
+        assertEquals(40, chips[2].count)
+        assertEquals("overdue", chips[3].key)
+        assertEquals(12, chips[3].count)
+        assertEquals("deferred", chips[4].key)
+        assertEquals(3, chips[4].count)
     }
 
     @Test
