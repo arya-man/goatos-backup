@@ -336,6 +336,9 @@ data class FeedTransportCaptureUiState(
 
 sealed interface FeedTransportCaptureEvent {
     data object RecordVideo : FeedTransportCaptureEvent
+
+    /** Replace the recorded clip; the ViewModel drops the discarded take's queued upload. */
+    data object ReRecordVideo : FeedTransportCaptureEvent
     data object Submit : FeedTransportCaptureEvent
     data object Back : FeedTransportCaptureEvent
 }
@@ -347,63 +350,38 @@ fun FeedTransportCaptureScreen(
 ) {
     val committed = state.result?.status == FeedTransportSubmitStatus.SYNCED ||
         state.result?.status == FeedTransportSubmitStatus.QUEUED
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MeshaColors.Bg)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    FeedCaptureScaffold(
+        title = state.shedLabel,
+        subtitle = null,
+        instruction = stringResource(R.string.feed_transport_caption),
+        onBack = { onEvent(FeedTransportCaptureEvent.Back) },
     ) {
-        Text(
-            text = stringResource(R.string.feed_complete_back),
-            color = MeshaColors.Muted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
-            modifier = Modifier.clickable { onEvent(FeedTransportCaptureEvent.Back) },
-        )
-
-        Text(
-            text = state.shedLabel,
-            color = MeshaColors.Ink,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.W800,
-        )
-
-        Text(
-            text = stringResource(R.string.feed_transport_caption),
-            color = MeshaColors.Faint,
-            fontSize = 12.sp,
-        )
-
-        Text(
-            text = stringResource(R.string.feed_transport_video_title),
-            color = MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
-        )
-        when {
-            state.videoCaptured -> FeedVerificationCaptured(
-                label = stringResource(R.string.feed_transport_video_recorded),
-            )
-            state.isCapturing -> FeedVerificationActionButton(
-                label = stringResource(R.string.feed_transport_video_uploading),
-                enabled = false,
-                primary = false,
-                loading = true,
-                onClick = {},
-            )
-            else -> FeedVerificationActionButton(
-                label = stringResource(R.string.feed_transport_record_video),
-                enabled = !committed,
-                primary = false,
-                onClick = { onEvent(FeedTransportCaptureEvent.RecordVideo) },
-            )
+        FeedProofCard(title = stringResource(R.string.feed_transport_video_title)) {
+            when {
+                state.videoCaptured -> FeedVerificationCaptured(
+                    label = stringResource(R.string.feed_transport_video_recorded),
+                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
+                    onReRecord = { onEvent(FeedTransportCaptureEvent.ReRecordVideo) },
+                    enabled = !committed,
+                )
+                state.isCapturing -> FeedVerificationActionButton(
+                    label = stringResource(R.string.feed_transport_video_uploading),
+                    enabled = false,
+                    primary = false,
+                    loading = true,
+                    onClick = {},
+                )
+                else -> FeedVerificationActionButton(
+                    label = stringResource(R.string.feed_transport_record_video),
+                    enabled = !committed,
+                    primary = false,
+                    onClick = { onEvent(FeedTransportCaptureEvent.RecordVideo) },
+                )
+            }
+            if (state.result == null) {
+                state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
+            }
         }
-        if (state.result == null) {
-            state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-        }
-
-        Spacer(modifier = Modifier.height(2.dp))
 
         FeedVerificationActionButton(
             label = stringResource(R.string.feed_transport_submit),

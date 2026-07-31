@@ -120,10 +120,9 @@ class RoleChromeScreenshotTest {
         NavModule(
             key = "counts",
             label = "Counts",
-            href = "/counts",
+            href = "/counts/birth",
             status = NavModuleStatus.AVAILABLE,
             navItems = listOf(
-                NavItem(key = "counts", label = "Counts", href = "/counts"),
                 NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
                 NavItem(key = "death", label = "Death", href = "/counts/death"),
                 NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),

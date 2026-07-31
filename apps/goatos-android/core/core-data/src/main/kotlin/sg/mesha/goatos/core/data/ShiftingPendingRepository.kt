@@ -80,6 +80,7 @@ interface ShiftingPendingRepository {
      * taps a row already in Room.
      */
     suspend fun findCached(shiftingEventId: String): CountsShiftingPendingExecutionItemDto?
+
 }
 
 class DefaultShiftingPendingRepository(
@@ -128,6 +129,7 @@ class DefaultShiftingPendingRepository(
     override suspend fun findCached(shiftingEventId: String): CountsShiftingPendingExecutionItemDto? =
         database.shiftingPendingItemDao().findById(shiftingEventId)
             ?.let { json.decodeFromString<CountsShiftingPendingExecutionItemDto>(it.dtoJson) }
+
 
     private fun scopeKey(date: String, status: String): String =
         cacheKey("shifting-actions", date, status)

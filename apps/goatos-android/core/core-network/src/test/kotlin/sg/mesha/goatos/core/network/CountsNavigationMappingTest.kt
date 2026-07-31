@@ -9,15 +9,15 @@ class CountsNavigationMappingTest {
         val state = BootstrapDto(
             navChrome = "expanded",
             visibleNavigation = listOf(
-                NavItemDto(key = "counts", label = "Counts", href = "/counts"),
+                NavItemDto(key = "birth", label = "Birth", href = "/counts/birth"),
             ),
             modules = listOf(
                 BootstrapModuleDto(
                     key = "counts",
                     label = "Counts",
-                    href = "/counts",
+                    href = "/counts/birth",
                     status = "available",
-                    navItems = listOf(NavItemDto(key = "counts", label = "Counts", href = "/counts")),
+                    navItems = listOf(NavItemDto(key = "birth", label = "Birth", href = "/counts/birth")),
                 ),
                 BootstrapModuleDto(
                     key = "weighing",
@@ -30,7 +30,7 @@ class CountsNavigationMappingTest {
         ).toNavState()
 
         assertEquals(listOf("counts", "weighing"), state.modules.map { it.key })
-        assertEquals(listOf("/counts"), state.modules.first().navItems.map { it.href })
-        assertEquals(listOf("/counts"), state.items.map { it.href })
+        assertEquals(listOf("/counts/birth"), state.modules.first().navItems.map { it.href })
+        assertEquals(listOf("/counts/birth"), state.items.map { it.href })
     }
 }

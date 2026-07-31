@@ -1528,7 +1528,8 @@ export async function listVerificationQueue(
     category?: string;
     vertical?: string;
     module?: string;
-    status?: VerificationItemStatus;
+    // "all" is the explicit no-status-filter selection; omitting status lands on pending.
+    status?: VerificationItemStatus | "all";
     businessDate?: string;
     missed?: boolean;
     parkId?: string;

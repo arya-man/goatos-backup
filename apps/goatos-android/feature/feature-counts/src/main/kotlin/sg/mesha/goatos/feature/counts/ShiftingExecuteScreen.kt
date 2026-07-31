@@ -94,6 +94,14 @@ sealed interface ShiftingExecuteEvent {
     data object RecordVideo : ShiftingExecuteEvent
     data object RecordFeedPackingVideo : ShiftingExecuteEvent
     data object RecordFeedGivenVideo : ShiftingExecuteEvent
+
+    /**
+     * Replace an already-recorded clip. Distinct from Record so the ViewModel can DROP the queued
+     * upload of the take being discarded — a re-record must not leave the verifier two videos.
+     */
+    data object ReRecordVideo : ShiftingExecuteEvent
+    data object ReRecordFeedPackingVideo : ShiftingExecuteEvent
+    data object ReRecordFeedGivenVideo : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
 }
@@ -128,17 +136,20 @@ fun ShiftingExecuteScreen(
                         title = "Shifting video (required)", captured = state.videoCaptured,
                         capturing = state.capturingStep == "shifting", committed = committed,
                         onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
+                        onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordVideo) },
                     )
                     if (state.highPriority) {
                         EvidenceVideoCard(
                             title = "Feed packing video (required)", captured = state.feedPackingVideoCaptured,
                             capturing = state.capturingStep == "packing", committed = committed,
                             onClick = { onEvent(ShiftingExecuteEvent.RecordFeedPackingVideo) },
+                            onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordFeedPackingVideo) },
                         )
                         EvidenceVideoCard(
                             title = "Feed given to animal video (required)", captured = state.feedGivenVideoCaptured,
                             capturing = state.capturingStep == "feeding", committed = committed,
                             onClick = { onEvent(ShiftingExecuteEvent.RecordFeedGivenVideo) },
+                            onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordFeedGivenVideo) },
                         )
                     }
                     state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
@@ -223,6 +234,7 @@ private fun EvidenceVideoCard(
     capturing: Boolean,
     committed: Boolean,
     onClick: () -> Unit,
+    onReRecord: () -> Unit = onClick,
 ) {
     Column(modifier = cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -245,7 +257,7 @@ private fun EvidenceVideoCard(
                     label = if (captured) "Re-record" else "Record live video",
                     enabled = !committed,
                     modifier = Modifier.weight(1f),
-                    onClick = onClick,
+                    onClick = if (captured) onReRecord else onClick,
                 )
             }
         }

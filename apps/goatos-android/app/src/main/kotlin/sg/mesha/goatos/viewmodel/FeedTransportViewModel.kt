@@ -23,6 +23,9 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedTransportQuery
+import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
@@ -132,10 +135,24 @@ class FeedTransportViewModel @Inject constructor(
     }
 }
 
-@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,saved:SavedStateHandle):ViewModel(){
-    private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private val submitKey=DraftIdempotencyKey(saved,"transport_submit_key","feed-transport-submit");private val proofItem=DraftOutboxItemId(saved,"transport_proof_item");private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel,videoCaptured=proofItem.value!=null));val state:StateFlow<FeedTransportCaptureUiState> = _state
-    fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.Back->Unit}}
-    private fun record(){if(_state.value.isCapturing||_state.value.videoCaptured)return;_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCapturePrompt.FEED_TRANSPORT);if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};val req=ProofUploadRequestDto(proofType="video",mimeType=v.mimeType,scopeType="shed",scopeId=shedId,subjectType="shed",subjectId=shedId,metadata=mapOf("capture_source" to JsonPrimitive(v.captureSource),"captured_start_ms" to JsonPrimitive(v.startedAtMs),"captured_end_ms" to JsonPrimitive(v.endedAtMs)));when(val r=sync.enqueueProofUpload(group,proofKey.current(),req,v.localUri,(v.endedAtMs-v.startedAtMs).takeIf{it>0})){is AppResult.Ok->{proofItem.value=r.value;_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();_state.update{it.copy(isCapturing=false,videoMessage=r.message)}}}}}
-    private fun submit(){val proof=proofItem.value?:return;viewModelScope.launch{when(val r=sync.enqueueFeedTransportSubmit(group,submitKey.current(),taskId,proof)){is AppResult.Ok->_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))};is AppResult.Err->{submitKey.invalidate();_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
-    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label"}
+/**
+ * The Feed Transport per-shed capture screen.
+ *
+ * The recorded video and the submit key live in the shared DURABLE capture-draft store, keyed by the
+ * task: they used to sit in `SavedStateHandle`, so Back + re-entry lost the clip and asked for it
+ * again while the first one uploaded anyway (maintainer report 2026-07-30).
+ */
+@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val drafts:CaptureDraftRepository,saved:SavedStateHandle):ViewModel(){
+    private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel));val state:StateFlow<FeedTransportCaptureUiState> = _state
+    init{viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))}}}
+    fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.ReRecordVideo->reRecord();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.Back->Unit}}
+    /** Drops the discarded take's queued upload so the verifier never receives two clips, then re-captures. */
+    private fun reRecord(){if(_state.value.isCapturing)return;viewModelScope.launch{draft.proofs[STEP_VIDEO]?.let{sync.deleteOutboxItem(it)};drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);proofKey.invalidate();_state.update{it.copy(videoCaptured=false,videoMessage=null)};record()}}
+    private fun record(){if(_state.value.isCapturing||_state.value.videoCaptured)return;_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCapturePrompt.FEED_TRANSPORT);if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};val req=ProofUploadRequestDto(proofType="video",mimeType=v.mimeType,scopeType="shed",scopeId=shedId,subjectType="shed",subjectId=shedId,metadata=mapOf("capture_source" to JsonPrimitive(v.captureSource),"captured_start_ms" to JsonPrimitive(v.startedAtMs),"captured_end_ms" to JsonPrimitive(v.endedAtMs)));when(val r=sync.enqueueProofUpload(group,proofKey.current(),req,v.localUri,(v.endedAtMs-v.startedAtMs).takeIf{it>0})){is AppResult.Ok->{drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();_state.update{it.copy(isCapturing=false,videoMessage=r.message)}}}}}
+    private fun submit(){val proof=draft.proofs[STEP_VIDEO]?:return;viewModelScope.launch{
+        // STABLE per task and durable, so a re-entered screen resends the SAME key.
+        val submitIdempotencyKey=draft.submitIdempotencyKey?:"feed-transport-submit:$taskId"
+        if(draft.submitIdempotencyKey==null){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
+        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}
+    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";private const val STEP_VIDEO="video"}
 }

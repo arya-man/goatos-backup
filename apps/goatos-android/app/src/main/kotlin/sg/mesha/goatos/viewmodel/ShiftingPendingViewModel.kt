@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.stateIn
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
 import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
@@ -35,6 +37,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ShiftingPendingViewModel @Inject constructor(
     private val repo: ShiftingPendingRepository,
+    private val drafts: CaptureDraftRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -43,11 +46,23 @@ class ShiftingPendingViewModel @Inject constructor(
     private val _isOffline = MutableStateFlow(false)
     private val _lastSyncedAt = MutableStateFlow<Long?>(null)
 
+    /**
+     * The paged Actions rows, decorated with each task's local evidence progress.
+     *
+     * The progress comes from ONE bounded Room observation combined with the page — never a
+     * per-row lookup, which would be an N+1 read behind a list (see
+     * docs/decisions/mobile-data-fetch-anti-patterns.md).
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val rows: Flow<PagingData<ShiftingPendingRowUi>> = _selection
-        .flatMapLatest { repo.pending(date = it.dateIso, status = it.status) }
-        .map { page -> page.map { it.toRowUi() } }
-        .cachedIn(viewModelScope)
+    val rows: Flow<PagingData<ShiftingPendingRowUi>> = combine(
+        _selection
+            .flatMapLatest { repo.pending(date = it.dateIso, status = it.status) }
+            .map { page -> page.map { it.toRowUi() } }
+            .cachedIn(viewModelScope),
+        drafts.observeProgress(CaptureFlow.SHIFTING),
+    ) { page, progress ->
+        page.map { row -> row.withEvidenceProgress(progress[row.shiftingEventId] ?: 0) }
+    }
 
     val state: StateFlow<ShiftingPendingUiState> = combine(
         _selection, _isOffline, _lastSyncedAt, repo.actionsMeta,
@@ -98,6 +113,17 @@ class ShiftingPendingViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Fills in "videos recorded / videos required" for a task still awaiting the operator. The
+     * requirement is the movement's own: a high-priority move embeds feed packing and feeding, so it
+     * needs three live videos where a low-priority move needs one
+     * (docs/decisions/shifting-verification.md).
+     */
+    private fun ShiftingPendingRowUi.withEvidenceProgress(capturedCount: Int): ShiftingPendingRowUi {
+        val required = if (priority.equals("high", ignoreCase = true)) HIGH_PRIORITY_VIDEOS else 1
+        return copy(videosRequired = required, videosCaptured = minOf(capturedCount, required))
+    }
+
     private fun selectDate(date: LocalDate) {
         _selection.value = _selection.value.copy(dateIso = minOf(date, today).toString())
     }
@@ -128,6 +154,8 @@ class ShiftingPendingViewModel @Inject constructor(
     private data class Selection(val dateIso: String, val status: String)
 
     private companion object {
+        /** Shifting + feed packing + feed given (docs/decisions/shifting-verification.md). */
+        const val HIGH_PRIORITY_VIDEOS = 3
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
         const val STATUS_ALL = "all"

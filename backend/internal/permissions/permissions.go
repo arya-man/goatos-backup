@@ -12,10 +12,19 @@ const (
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
 	GoatWriteHealth   = "goat.write_health"
-	// HealthRead renders backend-owned disease-course work. HealthDiagnose opens a configured
+	// HealthRead renders backend-owned disease-course work. HealthReport RAISES a sick-goat
+	// report from the field; HealthDiagnose is the clinical authority over the configured
 	// course; HealthExecute records the operator's treatment session. They are deliberately
 	// narrower than the admin goat health-status write.
+	//
+	// Report vs diagnose (maintainer decision 2026-07-30): the field operator who SPOTS a sick
+	// animal is the whole point of the phone Health module, so raising the case is its own
+	// permission. Before this split the ONLY permission on POST /app/health/cases was
+	// health.diagnose, which no operator holds — the phone showed them the ＋ Add-case button and
+	// the write came back 403, where the outbox retried it forever behind a "Retrying sync" row.
+	// Diagnosis/treatment authoring stays with the PC Director and CEO tier.
 	HealthRead                = "health.read"
+	HealthReport              = "health.report"
 	HealthDiagnose            = "health.diagnose"
 	HealthExecute             = "health.execute"
 	LocationsRead             = "locations.read"
@@ -262,7 +271,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
-		HealthRead:      {}, HealthDiagnose: {},
+		HealthRead:      {}, HealthReport: {}, HealthDiagnose: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -277,7 +286,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead:          {},
 		FeedPackingRead:       {},
 		FeedDirectionComplete: {},
-		HealthRead:            {}, HealthExecute: {},
+		HealthRead:            {}, HealthReport: {}, HealthExecute: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
@@ -308,7 +317,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionComplete: {},
 		VerificationReview:    {},
 		VerificationAct:       {},
-		HealthRead:            {}, HealthDiagnose: {}, HealthExecute: {},
+		HealthRead:            {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 	},
 }
 
