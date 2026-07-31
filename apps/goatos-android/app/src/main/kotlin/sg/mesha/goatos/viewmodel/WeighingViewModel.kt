@@ -51,6 +51,7 @@ import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
@@ -86,6 +87,15 @@ class WeighingViewModel @Inject constructor(
     private val expectedLocationId = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_ARG).orEmpty()
     private val expectedLocationLabel = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG).orEmpty()
     private val routeTitle = savedStateHandle.get<String>(Routes.EXECUTION_SCAN_TITLE_ARG).orEmpty()
+
+    /**
+     * Which weighing surface this destination renders. The route declares it, so neither the
+     * screen nor the fetch has to infer the surface from the viewer's roles -- the defect that
+     * showed a director every shed in every park with a live scan action.
+     */
+    private val surface = savedStateHandle.get<String>(Routes.WEIGHING_SURFACE_ARG)
+        ?.takeIf { it.isNotBlank() }
+        ?: WEIGHING_SCOPE_MINE
     private val scopeKey = listOf(campaignId, workGroupId, campaignShedId)
         .takeIf { parts -> parts.all { it.isNotBlank() } }
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
@@ -272,7 +282,7 @@ class WeighingViewModel @Inject constructor(
         loadingAssignments.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.listAssignments(cursor = null)) {
+                when (val loaded = repository.listAssignments(cursor = null, scope = surface)) {
                     is AppResult.Ok -> {
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
@@ -306,7 +316,7 @@ class WeighingViewModel @Inject constructor(
         appendingAssignments.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.listAssignments(cursor = cursor)) {
+                when (val loaded = repository.listAssignments(cursor = cursor, scope = surface)) {
                     is AppResult.Ok -> {
                         val known = assignments.value.map { it.campaignShedId }.toSet()
                         assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }

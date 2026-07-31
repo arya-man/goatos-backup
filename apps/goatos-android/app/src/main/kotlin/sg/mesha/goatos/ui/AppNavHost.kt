@@ -92,7 +92,11 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
+import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
+import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
@@ -138,6 +142,13 @@ object Routes {
     const val CALENDAR = "/calendar"
     const val VACCINATION = "/vaccination"
     const val WEIGHING = "/weighing"
+    /**
+     * The planner's flat all-tasks list across parks. Read-only: a planner is assigned no sheds
+     * and must never reach a scan surface.
+     */
+    const val WEIGHING_TASKS = "/weighing/tasks"
+    /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
+    const val WEIGHING_OPERATORS = "/weighing/operators"
     const val WEIGHING_VIDEOS = "/weighing/videos"
     const val WEIGHING_SCAN = "/weighing/scan"
     /**
@@ -366,6 +377,11 @@ object Routes {
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
+    /**
+     * Names WHICH weighing surface a destination renders, so the screen and its fetch never have
+     * to ask who is looking. Set per route via a nav argument default value.
+     */
+    const val WEIGHING_SURFACE_ARG = "weighingSurface"
     const val WEIGHING_CAMPAIGN_ARG = "campaignId"
     const val WEIGHING_WORK_GROUP_ARG = "workGroupId"
     const val WEIGHING_CAMPAIGN_SHED_ARG = "campaignShedId"
@@ -794,6 +810,47 @@ fun AppNavHost(
                     onAssignmentRowVisible = vm::onAssignmentRowVisible,
                 )
             }
+        }
+
+        // The planner's flat all-tasks list. A SEPARATE destination, not a mode of /weighing:
+        // the route declares its surface, so the screen never branches on who is looking.
+        composable(
+            route = Routes.WEIGHING_TASKS,
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_SURFACE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = WEIGHING_SCOPE_ALL
+                },
+            ),
+        ) {
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingTasksScreen(
+                state = state,
+                onRefresh = vm::refresh,
+                onSelectPark = vm::selectAssignmentPark,
+                onAssignmentRowVisible = vm::onAssignmentRowVisible,
+            )
+        }
+
+        // Read-only oversight of other people's weighing work. Also its own destination, and
+        // deliberately without any scan or reopen/close affordance.
+        composable(
+            route = Routes.WEIGHING_OPERATORS,
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_SURFACE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = WEIGHING_SCOPE_OPERATORS
+                },
+            ),
+        ) {
+            val vm: WeighingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingOperatorsScreen(
+                state = state,
+                onRefresh = vm::refresh,
+                onAssignmentRowVisible = vm::onAssignmentRowVisible,
+            )
         }
 
         composable(Routes.WEIGHING_VIDEOS) {

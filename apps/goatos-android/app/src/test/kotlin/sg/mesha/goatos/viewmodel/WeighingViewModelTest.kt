@@ -673,7 +673,7 @@ class WeighingViewModelTest {
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
 
-        override suspend fun listAssignments(cursor: String?): AppResult<WeighingPage<WeighingAssignment>> =
+        override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> =
             AppResult.Ok(WeighingPage(emptyList(), null))
 
         override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> =

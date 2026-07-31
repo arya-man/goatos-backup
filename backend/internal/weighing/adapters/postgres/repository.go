@@ -688,10 +688,17 @@ ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShe
 		observationRosterFilter = rosterAnimalIDs(out)
 	}
 	observationRows, err := r.pool.Query(ctx, `
-SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
-       COALESCE(animal_id::text, NULLIF(scanned_identifier, '')),
-       weight_kg::float8, proof_artifact_id::text,
-       COALESCE(expected_location_id::text, ''), accepted_at
+-- Every selected column is qualified: weighing_campaign_sheds carries campaign_id and
+-- campaign_shed_id too, so an unqualified reference here is ambiguous (SQLSTATE 42702) and
+-- 500s the whole scan roster.
+SELECT weighing_observations.observation_id::text,
+       weighing_observations.campaign_id::text,
+       weighing_observations.campaign_shed_id::text,
+       COALESCE(weighing_observations.animal_id::text, NULLIF(weighing_observations.scanned_identifier, '')),
+       weighing_observations.weight_kg::float8,
+       weighing_observations.proof_artifact_id::text,
+       COALESCE(weighing_observations.expected_location_id::text, ''),
+       weighing_observations.accepted_at
 FROM weighing_observations
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=weighing_observations.tenant_id
@@ -711,7 +718,7 @@ WHERE weighing_observations.tenant_id=$1::uuid
     $6::timestamptz IS NULL
     OR (weighing_observations.accepted_at, weighing_observations.observation_id) > ($6::timestamptz, $7::uuid)
   )
-ORDER BY accepted_at, observation_id
+ORDER BY weighing_observations.accepted_at, weighing_observations.observation_id
 LIMIT $8`, tenantID, campaignID, campaignShedID, observationRosterFilter, nullableString(operatorFilter),
 		nullableTime(obsCur.AcceptedAt), nullableString(obsCur.ObservationID), limit+1)
 	if err != nil {
