@@ -201,8 +201,15 @@ fun GoatOsShell(navState: NavState) {
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val visibleNavState = navState
         .withVerifierVideoNavigation()
+    val isOperatorProfile = profile.roleLabel.substringBefore("·").trim().equals("operator", ignoreCase = true)
+    val hasWeighingModule = visibleNavState.availableModules().any { module ->
+        module.key.equals("weighing", ignoreCase = true) ||
+            module.href.equals(Routes.WEIGHING, ignoreCase = true) ||
+            module.navItems.any { it.href.equals(Routes.WEIGHING, ignoreCase = true) }
+    }
     val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
-    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
+    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true ||
+        (isOperatorProfile && hasWeighingModule)
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }

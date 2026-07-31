@@ -391,13 +391,6 @@ fun WeighingScreen(
                 }
             }
             if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {
-                item {
-                    WeekPlanStrip(
-                        weekLabel = state.plannerWeekLabel,
-                        periodLabel = state.assignments.firstOrNull()?.periodLabel ?: state.plannerPeriodLabel,
-                        tabs = state.plannerDayTabs,
-                    )
-                }
                 if (state.parkFilters.size > 1) {
                     item {
                         WeighingParkFilters(
