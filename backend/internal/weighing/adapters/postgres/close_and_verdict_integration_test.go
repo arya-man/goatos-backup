@@ -462,6 +462,31 @@ WHERE tenant_id=$1::uuid AND event_type='weighing.observation.rework'`, repoTena
 	if !operatorActionable {
 		t.Fatal("rework event says operator_actionable=false; the operator owns the redo")
 	}
+
+	correction, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		ScannedIdentifier: "verdict-rework-rfid",
+		WeightKg:          13.1, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-rework-correction", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("same RFID correction after rework: %v", err)
+	}
+	if correction.ObservationID != obs.ObservationID {
+		t.Fatalf("correction observation_id=%s, want rework row %s", correction.ObservationID, obs.ObservationID)
+	}
+	var submittedAt *time.Time
+	var verificationStatus string
+	var weight float64
+	if err := pool.QueryRow(ctx, `
+SELECT submitted_at, verification_status, weight_kg::float8
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, obs.ObservationID).Scan(&submittedAt, &verificationStatus, &weight); err != nil {
+		t.Fatalf("read corrected rework row: %v", err)
+	}
+	if submittedAt != nil || verificationStatus != domain.VerificationStatusPending || weight != 13.1 {
+		t.Fatalf("corrected row submitted_at=%v verification_status=%q weight=%v, want draft pending 13.1", submittedAt, verificationStatus, weight)
+	}
 }
 
 // A CLOSED bucket is a deliberate leadership decision. A verifier's rework verdict

@@ -165,7 +165,7 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	return s.repo.PlannerCatalog(ctx, actor.TenantID, strings.TrimSpace(periodStartDate))
 }
 
-func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
+func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return domain.RosterPage{}, ports.ErrForbidden
 	}
@@ -180,9 +180,9 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	}
 	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 	if canMonitor {
-		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit)
+		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
 	}
-	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit)
+	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
 }
 
 func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {

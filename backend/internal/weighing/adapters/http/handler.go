@@ -23,7 +23,7 @@ type Service interface {
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
-	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error)
+	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
@@ -194,6 +194,7 @@ func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
 	page, err := h.service.ListScopeRoster(
 		r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"),
 		r.URL.Query().Get("cursor"), r.URL.Query().Get("observations_cursor"), limit,
+		r.URL.Query().Get("include_roster") != "false",
 	)
 	h.respond(w, r, map[string]any{
 		"items":                    page.Items,

@@ -541,15 +541,15 @@ ORDER BY display_name, display_code, user_id`, tenantID)
 	return out, nil
 }
 
-func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, observationsCursor, limit)
+func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, observationsCursor, limit, includeRoster)
 }
 
-func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, observationsCursor, limit)
+func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, observationsCursor, limit, includeRoster)
 }
 
-func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursorValue string, limit int) (domain.RosterPage, error) {
+func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursorValue string, limit int, includeRoster bool) (domain.RosterPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -563,7 +563,11 @@ func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, 
 		return domain.RosterPage{}, ports.ErrInvalidArgument
 	}
 	operatorFilter := strings.TrimSpace(operatorUserID)
-	rows, err := r.pool.Query(ctx, `
+	out := make([]domain.ExpectedAnimal, 0, limit)
+	created := make([]time.Time, 0, limit+1)
+	nextCursor := ""
+	if includeRoster {
+		rows, err := r.pool.Query(ctx, `
 WITH scoped AS (
   SELECT
     ea.campaign_id,
@@ -635,45 +639,43 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) secondary_id ON true
 ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShedID, nullableTime(cur.CreatedAt), nullableString(cur.AnimalID), limit+1, nullableString(operatorFilter))
-	if err != nil {
-		return domain.RosterPage{}, err
-	}
-	defer rows.Close()
-	out := make([]domain.ExpectedAnimal, 0, limit)
-	created := make([]time.Time, 0, limit+1)
-	for rows.Next() {
-		var animal domain.ExpectedAnimal
-		var createdAt time.Time
-		if err := rows.Scan(
-			&animal.CampaignID,
-			&animal.CampaignShedID,
-			&animal.AnimalID,
-			&animal.DisplayAnimalID,
-			&animal.PrimaryIdentifier,
-			&animal.SecondaryIdentifier,
-			&animal.ExpectedLocationID,
-			&animal.ExpectedLocationLabel,
-			&animal.Status,
-			&animal.AvailabilityStatus,
-			&animal.CurrentLocationID,
-			&animal.CurrentLocationLabel,
-			&animal.CurrentLifecycleStatus,
-			&animal.Seq,
-			&createdAt,
-		); err != nil {
+		if err != nil {
 			return domain.RosterPage{}, err
 		}
-		out = append(out, animal)
-		created = append(created, createdAt)
-	}
-	if err := rows.Err(); err != nil {
-		return domain.RosterPage{}, err
-	}
-	nextCursor := ""
-	if len(out) > limit {
-		last := out[limit-1]
-		nextCursor = encodeRosterCursor(rosterCursor{CreatedAt: created[limit-1], AnimalID: last.AnimalID})
-		out = out[:limit]
+		defer rows.Close()
+		for rows.Next() {
+			var animal domain.ExpectedAnimal
+			var createdAt time.Time
+			if err := rows.Scan(
+				&animal.CampaignID,
+				&animal.CampaignShedID,
+				&animal.AnimalID,
+				&animal.DisplayAnimalID,
+				&animal.PrimaryIdentifier,
+				&animal.SecondaryIdentifier,
+				&animal.ExpectedLocationID,
+				&animal.ExpectedLocationLabel,
+				&animal.Status,
+				&animal.AvailabilityStatus,
+				&animal.CurrentLocationID,
+				&animal.CurrentLocationLabel,
+				&animal.CurrentLifecycleStatus,
+				&animal.Seq,
+				&createdAt,
+			); err != nil {
+				return domain.RosterPage{}, err
+			}
+			out = append(out, animal)
+			created = append(created, createdAt)
+		}
+		if err := rows.Err(); err != nil {
+			return domain.RosterPage{}, err
+		}
+		if len(out) > limit {
+			last := out[limit-1]
+			nextCursor = encodeRosterCursor(rosterCursor{CreatedAt: created[limit-1], AnimalID: last.AnimalID})
+			out = out[:limit]
+		}
 	}
 	obsCur, err := decodeObservationsCursor(observationsCursorValue)
 	if err != nil {
@@ -681,6 +683,10 @@ ORDER BY scoped.created_at, scoped.animal_id`, tenantID, campaignID, campaignShe
 	}
 	observations := make([]domain.Observation, 0, limit)
 	observationAcceptedAt := make([]time.Time, 0, limit+1)
+	var observationRosterFilter []string
+	if includeRoster {
+		observationRosterFilter = rosterAnimalIDs(out)
+	}
 	observationRows, err := r.pool.Query(ctx, `
 SELECT observation_id::text, campaign_id::text, campaign_shed_id::text,
        COALESCE(animal_id::text, NULLIF(scanned_identifier, '')),
@@ -697,7 +703,8 @@ WHERE weighing_observations.tenant_id=$1::uuid
   AND weighing_observations.campaign_id=$2::uuid
   AND weighing_observations.campaign_shed_id=$3::uuid
   AND (
-    weighing_observations.animal_id IS NULL
+    $4::uuid[] IS NULL
+    OR weighing_observations.animal_id IS NULL
     OR weighing_observations.animal_id = ANY($4::uuid[])
   )
   AND (
@@ -705,7 +712,7 @@ WHERE weighing_observations.tenant_id=$1::uuid
     OR (weighing_observations.accepted_at, weighing_observations.observation_id) > ($6::timestamptz, $7::uuid)
   )
 ORDER BY accepted_at, observation_id
-LIMIT $8`, tenantID, campaignID, campaignShedID, rosterAnimalIDs(out), nullableString(operatorFilter),
+LIMIT $8`, tenantID, campaignID, campaignShedID, observationRosterFilter, nullableString(operatorFilter),
 		nullableTime(obsCur.AcceptedAt), nullableString(obsCur.ObservationID), limit+1)
 	if err != nil {
 		return domain.RosterPage{}, err
@@ -934,6 +941,7 @@ WITH campaign AS (
 	   AND observation.campaign_shed_id=s.campaign_shed_id
 	   AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
 	   AND observation.submitted_at IS NOT NULL
+	   AND observation.verification_status <> 'rework'
 	   AND observation.submitted_at >= $10::timestamptz
 	   AND observation.submitted_at < $11::timestamptz
 	  LIMIT 1
@@ -942,7 +950,12 @@ WITH campaign AS (
 	  SET weight_kg=$4,
 	      proof_artifact_id=p.proof_id,
 	      recorded_by=$7::uuid,
-	      accepted_at=now()
+	      accepted_at=now(),
+	      submitted_at=NULL,
+	      verification_status='pending',
+	      verified_by=NULL,
+	      verified_at=NULL,
+	      rework_reason=NULL
 	  FROM campaign c
 	  JOIN assigned_shed s ON true
 	  JOIN proof_ok p ON true
@@ -951,10 +964,10 @@ WITH campaign AS (
 	    AND observation.campaign_shed_id=s.campaign_shed_id
 	    AND observation.animal_id IS NULL
 	    AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
-	    -- Only the current, un-submitted round may be updated in place. A row
-	    -- already submitted in an earlier round is frozen; classify() turns
-	    -- this into ErrDuplicateScan via submitted_duplicate above.
-	    AND observation.submitted_at IS NULL
+	    -- Only the current, un-submitted round or an explicit verifier rework
+	    -- may be updated in place. Other submitted rows are frozen; classify()
+	    -- turns them into ErrDuplicateScan via submitted_duplicate above.
+	    AND (observation.submitted_at IS NULL OR observation.verification_status='rework')
   RETURNING observation.observation_id::text, observation.campaign_id::text,
     COALESCE(observation.campaign_shed_id::text,'') AS campaign_shed_id_text,
     observation.scanned_identifier AS animal_id_text, observation.weight_kg::float8,
@@ -1094,6 +1107,7 @@ SELECT EXISTS (
     AND observation.campaign_shed_id=$3::uuid
     AND lower(btrim(observation.scanned_identifier))=lower(btrim($4))
     AND observation.submitted_at IS NOT NULL
+    AND observation.verification_status <> 'rework'
     AND observation.submitted_at >= $5::timestamptz
     AND observation.submitted_at < $6::timestamptz
 )`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, tag, businessDayStart, businessDayEnd).Scan(&duplicate); err != nil {
@@ -1197,7 +1211,7 @@ UPDATE weighing_campaign_sheds
 SET status='completed', completed_at=COALESCE(completed_at, now()), updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$2::uuid
-  AND status <> 'completed'`, cmd.TenantID, cmd.CampaignShedID)
+  AND status IN ('pending','in_progress')`, cmd.TenantID, cmd.CampaignShedID)
 	if err != nil {
 		return domain.Observation{}, err
 	}

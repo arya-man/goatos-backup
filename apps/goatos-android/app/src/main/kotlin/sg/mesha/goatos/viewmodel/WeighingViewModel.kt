@@ -50,6 +50,7 @@ import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
+import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
@@ -1453,7 +1454,7 @@ class WeighingViewModel @Inject constructor(
     private companion object {
         const val ROSTER_WINDOW_SIZE = 20
         const val LIST_PREFETCH_DISTANCE = 3
-        const val ROSTER_SYNC_MAX_ROWS = 20
+        const val ROSTER_SYNC_MAX_ROWS = MAX_SCOPE_HYDRATION_ROWS
         const val MAX_PROOFS_PER_WEIGHING_SCOPE = 100 // Free-flow scope constraint, independent of sync page size
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"

@@ -349,6 +349,13 @@ paths:
             of items, on a keyset of (accepted_at, observation_id) scoped to
             this campaign_shed_id; it does not advance in lockstep with the
             roster cursor.
+        - name: include_roster
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+          description: Set false for observation-only continuation pages after the roster cursor is exhausted.
       responses:
         "200":
           description: Weighing scope roster rows.
@@ -501,6 +508,160 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close:
+    post:
+      tags:
+        - Weighing
+      operationId: closeWeighingScope
+      summary: Close one Weighing scope after verification-approved evidence.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeighingCloseRequest"
+      responses:
+        "200":
+          description: Scope closed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCloseResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon:
+    post:
+      tags:
+        - Weighing
+      operationId: abandonWeighingScope
+      summary: Explicitly abandon one Weighing scope that will not be completed.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: campaign_shed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeighingCloseRequest"
+      responses:
+        "200":
+          description: Scope abandoned or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCloseResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/close:
+    post:
+      tags:
+        - Weighing
+      operationId: closeWeighingCampaign
+      summary: Close every verified open scope in one Weighing campaign.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeighingCloseRequest"
+      responses:
+        "200":
+          description: Campaign closed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCloseResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /weighing/process-state:
+    get:
+      tags:
+        - Weighing
+      operationId: getWeighingProcessState
+      summary: Get Calendar and Control Tower process state for Weighing.
+      parameters:
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Weighing process state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingProcessState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/devices/register:
@@ -14684,6 +14845,129 @@ components:
           enum: [completed]
         trace_id:
           type: string
+    WeighingCloseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+        idempotency_key:
+          type: string
+    WeighingCloseResult:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - closed_at
+        - not_accepted_count
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        campaign_shed_id:
+          type: string
+          format: uuid
+        closed_by:
+          type: string
+          format: uuid
+        closed_at:
+          type: string
+          format: date-time
+        not_accepted_count:
+          type: integer
+          minimum: 0
+        not_accepted:
+          type: array
+          items:
+            type: string
+    WeighingCloseResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - close
+      properties:
+        close:
+          $ref: "#/components/schemas/WeighingCloseResult"
+        trace_id:
+          type: string
+    WeighingProcessStateDayMarker:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - open_count
+        - delayed_count
+      properties:
+        business_date:
+          type: string
+          format: date
+        open_count:
+          type: integer
+          minimum: 0
+        delayed_count:
+          type: integer
+          minimum: 0
+    WeighingProcessStateSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - scheduled
+        - delayed
+        - completed
+        - closed
+        - canceled
+        - open_total
+        - total
+      properties:
+        scheduled:
+          type: integer
+          minimum: 0
+        delayed:
+          type: integer
+          minimum: 0
+        completed:
+          type: integer
+          minimum: 0
+        closed:
+          type: integer
+          minimum: 0
+        canceled:
+          type: integer
+          minimum: 0
+        open_total:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+    WeighingProcessState:
+      type: object
+      additionalProperties: false
+      required:
+        - grain
+        - from_business_date
+        - to_business_date
+        - day_markers
+        - summary
+      properties:
+        grain:
+          type: string
+          enum: [weighing_work_item]
+        from_business_date:
+          type: string
+          format: date
+        to_business_date:
+          type: string
+          format: date
+        day_markers:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingProcessStateDayMarker"
+        summary:
+          $ref: "#/components/schemas/WeighingProcessStateSummary"
     WeighingObservationResponse:
       type: object
       additionalProperties: false

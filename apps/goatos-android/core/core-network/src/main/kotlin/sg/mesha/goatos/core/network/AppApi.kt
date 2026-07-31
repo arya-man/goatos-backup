@@ -372,6 +372,7 @@ interface AppApi {
         campaignShedId: String,
         cursor: String? = null,
         observationsCursor: String? = null,
+        includeRoster: Boolean = true,
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingRosterResponseDto
 
@@ -1076,6 +1077,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         campaignShedId: String,
         cursor: String?,
         observationsCursor: String?,
+        includeRoster: Boolean,
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 
