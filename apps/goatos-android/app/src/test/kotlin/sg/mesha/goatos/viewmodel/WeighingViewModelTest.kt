@@ -50,6 +50,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
@@ -676,6 +677,12 @@ class WeighingViewModelTest {
         override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> =
             AppResult.Ok(WeighingPage(emptyList(), null))
 
+        override suspend fun listTasks(
+            cursor: String?,
+            scope: String,
+            parkId: String?,
+        ): AppResult<WeighingTaskPage> = AppResult.Ok(WeighingTaskPage())
+
         override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> =
             AppResult.Ok(WeighingPage(emptyList(), null))
 
@@ -703,6 +710,11 @@ class WeighingViewModelTest {
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             createdDraft = draft
             return AppResult.Ok(null)
+        }
+
+        override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> {
+            createdDraft = draft
+            return AppResult.Ok("campaign-1")
         }
 
         override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {

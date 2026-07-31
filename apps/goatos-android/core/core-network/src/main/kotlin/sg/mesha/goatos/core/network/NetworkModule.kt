@@ -227,6 +227,7 @@ interface AppApiService {
         @Query("scope") scope: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
+        @Query("park_id") parkId: String? = null,
     ): WeighingCampaignListResponseDto
 
     @GET("app/weighing/planner/catalog")
@@ -748,8 +749,13 @@ class RetrofitAppApi(
     override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         service.getShedCompletionSummary(taskId, shedId)
 
-    override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto =
-        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit)
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit, parkId = parkId)
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         service.getWeighingPlannerCatalog(periodStartDate)

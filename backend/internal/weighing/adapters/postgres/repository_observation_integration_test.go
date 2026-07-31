@@ -354,7 +354,7 @@ INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, l
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Other Operator Newer Shed', 'individual_animal', $5::uuid, 1)`,
 		newerShed, newerCampaign, repoTenant, repoActualShed, repoOtherOp)
 
-	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 1)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 1)
 	if err != nil {
 		t.Fatalf("list campaigns for operator: %v", err)
 	}

@@ -152,7 +152,11 @@ func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campa
 // ScopeAll and ScopeOperators read the same unfiltered page; they differ in who may ask and in
 // what the client renders (the oversight surface has no scan CTA). Neither widens the write:
 // recording a weight still requires the caller to be the shed's assignee.
-func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, cursor string, limit int) (domain.CampaignPage, error) {
+//
+// parkID is an OPTIONAL row filter on top of the chosen scope. It narrows the rows only: the
+// page's Active/Completed counts are whole-scope aggregates, so switching park chips never
+// makes the tab numbers jump.
+func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error) {
 	// NOTE: RolesAuthorize requires ALL of the permissions it is given, so an either/or surface
 	// is expressed as separate calls rather than a two-element slice.
 	var allowed bool
@@ -176,22 +180,39 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	if limit > 100 {
 		limit = 100
 	}
-	if scope == domain.CampaignListScopeMine {
-		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, strings.TrimSpace(cursor), limit)
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)
+	if scope == domain.CampaignListScopeMine {
+		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, strings.TrimSpace(cursor), limit)
+	}
+	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, strings.TrimSpace(cursor), limit)
 }
 
-func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error) {
+// PlannerCatalog returns the bounded planner vocabulary for ONE weigh date, including
+// per-shed availability on that date.
+//
+// excludeCampaignID is the task currently being edited. Without it an edit would see its
+// OWN buckets as already taken and refuse to re-save them, so the planner needs to say
+// "everything except this task".
+func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate, excludeCampaignID string) (domain.PlannerCatalog, error) {
 	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
 	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 	if !canPlan && !canMonitor {
 		return domain.PlannerCatalog{}, ports.ErrForbidden
 	}
-	if strings.TrimSpace(periodStartDate) == "" {
+	// The catalog's availability is DATE-scoped, so the date has to be a real business
+	// date and not merely non-empty.
+	periodStartDate = strings.TrimSpace(periodStartDate)
+	if !isBusinessDate(periodStartDate) {
 		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
 	}
-	return s.repo.PlannerCatalog(ctx, actor.TenantID, strings.TrimSpace(periodStartDate))
+	excludeCampaignID = strings.TrimSpace(excludeCampaignID)
+	if excludeCampaignID != "" && !uuidutil.IsUUIDString(excludeCampaignID) {
+		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
+	}
+	return s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate, excludeCampaignID)
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
@@ -444,7 +465,23 @@ func validateCreate(cmd domain.CreateCampaign) error {
 	if !uuidutil.IsUUIDString(cmd.TenantID) || !uuidutil.IsUUIDString(cmd.ParkID) || !uuidutil.IsUUIDString(cmd.OperatorUserID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return ports.ErrInvalidArgument
 	}
-	if cmd.PeriodStartDate == "" || cmd.PeriodEndDate == "" || cmd.StartBusinessDate == "" || len(cmd.Sheds) == 0 {
+	if len(cmd.Sheds) == 0 {
+		return ports.ErrInvalidArgument
+	}
+	// TASK IDENTITY IS ONE PARK ON ONE WEIGH DATE.
+	//
+	// All three date columns describe that single day. The duplicate guard, the
+	// unique index and the planner's "already taken" lookup key on
+	// start_business_date, while the campaign keyset orders on
+	// period_start_date; a task accepted with those two disagreeing sorts under
+	// one date while occupying the slot of another -- exactly the double booking
+	// the index exists to stop. They must be a real business DATE and they must
+	// be the same date. Unvalidated text also reached `$9::date` and surfaced as
+	// a 500 rather than a 400.
+	if !isBusinessDate(cmd.PeriodStartDate) || !isBusinessDate(cmd.PeriodEndDate) || !isBusinessDate(cmd.StartBusinessDate) {
+		return ports.ErrInvalidArgument
+	}
+	if cmd.PeriodStartDate != cmd.PeriodEndDate || cmd.PeriodStartDate != cmd.StartBusinessDate {
 		return ports.ErrInvalidArgument
 	}
 	for _, shed := range cmd.Sheds {

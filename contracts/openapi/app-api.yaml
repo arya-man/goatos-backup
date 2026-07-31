@@ -131,6 +131,16 @@ paths:
       operationId: listWeighingCampaigns
       summary: List leadership-visible Weighing campaigns.
       parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Optional park filter. It narrows the returned ROWS only; `counts` stays a
+            whole-scope aggregate so the Active/Completed tallies do not move when the
+            park chip changes.
+          schema:
+            type: string
+            format: uuid
         - name: cursor
           in: query
           required: false
@@ -272,6 +282,16 @@ paths:
             type: string
             enum: [mine, all, operators]
             default: mine
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Optional park filter. It narrows the returned ROWS only; `counts` stays a
+            whole-scope aggregate so the Active/Completed tallies do not move when the
+            park chip changes.
+          schema:
+            type: string
+            format: uuid
         - name: cursor
           in: query
           required: false
@@ -304,13 +324,27 @@ paths:
         - Weighing
       operationId: appWeighingPlannerCatalog
       summary: Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards.
+      description: >
+        Availability is scoped to ONE weigh date: each shed reports whether an open weighing
+        task already claims it on that date, and by whom. A shed claimed on another date is
+        not claimed here.
       parameters:
         - name: period_start_date
           in: query
           required: true
+          description: The Asia/Kolkata business DATE the availability is reported for.
           schema:
             type: string
             format: date
+        - name: exclude_campaign_id
+          in: query
+          required: false
+          description: >-
+            The task currently being edited. Its own buckets are not reported as taken, so an
+            edit can re-save the sheds it already owns.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Bounded Weighing planner catalog.
@@ -14349,6 +14383,12 @@ components:
             uploaded) whose verification_status is not yet 'verified'. This is a
             count of evidence that actually exists -- there is deliberately no
             expected-animal denominator or ratio here.
+        rework_count:
+          type: integer
+          minimum: 0
+          description: >-
+            The subset of pending_verification_count that a verifier actively bounced back
+            to the operator. A strict subset, never added to the pending count.
         ready_to_close:
           type: boolean
           description: >-
@@ -14431,8 +14471,28 @@ components:
             $ref: "#/components/schemas/WeighingCampaign"
         next_cursor:
           type: string
+        counts:
+          $ref: "#/components/schemas/WeighingCampaignCounts"
         trace_id:
           type: string
+    WeighingCampaignCounts:
+      type: object
+      additionalProperties: false
+      description: >-
+        Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park
+        on one weigh date. Computed over the entire scope the caller may see, never from the
+        returned page and never narrowed by `park_id`. `completed` is status completed or
+        closed; `active` is every other live status. A canceled task is in neither.
+      required:
+        - active
+        - completed
+      properties:
+        active:
+          type: integer
+          minimum: 0
+        completed:
+          type: integer
+          minimum: 0
     WeighingCampaignResponse:
       type: object
       additionalProperties: false
@@ -14491,6 +14551,23 @@ components:
         kid_count:
           type: integer
           minimum: 0
+        scheduled:
+          type: boolean
+          description: >-
+            True when an open weighing task already claims this shed on the requested weigh
+            date. Absent/false means the shed is free on that date.
+        scheduled_campaign_id:
+          type: string
+          format: uuid
+        scheduled_status:
+          $ref: "#/components/schemas/WeighingCampaignShedStatus"
+        scheduled_operator_user_id:
+          type: string
+          format: uuid
+        scheduled_operator_display_name:
+          type: string
+        scheduled_weighing_category:
+          $ref: "#/components/schemas/WeighingCategory"
     WeighingPlannerPark:
       type: object
       additionalProperties: false

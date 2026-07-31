@@ -689,7 +689,7 @@ INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, l
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'individual_animal', $5::uuid, 1)`,
 		ourSecondShed, ourSecondCampaign, repoTenant, repoPark, repoOperator)
 
-	pageOne, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 1)
+	pageOne, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 1)
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -700,7 +700,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'indi
 		t.Fatal("page 1 returned no cursor; the operator's second campaign is unreachable")
 	}
 
-	pageTwo, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, pageOne.NextCursor, 1)
+	pageTwo, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", pageOne.NextCursor, 1)
 	if err != nil {
 		t.Fatalf("page 2: %v", err)
 	}
@@ -1060,7 +1060,7 @@ func TestBucketReadyToCloseReflectsVerificationState(t *testing.T) {
 
 	shedByID := func(t *testing.T) domain.CampaignShed {
 		t.Helper()
-		page, err := repo.ListCampaigns(ctx, repoTenant, "", 50)
+		page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 50)
 		if err != nil {
 			t.Fatalf("list campaigns: %v", err)
 		}

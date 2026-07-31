@@ -82,11 +82,11 @@ func TestListCampaignsOneToManyShedFanOutDoesNotMultiplyCampaignRows(t *testing.
 		list func() ([]domain.Campaign, error)
 	}{
 		{"leadership", func() ([]domain.Campaign, error) {
-			page, err := repo.ListCampaigns(ctx, repoTenant, "", 100)
+			page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
 			return page.Items, err
 		}},
 		{"operator", func() ([]domain.Campaign, error) {
-			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 100)
+			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
 			return page.Items, err
 		}},
 	} {
@@ -175,7 +175,7 @@ func TestListCampaignsPageBoundaryTotalsIdenticalAcrossPageSizes(t *testing.T) {
 			if pages > 50 {
 				t.Fatalf("limit=%d: pagination did not terminate", limit)
 			}
-			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, cursor, limit)
+			page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", cursor, limit)
 			if err != nil {
 				t.Fatalf("limit=%d cursor=%q: %v", limit, cursor, err)
 			}
@@ -268,7 +268,7 @@ func TestListCampaignsParkScopeHierarchyOperatorSeesOnlyOwnBuckets(t *testing.T)
 	lcpInsertCampaign(t, ctx, pool, otherParkCampaign, lcpParkCPT, "2026-10-01", domain.StatusPublished, repoOtherOp)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(13031), otherParkCampaign, lcpShedCPT, domain.CategoryIndividualAnimal, repoOtherOp, 4, "pending")
 
-	operatorPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 100)
+	operatorPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
 	if err != nil {
 		t.Fatalf("operator list: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestListCampaignsParkScopeHierarchyOperatorSeesOnlyOwnBuckets(t *testing.T)
 		t.Fatalf("operator remaining=%d, want 1; a collapsed key set clamps this to 0", operatorRow.Progress.RemainingCount)
 	}
 
-	leadershipPage, err := repo.ListCampaigns(ctx, repoTenant, "", 100)
+	leadershipPage, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
 	if err != nil {
 		t.Fatalf("leadership list: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestListCampaignsStatusMatrixCoversEveryStatusBucket(t *testing.T) {
 		lcpInsertBucket(t, ctx, pool, lcpUUID(14301+i), bucketMatrix, bucketSheds[i], domain.CategoryIndividualAnimal, repoOperator, 1, status)
 	}
 
-	page, err := repo.ListCampaigns(ctx, repoTenant, "", 100)
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
 	if err != nil {
 		t.Fatalf("leadership list: %v", err)
 	}

@@ -868,7 +868,7 @@ internal fun WeighingParkFilters(
 }
 
 @Composable
-private fun WeighingFilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun WeighingFilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MeshaColors.Brand else MeshaColors.Surf2
     val edge = if (selected) MeshaColors.Brand else MeshaColors.Hair
     val fg = if (selected) MeshaColors.PageBg else MeshaColors.Ink

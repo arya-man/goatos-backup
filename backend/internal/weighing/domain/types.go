@@ -63,8 +63,25 @@ type Campaign struct {
 }
 
 type CampaignPage struct {
-	Items      []Campaign `json:"items"`
-	NextCursor string     `json:"next_cursor,omitempty"`
+	Items      []Campaign     `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	Counts     CampaignCounts `json:"counts"`
+}
+
+// CampaignCounts is the WHOLE-FILTER task tally behind the two task-list tabs.
+//
+// GRAIN: one weighing_campaigns row = one task = one park on one weigh date.
+// The counts range over the ENTIRE scope the caller is allowed to see (mine /
+// all / operators), NOT over the returned page and NOT narrowed by the park
+// chip — so the tab numbers stay still while the user filters or pages.
+//
+// The split is server-owned so two clients can never disagree about what
+// "completed" means: Completed = status IN (completed, closed); Active =
+// every other live status (draft, published, in_progress, delayed). A canceled
+// task is in neither: it is retracted work, not work in either tab.
+type CampaignCounts struct {
+	Active    int `json:"active"`
+	Completed int `json:"completed"`
 }
 
 // CampaignListScope names WHICH weighing surface a campaign listing is for. The three mobile
@@ -117,6 +134,20 @@ type PlannerShed struct {
 	LocationID string `json:"location_id"`
 	Name       string `json:"name"`
 	KidCount   int    `json:"kid_count"`
+	// Scheduled and the Scheduled* fields describe whether this shed is ALREADY
+	// claimed by an open weighing task on the REQUESTED weigh date, and by whom.
+	// They are the availability the planner renders (available vs already
+	// scheduled) and the reason text on a blocked bucket. They are date-scoped:
+	// a shed taken on another date is not taken here.
+	//
+	// Absent (Scheduled=false, the rest empty) means the shed is free on that
+	// date. Never treat these as a roster or a count of animals.
+	Scheduled                    bool   `json:"scheduled,omitempty"`
+	ScheduledCampaignID          string `json:"scheduled_campaign_id,omitempty"`
+	ScheduledStatus              string `json:"scheduled_status,omitempty"`
+	ScheduledOperatorUserID      string `json:"scheduled_operator_user_id,omitempty"`
+	ScheduledOperatorDisplayName string `json:"scheduled_operator_display_name,omitempty"`
+	ScheduledWeighingCategory    string `json:"scheduled_weighing_category,omitempty"`
 }
 
 type CampaignSummary struct {
@@ -151,6 +182,11 @@ type CampaignShed struct {
 	// 'verified'. There is NO expected-animal denominator here — only a count of
 	// evidence that actually exists and still needs a verifier look.
 	PendingVerificationCount int `json:"pending_verification_count"`
+	// ReworkCount is the subset of PendingVerificationCount that a verifier
+	// actively BOUNCED back ('rework'), i.e. work sitting with the operator
+	// again. It is a strict subset, never added to the pending count: an
+	// observation is either awaiting a first look or bounced, never both.
+	ReworkCount int `json:"rework_count"`
 	// ReadyToClose is true only when the bucket is submitted (status='completed'),
 	// has at least one submitted observation, and NONE of its observations have a
 	// verification_status other than 'verified'. A bucket with an outstanding
