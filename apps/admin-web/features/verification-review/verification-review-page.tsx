@@ -22,6 +22,7 @@ export async function VerificationReviewPage({
   pageContract: AdminUiPageContract;
 }) {
   const sp = searchParams ?? {};
+  // "all" = every status together; anything else is a single-status tab.
   const status = verificationStatus(one(sp, "status"));
   const category = one(sp, "category")?.trim();
   const scope = parseScope(sp);
@@ -45,8 +46,13 @@ export async function VerificationReviewPage({
   const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
   const statuses = queue.ok ? queue.data.filter_options.statuses : [];
   const typeLabels = new Map(actionTypes.map((option) => [option.category, `${option.module_label} · ${option.label}`]));
-  const statusLabels = new Map(statuses.map((option) => [option.status, option.label]));
-  const statusLabelRecord = Object.fromEntries(statuses.map((option) => [option.status, option.label]));
+  // Row/drawer labels map an ITEM's status to its display label, so the statusless "All" tab is
+  // excluded — it is a filter tab, never a status a row can be in.
+  const statusOptionsWithStatus = statuses.filter(
+    (option): option is typeof option & { status: VerificationItemStatus } => Boolean(option.status),
+  );
+  const statusLabels = new Map(statusOptionsWithStatus.map((option) => [option.status, option.label]));
+  const statusLabelRecord = Object.fromEntries(statusOptionsWithStatus.map((option) => [option.status, option.label]));
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
   const columns = tableLabels(pageContract, "verification-actions");
   const tableContract = table(pageContract, "verification-actions");
@@ -81,10 +87,12 @@ export async function VerificationReviewPage({
           {statuses.map((option) => (
             <Link
               key={option.key}
-              href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
+              // A statusless option is the All tab: it must SET `status=all` rather than drop the
+              // parameter, because an absent parameter means "the Due landing tab".
+              href={hrefWith(sp, { status: option.status ?? "all", vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
               replace
               scroll={false}
-              className={status === option.status ? "on" : ""}
+              className={status === (option.status ?? "all") ? "on" : ""}
             >
               {option.label}
             </Link>
@@ -220,8 +228,15 @@ function QueueRow({
   );
 }
 
-function verificationStatus(value: string | undefined): VerificationItemStatus {
-  if (value === "approved" || value === "rejected") return value;
+/**
+ * The selected status tab.
+ *
+ * `?status=all` is forwarded VERBATIM: the backend needs it explicitly, because an absent status
+ * defaults to pending (the landing tab) rather than to "everything". An unknown value falls back to
+ * that same landing tab.
+ */
+function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {
+  if (value === "all" || value === "approved" || value === "rejected") return value;
   return "pending";
 }
 

@@ -172,6 +172,11 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	options.ActionTypes = s.actionTypeOptions()
 	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(params.Category)
 	options.Statuses = []domain.QueueStatusOption{
+		// "All" applies NO status predicate: the repository's status filter is already
+		// `($n = '' OR vi.status = $n)`, so an empty status returns due, approved and rejected
+		// together. It leads the list because an operator scanning Actions wants the whole
+		// picture first (maintainer request 2026-07-30).
+		{Key: "all", Label: "All"},
 		{Key: "due", Label: "Due", Status: domain.StatusPending},
 		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},

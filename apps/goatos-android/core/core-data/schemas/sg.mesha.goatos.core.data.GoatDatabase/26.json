@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 26,
-    "identityHash": "cbf69f7647569cf0589e61b28fc1834b",
+    "identityHash": "585af2f450573c68f29fb4db9f6ffc04",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -2628,43 +2628,40 @@
         }
       },
       {
-        "tableName": "shifting_evidence_drafts",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shiftingEventId` TEXT NOT NULL, `shiftingProofItemId` TEXT, `packingProofItemId` TEXT, `feedingProofItemId` TEXT, `completeIdempotencyKey` TEXT, `completeOutboxItemId` TEXT, `feedConfigFingerprint` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shiftingEventId`))",
+        "tableName": "capture_evidence_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`flowKey` TEXT NOT NULL, `entityId` TEXT NOT NULL, `step` TEXT NOT NULL, `outboxItemId` TEXT, `idempotencyKey` TEXT, `fingerprint` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`flowKey`, `entityId`, `step`))",
         "fields": [
           {
-            "fieldPath": "shiftingEventId",
-            "columnName": "shiftingEventId",
+            "fieldPath": "flowKey",
+            "columnName": "flowKey",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "shiftingProofItemId",
-            "columnName": "shiftingProofItemId",
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "step",
+            "columnName": "step",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outboxItemId",
+            "columnName": "outboxItemId",
             "affinity": "TEXT"
           },
           {
-            "fieldPath": "packingProofItemId",
-            "columnName": "packingProofItemId",
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
             "affinity": "TEXT"
           },
           {
-            "fieldPath": "feedingProofItemId",
-            "columnName": "feedingProofItemId",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "completeIdempotencyKey",
-            "columnName": "completeIdempotencyKey",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "completeOutboxItemId",
-            "columnName": "completeOutboxItemId",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "feedConfigFingerprint",
-            "columnName": "feedConfigFingerprint",
+            "fieldPath": "fingerprint",
+            "columnName": "fingerprint",
             "affinity": "TEXT"
           },
           {
@@ -2677,14 +2674,16 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "shiftingEventId"
+            "flowKey",
+            "entityId",
+            "step"
           ]
         }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cbf69f7647569cf0589e61b28fc1834b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '585af2f450573c68f29fb4db9f6ffc04')"
     ]
   }
 }

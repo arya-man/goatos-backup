@@ -23,6 +23,9 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
@@ -58,6 +61,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val photoCaptureSource: PhotoCaptureSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val drafts: CaptureDraftRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -75,20 +79,26 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     // strictly before the gated completion that references them.
     private val groupKey = "feed-dist:$shedId:$sessionNo:$workflow"
 
-    private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-distribution-complete")
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-distribution-video")
     private val waterKey = DraftIdempotencyKey(savedStateHandle, KEY_WATER_IDEMPOTENCY, "feed-distribution-water")
-    private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
-    private val videoProofItemId = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_PROOF_ITEM_ID)
-    private val waterProofItemId = DraftOutboxItemId(savedStateHandle, KEY_WATER_PROOF_ITEM_ID)
+
+    /**
+     * The shed-session's DURABLE draft: the recorded proofs' outbox item ids and the completion's
+     * idempotency key, keyed by [groupKey] in the shared capture-draft store.
+     *
+     * These used to live in [SavedStateHandle], which dies with the nav backstack entry — so
+     * recording the feed video, pressing Back and re-opening the session lost the clip and asked for
+     * it again while the first one uploaded anyway (maintainer report 2026-07-30, the same defect
+     * first seen on Shifting). The completion key was lost with it, defeating the idempotency that
+     * stops a double submit.
+     */
+    private var draft = CaptureDraft()
 
     private val _state = MutableStateFlow(
         FeedDistributionUiState(
             shedLabel = shedLabel,
             sessionLabel = sessionLabel,
             workflowLabel = workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
-            videoCaptured = videoProofItemId.value != null,
-            waterCaptured = waterProofItemId.value != null,
         ),
     )
     val state: StateFlow<FeedDistributionUiState> = _state.asStateFlow()
@@ -97,8 +107,19 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED)
-        recomputeCanComplete()
-        outboxItemId.value?.let(::observeOutboxItem)
+        viewModelScope.launch {
+            // Rehydrate BEFORE the first render decision: a re-entered session must show the proofs
+            // it already has rather than an empty form.
+            draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
+            _state.update {
+                it.copy(
+                    videoCaptured = draft.hasProof(STEP_VIDEO),
+                    waterCaptured = draft.hasProof(STEP_WATER),
+                )
+            }
+            recomputeCanComplete()
+            draft.submitOutboxItemId?.let(::observeOutboxItem)
+        }
     }
 
     fun onEvent(event: FeedDistributionEvent) {
@@ -106,8 +127,40 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             FeedDistributionEvent.RecordFeedVideo -> captureFeedVideo()
             FeedDistributionEvent.TakeWaterPhoto -> captureWater(isVideo = false)
             FeedDistributionEvent.RecordWaterVideo -> captureWater(isVideo = true)
+            // Re-record/re-take: drop the queued upload of the take being discarded so the verifier
+            // never receives two clips for one step, then capture afresh.
+            FeedDistributionEvent.ReRecordFeedVideo -> reCapture(STEP_VIDEO) { captureFeedVideo() }
+            FeedDistributionEvent.ReTakeWaterPhoto -> reCapture(STEP_WATER) { captureWater(isVideo = false) }
+            FeedDistributionEvent.ReRecordWaterVideo -> reCapture(STEP_WATER) { captureWater(isVideo = true) }
             FeedDistributionEvent.MarkDone -> markDone()
             FeedDistributionEvent.Back -> Unit // navigation — handled by the nav host.
+        }
+    }
+
+    /**
+     * Discards one step's captured proof and re-runs its capture. The queued PROOF_UPLOAD is deleted
+     * first: it has not been reviewed, and leaving it would submit a clip the operator rejected.
+     */
+    private fun reCapture(step: String, capture: () -> Unit) {
+        if (_state.value.isCapturingVideo || _state.value.isCapturingWater) return
+        viewModelScope.launch {
+            draft.proofs[step]?.let { syncRepository.deleteOutboxItem(it) }
+            drafts.clearProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, step)
+            draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
+            when (step) {
+                STEP_VIDEO -> videoKey.invalidate()
+                STEP_WATER -> waterKey.invalidate()
+            }
+            _state.update {
+                it.copy(
+                    videoCaptured = if (step == STEP_VIDEO) false else it.videoCaptured,
+                    waterCaptured = if (step == STEP_WATER) false else it.waterCaptured,
+                    canComplete = false,
+                    videoMessage = if (step == STEP_VIDEO) null else it.videoMessage,
+                    waterMessage = if (step == STEP_WATER) null else it.waterMessage,
+                )
+            }
+            capture()
         }
     }
 
@@ -154,7 +207,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    videoProofItemId.value = result.value
+                    // Durable BEFORE the UI flips: a process death here must not lose the clip.
+                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_VIDEO, result.value)
+                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_VIDEO_CAPTURED)
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
                     recomputeCanComplete()
@@ -250,7 +305,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    waterProofItemId.value = result.value
+                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_WATER, result.value)
+                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_WATER_PROOF_CAPTURED,
                         mapOf(AnalyticsEvents.Params.KIND to proofType),
@@ -273,18 +329,25 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     private fun markDone() {
         val current = _state.value
-        val videoItem = videoProofItemId.value
-        val waterItem = waterProofItemId.value
+        val videoItem = draft.proofs[STEP_VIDEO]
+        val waterItem = draft.proofs[STEP_WATER]
         // Defense in depth alongside the UI gate: both proofs must exist to submit.
         if (!current.videoCaptured || !current.waterCaptured || videoItem.isNullOrBlank() || waterItem.isNullOrBlank()) {
             _state.update { it.copy(canComplete = false) }
             return
         }
         viewModelScope.launch {
+            // STABLE per shed-session and durable, so a re-entered screen resends the SAME key and a
+            // completion the server already accepted collapses onto it instead of submitting twice.
+            val completeIdempotencyKey = draft.submitIdempotencyKey ?: "feed-distribution-complete:$groupKey"
+            if (draft.submitIdempotencyKey == null) {
+                drafts.putSubmit(CaptureFlow.FEED_DISTRIBUTION, groupKey, completeIdempotencyKey, null)
+                draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
+            }
             when (
                 val result = syncRepository.enqueueFeedDistributionComplete(
                     groupKey = groupKey,
-                    idempotencyKey = completeKey.current(),
+                    idempotencyKey = completeIdempotencyKey,
                     parkId = parkId,
                     shedId = shedId,
                     sessionNo = sessionNo,
@@ -295,7 +358,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    outboxItemId.value = result.value
+                    drafts.putSubmit(CaptureFlow.FEED_DISTRIBUTION, groupKey, completeIdempotencyKey, result.value)
+                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
                     _state.update { it.copy(canComplete = false) }
@@ -357,12 +421,12 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
 
+        /** Draft step names in the shared capture-draft store. */
+        private const val STEP_VIDEO = "video"
+        private const val STEP_WATER = "water"
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedDistribution.completeKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"
         private const val KEY_WATER_IDEMPOTENCY = "feedDistribution.waterKey"
-        private const val KEY_OUTBOX_ITEM_ID = "feedDistribution.outboxItemId"
-        private const val KEY_VIDEO_PROOF_ITEM_ID = "feedDistribution.videoProofItemId"
-        private const val KEY_WATER_PROOF_ITEM_ID = "feedDistribution.waterProofItemId"
         private const val META_SESSION_NO = "session_no"
         private const val META_CAPTURE_SOURCE = "capture_source"
         private const val META_CAPTURED_START_MS = "captured_start_ms"

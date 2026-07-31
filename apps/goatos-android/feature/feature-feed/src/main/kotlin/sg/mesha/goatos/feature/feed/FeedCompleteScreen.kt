@@ -60,51 +60,29 @@ fun FeedCompleteScreen(
     state: FeedCompleteUiState,
     onEvent: (FeedCompleteEvent) -> Unit = {},
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MeshaColors.Bg)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    FeedCaptureScaffold(
+        title = state.shedLabel,
+        subtitle = listOf(state.sessionLabel, state.workflowLabel).filter { it.isNotBlank() }.joinToString(" \u00b7 "),
+        instruction = stringResource(R.string.feed_complete_caption),
+        onBack = { onEvent(FeedCompleteEvent.Back) },
     ) {
-        Text(
-            text = stringResource(R.string.feed_complete_back),
-            color = MeshaColors.Muted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
-            modifier = Modifier.clickable { onEvent(FeedCompleteEvent.Back) },
-        )
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(text = state.shedLabel, color = MeshaColors.Ink, fontSize = 20.sp, fontWeight = FontWeight.W800)
-            val subtitle = listOf(state.sessionLabel, state.workflowLabel).filter { it.isNotBlank() }.joinToString(" · ")
-            if (subtitle.isNotBlank()) {
-                Text(text = subtitle, color = MeshaColors.Muted, fontSize = 13.sp)
-            }
+        // OPTIONAL video capture. Never gates Done.
+        FeedProofCard(title = stringResource(R.string.feed_complete_record_video)) {
+            FeedVerificationActionButton(
+                label = when {
+                    state.videoCaptured -> stringResource(R.string.feed_complete_video_recorded)
+                    state.isCapturingVideo -> stringResource(R.string.feed_complete_video_recording)
+                    else -> stringResource(R.string.feed_complete_record_video)
+                },
+                enabled = !state.isCapturingVideo && state.result?.status != FeedCompleteStatus.SYNCED,
+                primary = false,
+                loading = state.isCapturingVideo,
+                onClick = { onEvent(FeedCompleteEvent.RecordVideo) },
+            )
+            state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
         }
 
-        Text(
-            text = stringResource(R.string.feed_complete_caption),
-            color = MeshaColors.Faint,
-            fontSize = 12.sp,
-        )
-
-        // OPTIONAL video capture. Never gates Done.
-        FeedActionButton(
-            label = when {
-                state.videoCaptured -> stringResource(R.string.feed_complete_video_recorded)
-                state.isCapturingVideo -> stringResource(R.string.feed_complete_video_recording)
-                else -> stringResource(R.string.feed_complete_record_video)
-            },
-            enabled = !state.isCapturingVideo && state.result?.status != FeedCompleteStatus.SYNCED,
-            primary = false,
-            onClick = { onEvent(FeedCompleteEvent.RecordVideo) },
-        )
-        state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        FeedActionButton(
+        FeedVerificationActionButton(
             label = stringResource(R.string.feed_complete_done),
             enabled = state.canComplete && !state.isCapturingVideo,
             primary = true,
@@ -118,37 +96,5 @@ fun FeedCompleteScreen(
             }
             Text(text = result.message, color = tone, fontSize = 13.sp, fontWeight = FontWeight.W700)
         }
-    }
-}
-
-@Composable
-private fun FeedActionButton(
-    label: String,
-    enabled: Boolean,
-    primary: Boolean,
-    onClick: () -> Unit,
-) {
-    val bg = when {
-        !enabled -> MeshaColors.Hair
-        primary -> MeshaColors.Brand
-        else -> MeshaColors.Surf
-    }
-    val fg = when {
-        !enabled -> MeshaColors.Faint
-        primary -> MeshaColors.Surf
-        else -> MeshaColors.Ink
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .then(if (primary) Modifier else Modifier.border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp)))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 14.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text = label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
     }
 }

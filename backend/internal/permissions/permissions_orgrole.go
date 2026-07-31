@@ -298,6 +298,10 @@ func init() {
 			}
 			if vertical == VerticalHealth {
 				set[HealthRead] = struct{}{}
+				// Raising a sick-goat report is field work every health tier can do; the
+				// clinical course authoring above manager stays on health.diagnose
+				// (maintainer decision 2026-07-30).
+				set[HealthReport] = struct{}{}
 				if tier == TierManager || tier == TierHead || tier == TierDirector {
 					set[HealthDiagnose] = struct{}{}
 				}

@@ -41,8 +41,6 @@ import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthScreen
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathScreen
-import sg.mesha.goatos.feature.counts.CountsEvent
-import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.counts.MilkPreparationScreen
 import sg.mesha.goatos.feature.counts.MilkPreparationListEvent
 import sg.mesha.goatos.feature.counts.MilkPreparationListScreen
@@ -125,7 +123,6 @@ import sg.mesha.goatos.viewmodel.KidsHealthViewModel
 import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
-import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.MilkPreparationViewModel
 import sg.mesha.goatos.viewmodel.MilkPreparationListViewModel
 import sg.mesha.goatos.viewmodel.MilkFeedingViewModel
@@ -198,19 +195,21 @@ object Routes {
     fun healthDetailRoute(healthSessionId: String): String = "/health/work-items/${Uri.encode(healthSessionId)}"
 
     /**
-     * Counts module. All four arrive as the counts module's backend-composed `nav_items`, so all
-     * four are L0 roots that own the bottom bar — chrome membership is decided by EXACT route
+     * Counts module. Each of these arrives as the counts module's backend-composed `nav_items`, so
+     * each is an L0 root that owns the bottom bar — chrome membership is decided by EXACT route
      * equality against the backend's hrefs (`GoatOsShell.isTopLevelRoute`), never by prefix. That
      * exactness is what keeps [COUNTS_BIRTH]/[COUNTS_DEATH] (and their /add + /workflows drills)
      * and [COUNTS_SHIFTING] from accidentally inheriting (or suppressing) chrome just because they
-     * share [COUNTS]'s path prefix.
+     * share a path prefix.
      *
      * Birth and Death are TWO modules with their own routes (maintainer decision 2026-07-27,
      * docs/decisions/birth-death-workflows.md): each opens on the outstanding per-goat SOP work
      * list; recording moves behind the ＋ button. The old combined `/counts/birth-death` form
      * route is REMOVED from navigation.
+     *
+     * The tenant-wide census read page `/counts` is REMOVED from the phone (maintainer decision
+     * 2026-07-30): this module is capture-only work lists; population visibility lives on the web.
      */
-    const val COUNTS = "/counts"
     const val COUNTS_BIRTH = "/counts/birth"
     const val COUNTS_DEATH = "/counts/death"
     const val COUNTS_SHIFTING = "/counts/shifting"
@@ -1202,41 +1201,10 @@ fun AppNavHost(
         }
 
         // --- Counts module -------------------------------------------------------------
-        // The census read screen plus its two write forms. All three are backend-composed root
-        // destinations; navigating between them is lateral (root -> root), which is why each
-        // write form still renders its own Up affordance rather than relying on root chrome.
-
-        composable(Routes.COUNTS) {
-            val vm: CountsViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            // Room-backed Paging window: the screen renders one bounded page at a time and
-            // Paging prefetches the next as the operator scrolls. No manual load-more.
-            val rows = vm.rows.collectAsLazyPagingItems()
-            // A page-load failure is reported once per distinct error, next to the cached rows
-            // that stay on screen — never as a wipe or a blank wall.
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
-            }
-            CountsScreen(
-                state = state,
-                rows = rows,
-                // Birth/Death and Shifting are reached from the module-scoped bottom bar,
-                // so this screen owns no navigation of its own.
-                onEvent = { event ->
-                    when (event) {
-                        // Refresh re-runs the mediator against the backend; the VM clears
-                        // its summary banner state. The breakdown pages refresh in parallel.
-                        CountsEvent.Refresh -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
+        // The field capture work lists (birth, death, shifting, milk prep, milk feeding). Each is
+        // a backend-composed root destination; navigating between them is lateral (root -> root),
+        // which is why each write form still renders its own Up affordance rather than relying on
+        // root chrome. There is no census read screen on the phone.
 
         composable(Routes.COUNTS_MILK_PREPARATION) {
             val vm: MilkPreparationListViewModel = hiltViewModel()
@@ -2038,12 +2006,11 @@ private val supportedRootDestinations = setOf(
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,
     Routes.FEED_TRANSPORT,
-    // Counts roots: a Counts-only principal's default landing is the first page they may
-    // open (/counts census for CEO/admin, /counts/birth-death for a capture operator).
-    // These are registered top-level composables, so cold start must accept them instead
-    // of falling back to Calendar (which a Counts-only principal may not be granted).
-    // Approvals live in admin-web only (moved off mobile), so there is no approvals root here.
-    Routes.COUNTS,
+    // Counts roots: a Counts principal's default landing is the first capture page they may
+    // open (/counts/birth). These are registered top-level composables, so cold start must
+    // accept them instead of falling back to Calendar (which a Counts-only principal may not
+    // be granted). Approvals live in admin-web only (moved off mobile), so there is no
+    // approvals root here, and the census read page is web-only too.
     Routes.COUNTS_BIRTH,
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,

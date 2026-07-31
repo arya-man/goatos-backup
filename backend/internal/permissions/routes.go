@@ -215,7 +215,11 @@ var protectedRoutes = []Route{
 	// given overlays, Overlays.kt DataGapsSheet/DosesGivenSheet).
 	{OperationID: "appVaccinationGaps", Method: "GET", Pattern: "/app/vaccination/gaps", Permissions: []string{AppBootstrap}},
 	{OperationID: "appVaccinationCoverage", Method: "GET", Pattern: "/app/vaccination/coverage", Permissions: []string{AppBootstrap}},
-	{OperationID: "openAppHealthCase", Method: "POST", Pattern: "/app/health/cases", Permissions: []string{HealthDiagnose}},
+	// Raising a sick-goat report is HealthReport, not HealthDiagnose: the field operator who
+	// spots the animal opens the case, and the configured course/treatment authority stays with
+	// the PC Director tier (maintainer decision 2026-07-30). Route.Permissions is ANDed, so this
+	// must name the single permission every raiser holds.
+	{OperationID: "openAppHealthCase", Method: "POST", Pattern: "/app/health/cases", Permissions: []string{HealthReport}},
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},

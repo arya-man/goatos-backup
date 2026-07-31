@@ -22,6 +22,9 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
@@ -54,6 +57,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val proofCaptureSource: ProofCaptureSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val drafts: CaptureDraftRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -71,17 +75,16 @@ class FeedPackingCompleteViewModel @Inject constructor(
     // drains strictly before the gated completion that references it.
     private val groupKey = "feed-pack:$shedId:$sessionNo:$workflow"
 
-    private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-packing-complete")
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
-    private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
-    private val videoProofItemId = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_PROOF_ITEM_ID)
+
+    /** Durable per shed-session; see the shared store's kdoc for why SavedStateHandle lost the clip. */
+    private var draft = CaptureDraft()
 
     private val _state = MutableStateFlow(
         FeedPackingCompleteUiState(
             shedLabel = shedLabel,
             sessionLabel = sessionLabel,
             workflowLabel = workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
-            videoCaptured = videoProofItemId.value != null,
         ),
     )
     val state: StateFlow<FeedPackingCompleteUiState> = _state.asStateFlow()
@@ -90,13 +93,29 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
-        recomputeCanComplete()
-        outboxItemId.value?.let(::observeOutboxItem)
+        viewModelScope.launch {
+            draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+            _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
+            recomputeCanComplete()
+            draft.submitOutboxItemId?.let(::observeOutboxItem)
+        }
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {
         when (event) {
             FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo()
+            // Re-record: drop the discarded take's queued upload, then capture afresh.
+            FeedPackingCompleteEvent.ReRecordPackingVideo -> {
+                viewModelScope.launch {
+                    if (_state.value.isCapturingVideo) return@launch
+                    draft.proofs[STEP_VIDEO]?.let { syncRepository.deleteOutboxItem(it) }
+                    drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
+                    draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                    videoKey.invalidate()
+                    _state.update { it.copy(videoCaptured = false, canComplete = false, videoMessage = null) }
+                    capturePackingVideo()
+                }
+            }
             FeedPackingCompleteEvent.MarkDone -> markDone()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
         }
@@ -145,7 +164,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    videoProofItemId.value = result.value
+                    drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, result.value)
+                    draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     analytics.track(AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED)
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
                     recomputeCanComplete()
@@ -166,17 +186,24 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     private fun markDone() {
         val current = _state.value
-        val videoItem = videoProofItemId.value
+        val videoItem = draft.proofs[STEP_VIDEO]
         // Defense in depth alongside the UI gate: the video must exist to submit.
         if (!current.videoCaptured || videoItem.isNullOrBlank()) {
             _state.update { it.copy(canComplete = false) }
             return
         }
         viewModelScope.launch {
+            // STABLE per shed-session and durable: a re-entered screen resends the SAME key so a
+            // completion the server already accepted cannot be submitted twice.
+            val completeIdempotencyKey = draft.submitIdempotencyKey ?: "feed-packing-complete:$groupKey"
+            if (draft.submitIdempotencyKey == null) {
+                drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, null)
+                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+            }
             when (
                 val result = syncRepository.enqueueFeedPackingComplete(
                     groupKey = groupKey,
-                    idempotencyKey = completeKey.current(),
+                    idempotencyKey = completeIdempotencyKey,
                     parkId = parkId,
                     shedId = shedId,
                     sessionNo = sessionNo,
@@ -186,7 +213,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    outboxItemId.value = result.value
+                    drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, result.value)
+                    draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_PACKING_SUBMITTED)
                     _state.update { it.copy(canComplete = false) }
@@ -248,10 +276,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
 
+        /** Draft step name in the shared capture-draft store. */
+        private const val STEP_VIDEO = "video"
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedPacking.completeKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedPacking.videoKey"
-        private const val KEY_OUTBOX_ITEM_ID = "feedPacking.outboxItemId"
-        private const val KEY_VIDEO_PROOF_ITEM_ID = "feedPacking.videoProofItemId"
         private const val META_SESSION_NO = "session_no"
         private const val META_CAPTURE_SOURCE = "capture_source"
         private const val META_CAPTURED_START_MS = "captured_start_ms"

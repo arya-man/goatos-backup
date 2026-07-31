@@ -558,6 +558,9 @@ func TestListQueueFiltersOneIndiaBusinessDateAndReturnsSecondaryTabs(t *testing.
 		t.Fatalf("items = %+v, want one item captured on 2026-07-30 IST", result.Items)
 	}
 	wantStatuses := []domain.QueueStatusOption{
+		// "All" leads and carries NO status, so selecting it sends no status filter and the queue
+		// returns due + approved + rejected together (maintainer request 2026-07-30).
+		{Key: "all", Label: "All"},
 		{Key: "due", Label: "Due", Status: domain.StatusPending},
 		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},

@@ -43,6 +43,8 @@ import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
 import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.DefaultCaptureDraftRepository
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultHealthRepository
@@ -350,6 +352,16 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): CountsApprovalRepository = DefaultCountsApprovalRepository(api, database)
+
+    /**
+     * The shared durable capture-draft store. Every capture screen writes its recorded proofs and
+     * submit key here so Back + re-entry cannot lose them (see CaptureEvidenceDraftEntity).
+     */
+    @Provides
+    @Singleton
+    fun provideCaptureDraftRepository(
+        database: GoatDatabase,
+    ): CaptureDraftRepository = DefaultCaptureDraftRepository(database)
 
     @Provides
     @Singleton

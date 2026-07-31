@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -84,7 +85,18 @@ data class ShiftingPendingRowUi(
     val approvedAtLabel: String,
     val actionStateLabel: String = "",
     val primaryActionKey: String = "none",
-)
+    /**
+     * Evidence progress for a task the operator still has to complete: how many of this movement's
+     * required live videos are already recorded on this phone. A low-priority move needs one
+     * (the shifting video); a high-priority one needs three (shifting + feed packing + feed given).
+     * Rendered so an operator scanning the list can see what is part-done without opening each task.
+     */
+    val videosCaptured: Int = 0,
+    val videosRequired: Int = 1,
+) {
+    /** Shown only on tasks still awaiting the operator — a finished movement has no progress left. */
+    val showsEvidenceProgress: Boolean get() = primaryActionKey == "execute" && videosRequired > 0
+}
 
 @Immutable
 data class ShiftingPendingStatusUi(val key: String, val label: String, val selected: Boolean, val count: Int = 0)
@@ -405,6 +417,46 @@ private fun ShiftingPendingRowCard(row: ShiftingPendingRowUi, onClick: () -> Uni
             ShiftingPill(row.priority, MeshaColors.WarnX, MeshaColors.Warn)
             ShiftingPill(row.category, MeshaColors.OkX, MeshaColors.Ok)
             ShiftingPill("${row.animalCount} animal${if (row.animalCount == 1) "" else "s"}", MeshaColors.Surf3, MeshaColors.Muted)
+        }
+        if (row.showsEvidenceProgress) {
+            // Same anatomy as the Birth/Death work cards: "done/total" plus a thin bar, so every
+            // work list in the module reads the same way (maintainer request 2026-07-30).
+            val complete = row.videosCaptured >= row.videosRequired
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.counts_shifting_videos_label),
+                    color = MeshaColors.Faint,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${row.videosCaptured}/${row.videosRequired}",
+                    color = MeshaColors.Ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.W800,
+                )
+            }
+            val fraction = if (row.videosRequired > 0) {
+                row.videosCaptured.toFloat() / row.videosRequired
+            } else {
+                0f
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MeshaColors.Surf3),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (complete) MeshaColors.Ok else MeshaColors.Brand),
+                )
+            }
         }
         if (row.actionStateLabel.isNotBlank()) {
             Text(text = row.actionStateLabel, color = MeshaColors.Faint, fontSize = 11.sp)
