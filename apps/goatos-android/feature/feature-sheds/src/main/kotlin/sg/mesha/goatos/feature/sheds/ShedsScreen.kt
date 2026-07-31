@@ -321,6 +321,22 @@ fun ShedsScreen(
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
     val canFilterHere = state.parkFilters.isNotEmpty() && !state.hostedFromCalendar
+    val parkGroups = state.parkGroups()
+    val showParkGroupSelector = parkGroups.size > 1 && !state.canOpenShed
+    var selectedParkGroupId by rememberSaveable { mutableStateOf<String?>(null) }
+    val parkGroupIds = parkGroups.map { it.parkId }
+    LaunchedEffect(parkGroupIds) {
+        if (selectedParkGroupId !in parkGroupIds) {
+            selectedParkGroupId = parkGroupIds.firstOrNull()
+        }
+    }
+    val selectedParkGroup = parkGroups.firstOrNull { it.parkId == selectedParkGroupId }
+        ?: parkGroups.firstOrNull()
+    val visibleParkGroups = if (showParkGroupSelector) {
+        listOfNotNull(selectedParkGroup)
+    } else {
+        parkGroups
+    }
     var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
@@ -381,6 +397,15 @@ fun ShedsScreen(
                 }
             }
             state.roleNote?.let { note -> item { RoleNote(note) } }
+            if (showParkGroupSelector) {
+                item(key = "park-chip-selector") {
+                    ParkGroupChips(
+                        groups = parkGroups,
+                        selectedParkId = selectedParkGroup?.parkId,
+                        onSelect = { selectedParkGroupId = it },
+                    )
+                }
+            }
             if (state.isInitialLoading && state.rows.isEmpty()) {
                 item(key = "initial-skeleton") {
                     LoadingSkeletonList(
@@ -398,11 +423,16 @@ fun ShedsScreen(
                     )
                 }
             }
-            val parkGroups = state.parkGroups()
-            if (parkGroups.size > 1 && !state.hostedFromCalendar) {
-                item(key = "park-chip-summary") {
-                    ParkGroupChips(groups = parkGroups)
+            if (showParkGroupSelector) {
+                visibleParkGroups.forEach { group ->
+                    item(key = "park-header-${group.parkId}") {
+                        ParkGroupHeader(group)
+                    }
+                    items(group.rows, key = { it.id }) { row ->
+                        ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+                    }
                 }
+            } else if (parkGroups.size > 1 && !state.hostedFromCalendar) {
                 parkGroups.forEach { group ->
                     item(key = "park-header-${group.parkId}") {
                         ParkGroupHeader(group)
@@ -547,7 +577,11 @@ private fun ShedsUiState.parkGroups(): List<ShedParkGroup> =
         .sortedBy { it.label.lowercase() }
 
 @Composable
-private fun ParkGroupChips(groups: List<ShedParkGroup>) {
+private fun ParkGroupChips(
+    groups: List<ShedParkGroup>,
+    selectedParkId: String?,
+    onSelect: (String) -> Unit,
+) {
     FlowRow(
         modifier = Modifier
             .fillMaxWidth()
@@ -556,26 +590,40 @@ private fun ParkGroupChips(groups: List<ShedParkGroup>) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         groups.forEach { group ->
-            ParkSummaryPill(group)
+            ParkSummaryPill(
+                group = group,
+                selected = group.parkId == selectedParkId,
+                onSelect = { onSelect(group.parkId) },
+            )
         }
     }
 }
 
 @Composable
-private fun ParkSummaryPill(group: ShedParkGroup) {
+private fun ParkSummaryPill(
+    group: ShedParkGroup,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val bg = if (selected) MeshaColors.Brand else Surf2
+    val edge = if (selected) MeshaColors.Brand else Hair
+    val primary = if (selected) PageBg else Ink
+    val secondary = if (selected) PageBg.copy(alpha = 0.82f) else Muted
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(Surf2)
-            .border(1.dp, Hair, RoundedCornerShape(18.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(bg)
+            .border(1.dp, edge, RoundedCornerShape(18.dp))
+            .clickable(onClick = onSelect)
+            .height(48.dp)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(text = group.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Text(text = group.label, color = primary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
         Text(
             text = "${group.rows.size} sheds · ${group.openCount} open",
-            color = Muted,
+            color = secondary,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
         )
