@@ -763,8 +763,12 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.WEIGHING) {
-            val vm: WeighingViewModel = hiltViewModel()
+        composable(Routes.WEIGHING) { entry ->
+            // Scope the ViewModel to THIS destination's back-stack entry. The three weighing
+            // surfaces are separate destinations with separate scopes and separate lists; sharing
+            // one instance let a park chosen on one screen leak into another and left the chips
+            // dead after navigating back.
+            val vm: WeighingViewModel = hiltViewModel(entry)
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
             if (canExecuteWeighing) {
@@ -822,8 +826,8 @@ fun AppNavHost(
                     defaultValue = WEIGHING_SCOPE_ALL
                 },
             ),
-        ) {
-            val vm: WeighingViewModel = hiltViewModel()
+        ) { entry ->
+            val vm: WeighingViewModel = hiltViewModel(entry)
             val state by vm.state.collectAsStateWithLifecycle()
             WeighingTasksScreen(
                 state = state,
@@ -843,12 +847,13 @@ fun AppNavHost(
                     defaultValue = WEIGHING_SCOPE_OPERATORS
                 },
             ),
-        ) {
-            val vm: WeighingViewModel = hiltViewModel()
+        ) { entry ->
+            val vm: WeighingViewModel = hiltViewModel(entry)
             val state by vm.state.collectAsStateWithLifecycle()
             WeighingOperatorsScreen(
                 state = state,
                 onRefresh = vm::refresh,
+                onSelectPark = vm::selectAssignmentPark,
                 onAssignmentRowVisible = vm::onAssignmentRowVisible,
             )
         }

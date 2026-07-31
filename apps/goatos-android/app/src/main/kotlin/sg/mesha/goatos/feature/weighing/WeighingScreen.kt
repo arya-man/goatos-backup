@@ -837,8 +837,12 @@ private fun PlannerSummaryRow(label: String, value: String) {
     }
 }
 
+/**
+ * Park chips, shared by all three weighing surfaces so the filter looks and behaves the same on
+ * each. The leading "All parks" pill is what clears the filter.
+ */
 @Composable
-private fun WeighingParkFilters(
+internal fun WeighingParkFilters(
     filters: List<WeighingParkFilterUiRow>,
     onSelect: (String?) -> Unit,
 ) {

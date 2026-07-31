@@ -1,32 +1,21 @@
 package sg.mesha.goatos.feature.weighing
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
-import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -45,7 +34,7 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 fun WeighingTasksScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
-    onSelectPark: (String) -> Unit = {},
+    onSelectPark: (String?) -> Unit = {},
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -64,7 +53,9 @@ fun WeighingTasksScreen(
             },
         )
         if (state.parkFilters.size > 1) {
-            ParkFilterRow(parks = state.parkFilters, onSelectPark = onSelectPark)
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                WeighingParkFilters(filters = state.parkFilters, onSelect = onSelectPark)
+            }
         }
         LazyColumn(
             modifier = Modifier
@@ -86,44 +77,6 @@ fun WeighingTasksScreen(
                     item(key = "tasks-loading-more") { ListLoadingFooter() }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ParkFilterRow(
-    parks: List<WeighingParkFilterUiRow>,
-    onSelectPark: (String) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MeshaColors.PageBg)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        parks.forEach { park ->
-            val selected = park.selected
-            Text(
-                text = park.label,
-                color = if (selected) MeshaColors.Ink else MeshaColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected) MeshaColors.Surf else MeshaColors.Bg)
-                    .border(
-                        1.dp,
-                        if (selected) MeshaColors.BrandD else MeshaColors.Hair,
-                        RoundedCornerShape(999.dp),
-                    )
-                    .selectable(selected = selected, onClick = { onSelectPark(park.parkId) })
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
         }
     }
 }
