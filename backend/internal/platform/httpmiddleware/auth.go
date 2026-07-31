@@ -201,16 +201,18 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			return r.Context(), "", "", false
 		}
 		ctx := WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject)
-		a.log.InfoContext(ctx, "auth_succeeded",
-			slog.String("request_id", RequestIDFromContext(ctx)),
-			slog.String("trace_id", TraceIDFromContext(ctx)),
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.String("email", normalizedEmailForLog(claims.Email)),
-			slog.String("firebase_uid", claims.ExternalSubject),
-			slog.String("actor_id", claims.Subject),
-			slog.String("tenant_id", tenantID),
-		)
+		if shouldLogAuthSuccess(r.Method, r.URL.Path) {
+			a.log.InfoContext(ctx, "auth_succeeded",
+				slog.String("request_id", RequestIDFromContext(ctx)),
+				slog.String("trace_id", TraceIDFromContext(ctx)),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("email", normalizedEmailForLog(claims.Email)),
+				slog.String("firebase_uid", claims.ExternalSubject),
+				slog.String("actor_id", claims.Subject),
+				slog.String("tenant_id", tenantID),
+			)
+		}
 		return ctx, claims.Subject, tenantID, true
 	case AuthModeDevHeaders:
 		tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
@@ -239,6 +241,19 @@ func normalizeAppCheckMode(mode string) (string, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("%w: GOATOS_APPCHECK_ENFORCE must be off, monitor, or enforce", ErrInvalidAuthConfig)
+	}
+}
+
+func shouldLogAuthSuccess(method string, path string) bool {
+	switch {
+	case method == http.MethodPost && path == "/auth/session-events":
+		return true
+	case method == http.MethodGet && path == "/app/bootstrap":
+		return true
+	case method == http.MethodPost && path == "/app/devices/register":
+		return true
+	default:
+		return false
 	}
 }
 
