@@ -53,4 +53,23 @@ class WeighingRouteIdentityTest {
         assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(rfidCaptureEnabled)"))
         assertFalse(navHost.contains(") { launchSingleTop = true }\n                    }\n                },"))
     }
+
+    @Test
+    fun `operator with weighing module never falls into leadership read only screen`() {
+        val shell = Path.of("src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt").readText()
+
+        assertTrue(shell.contains("isOperatorProfile"))
+        assertTrue(shell.contains("hasWeighingModule"))
+        assertTrue(shell.contains("(isOperatorProfile && hasWeighingModule)"))
+    }
+
+    @Test
+    fun `operator weighing work list does not render stale week strip`() {
+        val screen = Path.of("src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt").readText()
+        val operatorListBlock = screen.substringAfter("if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty())")
+            .substringBefore("if (state.assignmentsLoadingMore)")
+
+        assertFalse(operatorListBlock.contains("WeekPlanStrip("))
+        assertFalse(operatorListBlock.contains("plannerDayTabs"))
+    }
 }
