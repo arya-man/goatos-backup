@@ -107,10 +107,6 @@ function reviewLabel(value: string): string {
   }
 }
 
-function pct(done: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-}
 
 function noticeFromSearch(value: string | undefined): { tone: "ok" | "warn" | "err"; title: string; body: string } | null {
   switch (value) {
@@ -182,8 +178,10 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
 
   const { campaign, weeks, planner } = result.data;
   const notice = noticeFromSearch(one(searchParams ?? {}, "notice"));
-  const individualPct = pct(campaign.individualCompleted, campaign.individualExpected);
-  const shedPct = pct(campaign.shedPartitionCompleted, campaign.shedPartitionExpected);
+  // NO EXPECTED-ANIMAL DENOMINATOR (maintainer decision 2026-07-31). Weighing is
+  // free-flow: the operator scans whatever is in front of them, so there is no known
+  // total. A "completed / expected" bar asserted a completeness the data never had.
+  // Captured counts only.
 
   return (
     <div className="screen on weighing-page">
@@ -259,14 +257,12 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
       <section className="weighing-metrics">
         <div className="card pad weighing-metric">
           <div className="k">Individual animal</div>
-          <div className="v">{campaign.individualCompleted}<span>/{campaign.individualExpected}</span></div>
-          <div className="weighing-bar"><i style={{ width: `${individualPct}%` }} /></div>
+          <div className="v">{campaign.individualCompleted}<span> captured</span></div>
           <p className="muted small">Free-flow RFID/tag bucket + weight + mandatory per-row video.</p>
         </div>
         <div className="card pad weighing-metric">
           <div className="k">Per shed/partition</div>
-          <div className="v">{campaign.shedPartitionCompleted}<span>/{campaign.shedPartitionExpected}</span></div>
-          <div className="weighing-bar pur"><i style={{ width: `${shedPct}%` }} /></div>
+          <div className="v">{campaign.shedPartitionCompleted}<span> captured</span></div>
           <p className="muted small">Free-flow shed bucket result + total count + at least one synced video.</p>
         </div>
         <div className="card pad weighing-metric">
@@ -312,8 +308,8 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   </td>
                   <td><Tag tone={categoryTone[row.category]}>{categoryLabel[row.category]}</Tag></td>
                   <td>
-                    <b>{row.completedCount}</b> / {row.expectedCount}
-                    <span className="muted small blockish">{row.remainingCount} remaining · {row.unavailableCount} unavailable</span>
+                    <b>{row.completedCount}</b> captured
+                    <span className="muted small blockish">{row.unavailableCount} unavailable</span>
                   </td>
                   <td><Tag tone={row.proofPendingCount > 0 ? "warn" : "ok"}><Video className="ic" aria-hidden="true" />{row.proofPendingCount > 0 ? `${row.proofPendingCount} pending` : "linked"}</Tag></td>
                   <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>

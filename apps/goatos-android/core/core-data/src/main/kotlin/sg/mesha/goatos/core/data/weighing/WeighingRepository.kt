@@ -648,7 +648,6 @@ class DefaultWeighingRepository(
                 groupKey = row.scopeKey,
                 idempotencyKey = revisionIdempotencyKey,
                 request = WeighingAnimalObservationRequestDto(
-                    animalId = row.animalId,
                     campaignShedId = row.campaignShedId,
                     scannedIdentifier = row.scannedIdentifier,
                     weightKg = row.weightKg,

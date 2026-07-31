@@ -148,6 +148,25 @@ This mirrors the same-shaped verifier flow used by Vaccination shed
 proof/verification; the two modules share the generic verification module,
 not each other's business rules.
 
+**Bucket close is a separate, later gate than an individual verifier verdict**
+(maintainer decision 2026-07-31). Per-item verify/rework happens observation by
+observation as proof comes in. A `weighing_campaign_sheds` bucket may only move
+to `closed` after EVERY submitted observation in that bucket has been verified
+(`weighing_campaign_sheds.status`: `pending` → `in_progress` → `completed`
+[operator submitted, awaiting verification] → `closed`, via CEO/Growth Director
+action once all proof is verified). A verifier `rework` bounce does not itself
+reopen or close the bucket; it only puts that one observation back in front of
+the operator. Only CEO/Growth Director can reopen a `closed` (or `completed`)
+bucket back to `in_progress`, after which the same assigned operator may add
+more scanned RFIDs and submit again. Reopen must never allow the same
+`scanned_identifier` (case-insensitive) to be recorded twice within the same
+`campaign_shed_id`/day; the same RFID may still appear in a different bucket.
+
+There is no expected-animal denominator for Weighing: no `"N/N"` and no
+`"/100"`-style progress computed against a roster or expected count. Expected
+animal counts are unknown for weighing; progress is reported only as counts of
+scanned/accepted/pending/verified observations.
+
 ## FCM Up/Down Hierarchy (Weighing)
 
 Weighing follows the same action-hierarchy FCM pattern documented above for

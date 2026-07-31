@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -878,6 +879,8 @@ func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pg
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	businessDayStart := biztime.BusinessDayStart(time.Now())
+	businessDayEnd := businessDayStart.Add(24 * time.Hour)
 	var obs domain.Observation
 	err = tx.QueryRow(ctx, `
 WITH campaign AS (
@@ -893,7 +896,10 @@ WITH campaign AS (
     AND campaign_id=$2::uuid
     AND campaign_shed_id=$8::uuid
     AND operator_user_id=$7::uuid
-    AND status <> 'canceled'
+    -- Terminal-state gate. A bucket that is completed (operator already
+    -- submitted), closed, or canceled must never accept a new or updated
+    -- scan: only pending/in_progress buckets are still open for capture.
+    AND status IN ('pending','in_progress')
     -- Bucket MODE gate. A per-animal weight belongs in an individual_animal
     -- bucket; the lump-sum bucket has its own writer (RecordShedObservation).
     -- This is a weighing-owned check about the BUCKET, not about the animal, so
@@ -912,6 +918,25 @@ WITH campaign AS (
     AND proof.proof_type='video'
     AND proof.scope_type='shed'
     AND proof.scope_id=s.location_id
+	), submitted_duplicate AS (
+	  -- A tag already captured AND SUBMITTED (submitted_at IS NOT NULL) in an
+	  -- earlier round, for this SAME bucket and SAME business day, blocks a
+	  -- brand-new capture: it must be rejected, not silently merged into the
+	  -- old row and not inserted as a second row. Comparison is
+	  -- case-insensitive and trimmed. A tag still in the current un-submitted
+	  -- round (submitted_at IS NULL) is NOT a duplicate -- it updates in place
+	  -- below.
+	  SELECT 1
+	  FROM assigned_shed s
+	  JOIN weighing_observations observation
+	    ON observation.tenant_id=$1::uuid
+	   AND observation.campaign_id=$2::uuid
+	   AND observation.campaign_shed_id=s.campaign_shed_id
+	   AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
+	   AND observation.submitted_at IS NOT NULL
+	   AND observation.submitted_at >= $10::timestamptz
+	   AND observation.submitted_at < $11::timestamptz
+	  LIMIT 1
 	), updated AS (
 	  UPDATE weighing_observations observation
 	  SET weight_kg=$4,
@@ -926,6 +951,10 @@ WITH campaign AS (
 	    AND observation.campaign_shed_id=s.campaign_shed_id
 	    AND observation.animal_id IS NULL
 	    AND lower(observation.scanned_identifier)=lower($3)
+	    -- Only the current, un-submitted round may be updated in place. A row
+	    -- already submitted in an earlier round is frozen; classify() turns
+	    -- this into ErrDuplicateScan via submitted_duplicate above.
+	    AND observation.submitted_at IS NULL
   RETURNING observation.observation_id::text, observation.campaign_id::text,
     COALESCE(observation.campaign_shed_id::text,'') AS campaign_shed_id_text,
     observation.scanned_identifier AS animal_id_text, observation.weight_kg::float8,
@@ -951,16 +980,17 @@ WITH campaign AS (
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
   WHERE NOT EXISTS (SELECT 1 FROM updated)
+    AND NOT EXISTS (SELECT 1 FROM submitted_duplicate)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
   RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
 )
 SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM updated
 UNION ALL
 SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID).
+		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd)
+		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
 	if err != nil {
 		return domain.Observation{}, err
@@ -989,7 +1019,7 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 //
 // Reads ONLY weighing-owned tables plus proof_artifacts, in the same transaction: no
 // goats, no expected-animal roster, no clinical state.
-func (r *Repository) classifyFreeFlowObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
+func (r *Repository) classifyFreeFlowObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation, tag string, businessDayStart, businessDayEnd time.Time) error {
 	var campaignStatus string
 	err := tx.QueryRow(ctx, `
 SELECT status FROM weighing_campaigns
@@ -1016,7 +1046,12 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid`
 	if err != nil {
 		return err
 	}
-	if shedStatus == "canceled" {
+	// A bucket in any terminal state (completed, closed, canceled) is immutable
+	// to new capture. "completed" here means the operator already submitted —
+	// there is no separate "submitted" enum value; completed IS submitted,
+	// awaiting verification. Only pending/in_progress buckets still accept
+	// scans.
+	if shedStatus != "pending" && shedStatus != domain.StatusInProgress {
 		return ports.ErrImmutable
 	}
 	if operatorID != cmd.RecordedBy {
@@ -1044,6 +1079,28 @@ SELECT EXISTS (
 	}
 	if !proofOK {
 		return ports.ErrInvalidArgument
+	}
+
+	// Every ordinary gate passed, so the write's absence must be the
+	// duplicate-scan gate: this tag was already captured AND SUBMITTED in an
+	// earlier round for this same bucket and business day.
+	var duplicate bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM weighing_observations observation
+  WHERE observation.tenant_id=$1::uuid
+    AND observation.campaign_id=$2::uuid
+    AND observation.campaign_shed_id=$3::uuid
+    AND lower(btrim(observation.scanned_identifier))=lower(btrim($4))
+    AND observation.submitted_at IS NOT NULL
+    AND observation.submitted_at >= $5::timestamptz
+    AND observation.submitted_at < $6::timestamptz
+)`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, tag, businessDayStart, businessDayEnd).Scan(&duplicate); err != nil {
+		return err
+	}
+	if duplicate {
+		return ports.ErrDuplicateScan
 	}
 	return ports.ErrNotFound
 }
@@ -1086,6 +1143,9 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	   AND cs.campaign_shed_id=$3::uuid
 	   AND cs.weighing_category='per_shed_partition'
 	   AND cs.operator_user_id=$7::uuid
+	   -- Terminal-state gate: a lump-sum write must NEVER resurrect a
+	   -- completed/closed/canceled bucket back to completed.
+	   AND cs.status IN ('pending','in_progress')
 	), proof_bundle AS (
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
@@ -1192,20 +1252,30 @@ WHERE cs.tenant_id=$1::uuid
 // ownership — only the shed's own weighing_observations.
 func (r *Repository) classifyIndividualScopeSubmitFailure(ctx context.Context, tx pgx.Tx, tenantID, campaignID, campaignShedID, actorID string, scannedIdentifiers []string) error {
 	var bucketExists bool
+	var shedStatus string
 	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM weighing_campaign_sheds cs
-  WHERE cs.tenant_id=$1::uuid
-    AND cs.campaign_id=$2::uuid
-    AND cs.campaign_shed_id=$3::uuid
-    AND cs.weighing_category='individual_animal'
-    AND cs.operator_user_id=$4::uuid
-)`, tenantID, campaignID, campaignShedID, actorID).Scan(&bucketExists); err != nil {
+SELECT true, cs.status
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.campaign_shed_id=$3::uuid
+  AND cs.weighing_category='individual_animal'
+  AND cs.operator_user_id=$4::uuid`, tenantID, campaignID, campaignShedID, actorID).Scan(&bucketExists, &shedStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.ErrNotFound
+		}
 		return fmt.Errorf("check individual scope bucket exists: %w", err)
 	}
 	if !bucketExists {
 		return ports.ErrNotFound
+	}
+	// A closed or canceled bucket must not be completed by submit. A bucket
+	// already 'completed' means "operator already submitted" (there is no
+	// separate "submitted" enum value) -- a second, non-replay submit attempt
+	// against it is also a terminal-state conflict, not a scope-incompleteness
+	// finding.
+	if shedStatus != "pending" && shedStatus != domain.StatusInProgress {
+		return ports.ErrImmutable
 	}
 	var omitsObserved bool
 	if err := tx.QueryRow(ctx, `
@@ -1264,6 +1334,10 @@ WHERE cs.tenant_id=$1::uuid
   AND campaign.tenant_id=cs.tenant_id
   AND campaign.campaign_id=cs.campaign_id
   AND cs.operator_user_id=$4::uuid
+  -- Terminal-state gate: a closed or canceled bucket must never be completed
+  -- by submit. An already-completed bucket is also excluded here (submit is
+  -- not re-entrant against a completed bucket outside idempotency replay).
+  AND cs.status IN ('pending','in_progress')
   AND cardinality($5::text[]) > 0
   AND NOT EXISTS (
     SELECT 1
@@ -1300,6 +1374,22 @@ WHERE cs.tenant_id=$1::uuid
 	}
 	if result.RowsAffected() == 0 {
 		return r.classifyIndividualScopeSubmitFailure(ctx, tx, tenantID, campaignID, campaignShedID, actorID, scannedIdentifiers)
+	}
+	// Freeze this round's captures. Marking submitted_at is what lets a
+	// rescan of the SAME tag after a future ReopenScope be recognised as a
+	// duplicate of already-accepted work, rather than a silent update of the
+	// old row. Only rows still in the current draft round (submitted_at IS
+	// NULL) are marked -- this is idempotent-safe to run again for a
+	// non-replay path since NULL rows are the only target.
+	if _, err := tx.Exec(ctx, `
+UPDATE weighing_observations
+SET submitted_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND campaign_shed_id=$3::uuid
+  AND submitted_at IS NULL
+  AND scanned_identifier=ANY($4::text[])`, tenantID, campaignID, campaignShedID, scannedIdentifiers); err != nil {
+		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
 		return err
@@ -1571,16 +1661,23 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 		return domain.Campaign{}, err
 	}
 	// projection-review: membership=campaign shed buckets for one weighing campaign; group_key=(tenant_id,campaign_id,campaign_shed_id); join_cardinality=each campaign_shed row is hydrated once and observation rollups stay keyed by campaign_shed_id; pagination=single campaign detail read without page slicing; scope=exact campaign_id and tenant_id detail scope.
-	rows, err := tx.Query(ctx, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid ORDER BY display_name`, tenantID, campaignID)
+	rows, err := tx.Query(ctx, `
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, cs.status,
+  `+readyToCloseCountsSQL+`
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid
+ORDER BY cs.display_name`, tenantID, campaignID)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var shed domain.CampaignShed
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status); err != nil {
+		var submitted int
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status, &submitted, &shed.PendingVerificationCount); err != nil {
 			return domain.Campaign{}, err
 		}
+		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
 		c.Sheds = append(c.Sheds, shed)
 	}
 	completedAnimals, completedScopes, wrongShed, missing, err := r.progressStats(ctx, tx, tenantID, campaignID)
@@ -1601,21 +1698,24 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	}
 	operatorFilter := strings.TrimSpace(operatorUserID)
 	rows, err := r.pool.Query(ctx, `
-SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status
-FROM weighing_campaign_sheds
-WHERE tenant_id=$1::uuid
-  AND campaign_id = ANY($2::uuid[])
-  AND ($3::uuid IS NULL OR operator_user_id=$3::uuid)
-ORDER BY campaign_id, display_name`, tenantID, ids, nullableString(operatorFilter))
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, cs.status,
+  `+readyToCloseCountsSQL+`
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id = ANY($2::uuid[])
+  AND ($3::uuid IS NULL OR cs.operator_user_id=$3::uuid)
+ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operatorFilter))
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var shed domain.CampaignShed
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status); err != nil {
+		var submitted int
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.Status, &submitted, &shed.PendingVerificationCount); err != nil {
 			rows.Close()
 			return err
 		}
+		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
 		if idx, ok := byID[shed.CampaignID]; ok {
 			campaigns[idx].Sheds = append(campaigns[idx].Sheds, shed)
 		}
@@ -1914,9 +2014,9 @@ func previousProof(before *domain.Observation) any {
 }
 
 func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordShedObservation) error {
-	var status, operatorID string
+	var status, operatorID, shedStatus string
 	err := tx.QueryRow(ctx, `
-SELECT campaign.status, cs.operator_user_id::text
+SELECT campaign.status, cs.operator_user_id::text, cs.status
 FROM weighing_campaigns campaign
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=campaign.tenant_id
@@ -1924,7 +2024,7 @@ JOIN weighing_campaign_sheds cs
  AND cs.campaign_shed_id=$3::uuid
 WHERE campaign.tenant_id=$1::uuid
   AND campaign.campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).
-		Scan(&status, &operatorID)
+		Scan(&status, &operatorID, &shedStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -1936,6 +2036,12 @@ WHERE campaign.tenant_id=$1::uuid
 	}
 	if operatorID != cmd.RecordedBy {
 		return ports.ErrForbidden
+	}
+	// Bucket-level terminal-state gate. "completed" means the operator already
+	// submitted (there is no separate "submitted" enum value); a lump-sum write
+	// must not resurrect a completed/closed/canceled bucket.
+	if shedStatus != "pending" && shedStatus != domain.StatusInProgress {
+		return ports.ErrImmutable
 	}
 	var category string
 	var proofOK bool

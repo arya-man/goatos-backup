@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -33,12 +34,83 @@ import (
 //     identifier sample) are written into the audit row, the idempotency result
 //     snapshot, and the outbox payload.
 const (
-	eventTypeScopeClosed    = "weighing.shed.closed"
+	eventTypeScopeClosed = "weighing.shed.closed"
+	// Abandon is a DISTINCT event, never a flavour of closed: "ended without
+	// verification" must not be mistakable downstream for "verified and closed".
+	eventTypeScopeAbandoned = "weighing.shed.abandoned"
 	eventTypeCampaignClosed = "weighing.campaign.closed"
 )
 
+// readyToCloseCountsSQL is a correlated-subquery fragment for a `cs` alias over
+// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count)
+// for that row, using the SAME definition as pendingVerificationCount below: a
+// submitted individual observation is submitted_at IS NOT NULL, a lump-sum shed
+// observation IS the submission, and 'rework' counts as pending on purpose. It is
+// evaluated by the planner as part of ONE query (no per-row application loop), so
+// this is not the banned N+1 shape.
+const readyToCloseCountsSQL = `(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id)
+) AS submitted_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status <> 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.verification_status <> 'verified')
+) AS pending_verification_count`
+
+// pendingVerificationCount counts submitted evidence in this bucket that still has
+// no verdict.
+//
+// A bucket is "ready to close" only when every video an operator submitted has been
+// looked at. `rework` counts as PENDING on purpose: a bounced video is unfinished
+// work the operator still owes, so closing on it would bury the rework request.
+//
+// Weighing-owned tables only (weighing_observations + weighing_shed_observations) —
+// no goats, no roster, no vaccination. Individual rows count only once submitted
+// (submitted_at NOT NULL); a lump-sum shed observation IS the submission, so it
+// counts as soon as it exists.
+func (r *Repository) pendingVerificationCount(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) (int, int, error) {
+	var submitted, pending int
+	if err := tx.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM weighing_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL)
+  + (SELECT count(*) FROM weighing_shed_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid),
+  (SELECT count(*) FROM weighing_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL
+       AND verification_status <> 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+       AND verification_status <> 'verified')`,
+		tenantID, campaignShedID).Scan(&submitted, &pending); err != nil {
+		return 0, 0, err
+	}
+	return submitted, pending, nil
+}
+
 // CloseScope closes exactly one weighing bucket (campaign shed).
+//
+// NORMAL close is GATED (maintainer decision 2026-07-31): leadership may not close
+// a bucket while any submitted video is still waiting on the verifier. The gate is
+// only about closing EARLY — it never blocks the operator scanning or submitting,
+// and never blocks the verifier reviewing. Work that will genuinely never finish
+// ends through AbandonScope instead, which is explicit and reason-bearing.
 func (r *Repository) CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
+	return r.closeScope(ctx, cmd, false)
+}
+
+// AbandonScope ends a bucket whose work will never finish, WITHOUT the verification
+// gate. It is a separate primitive rather than a flag on close so the distinction
+// survives in the audit trail and on the bus: a reason is mandatory, the audit action
+// is weighing.scope_abandoned, and the event is weighing.shed.abandoned.
+func (r *Repository) AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
+	if strings.TrimSpace(cmd.Reason) == "" {
+		return domain.CloseResult{}, ports.ErrInvalidArgument
+	}
+	return r.closeScope(ctx, cmd, true)
+}
+
+func (r *Repository) closeScope(ctx context.Context, cmd domain.CloseCommand, abandon bool) (domain.CloseResult, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -53,7 +125,13 @@ func (r *Repository) CloseScope(ctx context.Context, cmd domain.CloseCommand) (d
 		"closed_by":        cmd.ClosedBy,
 		"reason":           cmd.Reason,
 	})
-	if result, ok, err := r.closeByIdempotency(ctx, tx, cmd.TenantID, eventTypeScopeClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed"); err != nil || ok {
+	eventType := eventTypeScopeClosed
+	auditAction := "weighing.scope_closed"
+	if abandon {
+		eventType = eventTypeScopeAbandoned
+		auditAction = "weighing.scope_abandoned"
+	}
+	if result, ok, err := r.closeByIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed"); err != nil || ok {
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
@@ -80,6 +158,18 @@ FOR UPDATE OF cs`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&categ
 	}
 	if status == domain.StatusClosed || status == "canceled" {
 		return domain.CloseResult{}, ports.ErrImmutable
+	}
+
+	// THE CLOSE GATE. Checked under the same row lock taken above, so a verdict
+	// landing concurrently cannot slip between the check and the status flip.
+	if !abandon {
+		_, pending, err := r.pendingVerificationCount(ctx, tx, cmd.TenantID, cmd.CampaignShedID)
+		if err != nil {
+			return domain.CloseResult{}, err
+		}
+		if pending > 0 {
+			return domain.CloseResult{}, ports.ErrVerificationPending
+		}
 	}
 
 	notAcceptedCount, notAccepted, err := r.scopeNotAcceptedWork(ctx, tx, cmd, category)
@@ -117,13 +207,13 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.Clos
 		NotAcceptedCount: notAcceptedCount,
 		NotAccepted:      notAccepted,
 	}
-	if err := r.auditClose(ctx, tx, cmd, "weighing.scope_closed", "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
+	if err := r.auditClose(ctx, tx, cmd, auditAction, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventTypeScopeClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.enqueueScopeClosed(ctx, tx, cmd, result); err != nil {
+	if err := r.enqueueScopeClosed(ctx, tx, cmd, result, eventType); err != nil {
 		return domain.CloseResult{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -167,6 +257,43 @@ FOR UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
 	}
 	if status == domain.StatusClosed || status == "canceled" {
 		return domain.CloseResult{}, ports.ErrImmutable
+	}
+
+	// THE SAME CLOSE GATE, at campaign grain.
+	//
+	// CloseScope refuses to close one bucket with unreviewed videos, but this
+	// cascade was a SECOND, ungated door to status='closed': it required no
+	// reason and is not the explicit abandon path, so it is a normal close and
+	// must obey the same rule. Without this, leadership could sweep the exact
+	// bucket the per-bucket gate just refused.
+	//
+	// Note the cascade below deliberately skips buckets already at 'completed'
+	// (accepted work is never rewritten), so the only buckets it can close are
+	// pending/in_progress ones — but those can still hold submitted, unverified
+	// evidence after a partial submit, which is exactly the case being guarded.
+	var campaignPending int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.status NOT IN ('completed','closed','canceled')
+  AND (
+    EXISTS (
+      SELECT 1 FROM weighing_observations o
+      WHERE o.tenant_id=cs.tenant_id AND o.campaign_shed_id=cs.campaign_shed_id
+        AND o.submitted_at IS NOT NULL AND o.verification_status <> 'verified'
+    )
+    OR EXISTS (
+      SELECT 1 FROM weighing_shed_observations so
+      WHERE so.tenant_id=cs.tenant_id AND so.campaign_shed_id=cs.campaign_shed_id
+        AND so.verification_status <> 'verified'
+    )
+  )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
+		return domain.CloseResult{}, err
+	}
+	if campaignPending > 0 {
+		return domain.CloseResult{}, ports.ErrVerificationPending
 	}
 
 	buckets, notAcceptedCount, err := r.campaignNotAcceptedBuckets(ctx, tx, cmd)

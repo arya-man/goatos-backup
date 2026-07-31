@@ -14137,6 +14137,8 @@ components:
         - weighing_category
         - operator_user_id
         - status
+        - pending_verification_count
+        - ready_to_close
       properties:
         campaign_shed_id:
           type: string
@@ -14162,6 +14164,21 @@ components:
           format: uuid
         status:
           $ref: "#/components/schemas/WeighingCampaignShedStatus"
+        pending_verification_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Exact count of this bucket's SUBMITTED observations (proof already
+            uploaded) whose verification_status is not yet 'verified'. This is a
+            count of evidence that actually exists -- there is deliberately no
+            expected-animal denominator or ratio here.
+        ready_to_close:
+          type: boolean
+          description: >-
+            True only when the bucket is submitted (status=completed), holds at
+            least one submitted observation, and none of its observations have a
+            verification_status other than 'verified'. An outstanding 'rework'
+            observation also makes this false.
     WeighingCampaign:
       type: object
       additionalProperties: false
