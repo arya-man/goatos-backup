@@ -772,3 +772,257 @@ Physical RFIDs:
 
 Weighing stays free-flow: expected_animal_count=0 and no weighing_expected_animals rows are seeded.
 EOF
+
+# ---------------------------------------------------------------------------
+# Widening: 8 weighing sheds and 40 vaccination identities.
+#
+# Weighing and vaccination want different things from this fixture, so they are
+# widened differently:
+#
+#   Weighing is free-flow (raw RFID, no herd-animal join), so a shed only needs
+#   an assignee. Eight sheds are split across three people so the my-work vs
+#   oversight split can be seen on one phone.
+#
+#   Vaccination resolves the scanned tag to a goat, and goat_identifiers is
+#   unique by (tenant, normalized_value), so the same physical tag cannot belong
+#   to eight goats. Each shed therefore owns a PREFIXED copy of the five
+#   physical tags -- Godel 1 keeps them raw -- giving 8 x 5 = 40 distinct
+#   identities from five real tags. The dev build applies the matching prefix.
+# ---------------------------------------------------------------------------
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+
+CREATE TEMP TABLE qa_sheds (
+  seq int PRIMARY KEY,
+  shed_id uuid NOT NULL,
+  park_id uuid NOT NULL,
+  shed_name text NOT NULL,
+  prefix text NOT NULL,
+  weighing_operator uuid NOT NULL,
+  batch_id uuid NOT NULL,
+  task_id uuid NOT NULL,
+  is_new boolean NOT NULL
+) ON COMMIT DROP;
+
+-- Godel 1 and Mandela 2 already exist and already hold goats; the other six are
+-- created or re-pointed here. CBE work is Pramod's and Dinakar's, CPT work is
+-- Amit's and Dinakar's, so Dinakar owns sheds in BOTH parks and every other
+-- shed on his Operators list belongs to somebody else.
+INSERT INTO qa_sheds VALUES
+  (1, '91000000-0000-4000-8000-000000000201', '91000000-0000-4000-8000-000000000101', 'Godel 1',   '',    '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (3, '9c000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000101', 'Gandhi 1',  'G1-', '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
+  (4, '9c000000-0000-4000-8000-000000000302', '91000000-0000-4000-8000-000000000101', 'Gandhi 2',  'G2-', '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
+  (5, '91000000-0000-4000-8000-000000000202', '92000000-0000-4000-8000-000000000101', 'Mandela 2', 'M2-', '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
+  (6, '92000000-0000-4000-8000-000000000203', '92000000-0000-4000-8000-000000000101', 'Castro 1',  'C1-', '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
+  (7, '9c000000-0000-4000-8000-000000000303', '92000000-0000-4000-8000-000000000101', 'Castro 2',  'C2-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true),
+  (8, '9c000000-0000-4000-8000-000000000304', '92000000-0000-4000-8000-000000000101', 'Castro 3',  'C3-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true);
+
+CREATE TEMP TABLE qa_tags (idx int PRIMARY KEY, tag text NOT NULL) ON COMMIT DROP;
+INSERT INTO qa_tags VALUES
+  (1, '901007000504418'),
+  (2, '901007000504332'),
+  (3, '901007000504407'),
+  (4, '901007000504419'),
+  (5, '901007000504392');
+
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, state_region, status, display_order, updated_at)
+SELECT s.shed_id, '${tenant_id}'::uuid, 'shed', upper(replace(s.shed_name, ' ', '-')), s.shed_name, s.park_id, 'Karnataka', 'active', 50 + s.seq, now()
+FROM qa_sheds s
+WHERE s.is_new
+ON CONFLICT (location_id) DO UPDATE
+SET name = EXCLUDED.name, parent_location_id = EXCLUDED.parent_location_id, status = 'active', updated_at = now();
+
+INSERT INTO location_operational_attributes (tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination, usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes)
+SELECT '${tenant_id}'::uuid, s.shed_id, true, true, true, true, false, false, false, 50 + s.seq, 'Phone QA widened shed'
+FROM qa_sheds s
+WHERE s.is_new
+ON CONFLICT (location_id) DO UPDATE
+SET usable_for_vaccination = true, usable_for_sop = true, updated_at = now();
+
+-- Shed 1 keeps the five RAW tags, so its five goats are the existing CBE fixture
+-- animals pulled together into Godel 1. Shed 5 keeps the existing CPT animals,
+-- whose identifiers are re-prefixed from CPT- to M2- below.
+UPDATE goats
+SET park_id = '91000000-0000-4000-8000-000000000101',
+    shed_id = '91000000-0000-4000-8000-000000000201',
+    current_location_id = '91000000-0000-4000-8000-000000000201',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND goat_id::text LIKE '91000000-0000-4000-8000-0000000010%';
+
+UPDATE goats
+SET park_id = '92000000-0000-4000-8000-000000000101',
+    shed_id = '91000000-0000-4000-8000-000000000202',
+    current_location_id = '91000000-0000-4000-8000-000000000202',
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND goat_id::text LIKE '92000000-0000-4000-8000-0000000010%';
+
+UPDATE goat_identifiers
+SET identifier_value = 'M2-' || substring(identifier_value from 5),
+    normalized_value = 'M2-' || substring(normalized_value from 5),
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND normalized_value LIKE 'CPT-%';
+
+-- Sheds 2,3,4,6,7,8 get thirty freshly minted goats: one per (shed, tag).
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, health_status, custodian_party_id, current_location_id, farm_id, park_id, shed_id, dob, origin_type, entry_date)
+SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid,
+       '${tenant_id}'::uuid,
+       -- display_id is constrained to ^G-[0-9]{6,}\$: three digits of shed, three of tag.
+       'G-' || lpad(s.seq::text, 3, '0') || lpad(t.idx::text, 3, '0'),
+       CASE WHEN t.idx % 2 = 0 THEN 'male' ELSE 'female' END,
+       'kid', 'alive', 'K2', 'healthy',
+       '91000000-0000-4000-8000-000000000301',
+       s.shed_id, '91000000-0000-4000-8000-000000000100', s.park_id, s.shed_id,
+       DATE '2026-05-15' + t.idx, 'birth', DATE '2026-05-15' + t.idx
+FROM qa_sheds s
+CROSS JOIN qa_tags t
+WHERE s.seq NOT IN (1, 5)
+ON CONFLICT (goat_id) DO UPDATE
+SET lifecycle_status = 'alive', park_id = EXCLUDED.park_id, shed_id = EXCLUDED.shed_id,
+    current_location_id = EXCLUDED.current_location_id, updated_at = now();
+
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
+SELECT ('9b000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid,
+       '${tenant_id}'::uuid,
+       ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::text, 6, '0'))::uuid,
+       'animal_identifier_1',
+       s.prefix || t.tag, s.prefix || t.tag,
+       'tenant:${tenant_id}', true, 'active', now(),
+       'phone-qa-throwaway-seed', 'qa-' || s.seq || '-' || t.idx, 'seed-v1', 1.0
+FROM qa_sheds s
+CROSS JOIN qa_tags t
+WHERE s.seq NOT IN (1, 5)
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id = EXCLUDED.goat_id, identifier_value = EXCLUDED.identifier_value,
+    identifier_type = EXCLUDED.identifier_type, is_primary_for_goat = true, status = 'active', updated_at = now();
+
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+SELECT '${tenant_id}'::uuid, g.goat_id, g.shed_id, 'whole', s.shed_name, now()
+FROM goats g
+JOIN qa_sheds s ON s.shed_id = g.shed_id
+WHERE g.tenant_id = '${tenant_id}'::uuid
+  AND (g.goat_id::text LIKE '9a000000%' OR g.goat_id::text LIKE '91000000-0000-4000-8000-0000000010%' OR g.goat_id::text LIKE '92000000-0000-4000-8000-0000000010%')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name, updated_at = now();
+
+-- One due obligation per animal, on its own park's drive.
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, window_start, window_end, status, sop_task_id, idempotency_key, sequence)
+SELECT ('9d000000-0000-4000-8000-' || substring(g.goat_id::text from 25))::uuid,
+       '${tenant_id}'::uuid,
+       '91000000-0000-4000-8000-000000000502',
+       '91000000-0000-4000-8000-000000000503',
+       s.batch_id, 'goat', g.goat_id, 'shed', g.shed_id,
+       now(), now() - interval '1 hour', now() + interval '3 days', 'due',
+       s.task_id, 'qa-vax-widened-' || g.goat_id::text, 1
+FROM goats g
+JOIN qa_sheds s ON s.shed_id = g.shed_id
+WHERE g.tenant_id = '${tenant_id}'::uuid
+  AND g.goat_id::text LIKE '9a000000%'
+ON CONFLICT (obligation_id) DO UPDATE
+SET batch_id = EXCLUDED.batch_id, status = 'due', scope_id = EXCLUDED.scope_id,
+    sop_task_id = EXCLUDED.sop_task_id, due_at = now(), updated_at = now();
+
+-- Re-point the pre-existing fixture obligations at whichever shed their goat now sits in.
+UPDATE obligation_instances oi
+SET scope_id = g.shed_id,
+    batch_id = s.batch_id,
+    sop_task_id = s.task_id,
+    status = 'due',
+    due_at = now(),
+    updated_at = now()
+FROM goats g
+JOIN qa_sheds s ON s.shed_id = g.shed_id
+WHERE oi.tenant_id = '${tenant_id}'::uuid
+  AND g.goat_id = oi.target_id
+  AND g.tenant_id = oi.tenant_id
+  AND (g.goat_id::text LIKE '91000000-0000-4000-8000-0000000010%' OR g.goat_id::text LIKE '92000000-0000-4000-8000-0000000010%');
+
+-- The eight per-shed assignments below supersede the four the base fixture made,
+-- which collide with them on (batch, date, park, shed, partition, operator).
+-- Members go first: they carry the FK.
+DELETE FROM vaccination_drive_assignment_members WHERE tenant_id = '${tenant_id}'::uuid;
+DELETE FROM vaccination_drive_assignments WHERE tenant_id = '${tenant_id}'::uuid;
+
+-- One drive assignment per shed, owned by that park's vaccination operator.
+INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
+SELECT ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
+       '${tenant_id}'::uuid, s.batch_id, ${today_sql},
+       CASE WHEN s.park_id = '91000000-0000-4000-8000-000000000101'
+            THEN '93000000-0000-4000-8000-000000000202'::uuid
+            ELSE '93000000-0000-4000-8000-000000000201'::uuid END,
+       s.park_id, s.shed_id, s.shed_name, 'whole',
+       (SELECT count(*) FROM goats g WHERE g.tenant_id = '${tenant_id}'::uuid AND g.shed_id = s.shed_id),
+       'within_cap', '[]'::jsonb,
+       ARRAY['91000000-0000-4000-8000-000000000503']::uuid[],
+       (SELECT count(*) FROM goats g WHERE g.tenant_id = '${tenant_id}'::uuid AND g.shed_id = s.shed_id)
+FROM qa_sheds s
+ON CONFLICT (assignment_id) DO UPDATE
+SET batch_id = EXCLUDED.batch_id, planned_date = EXCLUDED.planned_date, operator_id = EXCLUDED.operator_id,
+    park_id = EXCLUDED.park_id, shed_id = EXCLUDED.shed_id, physical_shed = EXCLUDED.physical_shed,
+    animal_count = EXCLUDED.animal_count, total_doses = EXCLUDED.total_doses, updated_at = now();
+
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+SELECT '${tenant_id}'::uuid,
+       ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
+       oi.obligation_id, oi.target_id
+FROM obligation_instances oi
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+JOIN qa_sheds s ON s.shed_id = g.shed_id
+WHERE oi.tenant_id = '${tenant_id}'::uuid
+  AND oi.status = 'due'
+ON CONFLICT (tenant_id, obligation_id) DO UPDATE
+SET assignment_id = EXCLUDED.assignment_id;
+
+-- The base fixture's four buckets are superseded by the eight below and collide
+-- with them on (campaign, location), so they go first.
+DELETE FROM weighing_campaign_sheds
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND campaign_shed_id IN (
+    '92000000-0000-4000-8000-000000000801',
+    '92000000-0000-4000-8000-000000000802',
+    '92000000-0000-4000-8000-000000000803',
+    '92000000-0000-4000-8000-000000000804'
+  );
+
+-- Weighing: every shed gets a bucket on its park's campaign, with ONE assignee.
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, updated_at)
+SELECT ('9f000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
+       CASE WHEN s.park_id = '91000000-0000-4000-8000-000000000101'
+            THEN '92000000-0000-4000-8000-000000000701'::uuid
+            ELSE '92000000-0000-4000-8000-000000000702'::uuid END,
+       '${tenant_id}'::uuid, s.shed_id, 'shed', s.shed_name, 0,
+       -- Castro 3 is deliberately LUMP-SUM so both weighing categories are testable on one phone:
+       -- a lump-sum bucket takes one shed-level weight and video instead of per-animal capture.
+       CASE WHEN s.seq = 8 THEN 'per_shed_partition' ELSE 'individual_animal' END,
+       s.weighing_operator, 'pending', now()
+FROM qa_sheds s
+ON CONFLICT (campaign_shed_id) DO UPDATE
+SET location_id = EXCLUDED.location_id, display_name = EXCLUDED.display_name,
+    expected_animal_count = 0, weighing_category = EXCLUDED.weighing_category,
+    operator_user_id = EXCLUDED.operator_user_id, updated_at = now();
+
+COMMIT;
+SQL
+
+cat <<'EOF'
+
+Widened phone-QA fixture: 8 weighing sheds, 40 vaccination identities.
+
+  Shed        Park  Vaccination tags   Weighing assignee
+  Godel 1     CBE   <raw>              Pramod
+  Yashoda 1   CBE   Y1-<raw>           Pramod
+  Gandhi 1    CBE   G1-<raw>           Dinakar
+  Gandhi 2    CBE   G2-<raw>           Dinakar
+  Mandela 2   CPT   M2-<raw>           Amit
+  Castro 1    CPT   C1-<raw>           Amit
+  Castro 2    CPT   C2-<raw>           Dinakar
+  Castro 3    CPT   C3-<raw>           Dinakar (LUMP-SUM)
+
+The five physical tags are 901007000504418, 901007000504332, 901007000504407,
+901007000504419 and 901007000504392. Vaccination applies the shed prefix in the
+dev build; weighing is free-flow and takes the raw tag in any shed.
+EOF

@@ -44,6 +44,7 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 fun WeighingOperatorsScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
+    onSelectPark: (String?) -> Unit = {},
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -61,6 +62,11 @@ fun WeighingOperatorsScreen(
                 )
             },
         )
+        if (state.parkFilters.size > 1) {
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                WeighingParkFilters(filters = state.parkFilters, onSelect = onSelectPark)
+            }
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
