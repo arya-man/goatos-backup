@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 
+private val SERVER_DONE_ROSTER_STATUSES = setOf("done", "completed")
+
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
  * drilldown, and the per-animal scan roster. Offline-first
@@ -446,8 +448,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
 
 private fun ScanRosterRowEntity.isServerDone(): Boolean =
     scannedAtMs != null ||
-        status.lowercase(Locale.US).contains("done") ||
-        status.lowercase(Locale.US).contains("complete")
+        status.lowercase(Locale.US) in SERVER_DONE_ROSTER_STATUSES
 
 private fun humanizeVaccineLabel(raw: String): String {
     val trimmed = raw.trim()

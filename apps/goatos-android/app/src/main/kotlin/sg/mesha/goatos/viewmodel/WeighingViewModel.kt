@@ -1305,7 +1305,7 @@ class WeighingViewModel @Inject constructor(
             val draftProofId = draft?.proofCaptureId?.takeIf { it.isNotBlank() }
             val proof = proofs
                 .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-                .filter { draftProofId != null && it.id == draftProofId }
+                .filter { it.matchesAnimalProof(row.animalId, draftProofId) }
                 .maxByOrNull { it.capturedAtMs }
                 ?: autoProofs.value[row.animalId]
             val proofStatus = when {
@@ -1389,8 +1389,9 @@ class WeighingViewModel @Inject constructor(
         val activeIds = sessionProofIds.value.toMutableSet()
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
-        if (activeIds.isEmpty()) return emptyList()
-        return proofs.filter { it.id in activeIds }
+        return proofs.filter { proof ->
+            proof.syncStatus != CaptureSyncStatus.SYNCED || proof.id in activeIds
+        }
     }
 
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
@@ -1423,10 +1424,17 @@ class WeighingViewModel @Inject constructor(
             ?.takeIf { it.isNotBlank() }
         return observedProofs.value
             .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-            .filter { draftProofId != null && it.id == draftProofId }
+            .filter { it.matchesAnimalProof(animalId, draftProofId) }
             .maxByOrNull { it.capturedAtMs }
             ?: autoProofs.value[animalId]
     }
+
+    private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?): Boolean =
+        if (draftProofId != null) {
+            id == draftProofId
+        } else {
+            syncStatus != CaptureSyncStatus.SYNCED && (caption == animalId || subjectId == animalId)
+        }
 
     private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
         ScanReaderConnection(

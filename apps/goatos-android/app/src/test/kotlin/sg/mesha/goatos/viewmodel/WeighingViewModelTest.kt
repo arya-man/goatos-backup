@@ -412,21 +412,10 @@ class WeighingViewModelTest {
 
     @Test
     fun `stale caption-only proof is not reused after backend reset removes accepted draft`() = runTest(dispatcher) {
-        val staleProof = ProofCaptureRow(
+        val staleProof = proofRow(
             id = "proof-before-reset",
-            fieldKey = "weighing_individual_video",
-            proofSubject = ProofSubject.GOAT,
-            subjectId = TEST_TAG,
-            localUri = "file://stale.mp4",
-            mimeType = "video/mp4",
-            caption = TEST_TAG,
-            capturedAtMs = 1_000,
-            capturedStartMs = 1_000,
-            capturedEndMs = 2_000,
-            capturedByPrincipalId = null,
             syncStatus = CaptureSyncStatus.SYNCED,
             serverProofId = "server-proof-before-reset",
-            lastError = null,
         )
         val repository = FakeWeighingRepository(
             scopeState = WeighingScopeState(
@@ -457,6 +446,70 @@ class WeighingViewModelTest {
         val row = vm.state.value.visibleRows.single()
         assertNull(row.proofCaptureId)
         assertEquals(ProofUploadStatus.MISSING, row.proofUploadStatus)
+    }
+
+    @Test
+    fun `pending individual proof survives viewmodel recreation without backend draft`() = runTest(dispatcher) {
+        val pendingProof = proofRow(
+            id = "proof-pending-restart",
+            syncStatus = CaptureSyncStatus.PENDING,
+            serverProofId = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "local-observation",
+                        animalId = TEST_TAG,
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 12.0,
+                        capturedAtMs = 3_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:local",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(pendingProof) }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertEquals("proof-pending-restart", row.proofCaptureId)
+        assertEquals(ProofUploadStatus.UPLOADING, row.proofUploadStatus)
+    }
+
+    @Test
+    fun `pending shed proof survives viewmodel recreation without session id`() = runTest(dispatcher) {
+        val pendingProof = proofRow(
+            id = "shed-proof-pending-restart",
+            fieldKey = "weighing_shed_partition_video",
+            proofSubject = ProofSubject.SHED,
+            subjectId = "shed-1",
+            caption = "Lump-sum group video 1",
+            syncStatus = CaptureSyncStatus.PENDING,
+            serverProofId = null,
+        )
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { it.seedProofs(pendingProof) }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val proof = vm.state.value.shedProofs.single()
+        assertEquals("shed-proof-pending-restart", proof.id)
+        assertEquals(ProofUploadStatus.UPLOADING, proof.status)
     }
 
     @Test
@@ -551,6 +604,31 @@ class WeighingViewModelTest {
         syncedToBackend = true,
         idempotencyKey = "server:observation-1",
         serverProofId = proofCaptureId,
+    )
+
+    private fun proofRow(
+        id: String,
+        fieldKey: String = "weighing_individual_video",
+        proofSubject: ProofSubject = ProofSubject.GOAT,
+        subjectId: String? = TEST_TAG,
+        caption: String? = TEST_TAG,
+        syncStatus: CaptureSyncStatus,
+        serverProofId: String?,
+    ) = ProofCaptureRow(
+        id = id,
+        fieldKey = fieldKey,
+        proofSubject = proofSubject,
+        subjectId = subjectId,
+        localUri = "file://$id.mp4",
+        mimeType = "video/mp4",
+        caption = caption,
+        capturedAtMs = 1_000,
+        capturedStartMs = 1_000,
+        capturedEndMs = 2_000,
+        capturedByPrincipalId = null,
+        syncStatus = syncStatus,
+        serverProofId = serverProofId,
+        lastError = null,
     )
 
     private object LeadershipBootstrapRepository : BootstrapRepository {
