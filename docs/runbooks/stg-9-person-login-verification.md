@@ -125,6 +125,12 @@ Report this table filled in (PASS/FAIL per row) before declaring a STG seed
 done. A row that 403s or shows an empty bottom bar is a FAIL — file it as a
 login-materialization defect, not a "wait for next sign-in" note.
 
+When a tester reports a login failure or sends a workspace-load screenshot, use
+`docs/runbooks/login-observability.md` to query `auth_*`, `app_bootstrap_*`,
+and Android analytics/log events by email/Firebase UID before deciding whether
+the issue is credentials, backend grants/profile/device state, or a client
+token/session race.
+
 > Leadership (rows 1–5) now also log in on the **mobile** app (SSO or
 > `<FirstName>@2026` password) and must load the leadership mobile context
 > (Calendar / Overview / Alerts) via `/app/bootstrap` — not just admin-web.
