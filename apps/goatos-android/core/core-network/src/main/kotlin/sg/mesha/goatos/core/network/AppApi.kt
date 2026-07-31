@@ -97,6 +97,19 @@ import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
  */
 const val WEIGHING_PAGE_SIZE = 20
 
+/**
+ * The three weighing surfaces. Each is a separate destination with its own authority, so the
+ * client names the surface it is rendering instead of the server inferring it from the viewer's
+ * roles. Values match the backend `scope` query parameter.
+ */
+const val WEIGHING_SCOPE_MINE = "mine"
+
+/** The planner's flat all-tasks list across parks. Read-only; requires weighing.plan. */
+const val WEIGHING_SCOPE_ALL = "all"
+
+/** Read-only oversight of other people's work. Requires weighing.oversee_operators. */
+const val WEIGHING_SCOPE_OPERATORS = "operators"
+
 /** Hard ceiling for a caller-requested Room window (e.g., observeScope). */
 const val MAX_OBSERVED_WINDOW = WEIGHING_PAGE_SIZE * 2  // 40
 
@@ -345,7 +358,7 @@ interface AppApi {
     suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
-    suspend fun listWeighingCampaigns(cursor: String? = null, limit: Int = WEIGHING_PAGE_SIZE): WeighingCampaignListResponseDto
+    suspend fun listWeighingCampaigns(scope: String? = null, cursor: String? = null, limit: Int = WEIGHING_PAGE_SIZE): WeighingCampaignListResponseDto
 
     /** GET /app/weighing/planner/catalog — leadership planner vocabulary for weekly kids task creation. */
     suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto
@@ -1051,7 +1064,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             submitState = "draft",
         )
 
-    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+    override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         WeighingPlannerCatalogResponseDto()

@@ -748,8 +748,8 @@ class RetrofitAppApi(
     override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         service.getShedCompletionSummary(taskId, shedId)
 
-    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto =
-        service.listWeighingCampaigns(cursor = cursor, limit = limit)
+    override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit)
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         service.getWeighingPlannerCatalog(periodStartDate)

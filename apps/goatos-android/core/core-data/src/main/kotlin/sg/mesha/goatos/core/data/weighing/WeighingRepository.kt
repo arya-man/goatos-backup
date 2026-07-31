@@ -32,6 +32,8 @@ import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.MAX_OBSERVED_WINDOW
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import java.util.UUID
@@ -198,7 +200,15 @@ data class WeighingPage<T>(
 
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
-    suspend fun listAssignments(cursor: String? = null): AppResult<WeighingPage<WeighingAssignment>>
+    /**
+     * Lists weighing assignments for ONE weighing surface.
+     *
+     * [scope] names the surface the caller renders rather than letting the server infer it from
+     * the viewer's roles: [WEIGHING_SCOPE_MINE] is the caller's own assigned sheds and is the only
+     * executable list, [WEIGHING_SCOPE_ALL] is the planner's flat all-tasks list, and
+     * [WEIGHING_SCOPE_OPERATORS] is read-only oversight of other people's work.
+     */
+    suspend fun listAssignments(cursor: String? = null, scope: String = WEIGHING_SCOPE_MINE): AppResult<WeighingPage<WeighingAssignment>>
     suspend fun listLeadershipVideos(cursor: String? = null): AppResult<WeighingPage<WeighingLeadershipShed>>
     suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog>
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
@@ -272,11 +282,11 @@ class DefaultWeighingRepository(
         rosterDao.replaceScope(scopeKey, rows)
     }
 
-    override suspend fun listAssignments(cursor: String?): AppResult<WeighingPage<WeighingAssignment>> = withContext(Dispatchers.IO) {
+    override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing assignments are not configured.")
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val response = client.listWeighingCampaigns(cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            val response = client.listWeighingCampaigns(scope = scope, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
             val assignments = response.items.flatMap { it.toAssignments() }
             AppResult.Ok(
                 WeighingPage(
@@ -291,7 +301,7 @@ class DefaultWeighingRepository(
         val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val response = client.listWeighingCampaigns(cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            val response = client.listWeighingCampaigns(scope = WEIGHING_SCOPE_OPERATORS, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
             val assignments = response.items.flatMap { it.toAssignments() }
             val sheds = assignments.map { assignment ->
                 val detail = client.getWeighingLeadershipShedVideos(
