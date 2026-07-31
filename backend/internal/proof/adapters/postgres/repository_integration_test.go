@@ -291,6 +291,23 @@ WHERE tenant_id = $1::uuid
 	if superseded.Metadata["superseded_reason"] != "replacement_video" {
 		t.Fatalf("metadata = %#v, want replacement reason", superseded.Metadata)
 	}
+
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     first.ProofID,
+		ContentHash: "sha256:stale-replay",
+		MimeType:    "video/mp4",
+		SizeBytes:   999,
+	}); err != nil {
+		t.Fatalf("replayed first CompleteProof() error = %v", err)
+	}
+	active, err := repo.GetProof(ctx, tenantID, second.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(second) error = %v", err)
+	}
+	if _, ok := active.Metadata["superseded_by_proof_id"]; ok {
+		t.Fatalf("newer proof was superseded by stale replay: %#v", active.Metadata)
+	}
 }
 
 func TestBackfillSubmissionRetentionAppliesCommittedSOPPolicy(t *testing.T) {
