@@ -325,7 +325,6 @@ fun ScanScreen(
                             connected = false,
                             actionLabel = "Reconnect",
                         ),
-                        progressLabel = "${state.ringDone}/${state.ringTotal}",
                         onReconnect = { onEvent(ScanEvent.ReconnectReader) },
                     )
                 }
@@ -467,7 +466,6 @@ fun ScanScreen(
 @Composable
 private fun ReaderConnectionBanner(
     reader: ScanReaderConnection,
-    progressLabel: String,
     onReconnect: () -> Unit,
 ) {
     val bg = if (reader.connected) ScanTokens.okX else ScanTokens.dangerX
@@ -498,7 +496,6 @@ private fun ReaderConnectionBanner(
             Text(reader.readerName, color = ScanTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text(reader.statusLabel, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
-        Text(progressLabel, color = ScanTokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
         if (!reader.connected) {
             Spacer(Modifier.width(10.dp))
             Text(reader.actionLabel, color = fg, fontSize = 12.sp, fontWeight = FontWeight.Black)

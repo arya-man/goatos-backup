@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data
 
 import androidx.room.withTransaction
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -24,7 +25,6 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
-import java.util.Locale
 
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
@@ -293,7 +293,8 @@ class DefaultExecutionRepository(
         taskId: String?,
         cursor: String?,
         limit: Int?,
-    ): ScanRosterResponseDto = api.getScanRoster(shedId, taskId, cursor, limit)
+    ): ScanRosterResponseDto =
+        api.getScanRoster(shedId, taskId, cursor, limit)
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -336,8 +337,15 @@ class DefaultExecutionRepository(
             val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's page count, not a persistent field
             var seq = 0L
             var cursor: String? = null
+            var fetchTaskId = taskId
             while (true) {
-                val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
+                val page = try {
+                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit)
+                } catch (error: Throwable) {
+                    if (cursor != null || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
+                    fetchTaskId = null
+                    scanRoster(shedId, taskId = null, cursor = null, limit = limit)
+                }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 val next = page.nextCursor ?: break
                 if (!seenCursors.add(next)) {
@@ -451,6 +459,10 @@ private fun humanizeVaccineLabel(raw: String): String {
         else -> alreadyHuman.ifBlank { trimmed }
     }
 }
+
+private fun Throwable.isHttpNotFound(): Boolean =
+    javaClass.name == "retrofit2.HttpException" &&
+        runCatching { javaClass.getMethod("code").invoke(this) as? Int }.getOrNull() == 404
 
 private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")
