@@ -257,13 +257,11 @@ func (r *Repository) supersedeOlderTaskGoatVideos(ctx context.Context, tx pgx.Tx
 	}
 	_, err := tx.Exec(ctx, `
 UPDATE proof_artifacts
-SET upload_state = 'failed',
-    metadata = metadata || jsonb_build_object(
+SET metadata = metadata || jsonb_build_object(
       'superseded_by_proof_id', $3::text,
       'superseded_at', now(),
       'superseded_reason', 'replacement_video'
     ),
-    retention_expires_at = COALESCE(retention_expires_at, now()),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
@@ -273,8 +271,7 @@ WHERE tenant_id = $1::uuid
   AND subject_id = $4::uuid
   AND proof_type = 'video'
   AND upload_state = 'completed'
-  AND proof_id <> $3::uuid
-  AND retention_policy <> 'legal_hold'`,
+  AND proof_id <> $3::uuid`,
 		artifact.TenantID,
 		artifact.ScopeID,
 		artifact.ProofID,
