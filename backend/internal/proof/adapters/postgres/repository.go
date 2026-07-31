@@ -200,7 +200,14 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	if err != nil {
 		return domain.Artifact{}, err
 	}
-	row := r.pool.QueryRow(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	row := tx.QueryRow(ctx, `
 	UPDATE proof_artifacts
 	SET content_hash = COALESCE(NULLIF($3, ''), content_hash),
 	    mime_type = COALESCE(NULLIF($4, ''), mime_type),
@@ -230,9 +237,50 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	)
 	artifact, err := scanArtifact(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.getCompletedProof(ctx, in.TenantID, in.ProofID)
+		artifact, err = r.getCompletedProof(ctx, in.TenantID, in.ProofID)
 	}
-	return artifact, err
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if err := r.supersedeOlderTaskGoatVideos(ctx, tx, artifact); err != nil {
+		return domain.Artifact{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Artifact{}, err
+	}
+	return artifact, nil
+}
+
+func (r *Repository) supersedeOlderTaskGoatVideos(ctx context.Context, tx pgx.Tx, artifact domain.Artifact) error {
+	if artifact.ScopeType != "task" || artifact.SubjectType != "goat" || artifact.ProofType != "video" || artifact.SubjectID == nil {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+UPDATE proof_artifacts
+SET upload_state = 'failed',
+    metadata = metadata || jsonb_build_object(
+      'superseded_by_proof_id', $3::text,
+      'superseded_at', now(),
+      'superseded_reason', 'replacement_video'
+    ),
+    retention_expires_at = COALESCE(retention_expires_at, now()),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND scope_type = 'task'
+  AND scope_id = $2::uuid
+  AND subject_type = 'goat'
+  AND subject_id = $4::uuid
+  AND proof_type = 'video'
+  AND upload_state = 'completed'
+  AND proof_id <> $3::uuid
+  AND retention_policy <> 'legal_hold'`,
+		artifact.TenantID,
+		artifact.ScopeID,
+		artifact.ProofID,
+		*artifact.SubjectID,
+	)
+	return err
 }
 
 func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {

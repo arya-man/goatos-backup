@@ -1055,15 +1055,19 @@ private fun FeedRow(
     val tagColor = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.ink else toneColor
     val secondary = when {
         armedForReplacement -> stringResource(R.string.scan_proof_replace_armed)
+        // Synced is terminal: check it BEFORE failed/uploading so a green row can never also claim
+        // its proof is still uploading or failed.
+        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
+            entry.proofStatusLabel ?: entry.scannedAtLabel
         entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED ->
             entry.proofStatusLabel ?: "Upload failed · auto retrying"
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING ->
             entry.proofStatusLabel ?: "Uploading proof…"
-        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
-            entry.proofStatusLabel ?: entry.scannedAtLabel
         else -> entry.scannedAtLabel
     }
     val secondaryColor = when {
+        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
+            if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.brandD else toneColor
         entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.warning
         entry.tone == ScanFeedTone.ACCEPTED -> ScanTokens.brandD
@@ -1564,16 +1568,18 @@ fun ScanListSheet(
 @Composable
 private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) {
     val vaccineHeading = if (row.status == ScanStatus.DONE) "Vaccines covered for this goat" else "Due vaccines for this goat"
+    // Synced is terminal and is checked before syncing/failed, so a goat whose clip already reached
+    // the backend never reads as still syncing.
     val proofText = when {
         row.captureInFlight -> "Opening camera…"
+        row.evidenceSyncedCount > 0 -> "${row.evidenceSyncedCount} clip${if (row.evidenceSyncedCount == 1) "" else "s"} ready"
         row.evidenceUploading -> "${row.evidenceCount} clip${if (row.evidenceCount == 1) "" else "s"} syncing"
         row.evidenceFailed -> "Proof upload needs retry"
-        row.evidenceSyncedCount > 0 -> "${row.evidenceSyncedCount} clip${if (row.evidenceSyncedCount == 1) "" else "s"} ready"
         else -> "Proof needed"
     }
     val proofColor = when {
-        row.evidenceFailed -> ScanTokens.danger
         row.evidenceSyncedCount > 0 -> ScanTokens.brand
+        row.evidenceFailed -> ScanTokens.danger
         else -> ScanTokens.warning
     }
     Column(
@@ -1643,12 +1649,14 @@ private fun ScanListRow(row: RosterRow) {
     }
     val secondaryLine = when {
         row.status == ScanStatus.PENDING -> null
+        // Synced is terminal: check it BEFORE uploading/failed so a row that renders green can never
+        // also claim its proof is still uploading.
+        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
+            row.proofStatusLabel ?: row.scannedAtLabel
         row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
             row.proofStatusLabel ?: "Uploading proof · retrying if needed"
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
             row.proofStatusLabel ?: "Upload failed · retry or scan again"
-        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
-            row.proofStatusLabel ?: row.scannedAtLabel
         row.scannedAtLabel != null -> row.scannedAtLabel
         row.status == ScanStatus.DONE && tone == ScanFeedTone.DUPLICATE -> "Scan again to record proof"
         else -> null

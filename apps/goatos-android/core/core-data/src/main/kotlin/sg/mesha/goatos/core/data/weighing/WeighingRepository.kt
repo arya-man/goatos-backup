@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.weighing
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
@@ -241,6 +243,7 @@ class DefaultWeighingRepository(
     private val rosterDao: WeighingRosterDao,
     private val observationDao: WeighingObservationDao,
     private val shedObservationDao: WeighingShedObservationDao,
+    private val database: GoatDatabase? = null,
     private val syncRepository: SyncRepository? = null,
     private val appScope: CoroutineScope? = null,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -407,36 +410,48 @@ class DefaultWeighingRepository(
                 if (rows.size >= safetyLimit) cursor = null
                 if (accepted.size >= safetyLimit) observationsCursor = null
             } while (cursor != null || observationsCursor != null)
-            rosterDao.replaceScope(key, rows)
-            accepted.values.forEach { observation ->
-                val animalId = observation.animalId.trim()
-                val scannedIdentifier = observation.scannedIdentifier.trim().ifBlank { animalId }
-                if (animalId.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
-                    observationDao.restoreAccepted(
-                        WeighingObservationEntity(
-                            observationId = observation.observationId,
-                            scopeKey = key,
-                            tenantId = tenantId,
-                            campaignId = campaignId,
-                            workGroupId = workGroupId,
-                            campaignShedId = campaignShedId,
-                            expectedLocationId = observation.expectedLocationId,
-                            expectedLocationLabel = "",
-                            actualLocationId = null,
-                            actualLocationLabel = null,
-                            animalId = animalId,
-                            scannedIdentifier = scannedIdentifier,
-                            weightKg = observation.weightKg,
-                            proofCaptureId = observation.proofArtifactId,
-                            serverProofId = observation.proofArtifactId,
-                            syncStatus = WeighingSyncStatus.ACCEPTED.name,
-                            idempotencyKey = "weighing:server:${observation.observationId}",
-                            capturedAtMs = observation.acceptedAt.toEpochMillisOrNow(),
-                            lastError = null,
-                        ),
-                    )
+            val publishAccepted: suspend () -> Unit = {
+                rosterDao.replaceScope(key, rows)
+                val activeAcceptedIds = accepted.keys.toList()
+                if (activeAcceptedIds.isEmpty()) {
+                    observationDao.deleteAcceptedForScope(key)
+                } else {
+                    observationDao.deleteAcceptedNotIn(key, activeAcceptedIds)
+                }
+                shedObservationDao.deleteAcceptedForScope(key)
+                accepted.values.forEach { observation ->
+                    val animalId = observation.animalId.trim()
+                    val scannedIdentifier = observation.scannedIdentifier.trim().ifBlank { animalId }
+                    if (animalId.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
+                        observationDao.restoreAccepted(
+                            WeighingObservationEntity(
+                                observationId = observation.observationId,
+                                scopeKey = key,
+                                tenantId = tenantId,
+                                campaignId = campaignId,
+                                workGroupId = workGroupId,
+                                campaignShedId = campaignShedId,
+                                expectedLocationId = observation.expectedLocationId,
+                                expectedLocationLabel = "",
+                                actualLocationId = null,
+                                actualLocationLabel = null,
+                                animalId = animalId,
+                                scannedIdentifier = scannedIdentifier,
+                                weightKg = observation.weightKg,
+                                proofCaptureId = observation.proofArtifactId,
+                                serverProofId = observation.proofArtifactId,
+                                syncStatus = WeighingSyncStatus.ACCEPTED.name,
+                                idempotencyKey = "weighing:server:${observation.observationId}",
+                                capturedAtMs = observation.acceptedAt.toEpochMillisOrNow(),
+                                lastError = null,
+                            ),
+                        )
+                    }
                 }
             }
+            database?.withTransaction {
+                publishAccepted()
+            } ?: publishAccepted()
             AppResult.Ok(rows.size)
         }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
     }

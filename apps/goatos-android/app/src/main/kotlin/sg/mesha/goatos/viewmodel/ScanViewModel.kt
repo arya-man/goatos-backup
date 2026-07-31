@@ -807,22 +807,28 @@ class ScanViewModel @Inject constructor(
     ): RosterRow {
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
-        val uploadingProofs = goatProofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ||
-            optimisticProofUploadingAtMs != null
-        val failedProofs = goatProofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
         val latestSyncedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .maxByOrNull { it.capturedAtMs }
+        val hasSyncedProof = latestSyncedProof != null || serverProofReady
+        // A completed proof is terminal for this goat: a stale optimistic "uploading" marker (its
+        // clearing coroutine was cancelled by navigation/recreation) and older retry rows must never
+        // outrank a clip that already reached the backend, or the row shows "Proof uploading" forever
+        // while rendering as done.
         val latestUploadingProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT }
             .maxByOrNull { it.capturedAtMs }
+            ?.takeUnless { hasSyncedProof }
+        val effectiveOptimisticUploadingAtMs = optimisticProofUploadingAtMs?.takeUnless { hasSyncedProof }
+        val uploadingProofs = latestUploadingProof != null || effectiveOptimisticUploadingAtMs != null
+        val failedProofs = !hasSyncedProof && goatProofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
         val latestFailedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.FAILED }
             .maxByOrNull { it.capturedAtMs }
-        val hasSyncedProof = latestSyncedProof != null || serverProofReady
+            ?.takeUnless { hasSyncedProof }
         val proofStatusLabel = proofStatusLabel(
             latestSyncedAtMs = latestSyncedProof?.capturedAtMs ?: if (serverProofReady) scannedAtMs else null,
-            latestUploadingAtMs = latestUploadingProof?.capturedAtMs ?: optimisticProofUploadingAtMs,
+            latestUploadingAtMs = latestUploadingProof?.capturedAtMs ?: effectiveOptimisticUploadingAtMs,
             latestFailedAtMs = latestFailedProof?.capturedAtMs,
         )
         val capturedAtMs = scannedAtByObligation[obligationId] ?: scannedAtMs
@@ -839,7 +845,7 @@ class ScanViewModel @Inject constructor(
             obligationId = obligationId,
             proofRequired = requireGoatProof,
             proofClipCount = if (hasSyncedProof || latestUploadingProof != null) 1 else 0,
-            proofUploadStatus = if (serverProofReady) ProofUploadStatus.SYNCED else proofStatus(goatProofs, optimisticProofUploadingAtMs),
+            proofUploadStatus = if (serverProofReady) ProofUploadStatus.SYNCED else proofStatus(goatProofs, effectiveOptimisticUploadingAtMs),
             evidenceCount = if (hasSyncedProof || goatProofs.isNotEmpty()) 1 else 0,
             evidenceSyncedCount = if (hasSyncedProof) 1 else 0,
             evidenceUploading = uploadingProofs,
@@ -933,15 +939,16 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    // One completed goat proof satisfies the SOP, so SYNCED is terminal and is checked FIRST. Older
+    // retry/upload rows and a stale optimistic marker for the same goat must not keep the scan row
+    // orange (or labelled "uploading") after the valid proof has reached the backend.
     private fun proofStatus(proofs: List<ProofCaptureRow>, optimisticProofUploadingAtMs: Long? = null): ProofUploadStatus = when {
+        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
+            ProofUploadStatus.SYNCED
         optimisticProofUploadingAtMs != null ||
             proofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ->
             ProofUploadStatus.UPLOADING
         proofs.any { it.syncStatus == CaptureSyncStatus.FAILED } -> ProofUploadStatus.FAILED
-        // One completed goat proof satisfies the SOP. Older retry/upload rows for the same goat must
-        // not keep the scan row orange after the valid proof has reached the backend.
-        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
-            ProofUploadStatus.SYNCED
         else -> ProofUploadStatus.MISSING
     }
 
@@ -950,9 +957,11 @@ class ScanViewModel @Inject constructor(
         latestUploadingAtMs: Long?,
         latestFailedAtMs: Long?,
     ): String? = when {
+        // A synced clip is terminal and outranks any older pending/failed sibling, so a done row can
+        // never read "Proof uploading" after its proof reached the backend.
+        latestSyncedAtMs != null -> "Proof synced ${timeOnlyLabel(latestSyncedAtMs)}"
         latestUploadingAtMs != null -> "Proof uploading ${timeOnlyLabel(latestUploadingAtMs)}"
         latestFailedAtMs != null -> "Upload failed ${timeOnlyLabel(latestFailedAtMs)}"
-        latestSyncedAtMs != null -> "Proof synced ${timeOnlyLabel(latestSyncedAtMs)}"
         else -> null
     }
 
@@ -1010,8 +1019,11 @@ class ScanViewModel @Inject constructor(
                     proofPolicy = policy,
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
-                _proofSyncingStartedAt.update { it - row.goatId }
             } finally {
+                // Clear in `finally`: cancellation (navigating away, ViewModel recreation) between the
+                // capture and the delay would otherwise strand this goat's optimistic "uploading"
+                // marker forever, so a fully synced row keeps rendering as proof-pending.
+                _proofSyncingStartedAt.update { it - row.goatId }
                 proofCaptureInFlight = false
             }
         }
