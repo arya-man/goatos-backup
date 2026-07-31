@@ -162,6 +162,8 @@ data class ProtocolAdherenceSummary(
 data class ShedRow(
     val id: String,
     val name: String,
+    val parkId: String = "",
+    val parkName: String = "",
     val operatorName: String = "",
     val physicalShed: String = "",
     val partition: String = "",
@@ -187,6 +189,17 @@ data class ShedRow(
     val opensRecordOnly: Boolean = false,
     val canOpen: Boolean = true,
 )
+
+@Immutable
+private data class ShedParkGroup(
+    val parkId: String,
+    val label: String,
+    val rows: List<ShedRow>,
+) {
+    val targetCount: Int = rows.sumOf { it.inShed.toIntOrNull() ?: 0 }
+    val doneCount: Int = rows.sumOf { it.done.toIntOrNull() ?: 0 }
+    val openCount: Int = rows.sumOf { it.due.toIntOrNull() ?: 0 }
+}
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.
  *  @Immutable: rows/rosterChanges List<T> fields otherwise mark this unstable (item 6,
@@ -385,8 +398,23 @@ fun ShedsScreen(
                     )
                 }
             }
-            items(state.rows, key = { it.id }) { row ->
-                ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+            val parkGroups = state.parkGroups()
+            if (parkGroups.size > 1 && !state.hostedFromCalendar) {
+                item(key = "park-chip-summary") {
+                    ParkGroupChips(groups = parkGroups)
+                }
+                parkGroups.forEach { group ->
+                    item(key = "park-header-${group.parkId}") {
+                        ParkGroupHeader(group)
+                    }
+                    items(group.rows, key = { it.id }) { row ->
+                        ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+                    }
+                }
+            } else {
+                items(state.rows, key = { it.id }) { row ->
+                    ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+                }
             }
             if (state.isLoadingMore) {
                 item(key = "loading-more") {
@@ -503,6 +531,78 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
         ) {
             Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
         }
+    }
+}
+
+private fun ShedsUiState.parkGroups(): List<ShedParkGroup> =
+    rows
+        .groupBy { row -> row.parkId.ifBlank { row.parkName.ifBlank { "unknown" } } }
+        .map { (parkId, parkRows) ->
+            ShedParkGroup(
+                parkId = parkId,
+                label = parkRows.firstOrNull()?.parkName?.takeIf { it.isNotBlank() } ?: "Unknown park",
+                rows = parkRows,
+            )
+        }
+        .sortedBy { it.label.lowercase() }
+
+@Composable
+private fun ParkGroupChips(groups: List<ShedParkGroup>) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        groups.forEach { group ->
+            ParkSummaryPill(group)
+        }
+    }
+}
+
+@Composable
+private fun ParkSummaryPill(group: ShedParkGroup) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Surf2)
+            .border(1.dp, Hair, RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(text = group.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Text(
+            text = "${group.rows.size} sheds · ${group.openCount} open",
+            color = Muted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun ParkGroupHeader(group: ShedParkGroup) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            text = group.label,
+            color = Ink,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "${group.doneCount}/${group.targetCount} done",
+            color = Muted,
+            fontSize = 11.5f.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

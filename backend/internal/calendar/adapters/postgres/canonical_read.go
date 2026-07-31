@@ -485,12 +485,12 @@ batch_events AS (
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END AS window_end,
       COALESCE(
-        NULLIF(min(goat_park.location_id::text), '')::uuid,
+        goat_park.location_id,
         CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
         CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END
       ) AS park_id,
       COALESCE(
-        min(goat_park.location_code) FILTER (WHERE goat_park.location_code IS NOT NULL),
+        goat_park.location_code,
         CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
         CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
       ) AS park_code,
@@ -646,7 +646,17 @@ batch_events AS (
       pv.protocol_version_id,
       ob.sop_task_id,
       ob.reserved_quantity,
-      ob.planned_quantity
+      ob.planned_quantity,
+      COALESCE(
+        goat_park.location_id,
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END
+      ),
+      COALESCE(
+        goat_park.location_code,
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
+      )
   ) grouped
   CROSS JOIN LATERAL (
     SELECT

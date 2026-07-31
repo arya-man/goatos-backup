@@ -40,6 +40,22 @@ internal fun driveCoverage(
         DriveCoverage(completedDoses, totalDoses, usesAnimals = false)
     }
 
+internal fun driveVisibleProgress(summary: CalendarDriveSummary): DriveCoverage {
+    val completed = driveCoverage(
+        completedAnimals = summary.completedAnimals,
+        totalAnimals = summary.totalAnimals,
+        completedDoses = summary.completedCount,
+        totalDoses = summary.totalCount,
+    )
+    val submitted = driveCoverage(
+        completedAnimals = summary.submittedAnimals,
+        totalAnimals = summary.totalAnimals,
+        completedDoses = summary.submittedCount,
+        totalDoses = summary.totalCount,
+    )
+    return if (submitted.completed > completed.completed) submitted else completed
+}
+
 // Status chips for the redesigned drive card: returns ALL nonzero buckets
 // (completed/submitted/due/overdue/deferred)
 // in fixed order, each with a key, count, and placeholder label. Labels are localized at render time
