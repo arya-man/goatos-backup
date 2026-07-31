@@ -211,6 +211,7 @@ fun GoatOsShell(navState: NavState) {
     // makes an authorization decision out of copy that exists to be shown to a human, so a
     // label tweak or a translation silently grants or revokes execution.
     val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
+    val verificationVideoControlsEnabled = visibleNavState.featureFlags["verification_video_controls"] == true
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
@@ -246,6 +247,7 @@ fun GoatOsShell(navState: NavState) {
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
             canExecuteVaccination = canExecuteVaccination,
             canExecuteWeighing = canExecuteWeighing,
+            verificationVideoControlsEnabled = verificationVideoControlsEnabled,
         )
     }
 

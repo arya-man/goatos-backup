@@ -617,6 +617,47 @@ func TestCalendarListDoesNotDuplicateBatchBackedSOPTasks(t *testing.T) {
 	}
 }
 
+func TestCalendarListIncludesTenantScopedBatchDriveByResolvedGoatLocation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-00000000e101"
+	versionID := "86000000-0000-4000-8000-00000000e102"
+	ruleID := "86000000-0000-4000-8000-00000000e103"
+	obligationID := "86000000-0000-4000-8000-00000000e104"
+	batchID := "86000000-0000-4000-8000-00000000e105"
+	dueAt := time.Date(2026, 7, 31, 6, 0, 0, 0, time.UTC)
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET scope_type = 'tenant',
+    scope_id = tenant_id,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, batchID); err != nil {
+		t.Fatalf("make batch tenant scoped: %v", err)
+	}
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-24 * time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	wantID := parkDriveEventID(testParkA, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantID {
+		t.Fatalf("list items=%#v, want tenant-scoped batch resolved to park-drive %s", list.Items, wantID)
+	}
+}
+
 func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
