@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -12,11 +14,82 @@ import (
 )
 
 type Service struct {
-	repo ports.Repository
+	repo         ports.Repository
+	enqueuer     VerificationEnqueuer
+	processState ports.WeighingProcessStateReader
 }
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
+}
+
+type VerificationEnqueuer interface {
+	EnqueueWeighingVerification(ctx context.Context, in VerificationEnqueueRequest) error
+}
+
+type VerificationEnqueueRequest struct {
+	TenantID       string
+	Category       string
+	ObservationID  string
+	CampaignID     string
+	CampaignShedID string
+	MediaRefs      []string
+	OperatorID     string
+	ShedID         string
+	SubjectLabel   string
+	CapturedAt     time.Time
+	IdempotencyKey string
+}
+
+func (s *Service) WithVerificationEnqueuer(enqueuer VerificationEnqueuer) *Service {
+	s.enqueuer = enqueuer
+	return s
+}
+
+// WithProcessStateReader wires the PHASE 2 Calendar / Control Tower binding. It is
+// optional injection (like the verification enqueuer) so the planner/execution
+// port surface does not grow a read model every fake has to implement.
+func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader) *Service {
+	s.processState = reader
+	return s
+}
+
+// WeighingProcessState serves the shared command surfaces: Calendar day markers
+// and the Control Tower gap summary, both at the declared `weighing_work_item`
+// grain.
+//
+// The date window is an INCLUSIVE business-date range and must be aligned to
+// Asia/Kolkata business-day boundaries by the caller. There is deliberately NO
+// pagination on this read: the summary is a whole-filter aggregate computed in the
+// database, so it is page-size independent by construction.
+func (s *Service) WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.ProcessState{}, ports.ErrForbidden
+	}
+	if s.processState == nil {
+		return domain.ProcessState{}, ports.ErrNotFound
+	}
+	campaignID = strings.TrimSpace(campaignID)
+	if campaignID != "" && !uuidutil.IsUUIDString(campaignID) {
+		return domain.ProcessState{}, ports.ErrInvalidArgument
+	}
+	from := strings.TrimSpace(fromBusinessDate)
+	to := strings.TrimSpace(toBusinessDate)
+	if !isBusinessDate(from) || !isBusinessDate(to) || to < from {
+		return domain.ProcessState{}, ports.ErrInvalidArgument
+	}
+	return s.processState.WeighingProcessState(ctx, actor.TenantID, campaignID, from, to)
+}
+
+// isBusinessDate accepts only a business DATE (YYYY-MM-DD). An instant or a
+// `now ± N hours` style value is rejected outright, because weighing work has
+// business-day grain and nothing finer.
+func isBusinessDate(value string) bool {
+	if len(value) != 10 {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", value)
+	return err == nil
 }
 
 func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error) {
@@ -92,7 +165,7 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	return s.repo.PlannerCatalog(ctx, actor.TenantID, strings.TrimSpace(periodStartDate))
 }
 
-func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error) {
+func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return domain.RosterPage{}, ports.ErrForbidden
 	}
@@ -107,9 +180,9 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	}
 	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 	if canMonitor {
-		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
+		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit)
 	}
-	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), limit)
+	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit)
 }
 
 func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
@@ -131,13 +204,25 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	if !uuidutil.IsUUIDString(cmd.AnimalID) && strings.TrimSpace(cmd.ScannedIdentifier) == "" {
+	// FREE-FLOW: the scanned RFID is the required identity. animal_id is NOT
+	// accepted as a substitute and is ignored by the write path entirely
+	// (maintainer decision 2026-07-31), so a request carrying only a goat UUID is
+	// an invalid weighing capture — there is nothing to record as the scan.
+	cmd.AnimalID = ""
+	if strings.TrimSpace(cmd.ScannedIdentifier) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	return s.repo.RecordAnimalObservation(ctx, cmd)
+	obs, err := s.repo.RecordAnimalObservation(ctx, cmd)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
+		return domain.Observation{}, err
+	}
+	return obs, nil
 }
 
 func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error) {
@@ -165,7 +250,41 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 			return domain.Observation{}, ports.ErrInvalidArgument
 		}
 	}
-	return s.repo.RecordShedObservation(ctx, cmd)
+	obs, err := s.repo.RecordShedObservation(ctx, cmd)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	mediaRefs := obs.ProofArtifactIDs
+	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
+		mediaRefs = []string{obs.ProofArtifactID}
+	}
+	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, "lump-sum shed weight"); err != nil {
+		return domain.Observation{}, err
+	}
+	return obs, nil
+}
+
+func (s *Service) enqueueVerification(ctx context.Context, tenantID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
+	if s.enqueuer == nil {
+		return nil
+	}
+	category := domain.VerificationRefTypeAnimal
+	if obs.AnimalCount > 0 || len(mediaRefs) > 1 {
+		category = domain.VerificationRefTypeShed
+	}
+	return s.enqueuer.EnqueueWeighingVerification(ctx, VerificationEnqueueRequest{
+		TenantID:       tenantID,
+		Category:       category,
+		ObservationID:  obs.ObservationID,
+		CampaignID:     campaignID,
+		CampaignShedID: campaignShedID,
+		MediaRefs:      mediaRefs,
+		OperatorID:     operatorID,
+		ShedID:         obs.ExpectedLocationID,
+		SubjectLabel:   label,
+		CapturedAt:     obs.AcceptedAt,
+		IdempotencyKey: fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID),
+	})
 }
 
 func isPositiveFinite(value float64) bool {
@@ -192,6 +311,58 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 		}
 	}
 	return s.repo.SubmitIndividualScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), normalized)
+}
+
+func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
+		return ports.ErrInvalidArgument
+	}
+	return s.repo.ReopenScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason))
+}
+
+// CloseScope ends one weighing bucket (campaign shed). Same permission and
+// validation shape as ReopenScope: monitor-only, UUID-validated ids, mandatory
+// idempotency key. A reason is REQUIRED here (unlike reopen) because a close is
+// allowed to strand work that was never accepted, and the reason is the only
+// record of why.
+func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.CloseResult{}, ports.ErrForbidden
+	}
+	reason = strings.TrimSpace(reason)
+	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
+		return domain.CloseResult{}, ports.ErrInvalidArgument
+	}
+	return s.repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID:       actor.TenantID,
+		CampaignID:     campaignID,
+		CampaignShedID: campaignShedID,
+		Reason:         reason,
+		ClosedBy:       actor.UserID,
+		IdempotencyKey: strings.TrimSpace(idempotencyKey),
+	})
+}
+
+// CloseCampaign ends a whole weighing campaign and every bucket still open under
+// it. Buckets whose work was never accepted stay not accepted.
+func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.CloseResult{}, ports.ErrForbidden
+	}
+	reason = strings.TrimSpace(reason)
+	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
+		return domain.CloseResult{}, ports.ErrInvalidArgument
+	}
+	return s.repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID:       actor.TenantID,
+		CampaignID:     campaignID,
+		Reason:         reason,
+		ClosedBy:       actor.UserID,
+		IdempotencyKey: strings.TrimSpace(idempotencyKey),
+	})
 }
 
 func normalizeProofArtifactIDs(primary string, ids []string) []string {

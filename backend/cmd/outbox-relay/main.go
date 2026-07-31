@@ -41,6 +41,7 @@ import (
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -164,6 +165,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 		healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
+		weighingRepo := weighingpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -174,11 +176,12 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
+		notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, logger)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

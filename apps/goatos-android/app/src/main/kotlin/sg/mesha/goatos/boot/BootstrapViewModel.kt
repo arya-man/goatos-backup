@@ -75,11 +75,31 @@ class BootstrapViewModel @Inject constructor(
                 .onSuccess { navState ->
                     _state.value = BootstrapUiState.Ready(navState)
                     val chrome = if (navState.chrome == NavChrome.EXPANDED) "expanded" else "minimal"
-                    analytics.track(AnalyticsEvents.BOOTSTRAP_LOADED, mapOf(AnalyticsEvents.Params.CHROME to chrome))
+                    val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
+                    val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
+                    analytics.track(
+                        AnalyticsEvents.BOOTSTRAP_LOADED,
+                        buildMap {
+                            put(AnalyticsEvents.Params.CHROME, chrome)
+                            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+                        },
+                    )
+                    logInfo("Bootstrap loaded email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} chrome=$chrome")
                     applyAnalyticsIdentity()
                 }
-                .onFailure {
-                    Log.e(TAG, "Bootstrap failed", it)
+                .onFailure { throwable ->
+                    val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
+                    val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
+                    logError("Bootstrap failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", throwable)
+                    analytics.track(
+                        AnalyticsEvents.BOOTSTRAP_FAILED,
+                        buildMap {
+                            put(AnalyticsEvents.Params.REASON, throwable::class.java.simpleName.ifBlank { "unknown" })
+                            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+                        },
+                    )
                     _state.value = BootstrapUiState.Error(
                         "Couldn't load your workspace. Check your connection and try again.",
                     )
@@ -125,5 +145,13 @@ class BootstrapViewModel @Inject constructor(
         analytics.setUserProperty(AnalyticsEvents.UserProps.DEVICE_ID, deviceId)
 
         pushTokenSync.syncNow()
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun logError(message: String, throwable: Throwable) {
+        runCatching { Log.e(TAG, message, throwable) }
     }
 }

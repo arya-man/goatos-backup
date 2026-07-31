@@ -280,6 +280,17 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 	}
 	if err := h.record(r, event); err != nil {
+		h.log.ErrorContext(r.Context(), "auth_session_event_failed",
+			slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+			slog.String("trace_id", traceID(r)),
+			slog.String("event_type", action),
+			slog.String("actor_id", claims.Subject),
+			slog.String("email", authallow.NormalizeEmail(claims.Email)),
+			slog.String("firebase_uid", claims.ExternalSubject),
+			slog.String("tenant_id", tenantID),
+			slog.String("source", cleanMetadataString(body.Source, 64)),
+			slog.String("error", err.Error()),
+		)
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
 			Code:        "auth_audit_write_failed",
 			Message:     "auth audit event could not be recorded",
@@ -289,6 +300,20 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		}, err)
 		return
 	}
+	h.log.InfoContext(r.Context(), "auth_session_event_succeeded",
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", traceID(r)),
+		slog.String("event_type", action),
+		slog.String("actor_id", claims.Subject),
+		slog.String("email", authallow.NormalizeEmail(claims.Email)),
+		slog.String("firebase_uid", claims.ExternalSubject),
+		slog.String("tenant_id", tenantID),
+		slog.String("source", cleanMetadataString(body.Source, 64)),
+		slog.String("token_tenant_source", tenantSource),
+		slog.Bool("pending_email_grant_matched", grantClaim.Matched),
+		slog.Int("pending_email_grant_inserted", len(grantClaim.InsertedGrants)),
+		slog.Int("pending_email_grant_existing", len(grantClaim.ExistingGrants)),
+	)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -1,0 +1,16 @@
+| Shed | Partitions / Tags included | Species | Total due | 24-Jul done | 25-Jul pending |
+|---|---|---|---:|---:|---:|
+| Gandhi 1 | Non-Pregnant | Sheep | 42 | 42 | 0 |
+| Gandhi 2 | 2, 3, Non-Pregnant | Goat | 31 | 30 | 1 |
+| Gandhi 3 | Non-Pregnant | Sheep | 42 | 42 | 0 |
+| Godel 1 - Part 1 | 1, 2, 3, 4, 5, 9, 10, Non-Pregnant | Sheep | 60 | 0 | 60 |
+| Godel 1 - Part 3 | 1, Non-Pregnant | Sheep | 30 | 0 | 30 |
+| Godel 1 - Part 4 | 1, Non-Pregnant | Sheep | 30 | 0 | 30 |
+| Godel 2 - Part 4 | 2, 3, 4, 8 | Goat | 32 | 0 | 32 |
+| Mandela 2 - Part 1 | 3 | Sheep | 1 | 0 | 1 |
+| Mandela 2 - Part 2 | 3, 4 | Sheep | 2 | 0 | 2 |
+| Mandela 2 - Part 3 | 2 | Sheep | 1 | 0 | 1 |
+| Mandela 2 - Part 7 | 1, 2, 3, 4, 5, 9, 10 | Sheep | 13 | 0 | 13 |
+| Mandela 2 - Part 8 | 2, 3, 4, 6 | Goat | 30 | 0 | 30 |
+| Old Yashoda 1 | Buck | Sheep | 8 | 0 | 8 |
+| Old Yashoda 5 | Buck | Goat | 2 | 0 | 2 |

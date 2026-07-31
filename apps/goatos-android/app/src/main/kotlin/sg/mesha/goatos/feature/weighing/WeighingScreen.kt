@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,9 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -85,9 +88,11 @@ data class WeighingUiState(
     val plannerWeekLabel: String = "",
     val plannerPeriodLabel: String = "",
     val plannerDayTabs: List<WeighingDayTabUiRow> = emptyList(),
+    val parkFilters: List<WeighingParkFilterUiRow> = emptyList(),
     val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
     val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
+    val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
     val individualDrafts: List<WeighingDraftUiRow> = emptyList(),
@@ -205,6 +210,8 @@ data class WeighingRosterUiRow(
 data class WeighingAssignmentUiRow(
     val campaignId: String,
     val tenantId: String,
+    val parkId: String,
+    val parkLabel: String,
     val workGroupId: String,
     val campaignShedId: String,
     val expectedLocationId: String,
@@ -221,6 +228,12 @@ data class WeighingAssignmentUiRow(
             status.equals("Submitted", ignoreCase = true) ||
             status.equals("Done", ignoreCase = true)
 }
+
+data class WeighingParkFilterUiRow(
+    val parkId: String,
+    val label: String,
+    val selected: Boolean,
+)
 
 data class WeighingDraftUiRow(
     val id: String,
@@ -253,6 +266,9 @@ fun WeighingScreen(
     onRemoveShedVideo: (String) -> Unit = {},
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onAssignmentRowVisible: (Int) -> Unit = {},
+    onSelectPark: (String?) -> Unit = {},
     onCreateOrEditTask: () -> Unit = {},
     onTogglePlannerShed: (String) -> Unit = {},
     onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
@@ -375,15 +391,27 @@ fun WeighingScreen(
                 }
             }
             if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty()) {
-                item {
-                    WeekPlanStrip(
-                        weekLabel = state.plannerWeekLabel,
-                        periodLabel = state.assignments.firstOrNull()?.periodLabel ?: state.plannerPeriodLabel,
-                        tabs = state.plannerDayTabs,
+                if (state.parkFilters.size > 1) {
+                    item {
+                        WeighingParkFilters(
+                            filters = state.parkFilters,
+                            onSelect = onSelectPark,
+                        )
+                    }
+                }
+                itemsIndexed(state.assignments, key = { _, row -> row.campaignShedId }) { index, row ->
+                    // The list itself pulls the next page as the operator scrolls near the end.
+                    LaunchedEffect(row.campaignShedId, index, state.assignments.size) {
+                        onAssignmentRowVisible(index)
+                    }
+                    AssignmentRow(
+                        row = row,
+                        onOpen = { onOpenAssignment(row) },
+                        onReopen = { onReopenAssignment(row) },
                     )
                 }
-                items(state.assignments, key = { it.campaignShedId }) { row ->
-                    AssignmentRow(row = row, onOpen = { onOpenAssignment(row) })
+                if (state.assignmentsLoadingMore) {
+                    item(key = "assignments-loading-more") { ListLoadingFooter() }
                 }
             }
 
@@ -408,6 +436,29 @@ fun WeighingScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun ListLoadingFooter() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            color = MeshaColors.Brand,
+            strokeWidth = 2.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "Loading more work",
+            color = MeshaColors.Muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -777,7 +828,56 @@ private fun PlannerSummaryRow(label: String, value: String) {
 }
 
 @Composable
-private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
+private fun WeighingParkFilters(
+    filters: List<WeighingParkFilterUiRow>,
+    onSelect: (String?) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val anySelected = filters.any { it.selected }
+        WeighingFilterPill(
+            label = "All parks",
+            selected = !anySelected,
+            onClick = { onSelect(null) },
+        )
+        filters.forEach { option ->
+            WeighingFilterPill(
+                label = option.label,
+                selected = option.selected,
+                onClick = { onSelect(option.parkId) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeighingFilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MeshaColors.Brand else MeshaColors.Surf2
+    val edge = if (selected) MeshaColors.Brand else MeshaColors.Hair
+    val fg = if (selected) MeshaColors.PageBg else MeshaColors.Ink
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(bg)
+            .border(1.dp, edge, RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+    }
+}
+
+@Composable
+private fun AssignmentRow(
+    row: WeighingAssignmentUiRow,
+    onOpen: () -> Unit,
+    onReopen: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -788,7 +888,7 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onOpen)
+                .clickable(onClick = if (row.isClosed) onReopen else onOpen)
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
@@ -810,17 +910,15 @@ private fun AssignmentRow(row: WeighingAssignmentUiRow, onOpen: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!row.isClosed) {
-                Text(
-                    text = assignmentAction(),
-                    color = MeshaColors.BrandD,
-                    style = MeshaType.cta,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clickable(onClick = onOpen)
-                        .padding(top = 2.dp),
-                )
-            }
+            Text(
+                text = if (row.isClosed) "Reopen" else assignmentAction(),
+                color = MeshaColors.BrandD,
+                style = MeshaType.cta,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = if (row.isClosed) onReopen else onOpen)
+                    .padding(top = 2.dp),
+            )
         }
     }
 }

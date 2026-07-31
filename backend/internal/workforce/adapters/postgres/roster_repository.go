@@ -790,7 +790,7 @@ WHERE $2 = 'tenant'
   AND g.scope_type = 'tenant'
   AND g.scope_id = $3::uuid
   AND g.role = $4
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
@@ -855,7 +855,7 @@ WHERE $2 = 'tenant'
   AND g.scope_type = 'tenant'
   AND g.scope_id = ANY($3::uuid[])
   AND g.role = ANY($4::text[])
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)

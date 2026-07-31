@@ -12,7 +12,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
-const EventWeighingShedSubmissionCompleted = "weighing.shed_submission.completed"
+const (
+	EventWeighingShedSubmissionCompleted = "weighing.shed_submission.completed"
+	EventWeighingShedReopened            = "weighing.shed.reopened"
+)
 
 type weighingShedSubmissionCompletedPayload struct {
 	TenantID       string `json:"tenant_id"`
@@ -22,6 +25,19 @@ type weighingShedSubmissionCompletedPayload struct {
 	ShedID         string `json:"shed_id"`
 	ShedLabel      string `json:"shed_label"`
 	CompletedAt    string `json:"completed_at"`
+}
+
+type weighingShedReopenedPayload struct {
+	TenantID       string `json:"tenant_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	OperatorID     string `json:"operator_id"`
+	ReopenedBy     string `json:"reopened_by"`
+	Reason         string `json:"reason"`
+	ReopenedAt     string `json:"reopened_at"`
 }
 
 // WeighingSubmissionEventConsumer turns the durable shed-completion event into
@@ -44,10 +60,17 @@ var _ eventbus.Handler = (*WeighingSubmissionEventConsumer)(nil)
 
 func (c *WeighingSubmissionEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventWeighingShedSubmissionCompleted, c)
+	bus.Subscribe(EventWeighingShedReopened, c)
 }
 
 func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event eventbus.Event) error {
-	if event.Type != EventWeighingShedSubmissionCompleted || c == nil || c.recipients == nil || c.queue == nil {
+	if c == nil || c.recipients == nil || c.queue == nil {
+		return nil
+	}
+	if event.Type == EventWeighingShedReopened {
+		return c.handleReopened(ctx, event)
+	}
+	if event.Type != EventWeighingShedSubmissionCompleted {
 		return nil
 	}
 	var payload weighingShedSubmissionCompletedPayload
@@ -63,7 +86,7 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	directorDevices, err := c.recipients.ResolvePositionRecipients(
-		ctx, tenantID, "tenant", tenantID, positionPCDirector,
+		ctx, tenantID, "tenant", tenantID, positionGrowthDirector,
 	)
 	if err != nil {
 		return fmt.Errorf("weighing submission notification: resolve director recipients: %w", err)
@@ -75,7 +98,7 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 		return fmt.Errorf("weighing submission notification: resolve CEO recipients: %w", err)
 	}
 	recipients := dedupeQueueRecipients(append(
-		toQueueRecipients(directorDevices, "director"),
+		toQueueRecipients(directorDevices, "growth_director"),
 		toQueueRecipients(ceoDevices, "ceo")...,
 	))
 	if len(recipients) == 0 && c.logger != nil {
@@ -113,6 +136,69 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 			"completed_at":     payload.CompletedAt,
 			"group_key":        "weighing:" + tenantID + ":shed_submission",
 			"collapse_key":     "weighing:" + tenantID + ":shed_submission",
+			"priority":         priorityNormal,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, event eventbus.Event) error {
+	var payload weighingShedReopenedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing reopen notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignShedID := strings.TrimSpace(payload.CampaignShedID)
+	if tenantID == "" || campaignShedID == "" {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	operatorDevices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, payload.OperatorID)
+	if err != nil {
+		return fmt.Errorf("weighing reopen notification: resolve operator recipients: %w", err)
+	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionGrowthDirector)
+	if err != nil {
+		return fmt.Errorf("weighing reopen notification: resolve growth director recipients: %w", err)
+	}
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return fmt.Errorf("weighing reopen notification: resolve CEO recipients: %w", err)
+	}
+	recipients := dedupeQueueRecipients(append(append(
+		toQueueRecipients(operatorDevices, "operator"),
+		toQueueRecipients(directorDevices, "growth_director")...,
+	), toQueueRecipients(ceoDevices, "ceo")...))
+	body := "A weighing shed was reopened for more scans."
+	if shedLabel := strings.TrimSpace(payload.ShedLabel); shedLabel != "" {
+		body = shedLabel + " was reopened for more scans."
+	}
+	eventKey := EventWeighingShedReopened + ":" + campaignShedID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignShedID,
+		TargetType:       "weighing_campaign_shed",
+		TargetID:         campaignShedID,
+		NotificationType: "rework",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Weighing shed reopened",
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":             "weighing_shed_reopened",
+			"screen":           "weighing",
+			"campaign_id":      payload.CampaignID,
+			"campaign_shed_id": campaignShedID,
+			"park_id":          payload.ParkID,
+			"shed_id":          payload.ShedID,
+			"reopened_at":      payload.ReopenedAt,
+			"group_key":        "weighing:" + tenantID + ":shed_reopen",
+			"collapse_key":     "weighing:" + tenantID + ":shed_reopen",
 			"priority":         priorityNormal,
 		},
 		Recipients: recipients,

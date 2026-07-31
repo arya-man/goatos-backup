@@ -4,6 +4,9 @@
 // Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
 // part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so
 // source validation is unchanged by the caps-editable feature.
+// Coupling review 2026-07-30: migration 000057 adds growth_director as a
+// Weighing-only role hint/catalog row. It is not a vaccination source field and
+// must not create vaccination capacity during HRMS fixture validation.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

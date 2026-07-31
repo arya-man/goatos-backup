@@ -23,8 +23,14 @@ object AnalyticsEvents {
     /** A sign-in produced a usable session. */
     const val LOGIN_SUCCESS = "login_success"
 
+    /** Firebase/Auth provider signed in and returned an ID token; Goat OS bootstrap may still fail. */
+    const val LOGIN_SESSION_READY = "login_session_ready"
+
     /** A sign-in failed; [Params.REASON] gives a coarse, non-PII cause. */
     const val LOGIN_FAILURE = "login_failure"
+
+    /** Backend-driven bootstrap failed after a local session existed. */
+    const val BOOTSTRAP_FAILED = "bootstrap_failed"
 
     /** User asked for a password-reset email. */
     const val PASSWORD_RESET_REQUESTED = "password_reset_requested"
@@ -301,6 +307,8 @@ object AnalyticsEvents {
          * last-write-wins and only reflects the current device).
          */
         const val DEVICE_ID = "device_id"
+        const val EMAIL = "email"
+        const val FIREBASE_UID = "firebase_uid"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

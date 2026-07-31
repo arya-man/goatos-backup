@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDayTabUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
 import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
@@ -98,9 +99,12 @@ class WeighingViewModel @Inject constructor(
     private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
+    private val assignmentsNextCursor = MutableStateFlow<String?>(null)
+    private val appendingAssignments = MutableStateFlow(false)
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
     private val plannerSelections = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val selectedAssignmentParkId = MutableStateFlow<String?>(null)
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
@@ -149,8 +153,20 @@ class WeighingViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
-        combine(assignments, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { availableAssignments, loading, isPlanner, catalog, selections ->
-            WeighingRootState(availableAssignments, loading, isPlanner, catalog, selections)
+        combine(assignments, selectedAssignmentParkId, appendingAssignments) { availableAssignments, selectedParkId, appending ->
+            AssignmentParkSelection(availableAssignments, selectedParkId, appending)
+        }.let { assignmentSelection ->
+            combine(assignmentSelection, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { selection, loading, isPlanner, catalog, planner ->
+                WeighingRootState(
+                    assignments = selection.assignments,
+                    loading = loading,
+                    plannerMode = isPlanner,
+                    catalog = catalog,
+                    selections = planner,
+                    selectedParkId = selection.selectedParkId,
+                    appendingAssignments = selection.appending,
+                )
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
 
     private val readerConnectionState: StateFlow<ScanReaderConnection> =
@@ -177,9 +193,11 @@ class WeighingViewModel @Inject constructor(
                 replacementAnimalId = form.replacementAnimalId,
                 availableAssignments = root.assignments,
                 loading = root.loading,
+                appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
                 catalog = root.catalog,
                 selections = root.selections,
+                selectedParkId = root.selectedParkId,
                 localScans = capture.scans,
                 proofs = capture.proofs,
                 readerConnection = capture.readerConnection,
@@ -263,9 +281,10 @@ class WeighingViewModel @Inject constructor(
         loadingAssignments.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.listAssignments()) {
+                when (val loaded = repository.listAssignments(cursor = null)) {
                     is AppResult.Ok -> {
-                        assignments.value = loaded.value
+                        assignments.value = loaded.value.items
+                        assignmentsNextCursor.value = loaded.value.nextCursor
                         message.value = null
                     }
                     is AppResult.Err -> reportReadFailure(loaded.message)
@@ -274,6 +293,107 @@ class WeighingViewModel @Inject constructor(
                 loadingAssignments.value = false
             }
         }
+    }
+
+    /**
+     * Scroll-driven prefetch: the list tells us which row it just composed, and only a row inside
+     * the tail window of the loaded page asks for the next page. One page per trigger, never a
+     * drain loop, and never a tappable load-more row.
+     */
+    fun onAssignmentRowVisible(index: Int) {
+        if (scopeKey != null) return
+        val loaded = assignments.value.size
+        if (loaded == 0) return
+        if (index < loaded - LIST_PREFETCH_DISTANCE) return
+        appendAssignments()
+    }
+
+    private fun appendAssignments() {
+        if (scopeKey != null) return
+        val cursor = assignmentsNextCursor.value?.takeIf { it.isNotBlank() } ?: return
+        if (loadingAssignments.value || appendingAssignments.value) return
+        appendingAssignments.value = true
+        viewModelScope.launch {
+            try {
+                when (val loaded = repository.listAssignments(cursor = cursor)) {
+                    is AppResult.Ok -> {
+                        val known = assignments.value.map { it.campaignShedId }.toSet()
+                        assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
+                        assignmentsNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                        message.value = null
+                    }
+                    is AppResult.Err -> reportReadFailure(loaded.message)
+                }
+            } finally {
+                appendingAssignments.value = false
+            }
+        }
+    }
+
+    fun reopenAssignment(row: WeighingAssignmentUiRow) {
+        if (scopeKey != null || actionInFlight.value || !row.isClosed) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, "Need to scan more animals")) {
+                    is AppResult.Ok -> {
+                        message.value = "${row.label} reopened."
+                        refreshAssignments()
+                        refreshPlanner()
+                    }
+                    is AppResult.Err -> message.value = reopened.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    fun closeShedCampaign(row: WeighingAssignmentUiRow, reason: String) {
+        if (scopeKey != null || actionInFlight.value || row.isClosed) return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val closed = repository.closeShedCampaign(row.campaignId, row.campaignShedId, reason)) {
+                    is AppResult.Ok -> {
+                        message.value = "${row.label} closed."
+                        refreshAssignments()
+                        refreshPlanner()
+                    }
+                    is AppResult.Err -> message.value = closed.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    fun closeCampaign(reason: String) {
+        if (scopeKey != null || actionInFlight.value) return
+        if (assignments.value.isEmpty()) {
+            message.value = "No assignments to close."
+            return
+        }
+        val campaignId = assignments.value.firstOrNull()?.campaignId ?: return
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val closed = repository.closeCampaign(campaignId, reason)) {
+                    is AppResult.Ok -> {
+                        message.value = "Campaign closed."
+                        refreshAssignments()
+                        refreshPlanner()
+                    }
+                    is AppResult.Err -> message.value = closed.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    fun selectAssignmentPark(parkId: String?) {
+        selectedAssignmentParkId.value = parkId?.takeIf { it.isNotBlank() }
     }
 
     fun createOrEditDefaultPlan() {
@@ -990,8 +1110,8 @@ class WeighingViewModel @Inject constructor(
                 proofMode = "free_flow_video",
                 subjectScope = "other",
                 expectedSubjects = listOf("other"),
-                maximumCount = ROSTER_SYNC_MAX_ROWS,
-                maximumCountPerSubject = ROSTER_SYNC_MAX_ROWS,
+                maximumCount = MAX_PROOFS_PER_WEIGHING_SCOPE,
+                maximumCountPerSubject = MAX_PROOFS_PER_WEIGHING_SCOPE,
             ),
         )
     }
@@ -1035,9 +1155,11 @@ class WeighingViewModel @Inject constructor(
         replacementAnimalId: String?,
         availableAssignments: List<WeighingAssignment>,
         loading: Boolean,
+        appendingAssignments: Boolean,
         isPlanner: Boolean,
         catalog: WeighingPlannerCatalog?,
         selections: Map<String, String>,
+        selectedParkId: String?,
         localScans: List<WeighingRosterRowEntity>,
         proofs: List<ProofCaptureRow>,
         readerConnection: ScanReaderConnection?,
@@ -1071,8 +1193,12 @@ class WeighingViewModel @Inject constructor(
             weightInput = weight,
             animalCountInput = animalCount,
             message = currentMessage,
-            assignments = availableAssignments.map { it.toUiRow() },
+            assignments = availableAssignments
+                .filter { selectedParkId == null || it.parkId == selectedParkId }
+                .map { it.toUiRow() },
+            parkFilters = availableAssignments.toParkFilters(selectedParkId),
             loading = loading,
+            assignmentsLoadingMore = appendingAssignments,
             category = category,
             plannerMode = isPlanner,
             plannerWeekLabel = plannerWeek.label,
@@ -1288,8 +1414,10 @@ class WeighingViewModel @Inject constructor(
         )
 
     private companion object {
-        const val ROSTER_WINDOW_SIZE = 40
-        const val ROSTER_SYNC_MAX_ROWS = 100
+        const val ROSTER_WINDOW_SIZE = 20
+        const val LIST_PREFETCH_DISTANCE = 3
+        const val ROSTER_SYNC_MAX_ROWS = 20
+        const val MAX_PROOFS_PER_WEIGHING_SCOPE = 100 // Free-flow scope constraint, independent of sync page size
         const val READER_REFRESH_MS = 5_000L
         const val INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"
@@ -1319,6 +1447,8 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
         campaignId = campaignId,
         tenantId = tenantId,
+        parkId = parkId,
+        parkLabel = parkName.ifBlank { parkId.take(8) },
         workGroupId = workGroupId,
         campaignShedId = campaignShedId,
         expectedLocationId = expectedLocationId,
@@ -1329,6 +1459,17 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         expectedCount = expectedCount,
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
     )
+
+private fun List<WeighingAssignment>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =
+    distinctBy { it.parkId }
+        .filter { it.parkId.isNotBlank() }
+        .map {
+            WeighingParkFilterUiRow(
+                parkId = it.parkId,
+                label = it.parkName.ifBlank { it.parkId.take(8) },
+                selected = it.parkId == selectedParkId,
+            )
+        }
 
 private fun String.readableWeighingPeriodLabel(): String {
     val parts = split(" - ")
@@ -1401,6 +1542,14 @@ private data class WeighingRootState(
     val plannerMode: Boolean = false,
     val catalog: WeighingPlannerCatalog? = null,
     val selections: Map<String, String> = emptyMap(),
+    val selectedParkId: String? = null,
+    val appendingAssignments: Boolean = false,
+)
+
+private data class AssignmentParkSelection(
+    val assignments: List<WeighingAssignment>,
+    val selectedParkId: String?,
+    val appending: Boolean = false,
 )
 
 private data class WeighingCaptureState(

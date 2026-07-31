@@ -33,7 +33,7 @@ function findings({ rosterRepository, stgSeed }) {
     if (!source.includes("user_scope_grants")) {
       out.push(`${name}: tenant role push recipients must include user_scope_grants, not only workforce_positions`);
     }
-    for (const role of ["ceo_internal", "pc_director"]) {
+    for (const role of ["ceo_internal", "pc_director", "growth_director"]) {
       if (!source.includes(role)) {
         out.push(`${name}: missing tenant leadership role ${role}`);
       }
@@ -64,11 +64,11 @@ function selfTest() {
   const goodRoster = `
 func (r *Repository) ResolvePositionRecipients() {
   SELECT * FROM user_scope_grants JOIN workforce_member_devices ON d.fcm_token IS NOT NULL
-  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
 }
 func (r *Repository) ResolvePositionRecipientsBatch() {
   SELECT * FROM user_scope_grants JOIN workforce_member_devices ON d.fcm_token IS NOT NULL
-  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director'])
+  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
 }
 func scanNotificationRecipients() {}
 `;

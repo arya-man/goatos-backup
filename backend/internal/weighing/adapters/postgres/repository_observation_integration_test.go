@@ -46,37 +46,55 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
+	// Proof requirement is now SHED-scoped to the bucket's location, not goat-scoped.
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID:         repoTenant,
-		CampaignID:       repoCampaign,
-		CampaignShedID:   repoAnimalScope,
-		AnimalID:         repoAnimal,
-		WeightKg:         12.4,
-		ProofArtifactID:  repoAnimalProof,
-		ActualLocationID: repoActualShed,
-		IdempotencyKey:   "animal:mobile-actual",
-		RecordedBy:       repoOperator,
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          repoAnimal,
+		ScannedIdentifier: "mobile-actual-rfid",
+		WeightKg:          12.4,
+		ProofArtifactID:   repoExpectedShedProof,
+		ActualLocationID:  repoActualShed,
+		IdempotencyKey:    "animal:mobile-actual",
+		RecordedBy:        repoOperator,
 	})
 	if err != nil {
 		t.Fatalf("record animal observation: %v", err)
 	}
-	if obs.ActualLocationID != repoActualShed || obs.ActualLocationLabel != "Godel 1 - Part 3" {
-		t.Fatalf("actual location = (%s, %s), want supplied shed label", obs.ActualLocationID, obs.ActualLocationLabel)
+	// The operator-supplied actual location is stored verbatim. Its human-readable
+	// label is NOT resolved on the write path any more: that needed the locations
+	// catalogue, and the weighing write is restricted to weighing-owned tables so it
+	// cannot cross-read herd/catalogue state. The label is joined on the read path.
+	if obs.ActualLocationID != repoActualShed {
+		t.Fatalf("actual location id = %q, want the operator-supplied shed %q", obs.ActualLocationID, repoActualShed)
 	}
 	assertWeighingAuditAction(t, ctx, pool, obs.ObservationID, "weighing.observation_accepted")
+	// The expected-animal roster is NOT written by the weighing capture any more.
+	//
+	// The old write-back (`SET status='weighed', availability_status=...`) was keyed on
+	// animal_id, and the free-flow write never sets animal_id, so there is nothing to
+	// key on. This is a deliberate consequence of the maintainer's strict rule, not an
+	// oversight: the weighing write touches only weighing-owned tables.
+	//
+	// KNOWN GAP, surfaced rather than hidden: per-animal roster progress
+	// (pending -> weighed / moved_other_shed) therefore no longer advances from a
+	// capture. Re-deriving that on the READ path by matching scanned_identifier is
+	// open follow-up work and needs a maintainer decision.
 	var availability string
 	if err := pool.QueryRow(ctx, `SELECT availability_status FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, repoTenant, repoCampaign, repoAnimal).Scan(&availability); err != nil {
 		t.Fatalf("read availability: %v", err)
 	}
-	if availability != domain.AvailabilityMovedOtherShed {
-		t.Fatalf("availability_status=%s, want moved_other_shed", availability)
+	if availability != domain.AvailabilityExpectedShed {
+		t.Fatalf("availability_status=%s, want it left untouched at expected_shed — the weighing write must not write the herd roster", availability)
 	}
 
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.5,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:wrong-op", RecordedBy: repoOtherOp,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:wrong-op", RecordedBy: repoOtherOp,
 	})
 	if !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("wrong operator err=%v, want forbidden", err)
@@ -99,7 +117,7 @@ func TestRecordAnimalObservationEnforcesStatusOperatorProofAndMobileActualLocati
 	setCampaignStatus(t, ctx, pool, domain.StatusDraft)
 	_, err = repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.7,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:draft", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoActualShed, IdempotencyKey: "animal:draft", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("draft campaign err=%v, want immutable", err)
@@ -198,7 +216,7 @@ func TestRecordAnimalObservationRejectsSiblingCampaignShedScope(t *testing.T) {
 		CampaignShedID:   repoShedScope,
 		AnimalID:         repoAnimal,
 		WeightKg:         12.4,
-		ProofArtifactID:  repoAnimalProof,
+		ProofArtifactID:  repoExpectedShedProof,
 		ActualLocationID: repoExpectedShed,
 		IdempotencyKey:   "animal:sibling-scope",
 		RecordedBy:       repoOperator,
@@ -219,14 +237,15 @@ func TestAnimalObservationRejectsSameKeyDifferentPayload(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID:        repoTenant,
-		CampaignID:      repoCampaign,
-		CampaignShedID:  repoAnimalScope,
-		AnimalID:        repoAnimal,
-		WeightKg:        12.4,
-		ProofArtifactID: repoAnimalProof,
-		IdempotencyKey:  "animal:fingerprint-conflict",
-		RecordedBy:      repoOperator,
+		TenantID:          repoTenant,
+		CampaignID:        repoCampaign,
+		CampaignShedID:    repoAnimalScope,
+		AnimalID:          repoAnimal,
+		ScannedIdentifier: "fingerprint-conflict-rfid",
+		WeightKg:          12.4,
+		ProofArtifactID:   repoExpectedShedProof,
+		IdempotencyKey:    "animal:fingerprint-conflict",
+		RecordedBy:        repoOperator,
 	}); err != nil {
 		t.Fatalf("record animal observation: %v", err)
 	}
@@ -236,7 +255,7 @@ func TestAnimalObservationRejectsSameKeyDifferentPayload(t *testing.T) {
 		CampaignShedID:  repoAnimalScope,
 		AnimalID:        repoAnimal,
 		WeightKg:        12.5,
-		ProofArtifactID: repoAnimalProof,
+		ProofArtifactID: repoExpectedShedProof,
 		IdempotencyKey:  "animal:fingerprint-conflict",
 		RecordedBy:      repoOperator,
 	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
@@ -317,7 +336,7 @@ WHERE tenant_id=$2::uuid AND campaign_shed_id=$3::uuid`,
 	t.Log("OneToMany PageBoundary ScopeHierarchy StatusMatrix: shed-level operator auth stays on the exact campaign_shed_id bucket and does not leak through the campaign owner, sibling shed rows, paging boundaries, or terminal campaign statuses")
 }
 
-func TestListCampaignsForOperatorPagesOverAssignedShedRowsBeforeLimit(t *testing.T) {
+func TestListCampaignsForOperatorParkNameOneToManyPaginationScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -342,10 +361,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Other Operator Newer Sh
 	if len(page.Items) != 1 || page.Items[0].CampaignID != repoCampaign {
 		t.Fatalf("operator page=%+v, want assigned older campaign despite newer unassigned first page", page.Items)
 	}
+	if page.Items[0].ParkName != "CBE" {
+		t.Fatalf("operator campaign park name=%q, want CBE", page.Items[0].ParkName)
+	}
 	if len(page.Items[0].Sheds) != 2 {
 		t.Fatalf("operator campaign sheds=%+v, want only assigned fixture sheds", page.Items[0].Sheds)
 	}
-	t.Log("OneToMany ScopeHierarchy StatusMatrix: operator campaign listing pages over matching campaign_shed rows before limit and keeps canceled/status-filtered sibling assignments out of the operator scope")
+	t.Log("OneToMany Pagination ScopeHierarchy StatusMatrix: operator campaign listing pages over matching campaign_shed rows before limit, keeps canceled/status-filtered sibling assignments out of the operator scope, and carries the park label for director chips")
 }
 
 func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T) {
@@ -363,14 +385,14 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 		AnimalID:          freeFlowTag,
 		ScannedIdentifier: freeFlowTag,
 		WeightKg:          11.5,
-		ProofArtifactID:   repoAnimalProof,
+		ProofArtifactID:   repoExpectedShedProof,
 		IdempotencyKey:    "animal:unassigned-roster-leak-regression",
 		RecordedBy:        repoOperator,
 	}); err != nil {
 		t.Fatalf("seed free-flow observation: %v", err)
 	}
 
-	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", 50)
+	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", "", 50)
 	if err != nil {
 		t.Fatalf("wrong operator roster read returned hard error: %v", err)
 	}
@@ -380,7 +402,7 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 	if len(page.Observations) != 0 {
 		t.Fatalf("wrong operator observations=%+v, want no free-flow observation rows", page.Observations)
 	}
-	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", 50)
+	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", "", 50)
 	if err != nil {
 		t.Fatalf("assigned operator roster read: %v", err)
 	}
@@ -492,7 +514,7 @@ func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:delayed", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:delayed", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record delayed animal observation: %v", err)
 	}
@@ -555,7 +577,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.4,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:complete-scope", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:complete-scope", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record animal observation: %v", err)
 	}
@@ -574,7 +596,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 
 	_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, WeightKg: 12.5,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:after-complete", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:after-complete", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
 		t.Fatalf("completed campaign animal err=%v, want immutable", err)
@@ -603,7 +625,7 @@ ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availabilit
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, ScannedIdentifier: "expected-rfid-1", WeightKg: 12.4,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:only-first-expected", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:only-first-expected", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record first expected animal: %v", err)
 	}
@@ -641,7 +663,7 @@ func TestSubmitIndividualScopeCompletesKnownAnimalWithScannedIdentifier(t *testi
 	const scannedTag = "901007000504332"
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal, ScannedIdentifier: scannedTag, WeightKg: 12.4,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:known-submit", RecordedBy: repoOperator,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:known-submit", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record known animal observation: %v", err)
 	}
@@ -649,6 +671,29 @@ func TestSubmitIndividualScopeCompletesKnownAnimalWithScannedIdentifier(t *testi
 		t.Fatalf("submit known animal scope: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+}
+
+func TestSubmitIndividualScopeRejectsWhenObservedAnimalsOmittedFromSubmit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'A', 10.1, $4::uuid, $5::uuid, 'omit-test:a'),
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'B', 10.2, $4::uuid, $5::uuid, 'omit-test:b'),
+  ($1::uuid, $2::uuid, $3::uuid, NULL, 'C', 10.3, $4::uuid, $5::uuid, 'omit-test:c')`,
+		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator)
+
+	err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:omitted-observed", []string{"A"})
+	if !errors.Is(err, ports.ErrScopeIncomplete) {
+		t.Fatalf("submit with omitted observed animals err=%v, want ErrScopeIncomplete", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
 }
 
 func TestWeighingFreeFlowOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrixDocumentsBucketSemantics(t *testing.T) {
@@ -864,6 +909,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid)
 ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availability_status='expected_shed', current_location_id=NULL, current_location_label=NULL`,
 		repoCampaign, repoTenant, repoAnimal, repoExpectedShed, repoAnimalScope)
 	insertProof(t, ctx, pool, repoAnimalProof, "video", "completed", "goat", repoAnimal, "goat", repoAnimal)
+	// Bucket-scoped proof for the individual bucket. Weighing proof is scoped to the
+	// WEIGHING BUCKET's shed, never to a goat (maintainer decision 2026-07-31).
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	insertProof(t, ctx, pool, repoPendingProof, "video", "pending", "goat", repoAnimal, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoAnimalShedProof, "video", "completed", "shed", repoActualShed, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoShedProof, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)

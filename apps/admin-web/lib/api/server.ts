@@ -1303,6 +1303,7 @@ export async function getVaccinationOperatorAssignmentConfig(parkId?: string): P
 // CEO vaccination command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue.
 export async function getVaccinationCommandBoard(params: {
   driveBatchId?: string;
+  parkId?: string;
   asOf?: string;
 } = {}): Promise<ApiResult<VaccinationCommandBoardResponse>> {
   const config = await getServerConfig(true);
@@ -1313,6 +1314,7 @@ export async function getVaccinationCommandBoard(params: {
       cache: "no-store",
       query: compactQuery({
         drive_batch_id: params.driveBatchId,
+        park_id: params.parkId,
         as_of: params.asOf,
       }),
     }),

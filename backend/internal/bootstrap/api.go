@@ -118,7 +118,9 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
+	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -380,7 +382,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
-	weighingService := weighingapp.NewService(weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// PHASE 2: the same repository also serves the Calendar / Control Tower
+	// weighing process-state read model (declared `weighing_work_item` grain).
+	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
@@ -491,9 +496,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Weighing and Health are declared in the same backend registry even before their
 	// producers enqueue verification items. Their verifier modules/pages therefore stay
 	// stable and empty instead of disappearing based on today's queue contents.
+	//
+	// Weighing uses the weighingdomain constants rather than literals: main's weighing
+	// feature filters its own queue by those same constants, so a hand-written vertical
+	// here would silently not match its reads.
 	for _, def := range []verificationdomain.CategoryDefinition{
 		{
-			Vertical: "preventive_care", Module: "weighing", Category: "weighing_proof",
+			Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
+			Category:      weighingdomain.VerificationCategoryWeighing,
 			ExpectedMedia: []string{"video"}, NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
 			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
 		},
@@ -513,6 +523,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			return nil, err
 		}
 	}
+	weighingService.WithVerificationEnqueuer(weighingverificationbridge.New(verificationService))
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
@@ -721,7 +732,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -732,6 +743,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
+	// Weighing publish/verdict/close pushes. Registered next to the submission
+	// consumer so no weighing state change is push-silent.
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).

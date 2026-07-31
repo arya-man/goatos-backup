@@ -5,12 +5,23 @@
 > access additions. The original 10-person contract (5 SSO leadership + 4 field
 > + 1 verifier) lives in the canonical runbook.
 
+Current live RBAC roles are documented in
+`docs/runbooks/current-active-rbac-roles.md`. Do not grant dormant catalog roles
+such as `director_preventive_care` or `director_breeding` in STG until backend
+permissions, Android role handling, seed docs, and tests are updated together.
+
 ## Canonical STG Personnel Rule + Weighing Addendum
 
-10 STG people total: **5 Mesha leadership (Google SSO **and** Firebase email/
-password, `ceo_internal`, NO vaccination capacity)** + **4 field users (Firebase
-email/password)** + **1 verifier (Firebase email/password, NO vaccination
-capacity)**.
+Current documented STG access roster: **13 people total** =
+**5 Mesha leadership (Google SSO **and** Firebase email/password,
+`ceo_internal`, NO vaccination capacity)** + **3 vaccination/weighing operators
+(Firebase email/password)** + **1 preventive-care director** + **1 verifier** +
+**2 weighing-only operators** + **1 director execution user**.
+
+The original 10-person seed command still materializes the core leadership,
+vaccination operator, director, and verifier rows. The weighing addendum rows
+must be kept in sync with their Firebase Auth user, backend grant/profile, App
+Distribution tester access, and assigned weighing campaign sheds.
 
 > **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The 5
 > leadership accounts now also have Firebase email/password logins (in addition
@@ -33,19 +44,21 @@ Field roles and vaccination capacity:
 | Amit Kumar | `Amit@2026` | operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
-| Chandrakant | `Chandrakant@2026` | **director** | Preventive Care | Vaccination, Weighing | **no** |
+| Chandrakant | `Chandrakant@2026` | `pc_director` | Preventive Care | Vaccination only | **no** |
 | Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
 | Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
 | Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing only | **no** |
-| Dinakar | `Dinakar@2026` | operator app role; business title Breeding and Growth Director | Breeding & Growth | Weighing only | **no** |
+| Dinakar | `Dinakar@2026` | `growth_director`; business title Growth Director | Growth | Weighing only | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
-- Pramod, Kumar Sharath, and Dinakar are weighing-only STG users. Dinakar's
-  business title is Breeding and Growth Director, but his current app role is
-  `operator` so the deployed module gate shows only Weighing, not Vaccination
-  or Counts.
+- Pramod and Kumar Sharath are weighing-only STG operator users.
+- Dinakar is a director user (`growth_director`), not an `operator` grant. He
+  has both-park Growth visibility and can execute Weighing scan/submit/reopen
+  flows because backend permissions expose `weighing_execute` in
+  `/app/bootstrap`. He does **not** get Vaccination, does **not** add vaccination
+  operator capacity, and does **not** get Counts.
 - Counts is temporarily inactive for operator module grants in STG.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
@@ -101,8 +114,12 @@ materializes into a real, active `user_scope_grants` row on a runtime sign-in
 claim event, which admin-web SSO and mobile logins do not reliably trigger on
 a fresh STG seed. Run `make seed-stg-9-person-login` (backend/cmd/
 seed-stg-login-grants) every time STG is seeded: it materializes the ACTIVE
-grant directly for the 10 UID-backed canonical accounts (this file's 4 field
-users plus the 5 `ceo_internal` leadership accounts) and binds
+grant directly for the UID-backed canonical accounts. Leadership/director
+visibility accounts may get tenant scope. Operator execution accounts get park
+scope only; no operator should ever have `scope_type='tenant'` in
+`user_scope_grants`. Director execution users use `pc_director` for Vaccination
+or `growth_director` for Weighing, not a
+tenant-scoped `operator` shortcut. The command also binds
 Amit/Darshan/Sagar/Chandrakant onto their existing named `workforce_members`
 roster row with `department_id = preventive_care`, so the vaccination module
 renders immediately. Verify with `make verify-stg-9-person-login` and the
@@ -112,6 +129,13 @@ verifier row is seeded through `auth_pending_email_grants` by the CPT roster
 seed; without her Firebase UID committed to `seed-stg-login-grants`, her active
 verifier `user_scope_grants` row is materialized on first verified sign-in by
 `/auth/session-events`.
+
+Guardrail: every STG seed/grant change that touches field users must pass
+`make stg-operator-scope-guard`. That guard blocks `operator` accounts without
+an explicit park and blocks the old tenant-only operator seeding path. If a
+user needs to scan in CBE, grant CBE park scope plus weighing/vaccination task
+assignment; do not grant tenant scope as an operator shortcut. A director can
+have both-park visibility and scan via the feature-specific director role.
 
 ## Firebase App Distribution Requirement
 

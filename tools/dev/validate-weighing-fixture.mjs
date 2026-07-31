@@ -153,7 +153,7 @@ export function validateWeighingFixture(fixture) {
   }
 }
 
-export function validateWeighingFixtureFile(inputUrl = new URL("../../fixtures/weighing-e2e-2026-07-29/weighing-seed.json", import.meta.url)) {
+export function validateWeighingFixtureFile(inputUrl = new URL("../../fixtures/weighing-seed-2026-07-29/weighing-seed.json", import.meta.url)) {
   validateWeighingFixture(readJson(inputUrl));
 }
 

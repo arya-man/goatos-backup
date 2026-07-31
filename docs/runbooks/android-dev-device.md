@@ -298,9 +298,14 @@ capture and verification separate) **nor `pc_director` / the Head and Director t
 on verified work rather than capturing it. `pc_director` previously held `counts.write` and lost
 it in the 2026-07-18 decision above.
 
-Valid flat roles (from `seed-dev-grant`): `verifier`, `park_head`, `pc_director`, `operator`,
-`ceo_internal`. There is no separate grantable full-access alias; CEO/CXO/full access is
-`ceo_internal`.
+Valid flat roles (from `seed-dev-grant`): `verifier`, `park_head`, `pc_director`,
+`growth_director`, `operator`, `ceo_internal`. There is no separate grantable
+full-access alias; CEO/CXO/full access is `ceo_internal`.
+
+For phone QA that needs both parks, both modules, and physical RFID scans, use
+`docs/runbooks/phone-qa-throwaway-rbac.md`. That runbook deliberately uses a
+throwaway database on `127.0.0.1:15544`; do not run those scan-role fixtures
+against the canonical `127.0.0.1:5433` local app DB.
 
 ## Emulator stability (why it ANRs) + recording
 

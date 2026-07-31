@@ -32,43 +32,47 @@ const (
 func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	service := NewService(&fakeRepo{})
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	director := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	pcDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	cmd := validCreate()
 
 	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
 		t.Fatalf("CEO create errored: %v", err)
 	}
-	if _, err := service.CreateCampaign(context.Background(), director, cmd); err == nil {
-		t.Fatal("director created weighing campaign; want forbidden")
+	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); err == nil {
+		t.Fatal("growth director created weighing campaign; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), director, "", 20); err != nil {
-		t.Fatalf("director monitor errored: %v", err)
+	if _, err := service.ListCampaigns(context.Background(), pcDirector, "", 20); err == nil {
+		t.Fatal("pc director monitored weighing; want forbidden")
+	}
+	if _, err := service.ListCampaigns(context.Background(), growthDirector, "", 20); err != nil {
+		t.Fatalf("growth director monitor errored: %v", err)
 	}
 	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err == nil {
-		t.Fatal("director read execution roster; want forbidden")
+	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
+		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), director, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
-		t.Fatalf("director leadership videos read errored: %v", err)
+	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
+		t.Fatalf("growth director leadership videos read errored: %v", err)
 	}
 	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err == nil {
 		t.Fatal("operator read leadership videos; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-1", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
 		t.Fatalf("operator execute errored: %v", err)
 	}
-	if _, err := service.RecordAnimalObservation(context.Background(), director, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
-	}); err == nil {
-		t.Fatal("director executed weighing observation; want forbidden")
+	if _, err := service.RecordAnimalObservation(context.Background(), growthDirector, domain.RecordAnimalObservation{
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-2", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
+	}); err != nil {
+		t.Fatalf("growth director execute errored: %v", err)
 	}
 }
 
@@ -106,7 +110,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 		t.Fatalf("repo calls operator=(%q,%d) monitor=%d, want operator-scoped pagination", repo.operatorUserID, repo.operatorCalls, repo.monitorCalls)
 	}
 
-	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RolePCDirector}}
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
 	if err != nil {
 		t.Fatalf("monitor list campaigns: %v", err)
@@ -131,6 +135,66 @@ func TestCreateCampaignDefaultsPlannedCapBeforeRepository(t *testing.T) {
 	}
 	if repo.received.PlannedCapPerDay != 100 {
 		t.Fatalf("repository received planned cap=%d want default 100", repo.received.PlannedCapPerDay)
+	}
+}
+
+func TestRecordAnimalObservationEnqueuesVerifierItem(t *testing.T) {
+	repo := &animalObservationRepo{}
+	enqueuer := &captureVerificationEnqueuer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-freeflow-1",
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+	if enqueuer.received.Category != domain.VerificationRefTypeAnimal {
+		t.Fatalf("ref_type=%q, want %q", enqueuer.received.Category, domain.VerificationRefTypeAnimal)
+	}
+	if got := enqueuer.received.MediaRefs; len(got) != 1 || got[0] != proofOne {
+		t.Fatalf("media refs=%v, want [%s]", got, proofOne)
+	}
+	if enqueuer.received.OperatorID != testOp || enqueuer.received.ShedID != testShed {
+		t.Fatalf("operator/shed=%q/%q, want %q/%q", enqueuer.received.OperatorID, enqueuer.received.ShedID, testOp, testShed)
+	}
+}
+
+func TestRecordShedObservationEnqueuesVerifierItemWithAllProofs(t *testing.T) {
+	repo := &shedObservationRepo{}
+	enqueuer := &captureVerificationEnqueuer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+		CampaignID:       "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:   "00000000-0000-4000-8000-000000000801",
+		WeightKg:         250,
+		AnimalCount:      10,
+		ProofArtifactID:  proofOne,
+		ProofArtifactIDs: []string{proofOne, proofTwo},
+		IdempotencyKey:   "shed-lumpsum-1",
+	}); err != nil {
+		t.Fatalf("record shed observation: %v", err)
+	}
+
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+	if enqueuer.received.Category != domain.VerificationRefTypeShed {
+		t.Fatalf("ref_type=%q, want %q", enqueuer.received.Category, domain.VerificationRefTypeShed)
+	}
+	if got := enqueuer.received.MediaRefs; len(got) != 2 || got[0] != proofOne || got[1] != proofTwo {
+		t.Fatalf("media refs=%v, want [%s %s]", got, proofOne, proofTwo)
 	}
 }
 
@@ -312,6 +376,29 @@ func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestReopenScopeRequiresMonitorRole(t *testing.T) {
+	service := NewService(&fakeRepo{})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		role string
+		want error
+	}{
+		{name: "operator cannot reopen", role: permissions.RoleOperator, want: ports.ErrForbidden},
+		{name: "pc director cannot reopen weighing", role: permissions.RolePCDirector, want: ports.ErrForbidden},
+		{name: "growth director can reopen", role: permissions.RoleGrowthDirector},
+		{name: "ceo can reopen", role: permissions.RoleCEOInternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{tc.role}}
+			err := service.ReopenScope(ctx, actor, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "reopen:"+tc.role, "missed tags")
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("ReopenScope() error=%v want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateCampaignDefaultsPlannedCapBeforeRepositoryInsert(t *testing.T) {
 	repo := &captureCreateRepo{}
 	service := NewService(repo)
@@ -332,7 +419,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	service := NewService(repo)
 	ctx := context.Background()
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
-	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RolePCDirector}}
+	director := domain.Actor{TenantID: testTenant, UserID: "00000000-0000-4000-8000-000000000102", Roles: []string{permissions.RoleGrowthDirector}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 
 	campaign, err := service.CreateCampaign(ctx, ceo, domain.CreateCampaign{
@@ -362,7 +449,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
-	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", 50)
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", "", 50)
 	if err != nil {
 		t.Fatalf("operator roster read: %v", err)
 	}
@@ -371,7 +458,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-3", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("record first animal: %v", err)
@@ -380,7 +467,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 		t.Fatalf("first animal context = %+v, want expected current shed", first)
 	}
 	replay, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-4", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("replay animal observation: %v", err)
@@ -390,7 +477,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	wrongShed, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, IdempotencyKey: "weighing-seed:wrong-shed",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, ScannedIdentifier: "rfid-app-5", AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:wrong-shed",
 	})
 	if err != nil {
 		t.Fatalf("record wrong-shed animal: %v", err)
@@ -425,9 +512,9 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	if _, err := service.RecordAnimalObservation(ctx, director, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
-	}); !errors.Is(err, ports.ErrForbidden) {
-		t.Fatalf("director execute err = %v, want forbidden", err)
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-6", AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
+	}); err != nil {
+		t.Fatalf("director execute err = %v, want allowed", err)
 	}
 }
 
@@ -478,6 +565,49 @@ func (r *shedCaptureRepo) RecordShedObservation(_ context.Context, cmd domain.Re
 	}, nil
 }
 
+type captureVerificationEnqueuer struct {
+	calls    int
+	received VerificationEnqueueRequest
+}
+
+func (e *captureVerificationEnqueuer) EnqueueWeighingVerification(_ context.Context, in VerificationEnqueueRequest) error {
+	e.calls++
+	e.received = in
+	return nil
+}
+
+type animalObservationRepo struct {
+	fakeRepo
+}
+
+func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+	return domain.Observation{
+		ObservationID:      "00000000-0000-4000-8000-000000000901",
+		CampaignID:         cmd.CampaignID,
+		CampaignShedID:     cmd.CampaignShedID,
+		WeightKg:           cmd.WeightKg,
+		ProofArtifactID:    cmd.ProofArtifactID,
+		ExpectedLocationID: testShed,
+	}, nil
+}
+
+type shedObservationRepo struct {
+	fakeRepo
+}
+
+func (r *shedObservationRepo) RecordShedObservation(_ context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
+	return domain.Observation{
+		ObservationID:    "00000000-0000-4000-8000-000000000902",
+		CampaignID:       cmd.CampaignID,
+		CampaignShedID:   cmd.CampaignShedID,
+		WeightKg:         cmd.WeightKg,
+		AverageWeightKg:  cmd.AverageWeightKg,
+		AnimalCount:      cmd.AnimalCount,
+		ProofArtifactID:  cmd.ProofArtifactID,
+		ProofArtifactIDs: append([]string(nil), cmd.ProofArtifactIDs...),
+	}, nil
+}
+
 func (f fakeRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain.Campaign, error) {
 	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
 }
@@ -496,10 +626,10 @@ func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, stri
 func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
 }
-func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
-func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
+func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
 func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
@@ -515,6 +645,15 @@ func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObser
 }
 func (f fakeRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
+}
+func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
+	return nil
+}
+func (f fakeRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
+	return domain.CloseResult{Status: domain.StatusClosed}, nil
+}
+func (f fakeRepo) CloseCampaign(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
+	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
 
@@ -549,6 +688,8 @@ type scenarioRepo struct {
 	animalWrites             int
 	shedWrites               int
 	latestAnimalWeightWrites int
+	closeScopeCalls          []domain.CloseCommand
+	closeCampaignCalls       []domain.CloseCommand
 }
 
 func newScenarioRepo() *scenarioRepo {
@@ -646,7 +787,7 @@ func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.P
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int) (domain.RosterPage, error) {
 	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
@@ -676,13 +817,13 @@ func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, 
 	}
 	return domain.RosterPage{Items: out}, nil
 }
-func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
 	for _, shed := range r.campaign.Sheds {
 		if shed.CampaignShedID == campaignShedID {
 			if shed.OperatorUserID != operatorUserID {
 				return domain.RosterPage{}, ports.ErrForbidden
 			}
-			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, limit)
+			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, observationsCursor, limit)
 		}
 	}
 	return domain.RosterPage{}, ports.ErrNotFound
@@ -718,13 +859,22 @@ func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.Rec
 			WeightKg:           cmd.WeightKg,
 			ProofArtifactID:    cmd.ProofArtifactID,
 			ExpectedLocationID: shed.LocationID,
+			// Client-supplied, never inferred from the herd.
+			ActualLocationID:    cmd.ActualLocationID,
+			ActualLocationLabel: r.currentLocationName[cmd.ActualLocationID],
 		}
 		r.animalByIdem[cmd.IdempotencyKey] = obs
 		r.animalWrites++
 		return obs, nil
 	}
 	expectedShed := r.shedByLocation[expected.ExpectedLocationID]
-	actualLocation := r.currentLocation[cmd.AnimalID]
+	// The client supplies where the animal actually was; the fake must not infer it
+	// from herd state, because the real write path no longer does (maintainer
+	// decision 2026-07-31, weighing free-flow).
+	actualLocation := cmd.ActualLocationID
+	if actualLocation == "" {
+		actualLocation = r.currentLocation[cmd.AnimalID]
+	}
 	obs := domain.Observation{
 		ObservationID:       fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
 		CampaignID:          cmd.CampaignID,
@@ -790,6 +940,30 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
 func (r *scenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
+}
+func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
+	return nil
+}
+
+func (r *scenarioRepo) CloseScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
+	r.closeScopeCalls = append(r.closeScopeCalls, cmd)
+	return domain.CloseResult{
+		CampaignID:     cmd.CampaignID,
+		CampaignShedID: cmd.CampaignShedID,
+		Status:         domain.StatusClosed,
+		Reason:         cmd.Reason,
+		ClosedBy:       cmd.ClosedBy,
+	}, nil
+}
+
+func (r *scenarioRepo) CloseCampaign(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
+	r.closeCampaignCalls = append(r.closeCampaignCalls, cmd)
+	return domain.CloseResult{
+		CampaignID: cmd.CampaignID,
+		Status:     domain.StatusClosed,
+		Reason:     cmd.Reason,
+		ClosedBy:   cmd.ClosedBy,
+	}, nil
 }
 
 func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.ExpectedAnimal) domain.Progress {

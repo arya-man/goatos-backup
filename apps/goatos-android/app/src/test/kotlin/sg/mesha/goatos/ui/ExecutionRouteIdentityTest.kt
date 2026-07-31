@@ -3,6 +3,8 @@ package sg.mesha.goatos.ui
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Path
+import kotlin.io.path.readText
 
 class ExecutionRouteIdentityTest {
     @Test
@@ -28,5 +30,17 @@ class ExecutionRouteIdentityTest {
         val route = Routes.scanRoute("shed-a")
         assertFalse(route.contains("taskId="))
         assertFalse(route.contains("taskRowVersion="))
+    }
+
+    @Test
+    fun `vaccination route remains shed execution gated by execute flag`() {
+        val navHost = Path.of("src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt").readText()
+        val vaccinationRoute = navHost.substringAfter("composable(Routes.VACCINATION)")
+            .substringBefore("ShedsEvent.Back -> Unit")
+
+        assertTrue(vaccinationRoute.contains("ShedsScreen("))
+        assertTrue(vaccinationRoute.contains("if (!canExecuteVaccination)"))
+        assertTrue(vaccinationRoute.contains("shedExecutionRoute(selected, Routes.VACCINATION)"))
+        assertFalse(vaccinationRoute.contains("Leadership"))
     }
 }

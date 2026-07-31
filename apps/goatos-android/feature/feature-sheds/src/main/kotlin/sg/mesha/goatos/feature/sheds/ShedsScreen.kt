@@ -306,7 +306,7 @@ fun ShedsScreen(
 ) {
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
-    val canFilterHere = state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar
+    val canFilterHere = state.parkFilters.isNotEmpty() && !state.hostedFromCalendar
     var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
@@ -357,6 +357,14 @@ fun ShedsScreen(
             } else {
                 item { DriveMeta(state) }
                 item { DayProgress(state) }
+            }
+            if (canFilterHere && state.parkFilters.size > 1) {
+                item {
+                    ParkFilters(
+                        filters = state.parkFilters,
+                        onSelect = { onEvent(ShedsEvent.SelectPark(it)) },
+                    )
+                }
             }
             state.roleNote?.let { note -> item { RoleNote(note) } }
             if (state.isInitialLoading && state.rows.isEmpty()) {
@@ -642,7 +650,7 @@ private fun ShedsHeader(
             )
         },
         actions = {
-            if (state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar) {
+            if (state.parkFilters.isNotEmpty() && !state.hostedFromCalendar) {
                 ShedsHeaderIconButton(
                     onClick = onOpenFilters,
                     icon = MeshaIcons.Filter,

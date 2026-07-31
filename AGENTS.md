@@ -24,6 +24,21 @@ When the user says "my local DB" or "local frontend/backend", treat that as:
 Chrome -> 127.0.0.1:3300 -> 127.0.0.1:8080 -> 127.0.0.1:5433/goatos
 ```
 
+For physical Android phone scan/RBAC testing, do not mutate the normal local DB.
+Use the reset-first throwaway database and runbook:
+
+```text
+Database: postgres://postgres:goatos@127.0.0.1:15544/goatos?sslmode=disable
+Docker DB container: goatos-phone-qa
+Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
+```
+
+The phone still reaches the laptop API through `adb reverse tcp:8080 tcp:8080`.
+Only the backend process behind `127.0.0.1:8080` changes database target. The
+fixture intentionally maps five physical vaccination RFIDs into ten goat
+identities across CBE and CPT while preserving the production uniqueness rule on
+`goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
+
 ## Fast Lane for Tiny Fixes
 
 When the maintainer asks to make a small, low-risk fix and land it on `main`,
@@ -389,7 +404,7 @@ complete policy-pack module owns a transition, every route/UI/action must fail
 closed or return a deterministic guardrail-required reason as described in
 `docs/features/critical-animal-action-guardrails.md`. Run
 `make critical-animal-action-availability-guard` for movement, health,
-vaccination defer/reopen, weighing availability, or Goat Passport changes.
+vaccination defer/reopen, or Goat Passport changes.
 
 Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
 batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/
@@ -1505,9 +1520,9 @@ Do not:
   and admin-web Google SSO does not reliably trigger that path on the first
   login after a fresh seed — the observed failure is `403 permission_denied`.
   For STG, run `make seed-stg-9-person-login`
-  (`backend/cmd/seed-stg-login-grants`), which materializes the ACTIVE tenant
-  grant directly for all 5 leadership accounts (plus the 3 operators + 1
-  director below), keyed by `platformauth.StableSubjectID(issuer,
+  (`backend/cmd/seed-stg-login-grants`), which materializes the ACTIVE grant
+  directly: tenant scope for the 5 leadership accounts, park scope for named
+  park staff/operators, keyed by `platformauth.StableSubjectID(issuer,
   firebase_uid)` — the same derivation the backend uses at request time. Verify
   with `make verify-stg-9-person-login` and
   `docs/runbooks/stg-9-person-login-verification.md` before declaring the seed
@@ -1523,6 +1538,23 @@ Do not:
   `ensureLeadershipMember` (in `seed-stg-login-grants`) created their
   `auth:<uid>` profile. Materialized grant alone is not enough; the profile is
   part of the completion bar.
+- Operator scope invariant: no real operator may receive `scope_type='tenant'`.
+  Operators belong to exactly one park (`scope_type='park'`, `scope_id=<park
+  location_id>`) plus their explicit shed/task assignments. Tenant scope is
+  allowed for platform leadership (`ceo_internal`) and director visibility
+  roles (`pc_director`, future director aliases) when they must see both parks.
+  If a director also needs to execute scanning work, give that person explicit
+  operator-style park/task execution assignment; do not make the operator grant
+  tenant-wide. STG login seed changes must pass
+  `make stg-operator-scope-guard`; if this guard fails, fix the seed source
+  instead of relying on downstream task filtering.
+- Current active RBAC roles are documented in
+  `docs/runbooks/current-active-rbac-roles.md`. Treat roles outside that list
+  (for example `director_preventive_care`, `director_breeding`,
+  `manager_feed`, `head_health`, `am_growth`) as dormant catalog scaffolding,
+  not live STG/mobile personas. Do not grant or document them as current access
+  without also shipping backend permission behavior, Android role handling,
+  seed docs, and tests in the same change.
 - CPT operator-drive rehearsal seed invariant: the committed packet at
   `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
   and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.

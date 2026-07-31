@@ -66,8 +66,18 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
 | Weighing shed-level operator assignments (`weighing_campaign_sheds.operator_user_id`) | api | Assistant coverage stays on `GET /weighing/campaigns`: leadership sees the campaign, selected shed buckets, per-shed owner/status, and progress rollups there. Operator-scoped mobile filtering and write authorization are execution behavior, not a separate CEO AI tool, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. |
 | func:ListCampaignsForOperator, func:ListScopeRosterForOperator | EXCLUDED | Operator-only execution read helpers for mobile shed buckets and individual rosters. They exist to keep `/app/weighing/campaigns` and `/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster` scoped before pagination/row return. Leadership assistant coverage remains `GET /weighing/campaigns`; no MCP/Toolbox, Cube, or `ceo_ai` SQL fallback surface is added. |
+| func:New, func:EnqueueWeighingVerification, func:WithVerificationEnqueuer | EXCLUDED | Internal weighing proof-video enqueue bridge. It moves already-captured weighing videos into the existing Verification workstream and adds no new CEO assistant read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or leadership KPI. Leadership visibility remains through the existing weighing monitor/video APIs and verification surfaces. |
 | POST /weighing/campaigns, /weighing/campaigns/{campaign_id}/publish | EXCLUDED | Leadership write/publish workflow, not a read metric. Result remains visible through `GET /weighing/campaigns`. |
+| POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen (func:ReopenScope) | EXCLUDED | Growth Director/CEO write path that reopens a completed weighing shed bucket for more free-flow scans. It adds no new CEO assistant read API, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. Leadership sees the result through existing `GET /weighing/campaigns` campaign/shed status and progress reads. |
 | POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations | EXCLUDED | Operator write-flow submissions with mandatory proof; leadership sees progress/review state through `/weighing/campaigns`. |
+| func:RegisterVerificationAppliers | EXCLUDED | Phase 1 write-path and verification consumer plumbing; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:NewWeighingLifecycleEventConsumer | EXCLUDED | Phase 1 write-path consumer factory; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:Register (weighing lifecycle event consumer) | EXCLUDED | Phase 1 write-path consumer registration into kernel; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:HandleEvent (weighing lifecycle event consumer) | EXCLUDED | Phase 1 write-path event consumption; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership sees weighing state through `GET /weighing/campaigns`. |
+| func:CloseScope (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:CloseCampaign (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:ApplyVerificationVerdict (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer write-path helper; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership sees weighing verification state through `GET /weighing/campaigns`. |
+| func:NewVerificationVerdictHandler (weighing verification verdict handler) | EXCLUDED | Phase 1 verification consumer factory; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
 | GET /control-tower/vaccination (func:ControlTower) | api + view:action_center_current | Leadership control tower |
 | GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/*. Runtime contract: operator execution and scan rosters must filter split-shed work by `vaccination_drive_assignments` plus `goat_shed_partitions`, so one operator cannot see another operator's partition animals inside the same batch/shed. |
@@ -278,6 +288,17 @@ correctness fixes to existing vaccination paths. They add NO new leadership KPI,
 table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
 leadership assistant read surface is unchanged. No coverage-matrix mapping is
 required; this is an explicit documented exclusion.
+
+## Explicit exclusion: weighing verification enqueue bridge (2026-07-30)
+
+The weighing verification bridge
+(`backend/internal/weighing/adapters/verificationbridge/enqueue.go`) and its
+service wiring functions (`func:New`, `func:EnqueueWeighingVerification`,
+`func:WithVerificationEnqueuer`) only enqueue already-captured weighing proof
+videos into the existing Verification workstream. They add no new CEO assistant
+read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or leadership KPI.
+Leadership visibility remains through the existing weighing monitor/video APIs
+and verification surfaces, so this is an explicit documented exclusion.
 
 ## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
 
@@ -573,3 +594,54 @@ cost, trend, adherence metric, or feeding outcome. Leadership sees the aggregate
 through existing `verification_queue_status`; raw `milk_preparation_completions` and
 `milk_preparation_proof_attempts` are excluded. Leadership animal counts remain on existing
 Counts/Cube coverage until a separately approved prepared/fed/refusal KPI contract exists.
+
+## Explicit exclusion: weighing verification bridge and lifecycle consumer (2026-07-31)
+
+The weighing verification bridge writes newly-captured animals' observations into
+the existing Verification workstream. The following are Phase 1 implementation
+internals for the weighing-to-verification integration and operator lifecycle
+event handling. Leadership visibility on weighing state remains through the
+existing `GET /weighing/campaigns` read API and its shed/campaign status surfaces.
+
+**EXCLUDED — `func:RegisterVerificationAppliers`** — internal registry function
+that wires weighing verification appliers into the verification consumer. It is
+plumbing on the write path with no leadership read API, KPI, Cube metric, `ceo_ai`
+view, or Toolbox tool.
+
+**EXCLUDED — `func:NewWeighingLifecycleEventConsumer`** — internal constructor
+for the weighing lifecycle event consumer. It is write-path consumer factory code
+with no leadership read surface.
+
+**EXCLUDED — `func:Register`** (on the weighing lifecycle event consumer) —
+internal Stage interface implementation to register the consumer into the kernel
+worker. It is scheduler/kernel plumbing, not a leadership read.
+
+**EXCLUDED — `func:HandleEvent`** (on the weighing lifecycle event consumer) —
+internal consumer event handler that processes weighing state transitions. It is
+write-path event consumption with no leadership-facing read API, Cube metric,
+`ceo_ai` view, or Toolbox tool.
+
+**EXCLUDED — `func:CloseScope`** (on the weighing verification verdict handler) —
+internal helper that closes a weighing campaign/shed scope after a verifier
+approval/reject. It is part of the verification write path with no leadership
+aggregate read surface.
+
+**EXCLUDED — `func:CloseCampaign`** (on the weighing verification verdict
+handler) — internal helper that marks a weighing campaign as complete when all
+sheds are done. It is verification consumer plumbing with no leadership KPI.
+
+**EXCLUDED — `func:ApplyVerificationVerdict`** (on the weighing verification
+verdict handler) — internal function that applies a verifier approval or reject
+to a weighing observation. It is verification write-path application logic, not a
+leadership read. Leadership sees the result (campaign/shed status, progress) through
+the existing `GET /weighing/campaigns` API.
+
+**EXCLUDED — `func:NewVerificationVerdictHandler`** (on the weighing verification
+verdict handler) — internal constructor for the verification verdict consumer
+listening to `verification.verdict.approved`/`.rework` events scoped to weighing.
+It is consumer factory code with no leadership read surface.
+
+A future Phase 2 Calendar/Control Tower binding may add leadership views; that
+will graduate some surfaces from excluded to covered. For now, the weighing write
+path and verification consumer are Phase 1 operational internals covered only by
+their existing operational surface read APIs (`GET /weighing/campaigns`).

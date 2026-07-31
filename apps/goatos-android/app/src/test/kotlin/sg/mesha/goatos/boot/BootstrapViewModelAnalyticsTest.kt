@@ -43,12 +43,13 @@ class BootstrapViewModelAnalyticsTest {
         override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
     }
 
-    private class FakeAuthRepository(private val email: String?) : AuthRepository {
+    private class FakeAuthRepository(private val email: String?, private val firebaseUid: String? = "firebase-uid-123") : AuthRepository {
         override suspend fun signInWithEmailPassword(email: String, password: String): Result<Unit> = Result.success(Unit)
         override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
         override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = null
         override fun currentEmail(): String? = email
+        override fun currentFirebaseUid(): String? = firebaseUid
         override fun signOut() {}
     }
 
@@ -67,6 +68,8 @@ class BootstrapViewModelAnalyticsTest {
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
         assertEquals("expanded", loaded.props[AnalyticsEvents.Params.CHROME])
+        assertEquals("ravi@mesha.sg", loaded.props[AnalyticsEvents.Params.EMAIL])
+        assertEquals("firebase-uid-123", loaded.props[AnalyticsEvents.Params.FIREBASE_UID])
 
         assertEquals("operator", context.role)
         assertEquals("Park A", context.parkScope)

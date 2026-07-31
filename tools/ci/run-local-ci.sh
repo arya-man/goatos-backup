@@ -189,6 +189,7 @@ run_backend() {
   step "backend-foundations-guard" make backend-foundations-guard
   step "test-execution-integrity-guard" make test-execution-integrity-guard
   step "operator-cap-fail-closed-guard" make operator-cap-fail-closed-guard
+  step "stg-operator-scope-guard" make stg-operator-scope-guard
   step "cascade-event-wiring-guard" make cascade-event-wiring-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'
@@ -204,6 +205,11 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "weighing-free-flow-guard" make weighing-free-flow-guard
+  step "weighing-operator-scope-guard" make weighing-operator-scope-guard
+  step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
+  step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
+  step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
@@ -279,6 +285,7 @@ run_android_guards() {
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "mobile-contract-ownership-guard" make mobile-contract-ownership-guard
   step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard

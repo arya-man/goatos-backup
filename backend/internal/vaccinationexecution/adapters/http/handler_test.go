@@ -352,12 +352,13 @@ func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
 	const actorID = "90000000-0000-4000-8000-000000000104"
 	const parkID = "30000000-0000-4000-8000-000000000001"
 	cases := []struct {
-		role  string
-		grant permissions.ActiveGrant
+		role           string
+		grant          permissions.ActiveGrant
+		wantViewerOnly bool
 	}{
-		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}},
-		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}},
-		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}},
+		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}, true},
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}, false},
+		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.role, func(t *testing.T) {
@@ -382,8 +383,8 @@ func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
 			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
-			if !resp.ViewerReadOnly {
-				t.Fatalf("leadership response viewerReadOnly = false, want true (read-only oversight; shed open blocked)")
+			if resp.ViewerReadOnly != tc.wantViewerOnly {
+				t.Fatalf("leadership response viewerReadOnly = %v want %v", resp.ViewerReadOnly, tc.wantViewerOnly)
 			}
 		})
 	}

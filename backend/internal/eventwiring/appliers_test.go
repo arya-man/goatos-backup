@@ -15,25 +15,28 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 	return nil
 }
 
-// TestRegisterVerificationAppliersRegistersAllThree is the drift guard for the incident this package
-// was created to fix: every process with a domain bus must register the shifting + feed-distribution +
-// feed-packing verdict appliers, or a verifier's approval is silently dropped and the session/move
-// stays pending_verification. Because all three binaries now call this one function, asserting the
-// function subscribes all three appliers (to BOTH the approved and rework verdicts) is enough to catch
-// a dropped applier. nil stores are fine here: nothing is published, so no handler method runs.
-func TestRegisterVerificationAppliersRegistersAllFour(t *testing.T) {
+// TestRegisterVerificationAppliersRegistersAllSix is the drift guard for the incident this package
+// was created to fix: every process with a domain bus must register EVERY verdict applier, or a
+// verifier's approval is silently dropped and the session/move/observation stays
+// pending_verification. Because all three binaries call this one function, asserting the function
+// subscribes all six appliers (to BOTH the approved and rework verdicts) is enough to catch a
+// dropped applier. nil stores are fine here: nothing is published, so no handler method runs.
+func TestRegisterVerificationAppliersRegistersAllSix(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
-	RegisterVerificationAppliers(bus, nil, nil, nil, nil)
+	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil)
 
-	// shifting + feed-distribution + feed-packing = 3 appliers, each subscribing to both verdict types.
-	const wantAppliers = 5
+	// shifting + milk-preparation + feed-distribution + feed-packing + feed-transport + weighing
+	// = 6 appliers, each subscribing to BOTH verdict types. Weighing and milk preparation each
+	// joined this list because they enqueued a verification item with no consumer at all, so
+	// every verdict for them was a silent drop.
+	const wantAppliers = 6
 	for _, eventType := range []string{
 		"verification.verdict.approved",
 		"verification.verdict.rework",
 	} {
 		if got := bus.subs[eventType]; got != wantAppliers {
-			t.Fatalf("%s subscribers = %d, want %d (shifting + feed-distribution + feed-packing)", eventType, got, wantAppliers)
+			t.Fatalf("%s subscribers = %d, want %d (shifting + milk-preparation + feed-distribution + feed-packing + feed-transport + weighing)", eventType, got, wantAppliers)
 		}
 	}
 }
