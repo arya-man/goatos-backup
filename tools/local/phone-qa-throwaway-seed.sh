@@ -290,8 +290,13 @@ WHERE tenant_id = '${tenant_id}'::uuid
 
 INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_type, period_start_date, period_end_date, cadence_type, start_business_date, status, planned_cap_per_day, operator_user_id, published_at, created_by, updated_at)
 VALUES
-  ('92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'published', 100, '90000000-0000-4000-8000-000000000202', now(), '90000000-0000-4000-8000-000000000103', now()),
-  ('92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'published', 100, '90000000-0000-4000-8000-000000000201', now(), '90000000-0000-4000-8000-000000000103', now())
+  -- Seeded as DRAFT on purpose. weighing_work_items -- the per-shed task rows that surface on an
+  -- assignee's landing page -- are created ONLY by the publish path
+  -- (createWorkItemsForPublishTx). Inserting these campaigns already-published skipped that
+  -- kernel step, which is why the work-item table stayed empty and nobody saw weighing work.
+  -- tools/local/phone-qa-throwaway-run.sh publishes them through the real service afterwards.
+  ('92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'draft', 100, '90000000-0000-4000-8000-000000000202', NULL, '90000000-0000-4000-8000-000000000103', now()),
+  ('92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', 'week', ${today_sql}, ${today_sql} + 6, 'weekly_kids', ${today_sql}, 'draft', 100, '90000000-0000-4000-8000-000000000201', NULL, '90000000-0000-4000-8000-000000000103', now())
 ON CONFLICT (campaign_id) DO UPDATE
 SET period_start_date = EXCLUDED.period_start_date,
     period_end_date = EXCLUDED.period_end_date,
@@ -509,10 +514,14 @@ SET assignment_id = EXCLUDED.assignment_id;
 
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, operator_user_id, status, updated_at)
 VALUES
-  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'CBE - Godel 1 Parts 1-2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', now()),
-  ('92000000-0000-4000-8000-000000000803', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', 'shed', 'CBE - Godel 1 Parts 3-5', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', now()),
-  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'CPT - Mandela 2 Parts 1-2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now()),
-  ('92000000-0000-4000-8000-000000000804', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', 'shed', 'CPT - Mandela 2 Parts 3-5', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now())
+  -- ONE weighing task per park, sheds SPLIT between its assignees (the CEO decides the split).
+  -- A shed carries exactly one assignee (1:1); the task carries many. Here the CBE task is shared
+  -- by the CBE operator and the Growth Director, so the operator/director split can be exercised
+  -- side by side: only the director may reopen a submitted scope, and only he closes it.
+  ('92000000-0000-4000-8000-000000000801', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000201', 'shed', 'Godel 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000202', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000803', '92000000-0000-4000-8000-000000000701', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000203', 'shed', 'Yashoda 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000103', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000802', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000202', 'shed', 'Mandela 2', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now()),
+  ('92000000-0000-4000-8000-000000000804', '92000000-0000-4000-8000-000000000702', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000203', 'shed', 'Castro 1', 0, 'individual_animal', '90000000-0000-4000-8000-000000000201', 'pending', now())
 ON CONFLICT (campaign_shed_id) DO UPDATE
 SET location_id = EXCLUDED.location_id,
     display_name = EXCLUDED.display_name,

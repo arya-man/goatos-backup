@@ -178,10 +178,14 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	if limit > 100 {
 		limit = 100
 	}
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	if canMonitor {
-		return s.repo.ListScopeRoster(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
-	}
+	// The scan roster is ALWAYS scoped to the caller's own assigned bucket, monitor or not. This is
+	// the data behind the scan screen, and the submit that follows requires
+	// cs.operator_user_id = actor -- so serving another assignee's roster produced a fully
+	// populated scan screen whose write would be refused.
+	//
+	// Holding WeighingMonitor does not open someone else's scan roster: overseeing other people's
+	// work is a READ-ONLY surface of its own (WeighingOverseeOperators), and reviewing their
+	// captured evidence is GetLeadershipShedVideos. Neither route goes through here.
 	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
 }
 

@@ -48,13 +48,26 @@ const (
 	WeighingPlan              = "weighing.plan"
 	WeighingMonitor           = "weighing.monitor"
 	WeighingExecute           = "weighing.execute"
-	CalendarRead              = "calendar.read"
-	CalendarAction            = "calendar.action"
-	ProcurementRead           = "procurement.read"
-	ProcurementWrite          = "procurement.write"
-	ProcurementReview         = "procurement.review"
-	RosterRead                = "roster.read"
-	RosterManage              = "roster.manage"
+	// WeighingOverseeOperators gates SEEING OTHER PEOPLE'S weighing shed tasks -- the extra
+	// "Operators" surface that lists work assigned to someone else, across parks, READ-ONLY.
+	//
+	// It is deliberately its own capability rather than a reuse of WeighingMonitor or a role check.
+	// WeighingMonitor is the reopen/close AUTHORITY over a submitted scope; it is not "may browse
+	// everyone's work", and conflating the two is what made the work list ask a role instead of a
+	// capability -- an actor holding both execute and monitor fell into the unfiltered branch and
+	// got every shed in every park with a live scan action, including sheds whose submit would be
+	// refused because they belong to another assignee.
+	//
+	// Whoever holds this may only LOOK: the weighing write still requires the caller to be the
+	// shed's assignee, so this capability never widens what anyone can record.
+	WeighingOverseeOperators = "weighing.oversee_operators"
+	CalendarRead             = "calendar.read"
+	CalendarAction           = "calendar.action"
+	ProcurementRead          = "procurement.read"
+	ProcurementWrite         = "procurement.write"
+	ProcurementReview        = "procurement.review"
+	RosterRead               = "roster.read"
+	RosterManage             = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -276,7 +289,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		WeighingPlan: {}, WeighingMonitor: {}, WeighingExecute: {},
-		CalendarRead: {},
+		// Only this role browses other people's weighing work (the Operators surface). The CEO does
+		// not get it: a planner's first surface is the flat all-tasks list, so a second
+		// someone-else's-work tab would be redundant for them.
+		WeighingOverseeOperators: {},
+		CalendarRead:             {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -303,8 +320,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		VaccinationOverviewRead: {},
 		WeighingPlan:            {},
 		WeighingMonitor:         {},
-		WeighingExecute:         {},
-		CalendarRead:            {}, CalendarAction: {},
+		// NOT WeighingExecute: the CEO plans weighing work and oversees it, and must never reach a
+		// scan screen. Holding execute put a scannable surface in front of a planner who is assigned
+		// no sheds, and the submit would be refused anyway because the write requires the caller to
+		// be the shed's assignee. Reopen/close authority is WeighingMonitor and is unaffected.
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},
