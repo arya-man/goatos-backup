@@ -15,7 +15,20 @@ before any push. Do not mark an item done without pasted command output.
    Renumber the weighing migrations to the tail after main's highest version, and add a
    guard that fails on duplicate migration version numbers.
 
-2. **Critical-animal-action guard on the weighing submit/observation path (P0, item 9).**
+2. **[RETIRED 2026-07-31 — DO NOT IMPLEMENT]** ~~Critical-animal-action guard on the weighing submit/observation path (P0, item 9).~~
+
+   **Maintainer decision 2026-07-31: this blocker is WRONG for weighing and is
+   retired.** A clinical gate was built against it and landed in `9ce724db3`,
+   then removed. Weighing is free-flow: the write path must not resolve a
+   scanned RFID to goat identity, must not read `goats.health_status` /
+   `lifecycle_status`, and must not check sick / ICU / quarantine / recovering /
+   under-treatment. Weighing records what the scale saw; refusing the
+   measurement destroys the weight trend a vet needs. Vaccination stays strict.
+   See ledger B-0, `docs/features/weighing/TRD.md`, and
+   `make weighing-free-flow-guard` failure mode 5.
+
+   Original text (historical, no longer to be acted on):
+   **Critical-animal-action guard on the weighing submit/observation path (P0, item 9).**
    ICU / quarantine / sick animals must fail closed or return a deterministic
    `unavailable` reason. Wrong handling here is physical-action risk, so this stays P0.
    See `docs/features/critical-animal-action-guardrails.md` and
@@ -98,7 +111,9 @@ before any push. Do not mark an item done without pasted command output.
 
 8. **W-06 stays P1** — the PR body used it as validation proof.
 
-9. **W-02 stays P0** — ICU/quarantine handling (see item 2).
+9. ~~**W-02 stays P0** — ICU/quarantine handling (see item 2).~~
+   **RETIRED 2026-07-31 with item 2.** ICU/quarantine handling is not a weighing
+   concern; see ledger B-0.
 
 10. **Tests required** for: duplicate event replay, unavailable-state preservation,
     partial-submit rejection, idempotency conflict, and page/contract behavior.

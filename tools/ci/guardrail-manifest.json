@@ -396,7 +396,7 @@
    "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
    "requiredInCI": true,
    "ciStep": "weighing-free-flow-guard",
-   "notes": "Weighing is free-flow: no validation against vaccination/herd-roster tables in the observation write path, weighing_observations.animal_id must stay nullable, no unique constraint may collapse scanned_identifier across campaign_shed_id buckets, and a null animal_id must never be rejected outright (it must route through the unknown-animal scanned_identifier path)."
+   "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state. Seven failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
   },
   {
    "id": "weighing-operator-scope",

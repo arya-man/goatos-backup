@@ -79,8 +79,7 @@ identity, whole-result summary behavior, and every consuming surface. Run
 `make operational-read-model-contract-guard`.
 
 Critical animal actions (quarantine, ICU, death, contagious disease isolation,
-high-risk movement, weighing availability exclusions, and sale/allocation
-blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
+high-risk movement, and sale/allocation blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
 Run `make critical-animal-action-availability-guard` when touching those paths.
 
 CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce

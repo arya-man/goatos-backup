@@ -41,7 +41,7 @@ func TestSubmitIndividualScopeExactReplayDoesNotDuplicateTheCompletionEvent(t *t
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		AnimalID: repoAnimal, ScannedIdentifier: identifier, WeightKg: 11.5,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:submit-replay", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record observation: %v", err)
@@ -81,7 +81,7 @@ func TestSubmitIndividualScopeSameKeyDifferentPayloadConflicts(t *testing.T) {
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		AnimalID: repoAnimal, ScannedIdentifier: identifier, WeightKg: 11.5,
-		ProofArtifactID: repoAnimalProof, ActualLocationID: repoExpectedShed,
+		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:submit-conflict", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record observation: %v", err)

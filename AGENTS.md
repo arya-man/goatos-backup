@@ -404,7 +404,7 @@ complete policy-pack module owns a transition, every route/UI/action must fail
 closed or return a deterministic guardrail-required reason as described in
 `docs/features/critical-animal-action-guardrails.md`. Run
 `make critical-animal-action-availability-guard` for movement, health,
-vaccination defer/reopen, weighing availability, or Goat Passport changes.
+vaccination defer/reopen, or Goat Passport changes.
 
 Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/
 batch-level `sop_tasks.state` must not be used as per-shed submitted/proof/

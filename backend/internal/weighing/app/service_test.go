@@ -65,12 +65,12 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 		t.Fatal("operator read leadership videos; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-1", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
 		t.Fatalf("operator execute errored: %v", err)
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), growthDirector, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-2", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
 	}); err != nil {
 		t.Fatalf("growth director execute errored: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-3", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("record first animal: %v", err)
@@ -467,7 +467,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 		t.Fatalf("first animal context = %+v, want expected current shed", first)
 	}
 	replay, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-4", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("replay animal observation: %v", err)
@@ -477,7 +477,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	wrongShed, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, IdempotencyKey: "weighing-seed:wrong-shed",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, ScannedIdentifier: "rfid-app-5", AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:wrong-shed",
 	})
 	if err != nil {
 		t.Fatalf("record wrong-shed animal: %v", err)
@@ -512,7 +512,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	if _, err := service.RecordAnimalObservation(ctx, director, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-6", AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
 	}); err != nil {
 		t.Fatalf("director execute err = %v, want allowed", err)
 	}
@@ -859,13 +859,22 @@ func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.Rec
 			WeightKg:           cmd.WeightKg,
 			ProofArtifactID:    cmd.ProofArtifactID,
 			ExpectedLocationID: shed.LocationID,
+			// Client-supplied, never inferred from the herd.
+			ActualLocationID:    cmd.ActualLocationID,
+			ActualLocationLabel: r.currentLocationName[cmd.ActualLocationID],
 		}
 		r.animalByIdem[cmd.IdempotencyKey] = obs
 		r.animalWrites++
 		return obs, nil
 	}
 	expectedShed := r.shedByLocation[expected.ExpectedLocationID]
-	actualLocation := r.currentLocation[cmd.AnimalID]
+	// The client supplies where the animal actually was; the fake must not infer it
+	// from herd state, because the real write path no longer does (maintainer
+	// decision 2026-07-31, weighing free-flow).
+	actualLocation := cmd.ActualLocationID
+	if actualLocation == "" {
+		actualLocation = r.currentLocation[cmd.AnimalID]
+	}
 	obs := domain.Observation{
 		ObservationID:       fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
 		CampaignID:          cmd.CampaignID,

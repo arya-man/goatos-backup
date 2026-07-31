@@ -302,6 +302,67 @@ rows that make old progress/proof counts impossible to reconstruct.
 > `tools/agent-hooks/check-weighing-free-flow-guard.mjs` for the machine
 > guard that enforces this.
 
+> **NO HERD CROSS-CHECK ON THE WRITE PATH (maintainer decision 2026-07-31).**
+> This decision SUPERSEDES the "critical-animal-action gate on weighing
+> submit/observation" item recorded as blocker 2/9 in
+> `context/repo-audits/weighing-phase1-2-do-not-merge-blockers.md`. A clinical
+> gate briefly shipped that joined `goats` and refused the write when
+> `health_status` was `sick`/`under_treatment`/`recovering`/`quarantine`/`icu`
+> or `lifecycle_status` was an exit state. It has been removed.
+>
+> The weighing observation/submit path:
+> - does **not** resolve a scanned RFID to goat identity in order to decide
+>   whether the write is allowed;
+> - does **not** read `goats.health_status` or `goats.lifecycle_status`;
+> - does **not** check sick / ICU / quarantine / recovering / under-treatment;
+> - stores the raw `scanned_identifier` in the weighing tables;
+> - may carry an `animal_id` when one is already present from non-blocking
+>   enrichment, but the write and submit must never *depend* on it.
+>
+> Why: weighing records what the scale and the scanner saw. Putting an animal on
+> a scale administers nothing, so a clinical state is not a safety reason to
+> refuse the measurement — and refusing it destroys exactly the weight trend a
+> vet needs for an animal under treatment. Health state belongs to the clinical
+> workflows that own it.
+>
+> **Vaccination remains strict and must not be loosened by anything here.**
+>
+> The expected-animal roster is a LABEL, not a gate: it is LEFT JOINed for
+> wrong-shed classification only. An off-roster scan still records (as
+> `extra_scan`), and `weighing_expected_animals.status` /
+> `availability_status` never decide whether a weight is accepted. Writing
+> progress back to the roster is still fine. The one surviving precondition is
+> bucket category (`weighing_category='individual_animal'`), which is a
+> weighing-owned check about the bucket, not about the animal.
+>
+> **STRICT FORM (maintainer decision 2026-07-31, later the same day).** There is no
+> longer a "known animal" write path at all. `RecordAnimalObservation` always takes
+> the free-flow route:
+> - the request's `animal_id` is IGNORED for the write decision and is cleared by the
+>   service layer; stored `weighing_observations.animal_id` is always `NULL`;
+> - `scanned_identifier` is REQUIRED — a capture with no scanned tag is rejected;
+> - the write never resolves an RFID to a goat, never joins `goats`, and is never
+>   refused because a `goat_id` does not exist;
+> - **proof is BUCKET-scoped, not goat-scoped**: a completed video whose
+>   `scope_type='shed'` matches the campaign shed's `location_id`. Goat-scoped proof
+>   is no longer accepted, because requiring it was itself herd coupling;
+> - the remaining gates are all weighing-owned: live campaign, the bucket belongs to
+>   this campaign and this operator and is not canceled, the bucket is
+>   `weighing_category='individual_animal'`, positive weight, idempotency key.
+>
+> The `animal_id` column and its FK to `goats` REMAIN in the schema for future
+> enrichment/backfill — they are simply never written by the operator path. Nothing
+> in the weighing write may depend on them.
+>
+> Machine enforcement: `make weighing-free-flow-guard`. Seven failure modes, the
+> decisive one being mode 7 (`write-path-table-not-allowlisted`): the write path may
+> touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox, so `goats`,
+> `weighing_expected_animals` and vaccination tables are banned by default rather
+> than one incident at a time. The guard follows same-file helper calls, so
+> extracting a gate into a private helper does not hide it.
+> Behavioural proof:
+> `backend/internal/weighing/adapters/postgres/repository_free_flow_no_herd_crosscheck_integration_test.go`.
+
 | Column | Notes |
 |---|---|
 | `observation_id uuid pk` | Idempotent observation identity. |

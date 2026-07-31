@@ -380,8 +380,6 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
-	case errors.Is(err, ports.ErrAnimalUnavailable):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "animal_unavailable", Message: "This animal cannot be weighed right now. It is under care or has left the herd.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	default:

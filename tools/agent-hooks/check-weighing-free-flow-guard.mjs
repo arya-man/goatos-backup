@@ -9,7 +9,7 @@
 // See context/repo-audits/weighing-implementation-do-not-reopen-ledger.md (A-6, B-4, C-3)
 // and docs/features/weighing/TRD.md.
 //
-// Fails on four failure modes inside weighing backend code
+// Fails on seven failure modes inside weighing backend code
 // (backend/internal/weighing/**, backend/migrations/postgres/*weighing*.sql):
 //   1. vaccination-or-herd-roster-read-in-write-path — an observation write/submit function
 //      joins/reads a vaccination_* table, sop_submissions*, protocol_rules, or a herd-roster
@@ -21,10 +21,20 @@
 //      campaign_shed_id, which would collapse the same scanned RFID across buckets.
 //   4. reject-null-animal-id — Go write-path code returns an error because animal_id/AnimalID
 //      is nil/empty without routing through the unknown-animal free-flow path.
+//   7. write-path-table-not-allowlisted — STRICT: the write path touches a table outside
+//      the weighing-owned allowlist (goats, weighing_expected_animals, vaccination_*, ...).
+//      This is the catch-all that makes modes 1/5/6 belt-and-braces rather than the only
+//      defence.
+//   6. roster-state-gate-in-write-path — a write/submit function gates on
+//      weighing_expected_animals.status / availability_status. The roster is a label for
+//      wrong-shed classification, never a precondition for recording a weight.
+//   5. clinical-state-read-in-write-path — a write/submit function reads goats.health_status /
+//      goats.lifecycle_status or a clinical-defer vocabulary to decide whether to accept a
+//      scan. Weighing must never gate a measurement on clinical state.
 //
 // Modes:
 //   (default)     scan the real weighing backend tree + weighing migrations.
-//   --self-test   run adversarial good/bad fixtures for all four failure modes and exit.
+//   --self-test   run adversarial good/bad fixtures for all seven failure modes and exit.
 //
 // Blind spots (native Grep/Read must still catch these): dynamically built SQL strings
 // (string concatenation/fmt.Sprintf assembling table names), reflection-based query builders,
@@ -62,6 +72,48 @@ const WRITE_FN_NAMES = [
 const FORBIDDEN_TABLE_RE = /\b(?:FROM|JOIN)\s+(vaccination_\w+|sop_submissions\w*|sop_submission_items\w*|protocol_rules\w*|vaccination_completions\w*)\b/i;
 const FORBIDDEN_ROSTER_FN_RE = /\b(AssertHerdRosterMembership|ValidateHerdRoster|ValidateAgainstHerdRegister|RequireShedOwnership|AssertShedOwnership)\s*\(/;
 
+// Failure mode 5: reading a goat's CLINICAL STATE on the write path.
+//
+// This rule exists because the guard as originally written did NOT catch it. A
+// "critical-animal-action" gate was added to RecordAnimalObservation that joined
+// `goats` and refused the write when health_status was sick/under_treatment/
+// recovering/quarantine/icu, or lifecycle_status was an exit state. It passed
+// every other free-flow check here and still broke free-flow, because it made the
+// write depend on resolved herd identity.
+//
+// Maintainer decision 2026-07-31: weighing records what the scale and scanner saw.
+// Putting an animal on a scale administers nothing, so a clinical state must never
+// block the measurement — and refusing it destroys exactly the weight trend a vet
+// needs for an animal under treatment. Vaccination stays strict; weighing must not
+// borrow its gating.
+//
+// Matches a health/lifecycle column predicate or the shared clinical-state
+// vocabularies, inside a weighing write function. Deliberately does NOT ban the
+// `goats` join outright: the write path still legitimately reads
+// g.current_location_id to label where the animal actually was.
+const FORBIDDEN_CLINICAL_RE = /(health_status|lifecycle_status|MandatoryClinicalDeferStates|ExitLifecycleStates|EffectiveClinicalDeferStates)/;
+
+// Failure mode 6: gating the write on the EXPECTED-ANIMAL ROSTER.
+//
+// The clinical gate's twin, one table over. The known-animal write CTE used to
+// INNER JOIN weighing_expected_animals carrying
+//   AND ea.status <> 'unavailable'
+//   AND ea.availability_status NOT IN ('icu','quarantine','dead',...)
+// so a resolved animal that was off-roster, or whose roster snapshot said the
+// animal was away, produced an empty CTE and surfaced to the operator as a 404.
+// availability_status is a periodically-refreshed SNAPSHOT, so it was stale-gating
+// too. Roster membership is a LABEL for wrong-shed classification, never a
+// precondition for recording a weight (ledger B-0 / B-4).
+//
+// Matches a roster STATUS/AVAILABILITY predicate inside a weighing write function.
+// Reading ea.expected_location_id / expected_location_label for labelling stays
+// allowed, so this deliberately keys on the status columns, not on the table name.
+// Matches only COMPARISON forms (NOT IN / IN / <> / !=). A bare `=` is excluded on
+// purpose: `UPDATE weighing_expected_animals SET status='weighed',
+// availability_status=CASE ...` is weighing WRITING BACK progress to the roster,
+// which is allowed — the ban is on the roster DECIDING whether the write happens.
+const FORBIDDEN_ROSTER_STATE_RE = /(availability_status\s*(?:NOT\s+)?IN\s*\(|availability_status\s*(?:<>|!=)|\bea\.status\s*(?:<>|!=)|\bea\.status\s+(?:NOT\s+)?IN\s*\()/i;
+
 function extractFunctionBody(source, fnName) {
   // Matches `func (recv) Name(` or `func Name(` and returns the body up to the next
   // column-zero `func ` (heuristic used elsewhere in this repo's guards).
@@ -75,11 +127,144 @@ function extractFunctionBody(source, fnName) {
   return body;
 }
 
+// RULES ARE ABOUT CODE, NOT PROSE.
+//
+// Every pattern below is tested against the function body with comments removed.
+// Without this, a comment EXPLAINING a banned predicate — including the comment
+// that records why it was deleted — trips the guard, so documenting the ban makes
+// the build fail and deleting the explanation makes it pass. That is the same
+// prose-vs-code defect that check-vaccination-hrms-seed-fixture.mjs had.
+//
+// Blind spot: a banned predicate hidden inside a Go string literal that itself
+// contains `//` or `--` before the predicate would be stripped. No weighing query
+// does that; the self-test below pins the comment case in both directions.
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    // `(?<!:)` keeps `http://` inside a Go string literal from being treated as a
+    // comment start, which previously truncated the rest of the line and silently
+    // deleted a real banned predicate sitting after a URL (demonstrated bypass).
+    .map((line) => line.replace(/(?<!:)\/\/.*$/, "").replace(/--.*$/, ""))
+    .join("\n");
+}
+
+// Failure mode 7: TABLE ALLOWLIST on the weighing write path (the strict rule).
+//
+// Modes 1/5/6 each blocked one back door AFTER it shipped: vaccination tables, then
+// goats.health_status, then weighing_expected_animals.availability_status. Chasing
+// patterns one incident at a time is why three separate gates reached main. This rule
+// inverts it: the weighing write path may touch ONLY weighing-owned tables plus proof
+// and the generic infrastructure tables. Anything else is a finding by default, so a
+// FOURTH back door cannot be invented.
+//
+// Maintainer decision 2026-07-31 (strict form): weighing write may use campaign,
+// campaign_sheds, proof_artifacts, weighing_observations, and idempotency/audit/outbox.
+// No goats. No weighing_expected_animals. No vaccination tables. No clinical state.
+const WRITE_PATH_ALLOWED_TABLES = new Set([
+  "weighing_campaigns",
+  "weighing_campaign_sheds",
+  "weighing_observations",
+  "weighing_shed_observations",
+  // Per-proof child rows of a lump-sum shed observation (1-5 videos). Weighing-owned.
+  "weighing_shed_observation_proofs",
+  "proof_artifacts",
+  // Generic infrastructure the write transaction legitimately owns.
+  "outbox_messages",
+  "audit_log",
+  // Weighing's own idempotency ledger (module-scoped table, not a herd table).
+  "weighing_idempotency_records",
+]);
+
+// A CTE may never be NAMED after a banned table. Otherwise it shadows it:
+//   WITH weighing_expected_animals AS (SELECT ... FROM weighing_expected_animals ...)
+//   SELECT * FROM weighing_expected_animals
+// collects the CTE name, and every reference to the REAL banned table inside the CTE
+// body is then treated as a reference to the local CTE — silently exempting the exact
+// thing mode 7 exists to catch. An adversarial review demonstrated this against goats
+// and weighing_expected_animals both.
+const BANNED_SHADOW_RE = /^(goats|goat_\w+|weighing_expected_animals|vaccination_\w*|herd_\w+|protocol_\w+|sop_\w+)$/i;
+
+// CTE names are legal FROM/JOIN targets; collect the ones this body defines. Returns
+// both the usable names and any that illegally shadow a banned table.
+function cteNames(body) {
+  const names = new Set();
+  const shadows = new Set();
+  const re = /(?:\bWITH\s+|,\s*)([a-z_][a-z0-9_]*)\s+AS\s*\(/gi;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const name = m[1].toLowerCase();
+    if (BANNED_SHADOW_RE.test(name)) {
+      shadows.add(name);
+      continue; // deliberately NOT exempted
+    }
+    names.add(name);
+  }
+  return { names, shadows };
+}
+
+export function writePathTableFindings(rel, fn, body) {
+  const findings = [];
+  const { names: ctes, shadows } = cteNames(body);
+  for (const shadow of shadows) {
+    findings.push({
+      rule: "cte-shadows-banned-table",
+      message: `${rel}: ${fn}() defines a CTE named \`${shadow}\`, which collides with a banned table name — a CTE may not shadow goats/weighing_expected_animals/vaccination/herd tables, because that would make every reference to the real table look like a local CTE reference and silently defeat the allowlist. Rename the CTE.`,
+    });
+  }
+  const re = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+  let m;
+  const seen = new Set();
+  while ((m = re.exec(body)) !== null) {
+    const table = m[1].toLowerCase();
+    if (seen.has(table)) continue;
+    seen.add(table);
+    if (WRITE_PATH_ALLOWED_TABLES.has(table) || ctes.has(table)) continue;
+    // SQL keywords that can follow UPDATE/FROM in the shapes we scan.
+    if (["set", "select", "only", "unnest", "lateral", "values"].includes(table)) continue;
+    findings.push({
+      rule: "write-path-table-not-allowlisted",
+      message: `${rel}: ${fn}() reads/writes \`${table}\` — the weighing write path is restricted to weighing-owned tables plus proof/idempotency/audit/outbox. goats, weighing_expected_animals and vaccination tables are banned outright (maintainer decision 2026-07-31, strict form). If this table is genuinely weighing-owned, add it to WRITE_PATH_ALLOWED_TABLES with a reason.`,
+    });
+  }
+  return findings;
+}
+
+// The write path is not only the functions named above. Extracting a gate into a
+// private helper (`r.checkClinicalEligibility(...)`) previously defeated every rule
+// here, because only the named function's own text was scanned — an innocent-looking
+// refactor could silently turn the guard green. So the effective write path is the
+// transitive closure of same-file methods called from the named entry points.
+//
+// Blind spot that remains: a helper defined in a DIFFERENT file of the weighing
+// package. Those files are still scanned for their own named entry points, and the
+// allowlist rule (mode 7) applies to every function reached here, so a cross-file
+// helper would have to be both unlisted AND unreferenced to hide.
+function writePathBodies(source) {
+  const bodies = new Map();
+  const queue = [...WRITE_FN_NAMES];
+  const seen = new Set();
+  while (queue.length) {
+    const fn = queue.shift();
+    if (seen.has(fn)) continue;
+    seen.add(fn);
+    const raw = extractFunctionBody(source, fn);
+    if (raw == null) continue;
+    bodies.set(fn, raw);
+    // r.someHelper( / someHelper( — same-file callees.
+    const callRe = /\b(?:r|repo)\.([a-zA-Z_][A-Za-z0-9_]*)\s*\(/g;
+    let m;
+    while ((m = callRe.exec(raw)) !== null) {
+      if (!seen.has(m[1])) queue.push(m[1]);
+    }
+  }
+  return bodies;
+}
+
 export function findingsForGoSource(rel, source) {
   const findings = [];
-  for (const fn of WRITE_FN_NAMES) {
-    const body = extractFunctionBody(source, fn);
-    if (body == null) continue;
+  for (const [fn, rawBody] of writePathBodies(source)) {
+    const body = stripComments(rawBody);
     if (FORBIDDEN_TABLE_RE.test(body)) {
       findings.push({
         rule: "vaccination-or-herd-roster-read-in-write-path",
@@ -90,6 +275,19 @@ export function findingsForGoSource(rel, source) {
       findings.push({
         rule: "vaccination-or-herd-roster-read-in-write-path",
         message: `${rel}: ${fn}() calls a herd-roster/shed-ownership assertion — weighing free-flow must accept any scanned RFID without roster/ownership validation`,
+      });
+    }
+    findings.push(...writePathTableFindings(rel, fn, body));
+    if (FORBIDDEN_ROSTER_STATE_RE.test(body)) {
+      findings.push({
+        rule: "roster-state-gate-in-write-path",
+        message: `${rel}: ${fn}() gates on the expected-animal roster status/availability_status — weighing free-flow treats the roster as a LABEL for wrong-shed classification, never a precondition for recording a weight (maintainer decision 2026-07-31)`,
+      });
+    }
+    if (FORBIDDEN_CLINICAL_RE.test(body)) {
+      findings.push({
+        rule: "clinical-state-read-in-write-path",
+        message: `${rel}: ${fn}() reads a goat clinical/lifecycle state (health_status, lifecycle_status, or a clinical-defer vocabulary) — weighing is free-flow and must record the scale reading without gating on herd clinical state (maintainer decision 2026-07-31; vaccination stays strict)`,
       });
     }
     // Failure mode 4: rejecting because animal_id is null/empty without routing through the
@@ -224,15 +422,221 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 }
 `;
 
+  // Mode 5: clinical-state read on the write path. badFn5 is the REAL gate that
+  // shipped and that this guard previously failed to catch, reproduced verbatim in
+  // shape: a `goats` join plus health/lifecycle predicates bound from the shared
+  // clinical-defer vocabularies.
+  const badFn5 = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  err = tx.QueryRow(ctx, \`
+  WITH expected AS (
+    SELECT ea.campaign_shed_id
+    FROM goats g
+    JOIN weighing_expected_animals ea ON ea.animal_id=g.goat_id
+    WHERE COALESCE(g.health_status, 'healthy') <> ALL($11::text[])
+      AND COALESCE(g.lifecycle_status, '') <> ALL($12::text[])
+  )
+  SELECT campaign_shed_id FROM expected\`,
+    protocoldomain.MandatoryClinicalDeferStates, protocoldomain.ExitLifecycleStates).Scan(&out)
+  return domain.Observation{}, err
+}
+`;
+  // The Go-side variant: no SQL, just the classifier branch that returned a
+  // refusal sentinel for a clinically held animal.
+  const badFn5b = `
+func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
+  var blocked bool
+  tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM goats WHERE health_status = ANY($1::text[]))", protocoldomain.MandatoryClinicalDeferStates).Scan(&blocked)
+  if blocked {
+    return ports.ErrAnimalUnavailable
+  }
+  return ports.ErrNotFound
+}
+`;
+  // GOOD: the write path may still join goats for LOCATION labelling. Only
+  // clinical/lifecycle gating is banned, so this must NOT be flagged — otherwise
+  // the guard would be unusable against the real code.
+  const goodFn5 = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  err = tx.QueryRow(ctx, \`
+  SELECT COALESCE(NULLIF($8, '')::uuid, g.current_location_id)
+  FROM goats g WHERE g.tenant_id=$1::uuid AND g.goat_id=$3::uuid\`).Scan(&out)
+  return domain.Observation{}, err
+}
+`;
+
+  // Mode 6: roster status/availability gate — the exact join that shipped.
+  const badFn6 = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  err = tx.QueryRow(ctx, \`
+  SELECT ea.campaign_shed_id FROM goats g
+  JOIN weighing_expected_animals ea ON ea.animal_id=g.goat_id
+   AND ea.status <> 'unavailable'
+   AND ea.availability_status NOT IN ('icu','quarantine','dead')\`).Scan(&out)
+  return domain.Observation{}, err
+}
+`;
+  // GOOD: a COMMENT that quotes the banned predicates (e.g. explaining why they were
+  // removed) must not trip the guard — otherwise documenting the ban breaks the build.
+  const goodFn6c = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  // This join used to carry:
+  //   AND ea.status <> 'unavailable'
+  //   AND ea.availability_status NOT IN ('icu','quarantine','dead')
+  // and also read COALESCE(g.health_status,'healthy') <> ALL(...). All removed.
+  return domain.Observation{}, nil
+}
+`;
+  // GOOD: writing progress BACK to the roster is allowed; only gating is banned.
+  const goodFn6b = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.Exec(ctx, \`UPDATE weighing_expected_animals SET status='weighed', availability_status=CASE WHEN $4::uuid = expected_location_id THEN 'expected_shed' ELSE 'moved_other_shed' END\`)
+  return domain.Observation{}, nil
+}
+`;
+  // GOOD: roster LEFT JOINed for labels only, no status predicate.
+  const goodFn6 = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  err = tx.QueryRow(ctx, \`
+  SELECT ea.expected_location_id, ea.expected_location_label FROM goats g
+  LEFT JOIN weighing_expected_animals ea ON ea.animal_id=g.goat_id\`).Scan(&out)
+  return domain.Observation{}, err
+}
+`;
+
+  // Mode 7: STRICT allowlist. Any non-weighing table on the write path fails, even
+  // one nobody has thought of yet — that is the point of an allowlist.
+  const badFn7goats = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, "SELECT g.current_location_id FROM goats g WHERE g.goat_id=$1").Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+  const badFn7roster = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, "SELECT expected_location_id FROM weighing_expected_animals WHERE animal_id=$1").Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+  // A table nobody has banned by name yet must STILL fail under the allowlist.
+  const badFn7novel = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, "SELECT 1 FROM herd_register_snapshots WHERE goat_id=$1").Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+  // GOOD: only weighing-owned tables + proof, with CTE names used as FROM targets.
+  const goodFn7 = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, \`
+  WITH campaign AS (SELECT campaign_id FROM weighing_campaigns WHERE tenant_id=$1),
+  assigned_shed AS (SELECT campaign_shed_id FROM weighing_campaign_sheds WHERE tenant_id=$1),
+  proof_ok AS (SELECT proof_id FROM proof_artifacts WHERE proof_id=$5)
+  INSERT INTO weighing_observations (tenant_id) SELECT $1 FROM campaign c JOIN assigned_shed s ON true JOIN proof_ok p ON true\`).Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+
+  // REGRESSION: two bypasses an adversarial review actually demonstrated against an
+  // earlier version of this guard. Both must stay caught.
+  //   (a) the gate extracted into a helper that is not in WRITE_FN_NAMES;
+  //   (b) `//` inside a Go string literal (a URL) truncating the line and deleting
+  //       the banned predicate before the regex saw it.
+  const bypassHelper = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  if err := r.checkClinicalEligibility(ctx, tx, cmd); err != nil { return domain.Observation{}, err }
+  return domain.Observation{}, nil
+}
+
+func (r *Repository) checkClinicalEligibility(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
+  tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM goats WHERE health_status = ANY($1::text[]))").Scan(&blocked)
+  return nil
+}
+`;
+  if (!findingsForGoSource("fake.go", bypassHelper).length) {
+    throw new Error("self-test failed: gate hidden in an unlisted helper was not caught");
+  }
+  const bypassUrlComment = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  marker := "note http://example.com" + " AND COALESCE(g.health_status,'healthy') <> ALL($11::text[])"
+  return domain.Observation{}, nil
+}
+`;
+  if (!findingsForGoSource("fake.go", bypassUrlComment).some((f) => f.rule === "clinical-state-read-in-write-path")) {
+    throw new Error("self-test failed: banned predicate after a URL in a string literal was not caught");
+  }
+
+  // REGRESSION: CTE self-shadowing, demonstrated by an adversarial review.
+  const bypassCteShadow = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, "WITH weighing_expected_animals AS (SELECT animal_id FROM weighing_expected_animals WHERE status <> 'unavailable') SELECT * FROM weighing_expected_animals").Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+  if (!findingsForGoSource("fake.go", bypassCteShadow).some((f) => f.rule === "cte-shadows-banned-table")) {
+    throw new Error("self-test failed: a CTE shadowing a banned table was not caught");
+  }
+  const bypassCteShadowGoats = `
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  tx.QueryRow(ctx, "WITH goats AS (SELECT goat_id FROM goats) SELECT * FROM goats").Scan(&out)
+  return domain.Observation{}, nil
+}
+`;
+  if (!findingsForGoSource("fake.go", bypassCteShadowGoats).some((f) => f.rule === "cte-shadows-banned-table")) {
+    throw new Error("self-test failed: a CTE shadowing goats was not caught");
+  }
+
   const findings1 = findingsForGoSource("fake.go", badFn1);
   if (!findings1.some((f) => f.rule === "vaccination-or-herd-roster-read-in-write-path")) {
     throw new Error(`self-test failed: mode 1 (table) not flagged. got: ${JSON.stringify(findings1)}`);
+  }
+  for (const [label, src] of [["goats", badFn7goats], ["roster", badFn7roster], ["novel table", badFn7novel]]) {
+    const f = findingsForGoSource("fake.go", src);
+    if (!f.some((x) => x.rule === "write-path-table-not-allowlisted")) {
+      throw new Error(`self-test failed: mode 7 did not flag ${label}. got: ${JSON.stringify(f)}`);
+    }
+  }
+  const findings7good = findingsForGoSource("fake.go", goodFn7);
+  if (findings7good.length) {
+    throw new Error(`self-test failed: mode 7 false positive on an allowlisted weighing-only write. got: ${JSON.stringify(findings7good)}`);
+  }
+  const findings6 = findingsForGoSource("fake.go", badFn6);
+  if (!findings6.some((f) => f.rule === "roster-state-gate-in-write-path")) {
+    throw new Error(`self-test failed: mode 6 (roster state gate) not flagged. got: ${JSON.stringify(findings6)}`);
+  }
+  const findings6goodC = findingsForGoSource("fake.go", goodFn6c);
+  if (findings6goodC.length) {
+    throw new Error(`self-test failed: comment-only mention of the banned predicates was flagged. got: ${JSON.stringify(findings6goodC)}`);
+  }
+  const findings6goodB = findingsForGoSource("fake.go", goodFn6b);
+  if (findings6goodB.some((f) => f.rule === "roster-state-gate-in-write-path")) {
+    throw new Error(`self-test failed: mode 6 false positive on an allowed roster write-back. got: ${JSON.stringify(findings6goodB)}`);
+  }
+  const findings6good = findingsForGoSource("fake.go", goodFn6);
+  if (findings6good.some((f) => f.rule === "roster-state-gate-in-write-path")) {
+    throw new Error(`self-test failed: mode 6 false positive on a label-only roster LEFT JOIN. got: ${JSON.stringify(findings6good)}`);
+  }
+  const findings5 = findingsForGoSource("fake.go", badFn5);
+  if (!findings5.some((f) => f.rule === "clinical-state-read-in-write-path")) {
+    throw new Error(`self-test failed: mode 5 (SQL clinical gate) not flagged. got: ${JSON.stringify(findings5)}`);
+  }
+  const findings5b = findingsForGoSource("fake.go", badFn5b);
+  if (!findings5b.some((f) => f.rule === "clinical-state-read-in-write-path")) {
+    throw new Error(`self-test failed: mode 5b (Go clinical branch) not flagged. got: ${JSON.stringify(findings5b)}`);
+  }
+  const findings5good = findingsForGoSource("fake.go", goodFn5);
+  if (findings5good.some((f) => f.rule === "clinical-state-read-in-write-path")) {
+    throw new Error(`self-test failed: mode 5 false positive on a location-only goats join. got: ${JSON.stringify(findings5good)}`);
   }
   const findings1b = findingsForGoSource("fake.go", badFn1b);
   if (!findings1b.some((f) => f.rule === "vaccination-or-herd-roster-read-in-write-path")) {
     throw new Error(`self-test failed: mode 1 (roster fn) not flagged. got: ${JSON.stringify(findings1b)}`);
   }
-  if (findingsForGoSource("fake.go", goodFn1).length !== 0) {
+  // goodFn1 is a bare `goats` join with no vaccination/roster/clinical predicate. It
+  // must not trip modes 1/5/6 — but under the STRICT allowlist (mode 7) touching
+  // `goats` at all on the write path is now itself a finding, which is the intended
+  // behaviour, so this assertion is scoped to the pattern rules.
+  if (findingsForGoSource("fake.go", goodFn1).some((f) => f.rule !== "write-path-table-not-allowlisted")) {
     throw new Error("self-test failed: mode 1 false positive on clean goats-only join");
   }
 
@@ -282,7 +686,7 @@ CREATE UNIQUE INDEX weighing_observations_scanned_identifier_idx ON public.weigh
     throw new Error("self-test failed: mode 3 false positive on bucket-scoped unique index");
   }
 
-  console.log("weighing-free-flow guard: self-test passed (4/4 failure modes)");
+  console.log("weighing-free-flow guard: self-test passed (7/7 failure modes + 3 demonstrated bypasses)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file
@@ -316,14 +720,14 @@ function runOneExitCodeCase(label, { goSource, migrationSource }, expectFailure)
 }
 
 function selfTestExitCodes() {
+  // A clean write path under the STRICT rule: weighing-owned tables + proof only,
+  // no goats, no roster. (This fixture used to query `goats`; the allowlist rule now
+  // correctly forbids that, so the "clean" baseline had to become genuinely clean.)
   const cleanGo = `package postgres
 
 func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
-  rows, err := tx.Query(ctx, "SELECT 1 FROM goats g WHERE g.goat_id=$1", cmd.AnimalID)
-  if !uuidutil.IsUUIDString(cmd.AnimalID) {
-    return r.recordUnknownAnimalObservationTx(ctx, tx, cmd)
-  }
-  return domain.Observation{}, nil
+  rows, err := tx.Query(ctx, "SELECT campaign_shed_id FROM weighing_campaign_sheds WHERE tenant_id=$1", cmd.TenantID)
+  return r.recordUnknownAnimalObservationTx(ctx, tx, cmd)
 }
 `;
   const cleanMig = `-- +goose Up
@@ -391,7 +795,22 @@ CREATE UNIQUE INDEX weighing_observations_scanned_identifier_idx ON public.weigh
     true,
   );
 
-  console.log("weighing-free-flow guard: exit-code self-test passed (clean=0, 4/4 violations=non-zero)");
+  runOneExitCodeCase(
+    "mode 5: clinical-state read in write path",
+    {
+      goSource: `package postgres
+
+func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
+  rows, err := tx.Query(ctx, "SELECT 1 FROM goats g WHERE COALESCE(g.health_status,'healthy') <> ALL($1::text[])", protocoldomain.MandatoryClinicalDeferStates)
+  return domain.Observation{}, nil
+}
+`,
+      migrationSource: cleanMig,
+    },
+    true,
+  );
+
+  console.log("weighing-free-flow guard: exit-code self-test passed (clean=0, 5/5 violations=non-zero)");
 }
 
 if (process.argv.includes("--self-test")) {

@@ -16,14 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
-	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
-	// The clinical-hold and exit-lifecycle vocabularies are OWNED by
-	// protocol/domain and reused here rather than re-listed. AGENTS.md makes that
-	// set the single source of truth and forbids re-hardcoding it per module, so
-	// weighing gates on exactly the states the vaccination kernel defers on. Note
-	// this includes `recovering` and `under_treatment` as well as the sick /
-	// quarantine / ICU states the blocker names literally: the gate fails closed.
-	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -863,113 +855,21 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 		}
 		return existing, tx.Commit(ctx)
 	}
-	if !uuidutil.IsUUIDString(cmd.AnimalID) {
-		return r.recordUnknownAnimalObservationTx(ctx, tx, cmd)
-	}
-	var obs domain.Observation
-	err = tx.QueryRow(ctx, `
-	WITH campaign AS (
-	  SELECT campaign.campaign_id
-	  FROM weighing_campaigns campaign
-	  JOIN weighing_campaign_sheds scope
-	    ON scope.tenant_id=campaign.tenant_id
-	   AND scope.campaign_id=campaign.campaign_id
-	   AND scope.campaign_shed_id=$9::uuid
-	   AND scope.operator_user_id=$7::uuid
-	   AND scope.status <> 'canceled'
-	  WHERE campaign.tenant_id=$1::uuid
-	    AND campaign.campaign_id=$2::uuid
-	    AND campaign.status IN ('published','in_progress','delayed')
-	), expected AS (
-	  SELECT
-	    ea.campaign_shed_id,
-	    ea.expected_location_id,
-	    ea.expected_location_label,
-	    COALESCE(NULLIF($8, '')::uuid, g.current_location_id) AS actual_location_id,
-	    actual_location.name AS actual_location_label
-	  FROM campaign c
-	  JOIN goats g ON g.tenant_id=$1::uuid AND g.goat_id=$3::uuid
-	   -- CRITICAL-ANIMAL-ACTION GATE (docs/features/critical-animal-action-guardrails.md).
-	   -- A clinically held or already-exited animal must not be walked onto a scale,
-	   -- so the write FAILS CLOSED. This reads canonical goats.health_status /
-	   -- goats.lifecycle_status directly and NOT weighing_expected_animals.
-	   -- availability_status on purpose: that column is a periodically-refreshed
-	   -- roster snapshot, and a free-flow animal may have NO roster row at all, so a
-	   -- roster-based check would be vacuously true and silently fail to gate.
-	   -- The predicate lives inside this single INSERT statement so the health read
-	   -- and the write commit atomically -- a separate Go pre-check would be a
-	   -- check-then-write race.
-	   -- Free-flow is untouched: an identifier that resolves to no animal never
-	   -- reaches this branch (see recordUnknownAnimalObservationTx above).
-	   AND COALESCE(g.health_status, 'healthy') <> ALL($11::text[])
-	   AND COALESCE(g.lifecycle_status, '') <> ALL($12::text[])
-		  JOIN weighing_expected_animals ea
-		    ON ea.tenant_id=$1::uuid
-		   AND ea.campaign_id=$2::uuid
-		   AND ea.campaign_shed_id=$9::uuid
-		   AND ea.animal_id=g.goat_id
-		   AND ea.status <> 'unavailable'
-		   AND ea.availability_status NOT IN ('icu','quarantine','dead','culled','sold_transferred','exited')
-	  LEFT JOIN locations actual_location
-	    ON actual_location.tenant_id=g.tenant_id
-	   AND actual_location.location_id=COALESCE(NULLIF($8, '')::uuid, g.current_location_id)
-	  JOIN proof_artifacts proof
-	    ON proof.tenant_id=$1::uuid
-	   AND proof.proof_id=$5::uuid
-	   AND proof.upload_state='completed'
-	   AND proof.proof_type='video'
-	   AND proof.subject_type='goat'
-	   AND proof.subject_id=$3::uuid
-	   AND proof.scope_type='goat'
-	   AND proof.scope_id=$3::uuid
-	), inserted AS (
-	  INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
-	  SELECT $1::uuid, $2::uuid, campaign_shed_id, $3::uuid, $10, $4, $5::uuid, expected_location_id, expected_location_label, actual_location_id, actual_location_label,
-	    CASE WHEN campaign_shed_id IS NULL THEN 'extra_scan' WHEN expected_location_id IS DISTINCT FROM actual_location_id THEN 'wrong_shed' ELSE 'expected_shed' END,
-    $7::uuid, $6
-  FROM expected
-  ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, animal_id::text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
-	)
-	SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, cmd.AnimalID, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.ActualLocationID, cmd.CampaignShedID, strings.TrimSpace(cmd.ScannedIdentifier),
-		protocoldomain.MandatoryClinicalDeferStates, protocoldomain.ExitLifecycleStates).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, r.classifyAnimalObservationRejection(ctx, tx, cmd)
-	}
-	if err != nil {
-		return domain.Observation{}, err
-	}
-	if obs.CampaignShedID != "" {
-		if _, err := tx.Exec(ctx, `
-UPDATE weighing_expected_animals
-SET status='weighed',
-  availability_status=CASE WHEN $4::uuid = expected_location_id THEN 'expected_shed' ELSE 'moved_other_shed' END,
-  current_location_id=$4::uuid,
-  current_location_label=$5,
-  availability_checked_at=now(),
-  updated_at=now()
-WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.AnimalID, nullUUID(obs.ActualLocationID), obs.ActualLocationLabel); err != nil {
-			return domain.Observation{}, err
-		}
-		if err := r.completeIndividualScopeIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID, obs.CampaignShedID); err != nil {
-			return domain.Observation{}, err
-		}
-	}
-	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
-		return domain.Observation{}, err
-	}
-	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_observation", obs.ObservationID, obs); err != nil {
-		return domain.Observation{}, err
-	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
-		return domain.Observation{}, err
-	}
-	if err := r.auditAnimalObservation(ctx, tx, cmd, nil, obs); err != nil {
-		return domain.Observation{}, err
-	}
-	return obs, tx.Commit(ctx)
+	// FREE-FLOW ONLY (maintainer decision 2026-07-31).
+	//
+	// There is no longer a "known animal" write path. Weighing stores what the
+	// scanner read: the raw tag goes to scanned_identifier and animal_id is left
+	// NULL. cmd.AnimalID is deliberately IGNORED for the write decision — a request
+	// that happens to carry a goat UUID must not cause a goats lookup, must not
+	// demand goat-scoped proof, and must not be rejected because the herd does not
+	// know that id. Linking a weight to a canonical goat is future enrichment/backfill
+	// work, not something the operator write path waits on.
+	//
+	// The gates that remain are all WEIGHING-owned: campaign is live, the bucket
+	// belongs to this campaign and this operator and is not canceled, the bucket is
+	// an individual_animal bucket, the proof is a completed video scoped to that
+	// bucket's shed, the weight is positive, and the idempotency key is honoured.
+	return r.recordUnknownAnimalObservationTx(ctx, tx, cmd)
 }
 
 func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -994,6 +894,12 @@ WITH campaign AS (
     AND campaign_shed_id=$8::uuid
     AND operator_user_id=$7::uuid
     AND status <> 'canceled'
+    -- Bucket MODE gate. A per-animal weight belongs in an individual_animal
+    -- bucket; the lump-sum bucket has its own writer (RecordShedObservation).
+    -- This is a weighing-owned check about the BUCKET, not about the animal, so
+    -- it is not a herd dependency. It is explicit here because the removed
+    -- expected-animal roster join used to enforce it as a side effect.
+    AND weighing_category='individual_animal'
   ORDER BY created_at, campaign_shed_id
   LIMIT 1
 ), proof_ok AS (
@@ -1030,25 +936,31 @@ WITH campaign AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier,
     weight_kg, proof_artifact_id, expected_location_id, expected_location_label,
+    actual_location_id, actual_location_label,
     mismatch_status, recorded_by, idempotency_key
   )
   SELECT $1::uuid, $2::uuid, s.campaign_shed_id, NULL, $3,
     $4, p.proof_id, s.location_id, s.display_name,
+    -- Where the operator says the animal actually was. CLIENT-SUPPLIED ($9), never
+    -- read from goats.current_location_id. The human-readable label is deliberately
+    -- NOT resolved here: the write path is restricted to weighing-owned tables, so
+    -- the locations catalogue is joined on the READ path instead.
+    NULLIF($9, '')::uuid, NULL,
     'extra_scan', $7::uuid, $6
   FROM campaign c
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
   WHERE NOT EXISTS (SELECT 1 FROM updated)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, '' AS actual_location_id_text, '' AS actual_location_label_text, accepted_at
+  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
 )
 SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM updated
 UNION ALL
 SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID).
+		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Observation{}, ports.ErrNotFound
+		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd)
 	}
 	if err != nil {
 		return domain.Observation{}, err
@@ -1067,6 +979,73 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 		return domain.Observation{}, err
 	}
 	return obs, tx.Commit(ctx)
+}
+
+// classifyFreeFlowObservationRejection turns an empty write into the RIGHT error.
+//
+// Every gate lives in one CTE chain, so a refusal arrives as ErrNoRows with no reason
+// attached. Without this, a wrong-operator capture reported 404 not_found instead of
+// 403 permission_denied -- an authorization signal degraded into "does not exist".
+//
+// Reads ONLY weighing-owned tables plus proof_artifacts, in the same transaction: no
+// goats, no expected-animal roster, no clinical state.
+func (r *Repository) classifyFreeFlowObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
+	var campaignStatus string
+	err := tx.QueryRow(ctx, `
+SELECT status FROM weighing_campaigns
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID).Scan(&campaignStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if campaignStatus != domain.StatusPublished && campaignStatus != domain.StatusInProgress && campaignStatus != domain.StatusDelayed {
+		return ports.ErrImmutable
+	}
+
+	var operatorID, category, shedStatus string
+	err = tx.QueryRow(ctx, `
+SELECT COALESCE(operator_user_id::text,''), weighing_category, status
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid`,
+		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&operatorID, &category, &shedStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if shedStatus == "canceled" {
+		return ports.ErrImmutable
+	}
+	if operatorID != cmd.RecordedBy {
+		return ports.ErrForbidden
+	}
+	if category != domain.CategoryIndividualAnimal {
+		return ports.ErrNotFound
+	}
+
+	var proofOK bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM weighing_campaign_sheds cs
+  JOIN proof_artifacts proof
+    ON proof.tenant_id=cs.tenant_id
+   AND proof.proof_id=$4::uuid
+   AND proof.upload_state='completed'
+   AND proof.proof_type='video'
+   AND proof.scope_type='shed'
+   AND proof.scope_id=cs.location_id
+  WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=$3::uuid
+)`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactID).Scan(&proofOK); err != nil {
+		return err
+	}
+	if !proofOK {
+		return ports.ErrInvalidArgument
+	}
+	return ports.ErrNotFound
 }
 
 func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
@@ -1932,88 +1911,6 @@ func previousProof(before *domain.Observation) any {
 		return nil
 	}
 	return before.ProofArtifactID
-}
-
-func (r *Repository) classifyAnimalObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordAnimalObservation) error {
-	var status, operatorID string
-	err := tx.QueryRow(ctx, `
-SELECT campaign.status, cs.operator_user_id::text
-FROM weighing_campaigns campaign
-JOIN weighing_campaign_sheds cs
-  ON cs.tenant_id=campaign.tenant_id
- AND cs.campaign_id=campaign.campaign_id
- AND cs.campaign_shed_id=$3::uuid
-WHERE campaign.tenant_id=$1::uuid
-  AND campaign.campaign_id=$2::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).
-		Scan(&status, &operatorID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ports.ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if status != domain.StatusPublished && status != domain.StatusInProgress && status != domain.StatusDelayed {
-		return ports.ErrImmutable
-	}
-	if operatorID != cmd.RecordedBy {
-		return ports.ErrForbidden
-	}
-	var animalExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid)`, cmd.TenantID, cmd.AnimalID).Scan(&animalExists); err != nil {
-		return err
-	}
-	if !animalExists {
-		return ports.ErrNotFound
-	}
-	// Clinical gate, checked AFTER existence (so a genuinely unknown animal still
-	// reports not-found) and BEFORE the proof check (so a held animal reports why
-	// it is held rather than being blamed on its proof). Inserted here rather than
-	// reordering the existing branches, which keep their current 404/403/400
-	// classification.
-	var clinicallyBlocked bool
-	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM goats
-  WHERE tenant_id=$1::uuid
-    AND goat_id=$2::uuid
-    AND (
-      COALESCE(health_status, 'healthy') = ANY($3::text[])
-      OR COALESCE(lifecycle_status, '') = ANY($4::text[])
-    )
-)`, cmd.TenantID, cmd.AnimalID,
-		protocoldomain.MandatoryClinicalDeferStates, protocoldomain.ExitLifecycleStates).Scan(&clinicallyBlocked); err != nil {
-		return err
-	}
-	if clinicallyBlocked {
-		return ports.ErrAnimalUnavailable
-	}
-	var proofOK bool
-	err = tx.QueryRow(ctx, `
-	SELECT EXISTS (
-	  SELECT 1
-	  FROM goats g
-	  LEFT JOIN weighing_expected_animals ea
-	    ON ea.tenant_id=$1::uuid
-	   AND ea.campaign_id=$2::uuid
-	   AND ea.animal_id=g.goat_id
-	  JOIN proof_artifacts proof
-	    ON proof.tenant_id=$1::uuid
-	   AND proof.proof_id=$3::uuid
-	   AND proof.upload_state='completed'
-	   AND proof.proof_type='video'
-	   AND proof.subject_type='goat'
-	   AND proof.subject_id=g.goat_id
-	   AND proof.scope_type='goat'
-	   AND proof.scope_id=g.goat_id
-	  WHERE g.tenant_id=$1::uuid AND g.goat_id=$4::uuid
-	)`, cmd.TenantID, cmd.CampaignID, cmd.ProofArtifactID, cmd.AnimalID).Scan(&proofOK)
-	if err != nil {
-		return err
-	}
-	if !proofOK {
-		return ports.ErrInvalidArgument
-	}
-	return ports.ErrNotFound
 }
 
 func (r *Repository) classifyShedObservationRejection(ctx context.Context, tx pgx.Tx, cmd domain.RecordShedObservation) error {
