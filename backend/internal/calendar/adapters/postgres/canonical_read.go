@@ -602,7 +602,7 @@ batch_events AS (
       GROUP BY vda.planned_date
     ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
-      AND ob.scope_type IN ('shed', 'park')
+      AND ob.scope_type IN ('tenant', 'shed', 'park')
       AND (
         assignment_scope.planned_date IS NOT NULL
         OR (

@@ -25,6 +25,8 @@ import sg.mesha.goatos.core.data.CalendarScheduleQuery
 import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.CalendarPresentationDto
+import sg.mesha.goatos.core.network.dto.CalendarPresentationTabDto
 import sg.mesha.goatos.core.network.dto.DriveSummaryDto
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import kotlinx.serialization.json.JsonPrimitive
@@ -234,6 +236,26 @@ class CalendarViewModelTest {
 
         assertNull(vm.state.value.errorMessage)
     }
+
+    @Test
+    fun `calendar lands on week when backend tabs have no active segment`() = runTest(dispatcher) {
+        val repo = StaticCalendarRepository(
+            CalendarEventListResponseDto(
+                presentation = CalendarPresentationDto(
+                    pageTitle = "Calendar",
+                    viewTabs = listOf(
+                        CalendarPresentationTabDto(key = "week", label = "Week"),
+                        CalendarPresentationTabDto(key = "month", label = "Month"),
+                    ),
+                ),
+            ),
+        )
+        val vm = CalendarViewModel(repo = repo, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("week", vm.state.value.selectedSegmentId)
+    }
 }
 
 /** Minimal [CalendarRepository] test double for the R50-009 cold-cache regression: every
@@ -306,4 +328,69 @@ private class FailingColdCalendarRepository(
 
     override fun observeScheduleMetadata(query: CalendarScheduleQuery): Flow<Resource<CalendarEventListResponseDto>> =
         flowOf(Resource(data = null))
+}
+
+private class StaticCalendarRepository(
+    private val response: CalendarEventListResponseDto,
+) : CalendarRepository {
+    override suspend fun events(
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
+        cursor: String?,
+        limit: Int?,
+    ): CalendarEventListResponseDto = response
+
+    override fun observeEvents(
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
+        cursor: String?,
+        limit: Int?,
+    ): Flow<Resource<CalendarEventListResponseDto>> = flowOf(Resource(data = response))
+
+    override suspend fun refreshEvents(
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
+        cursor: String?,
+        limit: Int?,
+    ): Result<Unit> = Result.success(Unit)
+
+    override suspend fun appendEvents(
+        cursor: String,
+        parkId: String?,
+        shedId: String?,
+        ownerKey: String?,
+        status: String?,
+        dateFrom: String?,
+        dateTo: String?,
+        includeDateMarkers: Boolean,
+        vaccine: String?,
+        limit: Int?,
+    ): Result<Unit> = error("unused")
+
+    override fun schedule(query: CalendarScheduleQuery): Flow<PagingData<CalendarEventDto>> =
+        flowOf(PagingData.empty())
+
+    override fun observeScheduleMetadata(query: CalendarScheduleQuery): Flow<Resource<CalendarEventListResponseDto>> =
+        flowOf(Resource(data = response))
 }

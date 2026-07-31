@@ -155,6 +155,7 @@ fun VerifyDetailScreen(
     state: VerifyDetailUiState,
     onEvent: (VerifyDetailEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    videoControlsEnabled: Boolean = false,
 ) {
     var showRejectDialog by remember { mutableStateOf(false) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
@@ -208,6 +209,7 @@ fun VerifyDetailScreen(
                             VerifyVideoPlayer(
                                 media = media,
                                 onPlayback = { onEvent(it) },
+                                controlsEnabled = videoControlsEnabled,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -318,6 +320,7 @@ private fun VerifyVideoPlayer(
     media: VerifyMediaItem,
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     modifier: Modifier = Modifier,
+    controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -377,7 +380,7 @@ private fun VerifyVideoPlayer(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     this.player = player
-                    useController = false
+                    useController = controlsEnabled
                     keepScreenOn = true
                 }
             },
@@ -416,6 +419,7 @@ private fun VerifyVideoPlayer(
         FullscreenVideoDialog(
             media = media,
             onPlayback = onPlayback,
+            controlsEnabled = controlsEnabled,
             onDismiss = { isFullscreen = false },
         )
     }
@@ -489,6 +493,7 @@ private fun FullscreenVideoDialog(
     media: VerifyMediaItem,
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     onDismiss: () -> Unit,
+    controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(true) }
@@ -544,7 +549,7 @@ private fun FullscreenVideoDialog(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = false
+                        useController = controlsEnabled
                         keepScreenOn = true
                     }
                 },

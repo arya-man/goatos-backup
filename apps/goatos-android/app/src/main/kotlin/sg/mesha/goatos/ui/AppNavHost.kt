@@ -583,6 +583,7 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    verificationVideoControlsEnabled: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -1776,6 +1777,7 @@ fun AppNavHost(
             }
             VerifyDetailScreen(
                 state = state,
+                videoControlsEnabled = verificationVideoControlsEnabled,
                 onEvent = { event ->
                     when (event) {
                         VerifyDetailEvent.Close -> navController.popBackStack()
@@ -1808,6 +1810,7 @@ fun AppNavHost(
             }
             VerifyDetailScreen(
                 state = state,
+                videoControlsEnabled = verificationVideoControlsEnabled,
                 onEvent = { event ->
                     when (event) {
                         VerifyDetailEvent.Close -> navController.popBackStack()

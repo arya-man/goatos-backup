@@ -319,6 +319,10 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
 }
 
+func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
+	return isLeadershipPrincipal(grants)
+}
+
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
 	for _, key := range candidateModuleKeys(grants, grantedModules) {
 		if key == module {

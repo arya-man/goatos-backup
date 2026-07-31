@@ -75,7 +75,7 @@ class CalendarViewModel @Inject constructor(
     private val weekRange = calendarWeekRange(today)
 
     private val _selectedDay = MutableStateFlow(today)
-    private val _selectedSegmentId = MutableStateFlow<String?>(MONTH_SEGMENT)
+    private val _selectedSegmentId = MutableStateFlow<String?>(WEEK_SEGMENT)
     private val _monthFilters = MutableStateFlow(
         CalendarMonthFilters(year = today.year, month = today.monthValue),
     )
@@ -445,6 +445,7 @@ class CalendarViewModel @Inject constructor(
 }
 
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
+private const val WEEK_SEGMENT = "week"
 private const val MONTH_SEGMENT = "month"
 internal const val COMPLETED_STATUS = "completed"
 internal const val CALENDAR_PAGE_SIZE = 20
