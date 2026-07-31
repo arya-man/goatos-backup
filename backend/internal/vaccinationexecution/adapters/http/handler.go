@@ -503,11 +503,19 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
-	// A leadership oversight read (app route, no operator scope) is read-only unless
-	// the role also has explicit capture authority. PC Director is tenant-scoped for
-	// park visibility but can execute vaccination work in STG, so its shed click must
-	// stay open while CEO/Park Head remain oversight-only.
-	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) && !h.canExecuteTasks(r) {
+	// A leadership read on an app execution route is OVERSIGHT: read-only, park-scoped, every
+	// shed. Vaccination execution belongs to the operator the drive is assigned to -- CBE to one
+	// operator, CPT to the other -- so a director sees both parks and opens neither into the
+	// scan/submit loop (maintainer decision; supersedes the earlier carve-out that kept the shed
+	// click open for a PC Director because the role happens to hold task.execute).
+	//
+	// Holding task.execute is no longer sufficient here: the scan and submit writes are refused
+	// `task_not_assigned` for a non-assignee anyway, so leaving the click open produced a scan
+	// screen that recorded a proof video and then failed every write in background sync.
+	//
+	// Weighing is deliberately NOT gated this way: it is free-flow, and a director is allowed to
+	// weigh anything. This branch is scoped to the vaccination execution routes only.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
 		page.ViewerReadOnly = true
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
@@ -698,15 +706,15 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		OperatorScopeActorID: actorID,
 		Limit:                limit,
 	}
-	// A leadership actor gets the PARK-scoped view of the shed, not the
-	// operator-assignment-scoped one -- the same rule the other app execution reads already
-	// apply. The roster's assignment join keeps only assignments owned by the scope actor, so
-	// leaving it set for a director (who owns no drive assignment) matched no assignment and
-	// returned an EMPTY roster for a shed that plainly has due animals. The park authorization
-	// filter still applies, so this widens the roster to the shed, never past the caller's parks.
-	if h.isLeadershipExecutionActor(r) {
-		q.OperatorScopeActorID = ""
-	}
+	// The scan roster stays OPERATOR-ASSIGNMENT scoped for every caller, leadership included.
+	// Vaccination execution belongs to the operator the drive is assigned to; a director oversees
+	// both parks read-only and must never receive scan-roster animals, because the writes that
+	// screen exists to make are refused as `task_not_assigned` anyway. Widening this read for
+	// leadership (briefly done to explain an empty roster) handed a director a fully populated
+	// scan screen whose every write then failed silently in background sync.
+	//
+	// Weighing is deliberately NOT like this: it is free-flow, so it has its own gate and must not
+	// inherit this assignment scoping.
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
 		if err != nil {
