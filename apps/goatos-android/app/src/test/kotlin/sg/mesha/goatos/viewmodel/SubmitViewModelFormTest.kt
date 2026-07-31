@@ -1473,7 +1473,9 @@ class SubmitViewModelFormTest {
             repository,
             CapturingSyncRepository(),
             "task-role",
-            bootstrapRepository = FakeCaptureBootstrapRepository(profile = null),
+            // Capture authority is backend-owned now: an approver is blocked because the backend
+            // withholds `vaccination_execute`, NOT because the client noticed a missing profile.
+            bootstrapRepository = FakeCaptureBootstrapRepository(profile = null, featureFlags = emptyMap()),
         )
         backgroundScope.launch { viewModel.state.collect {} }
 
