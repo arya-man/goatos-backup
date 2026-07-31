@@ -23,10 +23,7 @@ export type WeighingScopeRow = {
   shedName: string;
   partitionName: string;
   category: WeighingCategory;
-  expectedCount: number;
   completedCount: number;
-  remainingCount: number;
-  unavailableCount: number;
   wrongShedCount: number;
   proofPendingCount: number;
   status: WeighingScopeStatus;
@@ -39,7 +36,7 @@ export type WeighingWrongShedRow = {
   id: string;
   animalDisplayId: string;
   rfid: string;
-  expectedShed: string;
+  originalShed: string;
   originalPartition: string;
   actualShed: string;
   currentPartition: string;
@@ -50,7 +47,7 @@ export type WeighingWrongShedRow = {
 export type WeighingMissingRow = {
   id: string;
   animalDisplayId: string;
-  expectedShed: string;
+  originalShed: string;
   currentTruth: string;
   classification: string;
   checkedAt: string;
@@ -66,15 +63,9 @@ export type WeighingCampaign = {
   laneLabel: string;
   operatorName: string;
   selectedScopes: number;
-  expectedAnimals: number;
-  individualExpected: number;
   individualCompleted: number;
-  shedPartitionExpected: number;
   shedPartitionCompleted: number;
-  remaining: number;
-  rolledForward: number;
   wrongShedScans: number;
-  unavailableAnimals: number;
   proofPending: number;
   canCreate: boolean;
   canEdit: boolean;
@@ -360,12 +351,8 @@ function campaignFromApi(
   const operator = role === "operator";
   const progress = item.progress;
   const scopes = (item.sheds ?? []).map((shed) => scopeFromApi(item, shed));
-  const individualExpected = progress.individual_expected_count;
   const individualCompleted = progress.individual_completed_count;
-  const shedPartitionExpected = progress.per_scope_expected_count;
   const shedPartitionCompleted = progress.per_scope_completed_count;
-  const expectedAnimals = individualExpected + shedPartitionExpected;
-  const completed = individualCompleted + shedPartitionCompleted;
 
   return {
     id: item.campaign_id,
@@ -377,15 +364,9 @@ function campaignFromApi(
     laneLabel: "Weekly kids",
     operatorName: "Operator not reported by API",
     selectedScopes: scopes.length,
-    expectedAnimals,
-    individualExpected,
     individualCompleted,
-    shedPartitionExpected,
     shedPartitionCompleted,
-    remaining: progress.remaining_count,
-    rolledForward: item.status === "delayed" ? progress.remaining_count : 0,
     wrongShedScans: progress.wrong_shed_count,
-    unavailableAnimals: progress.missing_count,
     proofPending: 0,
     canCreate: leadership,
     canEdit: leadership,
@@ -402,18 +383,16 @@ function scopeFromApi(
   campaign: ApiWeighingCampaign,
   shed: ApiWeighingCampaignShed,
 ): WeighingScopeRow {
-  const completedCount =
-    shed.status === "completed" ? shed.expected_animal_count : 0;
+  // Weighing is free-flow: only show completion status, not expected vs actual.
+  // completedCount is derived from status, not from API count fields.
+  const completedCount = shed.status === "completed" ? 1 : 0; // 1 = scope is done, 0 = still open
   return {
     id: shed.campaign_shed_id,
     parkName: "Park not reported by API",
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,
-    expectedCount: shed.expected_animal_count,
     completedCount,
-    remainingCount: Math.max(0, shed.expected_animal_count - completedCount),
-    unavailableCount: 0,
     wrongShedCount: 0,
     proofPendingCount: 0,
     status:
@@ -441,15 +420,9 @@ function emptyCampaign(role: WeighingRole): WeighingCampaign {
     laneLabel: "Weekly kids",
     operatorName: "Unassigned",
     selectedScopes: 0,
-    expectedAnimals: 0,
-    individualExpected: 0,
     individualCompleted: 0,
-    shedPartitionExpected: 0,
     shedPartitionCompleted: 0,
-    remaining: 0,
-    rolledForward: 0,
     wrongShedScans: 0,
-    unavailableAnimals: 0,
     proofPending: 0,
     canCreate: leadership,
     canEdit: false,

@@ -52,7 +52,10 @@ test("weighing UI keeps bucket language free-flow and avoids vaccination wrong-s
   const data = source("data.ts");
   const page = source("page.tsx");
 
-  assert.match(data, /expectedShed/);
+  // Renamed from `expectedShed`: weighing is free-flow and has no expected roster, so
+  // the field names the bucket the scan was ASSIGNED to, not one it was expected in.
+  assert.match(data, /originalShed/);
+  assert.doesNotMatch(data, /expectedShed/);
   assert.match(data, /originalPartition/);
   assert.match(data, /actualShed/);
   assert.match(data, /currentPartition/);

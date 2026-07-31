@@ -5,11 +5,15 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class WeighingProgressDto(
+    /** Backend-owned count; do NOT render as a denominator. Weighing is free-flow with no expected roster.
+     *  This field is sent by the backend but MUST NOT be used to compute completeness ratios or missing counts. */
     @SerialName("individual_expected_count") val individualExpectedCount: Int = 0,
     @SerialName("individual_completed_count") val individualCompletedCount: Int = 0,
+    /** Backend-owned count; do NOT render as a denominator. Weighing is free-flow with no expected roster. */
     @SerialName("per_scope_expected_count") val perScopeExpectedCount: Int = 0,
     @SerialName("per_scope_completed_count") val perScopeCompletedCount: Int = 0,
     @SerialName("wrong_shed_count") val wrongShedCount: Int = 0,
+    /** Backend-owned count; do NOT render as "missing animals". Weighing has no expected roster tracking. */
     @SerialName("missing_count") val missingCount: Int = 0,
     @SerialName("remaining_count") val remainingCount: Int = 0,
 )
@@ -21,6 +25,8 @@ data class WeighingCampaignShedDto(
     @SerialName("location_id") val locationId: String = "",
     @SerialName("location_type") val locationType: String = "",
     @SerialName("display_name") val displayName: String = "",
+    /** Backend-owned count; do NOT render as a denominator. Weighing is free-flow with no expected roster.
+     *  This field is sent for historical reasons but MUST NOT be used to compute completeness ratios. */
     @SerialName("expected_animal_count") val expectedAnimalCount: Int = 0,
     @SerialName("weighing_category") val weighingCategory: String = "",
     @SerialName("operator_user_id") val operatorUserId: String = "",
@@ -133,7 +139,9 @@ data class WeighingRosterRowDto(
     @SerialName("display_animal_id") val displayAnimalId: String = "",
     @SerialName("primary_identifier") val primaryIdentifier: String = "",
     @SerialName("secondary_identifier") val secondaryIdentifier: String? = null,
+    /** Assigned location from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
     @SerialName("expected_location_id") val expectedLocationId: String = "",
+    /** Assigned location label from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
     @SerialName("expected_location_label") val expectedLocationLabel: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("availability_status") val availabilityStatus: String? = null,
@@ -167,6 +175,7 @@ data class WeighingAcceptedObservationDto(
     @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("proof_artifact_id") val proofArtifactId: String = "",
     @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
+    /** Assigned location from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
     @SerialName("expected_location_id") val expectedLocationId: String = "",
     @SerialName("accepted_at") val acceptedAt: String = "",
 )
@@ -201,6 +210,7 @@ data class WeighingObservationDto(
     @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("proof_artifact_id") val proofArtifactId: String = "",
     @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
+    /** Assigned location from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
     @SerialName("expected_location_id") val expectedLocationId: String? = null,
     @SerialName("actual_location_id") val actualLocationId: String? = null,
     @SerialName("actual_location_label") val actualLocationLabel: String? = null,

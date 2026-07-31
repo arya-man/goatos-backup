@@ -301,7 +301,7 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 	normalized := make([]string, 0, len(scannedIdentifiers))
 	seen := make(map[string]struct{}, len(scannedIdentifiers))
 	for _, identifier := range scannedIdentifiers {
-		identifier = strings.TrimSpace(identifier)
+		identifier = strings.ToLower(strings.TrimSpace(identifier))
 		if identifier == "" {
 			return ports.ErrInvalidArgument
 		}
