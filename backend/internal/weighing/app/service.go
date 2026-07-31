@@ -135,10 +135,39 @@ func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campa
 	return s.repo.PublishCampaign(ctx, actor.TenantID, campaignID, actor.UserID, idempotencyKey)
 }
 
-func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error) {
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
-	if !canMonitor && !canExecute {
+// ListCampaigns serves three DISTINCT surfaces, and the caller names which one it wants.
+//
+// The scope is explicit because inferring it from the actor's roles is what broke this list.
+// The old rule was `canExecute && !canMonitor` as a stand-in for "is a worker", which is true
+// only for RoleOperator: a growth director holds BOTH execute and monitor, fell into the
+// unfiltered branch, and got every shed in every park with a live Scan action -- including sheds
+// whose submit would be refused because the write requires the caller to be the assignee.
+//
+// Each scope carries its own capability, so no role name appears here:
+//
+//	ScopeMine      -- my own assigned sheds, the executable work list (WeighingExecute).
+//	ScopeAll       -- the planner's flat all-tasks list (WeighingPlan or WeighingMonitor).
+//	ScopeOperators -- somebody else's work, READ-ONLY oversight (WeighingOverseeOperators).
+//
+// ScopeAll and ScopeOperators read the same unfiltered page; they differ in who may ask and in
+// what the client renders (the oversight surface has no scan CTA). Neither widens the write:
+// recording a weight still requires the caller to be the shed's assignee.
+func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, cursor string, limit int) (domain.CampaignPage, error) {
+	// NOTE: RolesAuthorize requires ALL of the permissions it is given, so an either/or surface
+	// is expressed as separate calls rather than a two-element slice.
+	var allowed bool
+	switch scope {
+	case domain.CampaignListScopeMine:
+		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	case domain.CampaignListScopeAll:
+		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) ||
+			permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	case domain.CampaignListScopeOperators:
+		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingOverseeOperators}, false)
+	default:
+		return domain.CampaignPage{}, ports.ErrInvalidArgument
+	}
+	if !allowed {
 		return domain.CampaignPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
@@ -147,7 +176,7 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, cursor 
 	if limit > 100 {
 		limit = 100
 	}
-	if canExecute && !canMonitor {
+	if scope == domain.CampaignListScopeMine {
 		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, strings.TrimSpace(cursor), limit)
 	}
 	return s.repo.ListCampaigns(ctx, actor.TenantID, strings.TrimSpace(cursor), limit)

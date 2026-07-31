@@ -28,3 +28,19 @@ func TestWeighingRolePermissions(t *testing.T) {
 		t.Fatal("growth director should execute weighing")
 	}
 }
+
+// TestWeighingOverseeOperatorsIsGrowthDirectorOnly pins the read-only Operators surface to the
+// one role that owns it. It also guards the composition trap that made the grant inert: the
+// RoleGrowthDirector entry in permissions.go is REPLACED by the override in
+// permissions_orgrole.go, so a permission added only to the literal never reaches the effective
+// role set and no other test noticed.
+func TestWeighingOverseeOperatorsIsGrowthDirectorOnly(t *testing.T) {
+	if !RolesAuthorize([]string{RoleGrowthDirector}, []string{WeighingOverseeOperators}, false) {
+		t.Fatal("growth director should oversee weighing operators")
+	}
+	for _, role := range []string{RoleCEOInternal, RolePCDirector, RoleOperator, RoleParkHead, RoleVerifier} {
+		if RolesAuthorize([]string{role}, []string{WeighingOverseeOperators}, false) {
+			t.Fatalf("%s must not oversee weighing operators", role)
+		}
+	}
+}

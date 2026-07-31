@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	StatusDraft      = "draft"
@@ -62,6 +65,39 @@ type Campaign struct {
 type CampaignPage struct {
 	Items      []Campaign `json:"items"`
 	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
+// CampaignListScope names WHICH weighing surface a campaign listing is for. The three mobile
+// weighing screens are separate destinations with separate authority, so the surface is stated
+// by the caller rather than guessed from the actor's roles.
+type CampaignListScope string
+
+const (
+	// CampaignListScopeMine is the assignee's own executable work list.
+	CampaignListScopeMine CampaignListScope = "mine"
+	// CampaignListScopeAll is the planner's flat all-tasks list across parks.
+	CampaignListScopeAll CampaignListScope = "all"
+	// CampaignListScopeOperators is read-only oversight of other people's weighing work.
+	CampaignListScopeOperators CampaignListScope = "operators"
+)
+
+// ParseCampaignListScope maps the wire value to a scope, using fallback for an absent value.
+// The fallback is supplied by the ROUTE (the admin listing defaults to the flat list, the app
+// listing defaults to the caller's own work) so that an already-installed app that sends no
+// scope keeps the behaviour it had, without the service inferring anything from a role.
+func ParseCampaignListScope(raw string, fallback CampaignListScope) (CampaignListScope, bool) {
+	switch CampaignListScope(strings.TrimSpace(raw)) {
+	case "":
+		return fallback, true
+	case CampaignListScopeMine:
+		return CampaignListScopeMine, true
+	case CampaignListScopeAll:
+		return CampaignListScopeAll, true
+	case CampaignListScopeOperators:
+		return CampaignListScopeOperators, true
+	default:
+		return "", false
+	}
 }
 
 type PlannerCatalog struct {

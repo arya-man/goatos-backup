@@ -313,7 +313,11 @@ func init() {
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		WeighingMonitor: {}, WeighingExecute: {},
-		CalendarRead: {}, CalendarAction: {},
+		// This map REPLACES the RoleGrowthDirector literal in permissions.go, so a permission
+		// added only there is silently inert. WeighingOverseeOperators shipped that way; it is
+		// repeated here because this override is the effective grant set.
+		WeighingOverseeOperators: {},
+		CalendarRead:             {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},

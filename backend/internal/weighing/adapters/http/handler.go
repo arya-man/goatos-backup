@@ -21,7 +21,7 @@ type Service interface {
 	CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error)
 	UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
-	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
+	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
@@ -64,7 +64,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /weighing/campaigns/{campaign_id}", h.UpdateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
-	mux.HandleFunc("GET /app/weighing/campaigns", h.ListCampaigns)
+	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", h.GetLeadershipShedVideos)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
@@ -143,12 +143,28 @@ type closeRequest struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+// ListCampaigns serves the admin listing, where an absent scope means the flat all-tasks list.
 func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
+	h.listCampaigns(w, r, domain.CampaignListScopeAll)
+}
+
+// AppListCampaigns serves the phone. An absent scope means the caller's OWN work, which is what
+// an already-installed app that predates the scope parameter expects to receive.
+func (h *Handler) AppListCampaigns(w http.ResponseWriter, r *http.Request) {
+	h.listCampaigns(w, r, domain.CampaignListScopeMine)
+}
+
+func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback domain.CampaignListScope) {
 	limit, ok := h.queryLimit(w, r, 20)
 	if !ok {
 		return
 	}
-	page, err := h.service.ListCampaigns(r.Context(), actor(r), r.URL.Query().Get("cursor"), limit)
+	scope, ok := domain.ParseCampaignListScope(r.URL.Query().Get("scope"), fallback)
+	if !ok {
+		h.respond(w, r, nil, ports.ErrInvalidArgument)
+		return
+	}
+	page, err := h.service.ListCampaigns(r.Context(), actor(r), scope, r.URL.Query().Get("cursor"), limit)
 	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
 }
 
