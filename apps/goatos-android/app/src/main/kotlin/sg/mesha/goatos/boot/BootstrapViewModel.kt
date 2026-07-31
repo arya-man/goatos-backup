@@ -89,9 +89,9 @@ class BootstrapViewModel @Inject constructor(
                     applyAnalyticsIdentity()
                 }
                 .onFailure { throwable ->
-                    logError("Bootstrap failed", throwable)
                     val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
                     val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
+                    logError("Bootstrap failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", throwable)
                     analytics.track(
                         AnalyticsEvents.BOOTSTRAP_FAILED,
                         buildMap {

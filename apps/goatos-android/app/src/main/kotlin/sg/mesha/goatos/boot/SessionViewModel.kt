@@ -56,6 +56,12 @@ internal fun authModeForFlavor(flavor: String): AuthMode =
 internal fun devSessionNeedsRefresh(mode: AuthMode, persisted: String?, baked: String): Boolean =
     mode == AuthMode.DEV_BEARER && persisted != baked.takeIf { it.isNotBlank() }
 
+internal fun sessionIsAuthedForMode(mode: AuthMode, persisted: String?): Boolean =
+    when (mode) {
+        AuthMode.DEV_BEARER -> !persisted.isNullOrBlank()
+        AuthMode.FIREBASE -> persisted == FIREBASE_SESSION_MARKER
+    }
+
 internal data class LoginUiState(
     val isLoading: Boolean = false,
     val errorReason: LoginError? = null,
@@ -72,8 +78,8 @@ internal data class LoginUiState(
  *   real auth landed.
  * - stg / prod flavor ([AuthMode.FIREBASE]): real Firebase Auth: email/password, Google
  *   SSO (Credential Manager -> GoogleIdTokenCredential -> Firebase), and password reset.
- *   On success the Firebase ID token is stored as the session bearer, while the network
- *   layer re-fetches a fresh token per request so expiry never stales a live session.
+ *   On success only a Firebase-session marker is stored; the network layer re-fetches a
+ *   fresh ID token per request so expiry never stales a live session.
  */
 @HiltViewModel
 class SessionViewModel @Inject constructor(
@@ -93,7 +99,7 @@ class SessionViewModel @Inject constructor(
     private val devSessionReady = MutableStateFlow(authMode != AuthMode.DEV_BEARER)
 
     val isAuthed: StateFlow<Boolean> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
-        ready && !token.isNullOrBlank()
+        ready && sessionIsAuthedForMode(authMode, token)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
@@ -120,6 +126,14 @@ class SessionViewModel @Inject constructor(
                 // Do not let bootstrap/network requests race ahead with the previous APK's
                 // persisted principal. A blank baked token deliberately leaves the login gate.
                 devSessionReady.value = true
+            }
+        } else {
+            viewModelScope.launch {
+                val persisted = sessionStore.currentToken()
+                if (!persisted.isNullOrBlank() && persisted != FIREBASE_SESSION_MARKER) {
+                    logWarning("Clearing stale non-Firebase session marker for flavor=${BuildConfig.FLAVOR}")
+                    logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                }
             }
         }
     }
