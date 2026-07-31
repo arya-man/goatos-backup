@@ -33,6 +33,9 @@ interface AuthRepository {
     /** Current signed-in user's email (Firebase Auth), or null if nobody is signed in / no email. */
     fun currentEmail(): String?
 
+    /** Current signed-in user's Firebase UID, or null if nobody is signed in. */
+    fun currentFirebaseUid(): String?
+
     fun signOut()
 }
 
@@ -87,6 +90,8 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
     }
 
     override fun currentEmail(): String? = firebaseAuth.currentUser?.email?.ifBlank { null }
+
+    override fun currentFirebaseUid(): String? = firebaseAuth.currentUser?.uid?.ifBlank { null }
 
     override fun signOut() {
         runCatching { firebaseAuth.signOut() }

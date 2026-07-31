@@ -12,6 +12,14 @@ const repo = resolve(import.meta.dirname, "../..");
 const ROOTS = ["apps/goatos-android/app/src/main", "apps/goatos-android/feature"];
 // role-gating in UI/VM: `role ==`, `role !=`, `== Role.X`, `when (role)`. Comments excluded.
 const RE = /\b([a-zA-Z_][\w.]*[Rr]ole)\s*(==|!=)|(==|!=)\s*[A-Za-z_]*Role\.|when\s*\(\s*[a-zA-Z_][\w.]*[Rr]ole\s*\)/;
+const WEIGHING_ROLE_ROUTING_PATTERNS = [
+  /\bisWeighingLeadershipRole\b/,
+  /\bleadershipWeighing\b/,
+  /pc_director.*WEIGHING/i,
+  /WEIGHING.*pc_director/i,
+  /director_growth/i,
+];
+const hasWeighingRoleRouting = (line) => WEIGHING_ROLE_ROUTING_PATTERNS.some((pattern) => pattern.test(line));
 // hardcoded disabled/blocked reason literal — a disabled reason is backend-owned (golden rule).
 const REASON_RE = /\b(disabledReason|blockedReason|disabled_reason|blockReason)\s*=\s*"[^"]/;
 // preview/sample/debug sources may hold literal reasons for @Preview — not production truth.
@@ -24,6 +32,7 @@ function scan(rel) {
   text.split("\n").forEach((line, i) => {
     if (isComment(line) || line.includes("mobile-contract:ignore:")) return;
     if (RE.test(line)) out.push({ rel, line: i + 1, msg: `mobile UI decides visibility by role — gate on the backend-composed contract, not \`role ==\` (${line.trim().slice(0,70)})` });
+    if (hasWeighingRoleRouting(line)) out.push({ rel, line: i + 1, msg: `mobile weighing routing must come from backend feature_flags/nav, not role-label branches (${line.trim().slice(0,70)})` });
     if (!preview && REASON_RE.test(line)) out.push({ rel, line: i + 1, msg: `hardcoded disabled/blocked reason — a disabled reason is backend-owned; render it from the bootstrap contract (${line.trim().slice(0,70)})` });
   });
   return out;
@@ -31,11 +40,12 @@ function scan(rel) {
 function walk(dir, acc = []) { let ents; try { ents = readdirSync(dir); } catch { return acc; } for (const e of ents) { const p = join(dir, e); const s = statSync(p); if (s.isDirectory()) walk(p, acc); else if (p.endsWith(".kt") && !/test/i.test(p)) acc.push(relative(repo, p)); } return acc; }
 function selfTest() {
   const bad = `if (role == Role.OPERATOR) { ShowCapture() }`;
+  const badWeighing = `val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)`;
   const good = `if (bootstrap.canCapture) { ShowCapture() }`;
-  const ok = scanText("x.kt", bad).length === 1 && scanText("y.kt", good).length === 0;
+  const ok = scanText("x.kt", bad).length === 1 && scanText("w.kt", badWeighing).length === 1 && scanText("y.kt", good).length === 0;
   console.log(ok ? "mobile-contract self-test: ok" : "mobile-contract self-test: FAIL"); process.exit(ok ? 0 : 1);
 }
-function scanText(rel, text){ const out=[]; text.split("\n").forEach((line,i)=>{ if(isComment(line)||line.includes("mobile-contract:ignore:"))return; if(RE.test(line)) out.push({rel,line:i+1}); }); return out; }
+function scanText(rel, text){ const out=[]; text.split("\n").forEach((line,i)=>{ if(isComment(line)||line.includes("mobile-contract:ignore:"))return; if(RE.test(line)||hasWeighingRoleRouting(line)) out.push({rel,line:i+1}); }); return out; }
 const mode = process.argv[2];
 if (mode === "--self-test") selfTest();
 let targets;

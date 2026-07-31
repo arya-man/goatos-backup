@@ -101,7 +101,7 @@ func Build(opts Options) *Service {
 		MaxSteps:      envInt("MESHA_AI_MAX_STEPS", 6),
 		WallClock:     25 * time.Second,
 		ReviewEnabled: os.Getenv("MESHA_AI_REVIEW") == "1",
-		ModelVersion:  envOr("MESHA_VERTEX_MODEL", "gemini-2.5-flash"),
+		ModelVersion:  envOr("MESHA_VERTEX_MODEL", "gemini-3.5-flash-lite"),
 		PromptVersion: "v1",
 	}
 

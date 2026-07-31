@@ -200,8 +200,22 @@ fun GoatOsShell(navState: NavState) {
     val moduleVm: ShellModuleViewModel = hiltViewModel()
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val leadershipWeighing = isWeighingLeadershipRole(profile.roleLabel)
+    // main's withVerifierVideoNavigation() is deliberately NOT carried over: it collapsed a
+    // verifier's drawer to two video modules and routed them at /verify/action/*, which
+    // contradicts the maintainer's 2026-07-31 decision that a verifier sees the five evidence
+    // modules this branch composes -- and those routes do not exist here. Dropped rather than
+    // left dead, since dead code referencing absent routes cannot compile.
     val visibleNavState = navState
         .withLeadershipWeighingNavigation(leadershipWeighing)
+    val isOperatorProfile = profile.roleLabel.substringBefore("·").trim().equals("operator", ignoreCase = true)
+    val hasWeighingModule = visibleNavState.availableModules().any { module ->
+        module.key.equals("weighing", ignoreCase = true) ||
+            module.href.equals(Routes.WEIGHING, ignoreCase = true) ||
+            module.navItems.any { it.href.equals(Routes.WEIGHING, ignoreCase = true) }
+    }
+    val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
+    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true ||
+        (isOperatorProfile && hasWeighingModule)
 
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
@@ -235,7 +249,8 @@ fun GoatOsShell(navState: NavState) {
             navController = navController,
             startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
-            leadershipWeighing = leadershipWeighing,
+            canExecuteVaccination = canExecuteVaccination,
+            canExecuteWeighing = canExecuteWeighing,
         )
     }
 

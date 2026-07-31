@@ -158,13 +158,13 @@ check_context() {
 check_login_grants() {
   echo "==> postflight: login grants"
   local uid_count leadership fields verifier_pending
-  uid_count="$(sql_scalar "SELECT count(*) FROM user_scope_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND role IN ('ceo_internal','operator','pc_director');")"
+  uid_count="$(sql_scalar "SELECT count(*) FROM user_scope_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND role IN ('ceo_internal','operator','pc_director','growth_director');")"
   leadership="$(sql_scalar "SELECT count(*) FROM user_scope_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND role='ceo_internal';")"
-  fields="$(sql_scalar "SELECT count(*) FROM user_scope_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND role IN ('operator','pc_director');")"
+  fields="$(sql_scalar "SELECT count(*) FROM user_scope_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND role IN ('operator','pc_director','growth_director');")"
   verifier_pending="$(sql_scalar "SELECT count(*) FROM auth_pending_email_grants WHERE tenant_id='${TENANT_ID}'::uuid AND status='active' AND normalized_email='jyothipvg12345@gmail.com' AND role='verifier';")"
   if [[ "$uid_count" -ge 9 ]]; then pass "9 UID-backed login grants materialized"; else fail "active UID-backed grants=${uid_count}, want >=9"; fi
   if [[ "$leadership" -ge 5 ]]; then pass "5 leadership ceo_internal grants active"; else fail "leadership active grants=${leadership}, want >=5"; fi
-  if [[ "$fields" -ge 4 ]]; then pass "4 field/director grants active"; else fail "field/director active grants=${fields}, want >=4"; fi
+  if [[ "$fields" -ge 5 ]]; then pass "5 field/director grants active"; else fail "field/director active grants=${fields}, want >=5"; fi
   if [[ "$verifier_pending" -ge 1 ]]; then pass "Jyothi verifier pending grant active"; else fail "Jyothi verifier pending grant missing"; fi
 }
 

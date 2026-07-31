@@ -18,7 +18,7 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
-const defaultFixturePath = "../fixtures/weighing-e2e-2026-07-29/weighing-seed.json"
+const defaultFixturePath = "../fixtures/weighing-seed-2026-07-29/weighing-seed.json"
 
 type fixture struct {
 	FixtureID        string                   `json:"fixture_id"`
@@ -164,13 +164,13 @@ type expectedProgressFixture struct {
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "seed-weighing-e2e: %v\n", err)
+		fmt.Fprintf(os.Stderr, "seed-weighing-fixture: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("seed-weighing-e2e", flag.ContinueOnError)
+	fs := flag.NewFlagSet("seed-weighing-fixture", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fixturePath := fs.String("fixture", defaultFixturePath, "path to weighing E2E fixture JSON")
 	dryRun := fs.Bool("dry-run", false, "validate and summarize without writing to DATABASE_URL")
@@ -228,8 +228,8 @@ func resolveFixturePath(path string) string {
 	}
 	if filepath.Clean(path) == filepath.Clean(defaultFixturePath) {
 		for _, candidate := range []string{
-			filepath.Join("..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json"),
-			filepath.Join("fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json"),
+			filepath.Join("..", "fixtures", "weighing-seed-2026-07-29", "weighing-seed.json"),
+			filepath.Join("fixtures", "weighing-seed-2026-07-29", "weighing-seed.json"),
 		} {
 			if fileExists(candidate) {
 				return candidate

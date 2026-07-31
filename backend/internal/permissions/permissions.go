@@ -3,11 +3,14 @@ package permissions
 import "context"
 
 const (
-	RoleVerifier    = "verifier"
-	RoleParkHead    = "park_head"
-	RolePCDirector  = "pc_director"
-	RoleOperator    = "operator"
-	RoleCEOInternal = "ceo_internal"
+	RoleVerifier   = "verifier"
+	RoleParkHead   = "park_head"
+	RolePCDirector = "pc_director"
+	// RoleGrowthDirector is the concrete grant key for the Growth Director business role.
+	// Business role keys use name_director order (`growth_director`), matching `pc_director`.
+	RoleGrowthDirector = "growth_director"
+	RoleOperator       = "operator"
+	RoleCEOInternal    = "ceo_internal"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -264,10 +267,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		WeighingMonitor: {},
-		CalendarRead:    {}, CalendarAction: {},
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},

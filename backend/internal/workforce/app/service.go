@@ -402,6 +402,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":           hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":          hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card": canViewProtocolAdherenceCard(grants),
+			"vaccination_execute":     canExecuteVaccination(grants, grantedModules),
+			"weighing_execute":        canExecuteWeighing(grants, grantedModules),
 		},
 		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
 		Modules:                 bootstrapModules,
@@ -573,7 +575,7 @@ func validMemberStatus(value string) bool {
 
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "verifier", "supervisor", "admin", "other":
+	case "operator", "park_head", "pc_director", "growth_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
@@ -582,7 +584,7 @@ func validRoleHint(value string) bool {
 
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false
@@ -615,9 +617,10 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 // Verifier is deliberately excluded: it owns a standalone evidence-review app,
 // not leadership action navigation. permissions.RoleOperator is also not leadership.
 var leadershipGrantRoles = map[string]bool{
-	permissions.RoleCEOInternal: true,
-	permissions.RolePCDirector:  true,
-	permissions.RoleParkHead:    true,
+	permissions.RoleCEOInternal:    true,
+	permissions.RolePCDirector:     true,
+	permissions.RoleGrowthDirector: true,
+	permissions.RoleParkHead:       true,
 }
 
 func isVerifierPrincipal(grants []domain.GrantSummary) bool {

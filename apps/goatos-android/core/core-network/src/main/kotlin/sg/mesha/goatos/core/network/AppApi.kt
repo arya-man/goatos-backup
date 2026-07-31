@@ -98,7 +98,22 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
+
+/**
+ * One phone-screen page of weighing roster rows. A viewport holds ~7-10 rows, so the
+ * network page and the observed Room window are both this size and grow only by
+ * viewport-triggered continuation (see docs/decisions/mobile-data-fetch-anti-patterns.md).
+ */
+const val WEIGHING_PAGE_SIZE = 20
+
+/** Hard ceiling for a caller-requested Room window (e.g., observeScope). */
+const val MAX_OBSERVED_WINDOW = WEIGHING_PAGE_SIZE * 2  // 40
+
+/** Hard ceiling for background scope hydration (e.g., refreshScope). */
+const val MAX_SCOPE_HYDRATION_ROWS = WEIGHING_PAGE_SIZE * 10  // 200
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
 const val APP_TASK_PAGE_SIZE = 20
@@ -341,8 +356,8 @@ interface AppApi {
      *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
     suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
-    /** GET /app/weighing/campaigns — operator-visible Weighing campaigns. */
-    suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto
+    /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
+    suspend fun listWeighingCampaigns(cursor: String? = null, limit: Int = WEIGHING_PAGE_SIZE): WeighingCampaignListResponseDto
 
     /** GET /app/weighing/planner/catalog — leadership planner vocabulary for weekly kids task creation. */
     suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto
@@ -368,7 +383,8 @@ interface AppApi {
         campaignId: String,
         campaignShedId: String,
         cursor: String? = null,
-        limit: Int = 250,
+        observationsCursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingRosterResponseDto
 
     suspend fun getWeighingLeadershipShedVideos(
@@ -420,6 +436,30 @@ interface AppApi {
         campaignShedId: String,
         idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
+    )
+
+    suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    )
+
+    /** POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close — leadership close
+     *  action for a weighing shed scope. Requires permission weighing.monitor. */
+    suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    )
+
+    /** POST /app/weighing/campaigns/{campaign_id}/close — leadership close action for an entire
+     *  weighing campaign. Requires permission weighing.monitor. */
+    suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
     )
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
@@ -1072,7 +1112,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             submitState = "draft",
         )
 
-    override suspend fun listWeighingCampaigns(): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
 
     override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
         WeighingPlannerCatalogResponseDto()
@@ -1097,6 +1137,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         campaignId: String,
         campaignShedId: String,
         cursor: String?,
+        observationsCursor: String?,
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 
@@ -1140,6 +1181,26 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         campaignShedId: String,
         idempotencyKey: String,
         request: WeighingScopeSubmitRequestDto,
+    ) = Unit
+
+    override suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    ) = Unit
+
+    override suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = Unit
+
+    override suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
     ) = Unit
 
     override suspend fun verifyAppTask(

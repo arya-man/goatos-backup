@@ -43,6 +43,8 @@ import (
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -141,6 +143,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
 	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 	healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
+	weighingRepo := weighingpg.NewRepository(pool, pgCfg.QueryTimeout)
 	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -152,6 +155,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
@@ -162,6 +166,9 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	// Weighing verdict applier: weighing enqueues a verification item for every
+	// observation, so without this consumer every approve/reject is a silent drop.
+	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)

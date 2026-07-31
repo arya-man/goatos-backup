@@ -49,7 +49,7 @@ func NewVertexProvider(ctx context.Context, log *slog.Logger) *vertex.Planner {
 	p, err := vertex.New(ctx, vertex.Config{
 		Project:  os.Getenv("MESHA_VERTEX_PROJECT"),
 		Location: os.Getenv("MESHA_VERTEX_LOCATION"),
-		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-2.5-flash"),
+		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.5-flash-lite"),
 	})
 	if err != nil {
 		if log != nil {

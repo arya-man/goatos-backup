@@ -381,6 +381,11 @@ func reviewableModuleKeys() []string {
 //     preventive care: Vaccination, Weighing, and Health. Counts, Feed, and Breeding
 //     are not preventive-care surfaces. Park Head is further
 //     limited to his own park by his grant scope (data scope), not by nav.
+//   - Growth Director is specialty-scoped to Weighing only.
+//
+// Merge note (2026-07-31): main had narrowed PC leadership to Vaccination only while
+// this branch was giving it Weighing + Health. Maintainer chose the union, so PC
+// leadership keeps Weighing and Health and Growth Director is added alongside.
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
@@ -388,7 +393,34 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 		return []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding"}
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
-	return []string{"vaccination", "weighing", "aas_health"}
+	// Growth Director is a separate specialty and may be held alongside them, so the sets are
+	// unioned rather than returned early. appendMissing keeps the result duplicate-free: a
+	// principal holding BOTH would otherwise contribute "weighing" twice and render it twice.
+	keys := make([]string, 0, 3)
+	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
+		keys = appendMissing(keys, "vaccination", "weighing", "aas_health")
+	}
+	if hasRole(grants, permissions.RoleGrowthDirector) {
+		keys = appendMissing(keys, "weighing")
+	}
+	return keys
+}
+
+// appendMissing appends each key not already present, preserving order.
+func appendMissing(keys []string, add ...string) []string {
+	for _, key := range add {
+		found := false
+		for _, existing := range keys {
+			if existing == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -401,8 +433,34 @@ func hasRole(grants []domain.GrantSummary, role string) bool {
 	return false
 }
 
+func hasPermission(grants []domain.GrantSummary, permission string) bool {
+	for _, g := range grants {
+		if permissions.RoleHasPermission(g.Role, permission) {
+			return true
+		}
+	}
+	return false
+}
+
 func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
-	return hasRole(grants, permissions.RoleCEOInternal) || hasRole(grants, permissions.RolePCDirector)
+	return hasRole(grants, permissions.RoleCEOInternal)
+}
+
+func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.TaskExecute) && canUseModule(grants, grantedModules, "vaccination")
+}
+
+func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+}
+
+func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
+	for _, key := range candidateModuleKeys(grants, grantedModules) {
+		if key == module {
+			return true
+		}
+	}
+	return false
 }
 
 // countAvailableModules counts modules the principal can actually render: known,

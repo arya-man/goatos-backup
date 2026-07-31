@@ -1,0 +1,360 @@
+CPT Adult RFID — Counting DB Group Mapping
+Counting DB date: 17/07/2026
+Counting DB: https://docs.google.com/spreadsheets/d/1vWtbgZI2Yz__noTocwPWzCtEDcS-UXW7mJ9ZqSQ5w_4 (DB tab)
+RFID source: docs/CPT Adult RFIDs.pdf
+
+METHOD
+- Each RFID inherits TAG, SHED, TYPE, BREED, and KID/ADULT from its PDF group's corresponding Counting DB shed(s).
+- Example: every RFID under 'Gandhi 3 Sheep' uses Gandhi 3 = Non-Pregnant / Anantapur Sheep / Adult.
+- This is a group-level assignment because Counting DB contains shed counts, not individual RFIDs.
+- TYPE rule: breed containing 'Sheep' = Sheep; other known breeds = Goat.
+- KID/ADULT uses the dashboard rule: K0-K4, F0-F2, F2-Male, F2-Female, ICU-Kid, and Quarantine Kids = Kid; other tags = Adult.
+
+SUMMARY
+Total RFIDs: 324
+Adult: 321 | Kid: 3 | Ambiguous: 0
+Sheep: 202 | Goat: 62 | Ambiguous: 60
+
+GROUP CHECK
+PDF_GROUP	PDF_COUNT	COUNTING_DB_SHED(S)	DB_COUNT	TAG	TYPE	BREED	KID_ADULT	COUNT_STATUS
+Gandhi 1 Sheep	42	Gandhi 1	42	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count matches
+Gandhi 2 Goat	31	Gandhi 2	30	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count mismatch: PDF 31, DB 30
+Gandhi 3 Sheep	42	Gandhi 3	42	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count matches
+Godel 2 Part 4 Goat	32	Godel 2 - Part 4	32	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count matches
+Mandela 2 Parts 8/9/10 Goat	30	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	30	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count matches
+Mandela 2 Part 7	13	Mandela 2 - Part 7	13	Non-Pregnant	Sheep	Anantapur Sheep	Adult	Count matches
+Mandela 2 Part 3 Sheep Buck	1	Mandela 2 - Part 3	1	Buck	Sheep	Anantapur Sheep	Adult	Count matches
+Mandela 2 Part 2 Sheep Buck	2	Mandela 2 - Part 2	2	Buck	Sheep	Anantapur Sheep	Kid	Count matches
+Mandela 2 Part 1 Sheep Buck	1	Mandela 2 - Part 1	1	Non-Pregnant	Sheep	Anantapur Sheep	Kid	Count matches
+Old Yashoda Goat Bucks	2	Old Yashoda 5	3	Buck	Goat	Beetal	Adult	Count mismatch: PDF 2, DB 3
+Old Yashoda Sheep Bucks	8	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	8	Buck	Sheep	Anantapur Sheep	Adult	Count matches
+Godel 1 Parts 1 and 2 Sheep	60	Godel 1 - Part 1 + Godel 1 - Part 2	60	Non-Pregnant	Ambiguous	Anantapur Sheep / Beetal	Adult	Count matches
+Godel 1 Parts 3 Sheep	30	Godel 1 - Part 3	30	Non-Pregnant	Goat	Beetal	Adult	Count matches
+Godel 1 Parts 4 Sheep	30	Godel 1 - Part 4	30	Non-Pregnant	Goat	Beetal	Adult	Count matches
+
+RFID MAPPING
+RFID	TAG	SHED	TYPE	BREED	KID_ADULT	PDF_GROUP	COUNT_STATUS
+901007000504274	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504712	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504593	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504718	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504306	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504614	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504838	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504235	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504634	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504707	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504893	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504852	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504595	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504674	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504868	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504292	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504239	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504715	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504232	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504282	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504245	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504521	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504220	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504847	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504524	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504826	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504659	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504835	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504890	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504591	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504660	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504701	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504272	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504865	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504661	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504226	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000503959	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504830	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504270	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504696	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504248	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504853	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Adult	Gandhi 1 Sheep	Count matches
+901007000504322	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503769	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503718	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503720	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503794	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503783	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504328	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503754	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504414	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503751	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503758	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504415	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504360	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504374	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503789	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503709	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503770	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503748	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503763	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504341	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503782	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504347	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503728	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504373	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504384	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503714	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504403	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503793	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503798	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000503790	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504370	Non-Pregnant	Gandhi 2	Sheep	Anantapur Sheep	Adult	Gandhi 2 Goat	Count mismatch: PDF 31, DB 30
+901007000504561	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504541	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504607	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504565	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504585	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504553	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504562	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504566	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504608	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504574	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504525	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504616	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504531	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504557	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504568	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504617	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504527	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504327	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504526	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504577	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504611	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504558	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504559	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504556	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504567	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504539	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504563	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504550	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504520	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504575	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504534	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504533	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504381	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504536	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504530	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504594	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504573	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504615	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504349	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504609	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504546	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504554	Non-Pregnant	Gandhi 3	Sheep	Anantapur Sheep	Adult	Gandhi 3 Sheep	Count matches
+901007000504192	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504154	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503744	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503715	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504324	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503725	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504348	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503779	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503761	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503753	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503722	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503737	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504350	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503787	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504408	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503786	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503797	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504394	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504387	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504388	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504398	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504416	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503743	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504406	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000503717	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504393	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504367	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504336	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504351	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504405	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504325	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504371	Non-Pregnant	Godel 2 - Part 4	Sheep	Anantapur Sheep	Adult	Godel 2 Part 4 Goat	Count matches
+901007000504382	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503785	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503735	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503799	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503704	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503795	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503777	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503791	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504339	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503745	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504345	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504354	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504346	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503726	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504377	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503755	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503771	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504352	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503792	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504321	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504385	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503750	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504333	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503702	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504343	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504400	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503739	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504359	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000503729	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504413	Non-Pregnant	Mandela 2 - Part 8 + Mandela 2 - Part 9 + Mandela 2 - Part 10	Sheep	Anantapur Sheep	Adult	Mandela 2 Parts 8/9/10 Goat	Count matches
+901007000504587	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504545	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504576	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504547	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504619	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504543	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504253	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504101	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504071	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504110	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504080	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504045	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000504085	Non-Pregnant	Mandela 2 - Part 7	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 7	Count matches
+901007000505117	Buck	Mandela 2 - Part 3	Sheep	Anantapur Sheep	Adult	Mandela 2 Part 3 Sheep Buck	Count matches
+901007000505116	Buck	Mandela 2 - Part 2	Sheep	Anantapur Sheep	Kid	Mandela 2 Part 2 Sheep Buck	Count matches
+901007000505045	Buck	Mandela 2 - Part 2	Sheep	Anantapur Sheep	Kid	Mandela 2 Part 2 Sheep Buck	Count matches
+901007000505039	Non-Pregnant	Mandela 2 - Part 1	Sheep	Anantapur Sheep	Kid	Mandela 2 Part 1 Sheep Buck	Count matches
+901007000504390	Buck	Old Yashoda 5	Goat	Beetal	Adult	Old Yashoda Goat Bucks	Count mismatch: PDF 2, DB 3
+901007000504340	Buck	Old Yashoda 5	Goat	Beetal	Adult	Old Yashoda Goat Bucks	Count mismatch: PDF 2, DB 3
+901007000505077	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505069	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505073	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505050	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505065	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505107	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505030	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000505105	Buck	Old Yashoda 1 + Old Yashoda 2 + Old Yashoda 3 + Old Yashoda 4	Sheep	Anantapur Sheep	Adult	Old Yashoda Sheep Bucks	Count matches
+901007000504228	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504613	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504537	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504097	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504538	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504582	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504079	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504091	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504241	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504599	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504919	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504050	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504074	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504055	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504572	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504612	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504092	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504523	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504108	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504311	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000503935	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504254	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504103	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504605	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504569	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504602	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504073	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504560	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504118	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504542	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504564	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504603	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504004	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504051	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000505088	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504112	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504588	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504581	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504571	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504841	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504094	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504109	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504548	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504033	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504586	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504260	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504551	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504298	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504610	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504358	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504383	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504058	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504090	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504831	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504598	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504285	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504917	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504596	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504590	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504061	Non-Pregnant	Godel 1 - Part 1 + Godel 1 - Part 2	Ambiguous	Anantapur Sheep / Beetal	Adult	Godel 1 Parts 1 and 2 Sheep	Count matches
+901007000504544	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504578	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504618	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504604	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504010	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504647	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504337	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504027	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504417	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504653	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504873	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504234	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504532	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504223	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504875	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504846	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504589	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504238	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504242	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504858	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504822	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504366	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504580	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504264	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504301	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504583	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504549	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504597	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504229	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504584	Non-Pregnant	Godel 1 - Part 3	Goat	Beetal	Adult	Godel 1 Parts 3 Sheep	Count matches
+901007000504052	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504293	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504222	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504889	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504631	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504535	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504356	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504820	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504302	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504291	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504832	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504592	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504843	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504522	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504850	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504552	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504871	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504307	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504629	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504695	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504255	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504528	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504628	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504579	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504230	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504844	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504275	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504243	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504257	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches
+901007000504657	Non-Pregnant	Godel 1 - Part 4	Goat	Beetal	Adult	Godel 1 Parts 4 Sheep	Count matches

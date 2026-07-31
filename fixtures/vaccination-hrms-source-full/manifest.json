@@ -7,6 +7,7 @@
   "sop_seed_contract_reviewed_at": "2026-07-23",
   "ceo_ai_compatibility_note": "Compatible with ceo_ai reporting view migrations 000024-000027 (read-only SQL views for leadership assistant operational screens)",
   "capacity_config_override_note": "Compatible with migration 000045 (nullable vaccination_capacity_config.max_shots_per_animal_per_drive admin override). This fixture seeds no override value; the obligation sweeper falls back to the published rule_dsl / code default, so no fixture data or hashes change.",
+  "growth_director_role_note": "Compatible with migration 000057. growth_director is a Weighing-only director role hint/catalog row; the vaccination HRMS fixture does not seed vaccination capacity or workforce_positions from that hint.",
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",

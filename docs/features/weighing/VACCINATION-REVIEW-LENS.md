@@ -1,6 +1,8 @@
 # Weighing Vaccination Review Lens
 
-Status: seed/E2E lane draft for Weighing v1.
+Status: seed/contract-fixture review lens draft for Weighing v1. NOTE: the
+companion fixture is a development seed + schema validator, not an E2E test —
+see `docs/features/weighing/e2e-coverage-gap.md`.
 
 This lens must be read before implementing or reviewing Weighing code. It turns
 the last Vaccination hardening fixes into explicit Weighing review questions and
@@ -53,16 +55,22 @@ fixture obligations.
 The companion fixture lives at:
 
 ```text
-fixtures/weighing-e2e-2026-07-29/weighing-seed.json
+fixtures/weighing-seed-2026-07-29/weighing-seed.json
 ```
 
 Run:
 
 ```bash
-node --test fixtures/weighing-e2e-2026-07-29/weighing-seed.test.mjs
-node tools/dev/validate-weighing-e2e-fixture.mjs
+node --test fixtures/weighing-seed-2026-07-29/weighing-seed-validation.test.mjs
+node tools/dev/validate-weighing-fixture.mjs
 ```
 
-These checks are contract gates for the seed/E2E lane. They do not replace the
-future backend, Android, and browser E2E tests; they define the minimum scenario
+These checks are a schema/shape validator for the development seed fixture,
+not an E2E test — they prove the fixture JSON matches its declared coverage
+fields, not that Weighing's capture -> proof-upload -> verification-queue ->
+verdict -> completion path works end to end. See
+`fixtures/weighing-seed-2026-07-29/README.md` ("What this fixture is NOT") and
+`docs/features/weighing/e2e-coverage-gap.md` for the honest status and the
+concrete production paths that remain unproven. They do not replace the future
+backend, Android, and browser E2E tests; they define the minimum scenario
 those tests must materialize.

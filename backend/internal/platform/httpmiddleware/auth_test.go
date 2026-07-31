@@ -53,6 +53,30 @@ func TestBearerAuthUsesTokenContextAndIgnoresSpoofHeaders(t *testing.T) {
 	}
 }
 
+func TestAuthSuccessLoggingIsScopedToLoginSurfaces(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		want   bool
+	}{
+		{name: "session event", method: http.MethodPost, path: "/auth/session-events", want: true},
+		{name: "bootstrap", method: http.MethodGet, path: "/app/bootstrap", want: true},
+		{name: "device register", method: http.MethodPost, path: "/app/devices/register", want: true},
+		{name: "ordinary api read", method: http.MethodGet, path: "/goats/search", want: false},
+		{name: "ordinary api write", method: http.MethodPost, path: "/counts/births", want: false},
+		{name: "wrong method on bootstrap", method: http.MethodPost, path: "/app/bootstrap", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldLogAuthSuccess(tc.method, tc.path); got != tc.want {
+				t.Fatalf("shouldLogAuthSuccess(%q, %q)=%v want %v", tc.method, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBearerAuthUsesHeaderTenantWhenTokenHasNoTenantClaim(t *testing.T) {
 	externalSubject := "firebase-uid-abc123"
 	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)

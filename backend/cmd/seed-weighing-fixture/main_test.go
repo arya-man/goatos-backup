@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestDryRunValidatesRepositoryFixture(t *testing.T) {
-	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json")
+	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-seed-2026-07-29", "weighing-seed.json")
 	var out bytes.Buffer
 	if err := run([]string{"-dry-run", "-fixture", fixturePath}, &out); err != nil {
 		t.Fatalf("dry run: %v", err)
@@ -38,7 +38,7 @@ func TestDryRunValidatesRepositoryFixture(t *testing.T) {
 }
 
 func TestShedCLumpSumAssignmentRemainsPendingForAmit(t *testing.T) {
-	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json")
+	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-seed-2026-07-29", "weighing-seed.json")
 	fx, err := loadFixture(fixturePath)
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
@@ -66,7 +66,7 @@ func TestImportLeavesShedCLumpSumAvailableToAmit(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
-	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-e2e-2026-07-29", "weighing-seed.json")
+	fixturePath := filepath.Join("..", "..", "..", "fixtures", "weighing-seed-2026-07-29", "weighing-seed.json")
 	fx, err := loadFixture(fixturePath)
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)

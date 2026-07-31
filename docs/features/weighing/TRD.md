@@ -245,6 +245,23 @@ selected sheds and the edit records a new membership snapshot version.
 
 ### `weighing_expected_animals`
 
+> **SUPERSEDED (maintainer decision 2026-07-31, migration
+> `000007_weighing_free_flow_scanned_identifier.sql`): Weighing is FREE-FLOW.**
+> `weighing_expected_animals` is now a **compatibility / planner-hint table
+> only**. It is populated at campaign creation as a display/planning aid
+> (legacy admin/review surfaces and the planner catalog), but it is
+> **never a submit gate and never the completion/membership source of
+> truth** for accepted observations. An operator may scan and accept ANY
+> real ear-tag RFID for a campaign shed bucket — including animals that
+> never appear in this table — because the same physical goat legitimately
+> moves in and out of expected rosters between planning and execution.
+> Do not read this table to reject a scan, and do not treat its `pending`/
+> `missed` rows as outstanding work that blocks completion. See
+> `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`
+> (A-6, B-4, C-3) and `tools/agent-hooks/check-weighing-free-flow-guard.mjs`.
+> The paragraph below documents the pre-free-flow design intent and is kept
+> for history; it no longer governs submit/completion behavior.
+
 Snapshot expected membership at campaign creation. This prevents later animal
 movement from rewriting what the operator was asked to cover.
 
@@ -271,13 +288,88 @@ rows that make old progress/proof counts impossible to reconstruct.
 
 ### `weighing_observations`
 
+> **SUPERSEDED (maintainer decision 2026-07-31, migration
+> `000007_weighing_free_flow_scanned_identifier.sql`):** `animal_id` is
+> **nullable**, not `not null`. Weighing is free-flow: an operator scans a
+> real ear-tag RFID and the backend accepts it as `scanned_identifier`
+> whether or not it resolves to a known `goats.goat_id`. The
+> `weighing_observations_animal_or_identifier_check` CHECK constraint
+> requires `animal_id IS NOT NULL OR btrim(scanned_identifier) <> ''` —
+> i.e. at least one of the two must be present, never both mandatory. The
+> same `scanned_identifier` may legitimately appear in more than one
+> `campaign_shed_id` bucket (a goat can be weighed once per bucket); no
+> uniqueness constraint may collapse it across buckets. See
+> `tools/agent-hooks/check-weighing-free-flow-guard.mjs` for the machine
+> guard that enforces this.
+
+> **NO HERD CROSS-CHECK ON THE WRITE PATH (maintainer decision 2026-07-31).**
+> This decision SUPERSEDES the "critical-animal-action gate on weighing
+> submit/observation" item recorded as blocker 2/9 in
+> `context/repo-audits/weighing-phase1-2-do-not-merge-blockers.md`. A clinical
+> gate briefly shipped that joined `goats` and refused the write when
+> `health_status` was `sick`/`under_treatment`/`recovering`/`quarantine`/`icu`
+> or `lifecycle_status` was an exit state. It has been removed.
+>
+> The weighing observation/submit path:
+> - does **not** resolve a scanned RFID to goat identity in order to decide
+>   whether the write is allowed;
+> - does **not** read `goats.health_status` or `goats.lifecycle_status`;
+> - does **not** check sick / ICU / quarantine / recovering / under-treatment;
+> - stores the raw `scanned_identifier` in the weighing tables;
+> - may carry an `animal_id` when one is already present from non-blocking
+>   enrichment, but the write and submit must never *depend* on it.
+>
+> Why: weighing records what the scale and the scanner saw. Putting an animal on
+> a scale administers nothing, so a clinical state is not a safety reason to
+> refuse the measurement — and refusing it destroys exactly the weight trend a
+> vet needs for an animal under treatment. Health state belongs to the clinical
+> workflows that own it.
+>
+> **Vaccination remains strict and must not be loosened by anything here.**
+>
+> The expected-animal roster is a LABEL, not a gate: it is LEFT JOINed for
+> wrong-shed classification only. An off-roster scan still records (as
+> `extra_scan`), and `weighing_expected_animals.status` /
+> `availability_status` never decide whether a weight is accepted. Writing
+> progress back to the roster is still fine. The one surviving precondition is
+> bucket category (`weighing_category='individual_animal'`), which is a
+> weighing-owned check about the bucket, not about the animal.
+>
+> **STRICT FORM (maintainer decision 2026-07-31, later the same day).** There is no
+> longer a "known animal" write path at all. `RecordAnimalObservation` always takes
+> the free-flow route:
+> - the request's `animal_id` is IGNORED for the write decision and is cleared by the
+>   service layer; stored `weighing_observations.animal_id` is always `NULL`;
+> - `scanned_identifier` is REQUIRED — a capture with no scanned tag is rejected;
+> - the write never resolves an RFID to a goat, never joins `goats`, and is never
+>   refused because a `goat_id` does not exist;
+> - **proof is BUCKET-scoped, not goat-scoped**: a completed video whose
+>   `scope_type='shed'` matches the campaign shed's `location_id`. Goat-scoped proof
+>   is no longer accepted, because requiring it was itself herd coupling;
+> - the remaining gates are all weighing-owned: live campaign, the bucket belongs to
+>   this campaign and this operator and is not canceled, the bucket is
+>   `weighing_category='individual_animal'`, positive weight, idempotency key.
+>
+> The `animal_id` column and its FK to `goats` REMAIN in the schema for future
+> enrichment/backfill — they are simply never written by the operator path. Nothing
+> in the weighing write may depend on them.
+>
+> Machine enforcement: `make weighing-free-flow-guard`. Seven failure modes, the
+> decisive one being mode 7 (`write-path-table-not-allowlisted`): the write path may
+> touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox, so `goats`,
+> `weighing_expected_animals` and vaccination tables are banned by default rather
+> than one incident at a time. The guard follows same-file helper calls, so
+> extracting a gate into a private helper does not hide it.
+> Behavioural proof:
+> `backend/internal/weighing/adapters/postgres/repository_free_flow_no_herd_crosscheck_integration_test.go`.
+
 | Column | Notes |
 |---|---|
 | `observation_id uuid pk` | Idempotent observation identity. |
 | `campaign_id uuid not null` | Parent campaign. |
 | `work_group_id uuid` | Work group being executed. |
-| `animal_id uuid not null` | Resolved from RFID/Animal ID scan. |
-| `scanned_identifier text not null` | Raw scanned value for audit. |
+| `animal_id uuid` (nullable — see decision note above) | Resolved from RFID/Animal ID scan **when it maps to a known goat**; may be null. |
+| `scanned_identifier text not null` | Raw scanned value for audit; the free-flow contract's primary identity when `animal_id` cannot be resolved. |
 | `weight_kg numeric not null` | Positive measured weight. |
 | `observed_at timestamptz not null` | Device/business timestamp. |
 | `operator_user_id uuid not null` | Field operator. |
@@ -485,6 +577,169 @@ Vaccination comparison:
   Replanning should preserve completed observations and explicit operator
   progress.
 
+## 6.1 IMPLEMENTED (Phase 2): the time-driven kernel
+
+Phase 1 shipped planning, execution, proof, verification, and explicit close, but
+weighing had **no time-driven kernel at all**: publishing a campaign produced a
+plan nothing swept, `kernel-worker` had zero weighing awareness, and Calendar /
+Control Tower had no weighing process state. Phase 2 closes that. This section
+describes what is actually built, not intent.
+
+### Work items on publish
+
+`weighing_work_items` (migration `000059_weighing_kernel_work_items.sql`) is the
+weighing equivalent of an obligation instance.
+
+- **Grain: ONE ROW PER `weighing_campaign_sheds` BUCKET.** Never per animal, never
+  per campaign. One bucket has exactly one operator, so a work item has exactly one
+  owner. Free-flow is untouched: the table references no goat, no herd roster, and
+  no vaccination row, and `weighing_observations.animal_id` stays nullable.
+- Columns carry tenant, campaign, `campaign_shed_id`, park, `shed_location_id`,
+  assigned `operator_user_id`, weighing category, shed label, and:
+  - `planned_business_date` — the ORIGINAL planned date. **Immutable.**
+  - `due_business_date` — the CURRENT executable date. Rolls forward only
+    (`CHECK (due_business_date >= planned_business_date)`).
+  - `work_state` — the single **disjoint** read bucket dimension:
+    `scheduled | delayed | completed | closed | canceled`. Open/executable =
+    `scheduled | delayed`.
+  - `day_start_surfaced_on`, `rolled_forward_count`, `last_rolled_forward_on`,
+    `delayed_since_business_date`, `escalated_on`, `terminal_at`.
+- `Repository.createWorkItemsForPublishTx` runs **inside the publish
+  transaction** (`PublishCampaign`). It is a required recorder, not a side effect:
+  if work items cannot be written the publish fails and the campaign stays draft,
+  so a published campaign can never exist without the work the kernel sweeps.
+- It is **one set-based `INSERT ... SELECT`**, never a per-shed loop of queries.
+  Suggested business dates come from the greedy planner expressed as a window
+  function: buckets are ordered per OPERATOR (capacity is operator-business-date
+  grain, so two operators do not consume each other's cap) and the day offset is
+  the running EXCLUSIVE bucket size divided by `planned_cap_per_day`.
+- Idempotency is `UNIQUE (tenant_id, campaign_shed_id)` +
+  `ON CONFLICT DO NOTHING`: republish, an exact idempotency-key replay, and a
+  retried transaction all converge on exactly one work item per bucket.
+
+### Cadence: registered in the existing kernel worker
+
+`kernelstages.WeighingKernelStage` (`Name() == "weighing-kernel"`) is registered
+in `backend/cmd/kernel-worker/main.go` on the existing **operational** cadence
+class (5-minute lane), next to the feed-transport day-task cadence. There is **no
+new worker binary, no Cloud Scheduler cron, and no scheduled Cloud Run Job** — the
+5k-50k envelope topology is unchanged, so `deploy/` needs no job or scheduler
+entry. Tunables: `GOATOS_WEIGHING_KERNEL_CHUNK_SIZE` (default 200),
+`GOATOS_WEIGHING_KERNEL_MAX_CHUNKS` (default 50).
+
+`Repository.SweepWorkItems` is one bounded, resumable, forward-progressing tick
+with four passes, in this order:
+
+1. **Terminal reconciliation** — a bucket that reached `completed` / `closed` /
+   `canceled` stops being open work, so it can never roll forward or escalate
+   forever. The terminal status is carried straight across; no state is invented.
+2. **Roll-forward** — open work whose `due_business_date` has passed stays
+   EXECUTABLE and moves to today. `planned_business_date` is never touched, so the
+   original plan survives for audit, and `rolled_forward_count` increments. Work is
+   **never auto-canceled because a date passed.**
+3. **Delayed / escalation** — open work past its ORIGINAL planned business date
+   becomes `work_state='delayed'` with `delayed_since_business_date` and
+   `escalated_on` set, and escalates UPWARD. Escalation fires once per transition,
+   not once per tick.
+4. **Day-start** — today's open work is surfaced per assigned operator, once per
+   business date (`day_start_surfaced_on`).
+
+Pass 2 runs before pass 4 deliberately: work that rolled forward becomes due today
+and is included in today's day-start surface in the same tick.
+
+Every pass is **keyset-chunked with `FOR UPDATE SKIP LOCKED` and a `LIMIT`**, over
+the partial index `weighing_work_items_open_keyset_idx (tenant_id, work_item_id)
+WHERE work_state IN ('scheduled','delayed')`. Forward progress is doubly
+guaranteed: a monotonically increasing `work_item_id` cursor per pass, AND every
+pass's `UPDATE` makes the claimed row stop matching its own predicate. A tick that
+spends its chunk budget stops and reports `Truncated`, resuming on the next tick.
+No full scan, no `OFFSET`, no unbounded tick.
+
+### Time grain
+
+Every comparison is the **Asia/Kolkata business DAY**. The stage hands
+`SweepWorkItems` an instant; `biztime.BusinessDate(asOf)` resolves it once and
+every SQL predicate is `::date` against that value. There is no `now()` business
+comparison, no `now ± N hours`, and no hour/minute arithmetic anywhere in the
+kernel path — the read model rejects anything finer than a `YYYY-MM-DD` business
+date outright.
+
+### Events (registered both ends)
+
+| Event | Direction | Recipients |
+|---|---|---|
+| `weighing.work_item.day_start` | DOWNWARD only | the assigned bucket operator, their own buckets only |
+| `weighing.work_item.rolled_forward` | DOWNWARD + UPWARD | assigned operator + `growth_director` + `ceo_internal` |
+| `weighing.work_item.delayed` | UPWARD only (escalation) | `growth_director` + `ceo_internal` |
+
+One event per `(campaign, operator)` group per pass — never one per work item.
+Each is enqueued in the SAME transaction as the state change it describes, with a
+deterministic idempotency key of `(event type, tenant, campaign, operator,
+business date)`, so an at-least-once redelivery collapses instead of pushing an
+operator twice for the same business day.
+
+All three are consumed by the **existing** Phase 1 consumer
+`notificationbridge.WeighingLifecycleEventConsumer.handleWorkItemCadence` — not a
+parallel consumer — and all three producer/consumer pairs are registered in
+`context/architecture/domain-event-registry.json`. Direction is fixed by the event
+TYPE, not by a payload flag. Recipients resolve only from
+`ResolveMemberRecipients` (the assignment-row `operator_user_id`) and
+`ResolvePositionRecipients` (active leadership role grants); no name, phone, token,
+or seed-time route exists in any payload or handler.
+
+### Calendar + Control Tower binding
+
+`Repository.WeighingProcessState` / `GET /weighing/process-state`
+(`getWeighingProcessState`, permission `weighing.monitor`) is the shared-surface
+read, per `docs/architecture/operational-read-model-contract.md`:
+
+- **Declared grain** on the wire: `grain: "weighing_work_item"` (not animal, not
+  campaign).
+- **Disjoint buckets**: the five `work_state` counts sum exactly to `total`, so a
+  UI may add them without double counting. The union is explicitly named
+  `open_total` (= `scheduled + delayed`).
+- **Whole-filter summary**: computed by the database over every matching work item.
+  The endpoint has no page or cursor parameter at all, so the summary is page-size
+  independent by construction; narrowing the date window changes day-marker ROWS
+  only and leaves the summary identical.
+- **Day markers are dot-grain**: one row per business day carrying open/delayed
+  counts, never the day's work items, so a Calendar grid never fetches a day's rows
+  to draw itself.
+- Served from canonical indexed SQL (`weighing_work_items_campaign_state_idx`)
+  with **zero projection tables**, per the 5k-50k envelope.
+
+Not built in this slice, and honestly out of scope here: the weighing rows are
+**not** merged into `backend/internal/calendar` or
+`backend/internal/processintegrity` SQL. Those modules remain
+vaccination-shaped; weighing exposes its own backend-owned process-state contract
+for those surfaces to render, and folding it into the shared calendar query is
+follow-up work.
+
+### Proof
+
+| Invariant | Test |
+|---|---|
+| publish creates work items exactly once, replay-safe | `TestWeighingPublishCreatesWorkItemsExactlyOnceOnReplay` |
+| day-start selects only today's open work, per operator, no cross-operator leak | `TestWeighingKernelDayStartSelectsOnlyTodaysOpenWorkForTheAssignedOperator` |
+| roll-forward preserves the original planned date, never cancels | `TestWeighingKernelRollForwardPreservesOriginalPlannedDateAndNeverCancels` |
+| delayed detection + one-shot escalation past the planned business date | `TestWeighingKernelDelayedDetectionEscalatesPastPlannedBusinessDate` |
+| terminal buckets stop being swept | `TestWeighingKernelStopsSweepingTerminalBuckets` |
+| the claim is chunked, bounded, and terminates | `TestWeighingKernelSweepClaimIsChunkedAndTerminates` |
+| summary is disjoint, whole-filter, page-size independent | `TestWeighingProcessStateSummaryIsDisjointWholeFilterAndPageSizeIndependent` |
+| FCM direction/recipients per cadence | `backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go` |
+| cadence registered on the existing worker's operational lane | `TestKernelWorkerSchedulesWeighingKernelOnOperationalCadence` |
+
+All dates in these tests are FIXED Asia/Kolkata business dates; there is no
+wall-clock offset and no hour arithmetic.
+
+Machine gate: `make weighing-kernel-phase2-guard`
+(`tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs`, registered in
+`tools/ci/guardrail-manifest.json`, `Makefile:guardrails`, and
+`tools/ci/run-local-ci.sh`) enforces five failure modes: publish without work
+items, an unbounded/non-keyset sweeper claim, hour arithmetic in the kernel path, a
+cadence not registered inside the existing kernel worker, and hardcoded cadence
+recipients.
+
 ## 7. Rolling execution
 
 At day boundary, a sweeper or read-model update marks incomplete current work as
@@ -640,12 +895,12 @@ role:
 | Capability | Actors |
 |---|---|
 | `weighing.plan` | CEO/CXO only |
-| `weighing.monitor` | CEO/CXO, preventive director, relevant park leadership |
-| `weighing.execute` | Operator, Amit in v1 |
+| `weighing.monitor` | CEO/CXO and Growth Director |
+| `weighing.execute` | Operator and `growth_director` field execution users |
 | `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
 
-Dinakar has monitoring/review capability only, not planning, creation, publish,
-edit, or execution capacity.
+Dinakar uses `growth_director` for monitoring/review plus execution capability.
+He is not a planner and does not add field-operator capacity.
 
 RBAC must be enforced in backend query predicates, not only by sidebar
 visibility. Every route that accepts `campaign_id`, `work_group_id`,
@@ -660,7 +915,8 @@ Sidebar:
 - Add Weighing for CEO/CXO, preventive director, and operator personas.
 - Show create/edit/publish actions only to CEO/CXO with `weighing.plan`.
 - Show review/monitoring surfaces to preventive director/Dinakar with
-  `weighing.monitor`, without create/edit/publish controls.
+  `weighing.monitor`, and field execution surfaces when `weighing.execute` is
+  present, without create/edit/publish controls.
 
 Leadership screen:
 
@@ -752,10 +1008,29 @@ proof is not required for selected per-shed/partition rows.
 
 Backend completion rule:
 
+> **SUPERSEDED (maintainer decision 2026-07-31, migration
+> `000007_weighing_free_flow_scanned_identifier.sql`):** the original rule
+> below required a **resolved `animal_id`**. Weighing is free-flow: a
+> resolved `animal_id` is no longer required to accept an observation. The
+> free-flow rule is `weight_kg > 0`, `scanned_identifier` present (a
+> resolved `animal_id` is accepted opportunistically when the scan matches a
+> known goat, but its absence must never reject the scan), mandatory proof,
+> proof upload accepted/recoverable, and idempotent replay. See
+> `tools/agent-hooks/check-weighing-free-flow-guard.mjs`.
+
 ```text
-accepted_weighing_observation
+accepted_weighing_observation  (SUPERSEDED — see decision note above)
 requires weight_kg > 0
 and resolved animal_id
+and proof_artifact_id with subject_scope=animal
+and proof upload accepted/recoverable
+and idempotent command accepted for the same semantic payload
+```
+
+```text
+accepted_weighing_observation  (CURRENT — free-flow, 2026-07-31)
+requires weight_kg > 0
+and (resolved animal_id OR non-empty scanned_identifier)
 and proof_artifact_id with subject_scope=animal
 and proof upload accepted/recoverable
 and idempotent command accepted for the same semantic payload
@@ -1038,8 +1313,8 @@ specifics:
 - CEO/CXO and preventive director receive delayed/open summary notifications
   when a campaign rolls beyond the planned week or has unresolved review-needed
   animals.
-- Dinakar receives reviewer/supervisor notifications, not task creation,
-  publish/edit, or operator execution assignments.
+- Dinakar receives reviewer/supervisor notifications and execution assignments
+  when explicitly assigned, not task creation or publish/edit notifications.
 
 Notification durability contract:
 
@@ -1047,8 +1322,8 @@ Notification durability contract:
   proof-upload-failed, and leadership summary notifications are created as
   durable notification requests from backend/domain events.
 - Recipient resolution reads active role grants/profile truth. Dinakar receives
-  monitoring/review notifications, not task creation, planning, publish, or
-  operator execution pushes.
+  monitoring/review and explicit execution pushes, not task creation, planning,
+  publish, or edit pushes.
 - A failed FCM/send does not change campaign/work-group state. It retries through
   the shared notification dispatcher and becomes visible in DLQ/repair tooling if
   exhausted.
@@ -1107,8 +1382,9 @@ Minimum tests before implementation is considered done:
   finished rows today and rolls the unfinished rows forward.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
   after 2026-08-01.
-- Dinakar can review/monitor but cannot create, publish, or edit weighing tasks
-  and is not counted as operator capacity.
+- Dinakar can review/monitor and execute assigned weighing work, but cannot
+  create, publish, or edit weighing tasks and is not counted as operator
+  capacity.
 - The assigned shed operator can execute only their own shed buckets.
 - Wrong-shed animal scan records in same table with mismatch status.
 - Expected animal shifted to another shed is not shown as an ordinary miss; if

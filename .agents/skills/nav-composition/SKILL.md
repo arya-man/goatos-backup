@@ -30,6 +30,13 @@ Nav bar, **bottom-bar icons/labels**, and which **screens** a person sees are
   deduped by `shared_key`, ordered by priority. 1 module → bottom-bar; ≥2 → drawer.
 - Reusable screens keyed by capability (`calendar`, `verify-queue`, `proof-upload`)
   and parameterised by module/category — never copy-pasted per vertical.
+- If Android must choose between two renderers for the same route, use a
+  backend-owned bootstrap feature flag derived from permission constants. Example:
+  `weighing_execute` chooses field execution vs monitor display for `/weighing`.
+  Do not derive this from role labels in the app.
+- Feature ownership is split by director role: `pc_director` owns Vaccination;
+  `growth_director` owns Weighing. Do not use `director_growth` or give
+  `pc_director` Weighing affordances.
 
 ## BANNED (guard fails on these)
 - A fixed nav template array hardcoded per role/module
@@ -37,6 +44,7 @@ Nav bar, **bottom-bar icons/labels**, and which **screens** a person sees are
 - Hardcoding a module/vertical route into a nav-item literal in the nav builder.
 - Duplicating a shared screen/nav item per module instead of one registry entry.
 - Client deciding nav by `role ==` or a hardcoded module list.
+- Client deciding execute-vs-display routing by role label.
 
 ## Guard
 `make nav-composition-guard` (`tools/agent-hooks/check-nav-composition.mjs`) — fails

@@ -79,8 +79,7 @@ identity, whole-result summary behavior, and every consuming surface. Run
 `make operational-read-model-contract-guard`.
 
 Critical animal actions (quarantine, ICU, death, contagious disease isolation,
-high-risk movement, weighing availability exclusions, and sale/allocation
-blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
+high-risk movement, and sale/allocation blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
 Run `make critical-animal-action-availability-guard` when touching those paths.
 
 CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
@@ -179,6 +178,11 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- STG operator grants are park-scoped, never tenant-scoped. Leadership/director
+  visibility may get tenant scope, but field execution accounts (`operator`,
+  weighing operators) must declare a park and materialize `user_scope_grants`
+  with `scope_type='park'`. Run `make stg-operator-scope-guard` for any STG
+  login, Firebase, workforce, or operator grant change.
 - Operator drive assignments are generated metadata, not obligation membership.
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
@@ -414,6 +418,10 @@ one product; this skill is the navigation layer.
   projection/read-model table, update the seed command, seed/projection test, or
   seed runbook in the same change. `make seed-migration-guard` enforces this
   coupling; see `docs/runbooks/initial-seed-migration-coupling.md`.
+- Role-catalog and `workforce_members.primary_role_hint` changes are seed-owned.
+  The live Growth Director role key is `growth_director` and it is Weighing-only;
+  do not spell it `director_growth`, do not merge it with `pc_director`, and do
+  not let HRMS roster seed create vaccination capacity from it.
 - New setup tables must declare their class: source/canonical, derived/read
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in

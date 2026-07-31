@@ -629,7 +629,8 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Routes.CALENDAR,
     showProtocolAdherenceCard: Boolean = false,
-    leadershipWeighing: Boolean = false,
+    canExecuteVaccination: Boolean = false,
+    canExecuteWeighing: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -745,6 +746,10 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
+                            if (!canExecuteVaccination) {
+                                Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
                             if (selected?.canOpen == false) {
                                 Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
@@ -771,41 +776,47 @@ fun AppNavHost(
             val vm: WeighingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
-            if (leadershipWeighing) {
+            if (canExecuteWeighing) {
+                WeighingScreen(
+                    state = state,
+                    onScanInputChange = vm::onScanInputChange,
+                    onScanSubmit = vm::submitTypedScan,
+                    onWeightChange = vm::onWeightInputChange,
+                    onRecordIndividual = vm::recordIndividual,
+                    onRecordShedPartition = vm::recordShedPartition,
+                    onCreateOrEditTask = vm::createOrEditDefaultPlan,
+                    onTogglePlannerShed = vm::togglePlannerShed,
+                    onPlannerShedCategory = vm::setPlannerShedCategory,
+                    onSelectPark = vm::selectAssignmentPark,
+                    onRefresh = vm::refresh,
+                    onOpenAssignment = { assignment ->
+                        if (assignment.status.isClosedWeighingAssignmentStatus()) {
+                            Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
+                        } else {
+                            navController.navigate(
+                                Routes.weighingScanRoute(
+                                    campaignId = assignment.campaignId,
+                                    workGroupId = assignment.workGroupId,
+                                    campaignShedId = assignment.campaignShedId,
+                                    category = assignment.category,
+                                    tenantId = assignment.tenantId,
+                                    expectedLocationId = assignment.expectedLocationId,
+                                    expectedLocationLabel = assignment.expectedLocationLabel,
+                                    scanTitle = assignment.label,
+                                ),
+                            )
+                        }
+                    },
+                    onReopenAssignment = vm::reopenAssignment,
+                    onAssignmentRowVisible = vm::onAssignmentRowVisible,
+                )
+            } else {
                 LeadershipWeighingScreen(
                     state = state,
                     onRefresh = vm::refresh,
-                )
-            } else {
-                WeighingScreen(
-                state = state,
-                onScanInputChange = vm::onScanInputChange,
-                onScanSubmit = vm::submitTypedScan,
-                onWeightChange = vm::onWeightInputChange,
-                onRecordIndividual = vm::recordIndividual,
-                onRecordShedPartition = vm::recordShedPartition,
-                onCreateOrEditTask = vm::createOrEditDefaultPlan,
-                onTogglePlannerShed = vm::togglePlannerShed,
-                onPlannerShedCategory = vm::setPlannerShedCategory,
-                onRefresh = vm::refresh,
-                onOpenAssignment = { assignment ->
-                    if (assignment.status.isClosedWeighingAssignmentStatus()) {
-                        Toast.makeText(context, "${assignment.label} already submitted", Toast.LENGTH_SHORT).show()
-                    } else {
-                        navController.navigate(
-                            Routes.weighingScanRoute(
-                                campaignId = assignment.campaignId,
-                                workGroupId = assignment.workGroupId,
-                                campaignShedId = assignment.campaignShedId,
-                                category = assignment.category,
-                                tenantId = assignment.tenantId,
-                                expectedLocationId = assignment.expectedLocationId,
-                                expectedLocationLabel = assignment.expectedLocationLabel,
-                                scanTitle = assignment.label,
-                            ),
-                        )
-                    }
-                },
+                    onReopenAssignment = vm::reopenAssignment,
+                    onCloseAssignment = vm::closeShedCampaign,
+                    onAssignmentRowVisible = vm::onAssignmentRowVisible,
                 )
             }
         }
@@ -881,7 +892,7 @@ fun AppNavHost(
         composable(Routes.WEIGHING_VIDEOS) {
             val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            WeighingLeadershipVideosScreen(state = state)
+            WeighingLeadershipVideosScreen(state = state, onShedVisible = vm::onShedVisible)
         }
 
         composable(
@@ -997,6 +1008,10 @@ fun AppNavHost(
                     onEvent = { event ->
                         when (event) {
                             is ShedsEvent.OpenShedRecord -> {
+                                if (!canExecuteVaccination) {
+                                    Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                    return@ShedsScreen
+                                }
                                 // A leadership oversight read (canOpenShed=false) is read-only:
                                 // block the click here so CEO/Director/Park Head never navigate
                                 // into the operator scan/execute loop. Operators reach sheds via

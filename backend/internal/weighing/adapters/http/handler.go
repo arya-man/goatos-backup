@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -22,11 +23,15 @@ type Service interface {
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
-	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, limit int) (domain.RosterPage, error)
+	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
+	ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error
+	CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
+	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
+	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 }
 
 type Handler struct {
@@ -64,6 +69,26 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/shed-observations", h.RecordShedObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
+	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
+	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
+	// buckets + whole-filter summary; renderers never recompute totals.
+	mux.HandleFunc("GET /weighing/process-state", h.WeighingProcessState)
+}
+
+// WeighingProcessState serves Calendar day markers and the Control Tower gap
+// summary. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD);
+// anything finer than a business day is rejected.
+func (h *Handler) WeighingProcessState(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.WeighingProcessState(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("campaign_id"),
+		r.URL.Query().Get("from"),
+		r.URL.Query().Get("to"),
+	)
+	h.respond(w, r, result, err)
 }
 
 type errorEnvelope struct {
@@ -102,6 +127,18 @@ type shedObservationRequest struct {
 
 type submitIndividualScopeRequest struct {
 	ScannedIdentifiers []string `json:"scanned_identifiers"`
+}
+
+type reopenScopeRequest struct {
+	Reason string `json:"reason"`
+}
+
+// closeRequest carries the mandatory close reason. The idempotency key is read
+// from the body (contract) or the Idempotency-Key header (mobile/admin default),
+// with the body winning when both are present.
+type closeRequest struct {
+	Reason         string `json:"reason"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
@@ -152,12 +189,16 @@ func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	page, err := h.service.ListScopeRoster(r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"), r.URL.Query().Get("cursor"), limit)
+	page, err := h.service.ListScopeRoster(
+		r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"),
+		r.URL.Query().Get("cursor"), r.URL.Query().Get("observations_cursor"), limit,
+	)
 	h.respond(w, r, map[string]any{
-		"items":        page.Items,
-		"observations": page.Observations,
-		"next_cursor":  page.NextCursor,
-		"trace_id":     traceID(r),
+		"items":                    page.Items,
+		"observations":             page.Observations,
+		"next_cursor":              page.NextCursor,
+		"next_observations_cursor": page.NextObservationsCursor,
+		"trace_id":                 traceID(r),
 	}, err)
 }
 
@@ -256,6 +297,60 @@ func (h *Handler) SubmitIndividualScope(w http.ResponseWriter, r *http.Request) 
 	h.respond(w, r, map[string]any{"status": "completed", "trace_id": traceID(r)}, err)
 }
 
+func (h *Handler) ReopenScope(w http.ResponseWriter, r *http.Request) {
+	var req reopenScopeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	err := h.service.ReopenScope(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+		r.Header.Get("Idempotency-Key"),
+		req.Reason,
+	)
+	h.respond(w, r, map[string]any{"status": "reopened", "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) CloseScope(w http.ResponseWriter, r *http.Request) {
+	var req closeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	result, err := h.service.CloseScope(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		r.PathValue("campaign_shed_id"),
+		h.idempotencyKey(r, req.IdempotencyKey),
+		req.Reason,
+	)
+	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) CloseCampaign(w http.ResponseWriter, r *http.Request) {
+	var req closeRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	result, err := h.service.CloseCampaign(
+		r.Context(),
+		actor(r),
+		r.PathValue("campaign_id"),
+		h.idempotencyKey(r, req.IdempotencyKey),
+		req.Reason,
+	)
+	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) idempotencyKey(r *http.Request, fromBody string) string {
+	if key := strings.TrimSpace(fromBody); key != "" {
+		return key
+	}
+	return strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+}
+
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil || len(body) == 0 {
@@ -283,6 +378,8 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, errorEnvelope{Code: "not_found", Message: "weighing resource was not found", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrImmutable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrScopeIncomplete):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	default:
