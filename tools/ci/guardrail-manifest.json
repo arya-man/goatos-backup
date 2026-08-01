@@ -740,6 +740,16 @@
       "owningDoc": "AGENTS.md",
       "requiredInCI": true,
       "ciStep": "design-system-guard"
+    },
+    {
+      "id": "domain-event-envelope-enum",
+      "script": "tools/agent-hooks/check-domain-event-envelope-enum.mjs",
+      "makeTarget": "domain-event-envelope-enum-guard",
+      "realCheck": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs",
+      "selfTest": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "domain-event-envelope-enum-guard"
     }
   ]
 }
