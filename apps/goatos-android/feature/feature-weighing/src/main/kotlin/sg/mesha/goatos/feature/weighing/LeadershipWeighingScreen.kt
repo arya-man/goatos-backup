@@ -13,60 +13,49 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
-// telemetry:exempt Operator oversight is read-only; the weighing writes it observes are tracked on
-// the execution surface that owns them.
+// telemetry:exempt Leadership weighing summary is read-only in V1; execution and verification state changes are tracked downstream.
 
-/**
- * Read-only oversight of weighing work assigned to SOMEONE ELSE.
- *
- * A SEPARATE destination from the work list and the planner list, not a mode of one shared screen.
- * It renders no scan action and no reopen/close control: this surface answers "how is everyone
- * else's weighing going", and the weighing write still requires the caller to be the shed's
- * assignee, so nothing here can widen what the viewer may record.
- */
 @Composable
-fun WeighingOperatorsScreen(
+fun LeadershipWeighingScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
-    onSelectPark: (String?) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    RefreshOnResume { onRefresh() }
     Column(modifier = modifier.fillMaxSize()) {
         MeshaScreenHeader(
-            title = "Operators",
-            eyebrow = "WEIGHING",
+            title = stringResource(R.string.weighing_leadership_title),
+            eyebrow = stringResource(R.string.weighing_eyebrow),
             eyebrowColor = MeshaColors.BrandD,
             actions = {
                 SyncIconButton(
                     isSyncing = state.loading,
                     onSync = onRefresh,
-                    contentDescription = "Refresh operator work",
+                    contentDescription = stringResource(R.string.weighing_leadership_refresh),
                 )
             },
         )
-        if (state.parkFilters.size > 1) {
-            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                WeighingParkFilters(filters = state.parkFilters, onSelect = onSelectPark)
-            }
-        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -75,30 +64,33 @@ fun WeighingOperatorsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.assignments.isEmpty()) {
-                item { WeighingReadOnlyEmptyCard(loading = state.loading, title = "No operator work") }
+                item { LeadershipEmptyCard(loading = state.loading) }
             } else {
                 itemsIndexed(state.assignments, key = { _, assignment -> assignment.campaignShedId }) { index, assignment ->
+                    // The list itself pulls the next page as the reader scrolls near the end.
                     LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
                         onAssignmentRowVisible(index)
                     }
-                    WeighingReadOnlyCard(assignment)
+                    LeadershipAssignmentCard(
+                        assignment,
+                        onReopen = { onReopenAssignment(assignment) },
+                        onClose = { reason -> onCloseAssignment(assignment, reason) },
+                    )
                 }
                 if (state.assignmentsLoadingMore) {
-                    item(key = "operators-loading-more") { ListLoadingFooter() }
+                    item(key = "assignments-loading-more") { ListLoadingFooter() }
                 }
             }
         }
     }
 }
 
-/**
- * One weighing shed row with NO action affordance, shared by the planner and oversight surfaces.
- *
- * The absence of a tap target is the point: both surfaces are read-only, so a row must not look
- * like it leads to a scan.
- */
 @Composable
-internal fun WeighingReadOnlyCard(row: WeighingAssignmentUiRow) {
+private fun LeadershipAssignmentCard(
+    row: WeighingAssignmentUiRow,
+    onReopen: () -> Unit = {},
+    onClose: (String) -> Unit = {},
+) {
     val complete = row.isClosed
     Column(
         modifier = Modifier
@@ -114,16 +106,48 @@ internal fun WeighingReadOnlyCard(row: WeighingAssignmentUiRow) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = row.label,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (complete) {
+                    Text(
+                        text = stringResource(R.string.weighing_leadership_tap_to_reopen),
+                        color = MeshaColors.BrandD,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable(
+                                role = Role.Button,
+                                onClick = onReopen,
+                            ),
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.weighing_leadership_close),
+                        color = MeshaColors.BrandD,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable(
+                                role = Role.Button,
+                                onClick = { onClose("closed from mobile leadership") },
+                            ),
+                    )
+                }
+            }
             Text(
-                text = row.label,
-                color = MeshaColors.Ink,
-                style = MeshaType.cardTitle,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = row.status.ifBlank { "Scheduled" },
+                text = row.status.ifBlank { stringResource(R.string.weighing_status_scheduled) },
                 color = if (complete) MeshaColors.Ok else MeshaColors.BrandD,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -132,9 +156,9 @@ internal fun WeighingReadOnlyCard(row: WeighingAssignmentUiRow) {
         }
         Text(
             text = if (row.category.equals("per_shed_partition", ignoreCase = true)) {
-                "Lump-sum weighing"
+                stringResource(R.string.weighing_lump_sum_weighing)
             } else {
-                "Individual weighing"
+                stringResource(R.string.weighing_individual_weighing)
             },
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
@@ -156,7 +180,7 @@ internal fun WeighingReadOnlyCard(row: WeighingAssignmentUiRow) {
             }
         }
         Text(
-            text = if (complete) "Completed" else "Scheduled",
+            text = if (complete) stringResource(R.string.weighing_status_completed) else stringResource(R.string.weighing_status_scheduled),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )
@@ -164,7 +188,7 @@ internal fun WeighingReadOnlyCard(row: WeighingAssignmentUiRow) {
 }
 
 @Composable
-internal fun WeighingReadOnlyEmptyCard(loading: Boolean, title: String) {
+private fun LeadershipEmptyCard(loading: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -175,12 +199,12 @@ internal fun WeighingReadOnlyEmptyCard(loading: Boolean, title: String) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = if (loading) "Loading weighing work" else title,
+            text = if (loading) stringResource(R.string.weighing_leadership_loading) else stringResource(R.string.weighing_leadership_empty_title),
             color = MeshaColors.Ink,
             style = MeshaType.cardTitle,
         )
         Text(
-            text = "Shed tasks will appear here.",
+            text = stringResource(R.string.weighing_leadership_empty_body),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )

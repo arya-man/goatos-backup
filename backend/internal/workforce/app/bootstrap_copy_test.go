@@ -66,7 +66,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/verify/action"},
-					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+					{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}
 				if len(m.NavItems) != len(wantItems) {
@@ -229,4 +229,106 @@ func TestBootstrapCopyCatalogCoversSupportedLocales(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestAlertsNavLabelNamesTheVaccinationScope locks the honest naming of the /alerts
+// destination. That screen is fed by ONE upstream — the vaccination control-tower
+// summary — so it can only ever show vaccination alerts. It is nevertheless
+// contributed to the Weighing bottom bar as well, where a bare "Alerts" promises a
+// weighing operator that a weighing alert is reachable there. It is not: a weighing
+// push exists only as a system-tray entry, and swiping it away loses it.
+//
+// Until a module-scoped notification history exists, the label must say which
+// module's alerts these are, in every language, so the tab does not over-promise.
+func TestAlertsNavLabelNamesTheVaccinationScope(t *testing.T) {
+	wantByLocale := map[string]string{
+		"en": "Vaccination alerts",
+		"hi": "टीकाकरण अलर्ट",
+		"kn": "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
+		"te": "టీకా అలర్ట్లు",
+	}
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+	for locale, want := range wantByLocale {
+		modules := modulesFor(grants, nil, locale)
+		seen := 0
+		for _, m := range modules {
+			for _, item := range m.NavItems {
+				if item.Href != "/alerts" {
+					continue
+				}
+				seen++
+				if item.Label != want {
+					t.Fatalf("locale %s module %s: /alerts label = %q, want %q", locale, m.Key, item.Label, want)
+				}
+			}
+		}
+		if seen == 0 {
+			t.Fatalf("locale %s: no /alerts nav item found to check", locale)
+		}
+	}
+}
+
+// TestNewDirectorRolesGetTheirOwnModuleOffer pins the /app/bootstrap hole these two roles were
+// shipped with: both are leadership principals, so visibleNavigationFor takes the leadership
+// branch, and with no entry in leadershipModuleKeys that branch resolved zero keys and returned
+// an EMPTY nav plus an EMPTY drawer -- a role that can log in and reach nothing.
+//
+// It also pins the OFF-feature boundary the offer must not cross: health_director is offered the
+// Counts module but holds NO counts.read, so no Counts nav item may appear for him. Granting
+// counts.read is what would switch the feature on (AGENTS.md).
+func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
+	const en = localization.DefaultTag
+
+	t.Run("feed director is offered feed, never another director's module", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleFeedDirector)}
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			t.Fatal("feed_director resolves ZERO leadership module keys; bootstrap returns an empty nav")
+		}
+		if keys[0] != "feed_direction" {
+			t.Fatalf("feed_director module keys = %v, want feed_direction first", keys)
+		}
+		for _, key := range keys {
+			switch key {
+			case "vaccination", "weighing", "counts":
+				t.Fatalf("feed_director offered %q, which belongs to another director", key)
+			}
+		}
+		// Feed is still a declared roadmap module, so the drawer row is the disabled "Soon" row
+		// (TestFeedModuleRoleMatrix pins that Feed contributes no bottom-bar items yet).
+		modules := modulesFor(grants, nil, en)
+		if status := moduleKeySet(modules)["feed_direction"]; status != moduleStatusSoon {
+			t.Fatalf("feed_director feed row status = %q, want %q", status, moduleStatusSoon)
+		}
+	})
+
+	t.Run("health director is offered counts but counts stays OFF without counts.read", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleHealthDirector)}
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			t.Fatal("health_director resolves ZERO leadership module keys; bootstrap returns an empty nav")
+		}
+		if keys[0] != "counts" {
+			t.Fatalf("health_director module keys = %v, want counts first", keys)
+		}
+		for _, key := range keys {
+			switch key {
+			case "vaccination", "weighing", "feed_direction":
+				t.Fatalf("health_director offered %q, which belongs to another director", key)
+			}
+		}
+		if permissions.RoleHasPermission(permissions.RoleHealthDirector, permissions.CountsRead) {
+			t.Fatal("health_director holds counts.read; that switches the OFF Counts feature on")
+		}
+		// Offer without access: every Counts nav item is permission-gated, so none renders and
+		// the Counts drawer row does not appear at all.
+		for _, item := range visibleNavigationFor(grants, nil, en) {
+			if item.Key == "counts" || item.Href == "/counts" {
+				t.Fatalf("Counts nav item %q rendered for health_director without counts.read", item.Key)
+			}
+		}
+		if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; ok {
+			t.Fatal("Counts drawer row rendered for health_director without counts.read")
+		}
+	})
 }

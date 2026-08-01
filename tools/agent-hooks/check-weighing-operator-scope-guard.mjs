@@ -98,8 +98,36 @@ export function findingsForRepositorySource(rel, source) {
 export function findingsForHandlerSource(rel, source) {
   const findings = [];
   const routeFnNames = ["ListCampaigns", "ListScopeRoster"];
-  for (const fnName of routeFnNames) {
+
+  // A route handler may delegate to a shared unexported helper in the same file -- e.g.
+  // ListCampaigns and AppListCampaigns both forward to listCampaigns(w, r, fallbackScope), which
+  // differ only in their default scope. The security property lives in the helper, so inspecting
+  // ONLY the exported body reports a missing actor(r) on a handler that is perfectly correct, and
+  // pressures the next author to inline the check back into both copies -- which is how these
+  // predicates drift apart in the first place.
+  //
+  // Follow ONE level of same-file delegation: if the body is a lone call to another function
+  // defined here, analyse that function instead. Deliberately one level and same-file only --
+  // chasing further would need real call-graph analysis, and a silently-deep chain should be
+  // visible to a reviewer anyway.
+  const resolveBody = (fnName) => {
     const body = extractFunctionBody(source, fnName);
+    if (body == null) return null;
+    // Already carries the check: nothing to follow.
+    if (/actor\(r\)/.test(body)) return body;
+    // Otherwise, if it forwards to a same-file helper, the property lives there. Take the FIRST
+    // such delegate; a handler that forwards to several is not a thin delegator and should be
+    // reported as-is.
+    const delegates = [...body.matchAll(/h\.([a-z][A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1]);
+    for (const name of delegates) {
+      const inner = extractFunctionBody(source, name);
+      if (inner != null) return inner;
+    }
+    return body;
+  };
+
+  for (const fnName of routeFnNames) {
+    const body = resolveBody(fnName);
     if (body == null) continue;
     if (!/actor\(r\)/.test(body)) {
       findings.push({
@@ -209,7 +237,34 @@ func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
     throw new Error("self-test failed: mode 2 false positive on actor(r)-derived scope");
   }
 
-  console.log("weighing-operator-scope guard: self-test passed (2/2 failure modes)");
+  // Mode 3 -- delegation. A route handler may be a thin forwarder to a shared same-file helper
+  // (ListCampaigns/AppListCampaigns both forward to listCampaigns, differing only in default
+  // scope). The guard follows one level so it checks where the property actually lives; these two
+  // fixtures pin BOTH directions, because a resolver that follows delegation without still
+  // catching a dropped actor would silently turn this guard off.
+  const delegatingGood = `
+func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
+	h.listCampaigns(w, r, domain.CampaignListScopeAll)
+}
+
+func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback domain.CampaignListScope) {
+	caller := actor(r)
+	page, err := h.service.ListCampaigns(r.Context(), caller, fallback)
+}
+`;
+  if (findingsForHandlerSource("fake_handler.go", delegatingGood).length !== 0) {
+    throw new Error("self-test failed: mode 3 false positive on a handler delegating to a helper that uses actor(r)");
+  }
+
+  const delegatingBad = delegatingGood.replace(
+    "caller := actor(r)",
+    `caller := domain.Actor{UserID: r.URL.Query().Get("operator_user_id")}`,
+  );
+  if (findingsForHandlerSource("fake_handler.go", delegatingBad).length === 0) {
+    throw new Error("self-test failed: mode 3 accepted a delegate that takes operator scope from the query string");
+  }
+
+  console.log("weighing-operator-scope guard: self-test passed (3/3 failure modes)");
 }
 
 // Spawns THIS script as a child process against a throwaway fixture repo and asserts the real

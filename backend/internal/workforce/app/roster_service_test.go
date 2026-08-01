@@ -557,6 +557,10 @@ func (f *fakeRosterRepo) ResolveModuleDutyRecipients(_ context.Context, _, _, _,
 	return nil, nil
 }
 
+func (f *fakeRosterRepo) ResolveModuleDutyRecipientsBatch(_ context.Context, _, _ string, _ []string, _ string, _ []string, _ time.Time) (map[string][]domain.NotificationRecipient, error) {
+	return nil, nil
+}
+
 func (f *fakeRosterRepo) ResolveMemberRecipients(_ context.Context, _, _ string) ([]domain.NotificationRecipient, error) {
 	return nil, nil
 }

@@ -664,7 +664,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
         // to the dose counts when a legacy cache / mixed-version response lacks animal counts (CDR-R1),
         // labelled accordingly. Round (not truncate) to match web. due/overdue/deferred chips stay doses.
         val coverage = driveVisibleProgress(summary)
-        val pct = driveCoveragePct(coverage.completed, coverage.total)
+        val pct = drivePctFor(summary, coverage)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),

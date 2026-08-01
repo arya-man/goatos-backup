@@ -1151,6 +1151,18 @@ func (s *RosterService) ResolvePositionRecipientsBatch(ctx context.Context, tena
 	return s.repo.ResolvePositionRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
 }
 
+// ResolveModuleDutyRecipientsBatch resolves active, reachable devices for every seat holding
+// (moduleCode, any of dutyTypes) across MULTIPLE scopes in ONE query. This is the audience read a
+// cadence sweeper should use: duty membership cannot drift away from the roster seeder the way a
+// hardcoded position-code list did. Keyed "<scopeID>|<positionCode>", same as
+// ResolvePositionRecipientsBatch.
+func (s *RosterService) ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]domain.NotificationRecipient, error) {
+	if at.IsZero() {
+		at = s.now()
+	}
+	return s.repo.ResolveModuleDutyRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+}
+
 func validRosterScope(tenantID, scopeType, scopeID string) bool {
 	switch scopeType {
 	case "tenant":

@@ -65,6 +65,9 @@ import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.feature.auth.NotificationAlertsGate
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
@@ -74,6 +77,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
+import sg.mesha.goatos.push.DevicePushStateViewModel
 import sg.mesha.goatos.push.PushNavigationViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
@@ -141,17 +145,13 @@ fun GoatOsShell(navState: NavState) {
     // (e.g. a config change) never re-navigates to the same tap twice.
     val pushNavVm: PushNavigationViewModel = hiltViewModel()
     val pendingPushRoute by pushNavVm.pendingRoute.collectAsStateWithLifecycle()
-    LaunchedEffect(pendingPushRoute) {
-        val route = pendingPushRoute ?: return@LaunchedEffect
-        // Same stale-contract hazard as the nav bar: a push payload can name a route this build does
-        // not host (older APK, retired deep link). Consume it either way so it cannot replay.
-        if (navController.graph.findNode(route) == null) {
-            Log.w(TAG_SHELL, "push_route_not_hosted route=$route — ignoring deep link")
-        } else {
-            navController.navigate(route) { launchSingleTop = true }
-        }
-        pushNavVm.consume()
-    }
+    // Set when a tapped alert points at something this person cannot open, so the screen can say
+    // so in one line instead of leaving them on a blank or unexpected page.
+    var showUnavailableAlertNotice by remember { mutableStateOf(false) }
+
+    // Re-reports this device's push state (token + whether the phone will actually show what we
+    // send) when the alerts gate below sees access come back on.
+    val pushStateVm: DevicePushStateViewModel = hiltViewModel()
 
     // Shell-level connectivity/outbox status. Feeds the passive offline banner (debounced) and
     // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.
@@ -228,6 +228,40 @@ fun GoatOsShell(navState: NavState) {
     val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
     val verificationVideoControlsEnabled = visibleNavState.featureFlags["verification_video_controls"] == true
 
+    // Cold-start / pre-auth notification-tap deep-link. A tap can arrive before this NavHost even
+    // exists (MainActivity writes into PendingNavigation as soon as the intent is read, well before
+    // sign-in + bootstrap resolve), so this is the first point a real NavHostController AND the
+    // person's own navigation both exist. Fires exactly once: PendingNavigation.consume() atomically
+    // nulls the held route, so a later recomposition (e.g. a config change) never re-navigates to
+    // the same tap twice.
+    //
+    // Two ways a tap can point nowhere usable, and NEITHER may leave a blank screen: the route is
+    // not hosted by this build (older APK, retired link), or it is a module landing this person was
+    // not granted (an alert forwarded to the wrong recipient, or access changed since it was sent).
+    // Both land on this person's OWN home screen with a one-line notice.
+    LaunchedEffect(pendingPushRoute, visibleNavState) {
+        val route = pendingPushRoute ?: return@LaunchedEffect
+        // Hold the tap until this person's own navigation has resolved. Judging it against an
+        // empty pre-bootstrap state would reject every alert on a cold start.
+        if (visibleNavState.items.isEmpty() && visibleNavState.modules.isEmpty()) return@LaunchedEffect
+        val hosted = navController.graph.findNode(route) != null
+        val permitted = !isRootDestination(route) || visibleNavState.grantsRootDestination(route)
+        when {
+            !hosted -> {
+                Log.w(TAG_SHELL, "push_route_not_hosted route=$route — landing on the default screen")
+                showUnavailableAlertNotice = true
+                navigate(startDestinationFor(visibleNavState))
+            }
+            !permitted -> {
+                Log.w(TAG_SHELL, "push_route_not_granted route=$route — landing on the default screen")
+                showUnavailableAlertNotice = true
+                navigate(startDestinationFor(visibleNavState))
+            }
+            else -> navController.navigate(route) { launchSingleTop = true }
+        }
+        pushNavVm.consume()
+    }
+
     LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
         val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
         val currentBaseRoute = backStackEntry?.destination?.route?.routeBase()
@@ -255,6 +289,32 @@ fun GoatOsShell(navState: NavState) {
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
+
+        // Alerts gate — deliberately HERE, not on a capture screen.
+        //
+        // The permission card only ever existed on scan/record surfaces, so a director, a park
+        // head or the CEO was never asked for notification access at all: on Android 13+ that
+        // permission starts DENIED, the push gateway still accepted every alert addressed to their
+        // phone and reported it delivered, and the OS dropped it. The roles whose alerts matter
+        // most were the ones receiving nothing.
+        //
+        // The shell is the only surface EVERY role passes through after bootstrap — start
+        // destination varies by role (startDestinationFor: /vaccination, /weighing, /verify,
+        // /calendar, /counts...), so no single route would have covered everyone. Renders nothing
+        // once alerts are on, and never blocks the screen below it.
+        NotificationAlertsGate(
+            modifier = Modifier.padding(
+                horizontal = MeshaDimens.space4,
+                vertical = MeshaDimens.space2,
+            ),
+            // Re-report this device the moment alerts come back on, so the backend stops treating
+            // it as push-muted without waiting for the next app launch.
+            onAlertsTurnedOn = pushStateVm::reportNow,
+        )
+        UnavailableAlertNotice(
+            visible = showUnavailableAlertNotice,
+            onDismiss = { showUnavailableAlertNotice = false },
+        )
         val navState = visibleNavState
         AppNavHost(
             navController = navController,
@@ -417,6 +477,10 @@ fun GoatOsShellChrome(
                         scope.launch { drawerState.close() }
                         onOpenLanguage()
                     },
+                    onOpenAccount = {
+                        scope.launch { drawerState.close() }
+                        onNavigate("/you")
+                    },
                     onSignOut = {
                         scope.launch { drawerState.close() }
                         onSignOut()
@@ -549,6 +613,9 @@ private fun MeshaNavBar(
                         modifier = Modifier.size(24.dp),
                     )
                 },
+                // design-system:ignore: weight-only override on the M3 NavigationBarItem label
+                // (no fontSize to pair with); applying a full MeshaType style would also change
+                // the bar label's size away from the M3 default.
                 label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
                 colors = itemColors,
             )
@@ -579,6 +646,7 @@ private fun ModuleDrawer(
     profile: DrawerProfile?,
     onSelectModule: (NavModule) -> Unit,
     onOpenLanguage: () -> Unit,
+    onOpenAccount: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     ModalDrawerSheet(
@@ -617,7 +685,7 @@ private fun ModuleDrawer(
                     }
                 }
             }
-            DrawerFooter(onSignOut)
+            DrawerFooter(onOpenAccount = onOpenAccount, onSignOut = onSignOut)
         }
     }
 }
@@ -639,6 +707,8 @@ private fun DrawerHeader(profile: DrawerProfile?) {
             Text(
                 text = profile?.initials?.ifBlank { "M" } ?: "M",
                 color = MeshaColors.OnBrand,
+                // design-system:ignore: 18sp/W800 avatar initials — nearest token (button 15sp/W800)
+                // is 3sp smaller, which would visibly shrink the drawer avatar glyph.
                 fontSize = 18.sp,
                 fontWeight = FontWeight.W800,
             )
@@ -647,11 +717,12 @@ private fun DrawerHeader(profile: DrawerProfile?) {
             Text(
                 profile?.name?.ifBlank { "Mesha" } ?: "Mesha",
                 color = MeshaColors.Ink,
-                fontSize = 15.5.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.cardTitle,
             )
             val sub = profile?.role?.takeIf { it.isNotBlank() }
             if (sub != null) {
+                // design-system:ignore: 11.5sp at default W400; the only 11.5sp token (caption)
+                // is W600, which would bolden this sub-label.
                 Text(sub, color = MeshaColors.Muted, fontSize = 11.5.sp)
             }
         }
@@ -664,9 +735,7 @@ private fun DrawerGroupLabel(text: String) {
     Text(
         text.uppercase(),
         color = MeshaColors.Faint,
-        fontSize = 10.5.sp,
-        fontWeight = FontWeight.W700,
-        letterSpacing = 0.6.sp,
+        style = MeshaType.overline,
         modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 6.dp),
     )
 }
@@ -695,6 +764,8 @@ private fun DrawerRow(
             Box(Modifier.width(3.dp).height(20.dp).clip(RoundedCornerShape(2.dp)).background(MeshaColors.Brand))
         }
         Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — the 14.5sp tokens are body (W400) and bodyStrong
+        // (W700); neither carries W600, so either would change this drawer row's weight.
         Text(label, color = fg, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         trailing?.invoke()
     }
@@ -714,6 +785,7 @@ private fun DrawerSoonRow(module: NavModule) {
             tint = MeshaColors.Faint,
             modifier = Modifier.size(20.dp),
         )
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
         Text(module.label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         DrawerBadge(stringResource(DesignSystemR.string.nav_soon), brand = false)
     }
@@ -729,8 +801,7 @@ private fun DrawerBadge(text: String, brand: Boolean) {
     Text(
         text,
         color = if (brand) MeshaColors.BrandD else MeshaColors.Muted,
-        fontSize = 9.5.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.dayName,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(if (brand) MeshaColors.Brand.copy(alpha = 0.16f) else MeshaColors.Surf3)
@@ -739,8 +810,24 @@ private fun DrawerBadge(text: String, brand: Boolean) {
 }
 
 @Composable
-private fun DrawerFooter(onSignOut: () -> Unit) {
+private fun DrawerFooter(onOpenAccount: () -> Unit, onSignOut: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(1.dp).background(MeshaColors.Hair))
+    // The account sits at the FOOT of the drawer, beside Sign out, because it belongs to the person
+    // rather than to Weighing or Vaccination. A principal with the drawer therefore reaches it once
+    // here instead of carrying a You tab in every module's bottom bar. A principal without a drawer
+    // keeps You on the bar -- that is their only route to it.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenAccount)
+            .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        Icon(MeshaIcons.forNavKey("you"), contentDescription = null, tint = MeshaColors.Ink, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
+        Text(stringResource(DesignSystemR.string.nav_you), color = MeshaColors.Ink, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -750,6 +837,7 @@ private fun DrawerFooter(onSignOut: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
         Icon(MeshaIcons.Logout, contentDescription = stringResource(DesignSystemR.string.nav_sign_out), tint = MeshaColors.Danger, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
         Text(stringResource(DesignSystemR.string.nav_sign_out), color = MeshaColors.Danger, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
     }
 }

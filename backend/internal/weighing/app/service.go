@@ -14,9 +14,10 @@ import (
 )
 
 type Service struct {
-	repo         ports.Repository
-	enqueuer     VerificationEnqueuer
-	processState ports.WeighingProcessStateReader
+	repo                   ports.Repository
+	enqueuer               VerificationEnqueuer
+	verificationWithdrawer VerificationWithdrawer
+	processState           ports.WeighingProcessStateReader
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -36,6 +37,10 @@ type VerificationEnqueueRequest struct {
 	MediaRefs      []string
 	OperatorID     string
 	ShedID         string
+	// ParkID is the campaign's park. It is MANDATORY routing data, not decoration:
+	// the verification notification consumer resolves the park's verify-duty holders
+	// from it, and an item enqueued without a park notifies nobody.
+	ParkID         string
 	SubjectLabel   string
 	CapturedAt     time.Time
 	IdempotencyKey string
@@ -43,6 +48,18 @@ type VerificationEnqueueRequest struct {
 
 func (s *Service) WithVerificationEnqueuer(enqueuer VerificationEnqueuer) *Service {
 	s.enqueuer = enqueuer
+	return s
+}
+
+// VerificationWithdrawer retires verification items whose weighing source record
+// has been superseded. Separate from VerificationEnqueuer so existing fakes that
+// only raise items keep satisfying that interface unchanged.
+type VerificationWithdrawer interface {
+	WithdrawWeighingVerification(ctx context.Context, tenantID, refType string, observationIDs []string) error
+}
+
+func (s *Service) WithVerificationWithdrawer(withdrawer VerificationWithdrawer) *Service {
+	s.verificationWithdrawer = withdrawer
 	return s
 }
 
@@ -190,29 +207,61 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, strings.TrimSpace(cursor), limit)
 }
 
-// PlannerCatalog returns the bounded planner vocabulary for ONE weigh date, including
-// per-shed availability on that date.
-//
-// excludeCampaignID is the task currently being edited. Without it an edit would see its
-// OWN buckets as already taken and refuse to re-save them, so the planner needs to say
-// "everything except this task".
-func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate, excludeCampaignID string) (domain.PlannerCatalog, error) {
-	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	if !canPlan && !canMonitor {
+// PlannerCatalog returns the PARK-grain planner vocabulary for ONE weigh date: every park
+// the planner may pick plus the operator picker. It carries no shed rows -- the sheds of
+// the chosen park are read a page at a time by PlannerParkBuckets.
+func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error) {
+	if !s.canPlanOrMonitor(actor) {
 		return domain.PlannerCatalog{}, ports.ErrForbidden
 	}
-	// The catalog's availability is DATE-scoped, so the date has to be a real business
+	// The existing-task decoration is DATE-scoped, so the date has to be a real business
 	// date and not merely non-empty.
 	periodStartDate = strings.TrimSpace(periodStartDate)
 	if !isBusinessDate(periodStartDate) {
 		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
 	}
+	return s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate)
+}
+
+// PlannerParkBuckets returns ONE keyset page of the chosen park's sheds with their
+// availability on the requested weigh date.
+//
+// excludeCampaignID is the task currently being edited. Without it an edit would see its
+// OWN buckets as already taken and refuse to re-save them, so the planner needs to say
+// "everything except this task".
+func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error) {
+	if !s.canPlanOrMonitor(actor) {
+		return domain.PlannerParkBuckets{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if !uuidutil.IsUUIDString(parkID) {
+		return domain.PlannerParkBuckets{}, ports.ErrInvalidArgument
+	}
+	// Availability is DATE-scoped, so the date has to be a real business date.
+	periodStartDate = strings.TrimSpace(periodStartDate)
+	if !isBusinessDate(periodStartDate) {
+		return domain.PlannerParkBuckets{}, ports.ErrInvalidArgument
+	}
 	excludeCampaignID = strings.TrimSpace(excludeCampaignID)
 	if excludeCampaignID != "" && !uuidutil.IsUUIDString(excludeCampaignID) {
-		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
+		return domain.PlannerParkBuckets{}, ports.ErrInvalidArgument
 	}
-	return s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate, excludeCampaignID)
+	if limit <= 0 {
+		limit = domain.PlannerBucketPageSize
+	}
+	if limit > domain.MaxPlannerBucketPageSize {
+		limit = domain.MaxPlannerBucketPageSize
+	}
+	return s.repo.PlannerParkBuckets(ctx, actor.TenantID, parkID, periodStartDate, excludeCampaignID, strings.TrimSpace(cursor), limit)
+}
+
+// canPlanOrMonitor is the planner's read gate: the planner writes belong to WeighingPlan,
+// but read-only oversight (WeighingMonitor) may look at the same vocabulary.
+func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
+	if permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+		return true
+	}
+	return permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
@@ -239,14 +288,64 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
 }
 
-func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error) {
+// ListCampaignSheds pages ONE task's buckets for the task-detail screen.
+//
+// Authority mirrors the task list it drills from: an assignee (weighing.execute)
+// sees only their OWN buckets on the task, while a planner/monitor sees all of
+// them. That is deliberately not "monitor widens execute" — it is the same split
+// the list already applies, so the detail cannot show a bucket the list did not.
+func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error) {
+	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
+	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	if !canMonitor && !canPlan && !canExecute {
+		return domain.CampaignShedPage{}, ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(campaignID) {
+		return domain.CampaignShedPage{}, ports.ErrInvalidArgument
+	}
+	operatorFilter := ""
+	if !canMonitor && !canPlan {
+		operatorFilter = actor.UserID
+	}
+	if limit <= 0 {
+		limit = domain.CampaignShedPageSize
+	}
+	if limit > domain.MaxCampaignShedPageSize {
+		limit = domain.MaxCampaignShedPageSize
+	}
+	return s.repo.ListCampaignSheds(ctx, actor.TenantID, campaignID, operatorFilter, strings.TrimSpace(cursor), limit)
+}
+
+func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.LeadershipShedVideos{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
 		return domain.LeadershipShedVideos{}, ports.ErrInvalidArgument
 	}
-	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID)
+	if limit <= 0 {
+		limit = domain.LeadershipShedVideosPageSize
+	}
+	if limit > domain.MaxLeadershipShedVideosPageSize {
+		limit = domain.MaxLeadershipShedVideosPageSize
+	}
+	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
+}
+
+// ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same
+// monitor-only authority as the single-bucket evidence read it pages.
+func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.LeadershipShedPage{}, ports.ErrForbidden
+	}
+	if limit <= 0 {
+		limit = domain.LeadershipShedPageSize
+	}
+	if limit > domain.MaxLeadershipShedPageSize {
+		limit = domain.MaxLeadershipShedPageSize
+	}
+	return s.repo.ListLeadershipSheds(ctx, actor.TenantID, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
 }
 
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -269,11 +368,21 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
+	// the verification item, and an observation row only knows its shed -- so it is read from
+	// the campaign. Doing this after the write cannot honour its own contract: the weight is
+	// already committed, so returning an error hands the operator a failure over saved data and
+	// leaves an observation nobody is asked to verify. Resolve first; a campaign we cannot place
+	// in a park is rejected before anything is written.
+	parkID, err := s.repo.CampaignParkID(ctx, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
 	obs, err := s.repo.RecordAnimalObservation(ctx, cmd)
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
@@ -296,13 +405,23 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !isPositiveFinite(cmd.AverageWeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > 5 {
+	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	for _, proofID := range cmd.ProofArtifactIDs {
 		if !uuidutil.IsUUIDString(proofID) {
 			return domain.Observation{}, ports.ErrInvalidArgument
 		}
+	}
+	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
+	// the verification item, and an observation row only knows its shed -- so it is read from
+	// the campaign. Doing this after the write cannot honour its own contract: the weight is
+	// already committed, so returning an error hands the operator a failure over saved data and
+	// leaves an observation nobody is asked to verify. Resolve first; a campaign we cannot place
+	// in a park is rejected before anything is written.
+	parkID, err := s.repo.CampaignParkID(ctx, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return domain.Observation{}, err
 	}
 	obs, err := s.repo.RecordShedObservation(ctx, cmd)
 	if err != nil {
@@ -312,13 +431,13 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
 		mediaRefs = []string{obs.ProofArtifactID}
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, "lump-sum shed weight"); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, "lump-sum shed weight"); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
 }
 
-func (s *Service) enqueueVerification(ctx context.Context, tenantID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
+func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
 	if s.enqueuer == nil {
 		return nil
 	}
@@ -335,6 +454,7 @@ func (s *Service) enqueueVerification(ctx context.Context, tenantID, campaignID,
 		MediaRefs:      mediaRefs,
 		OperatorID:     operatorID,
 		ShedID:         obs.ExpectedLocationID,
+		ParkID:         parkID,
 		SubjectLabel:   label,
 		CapturedAt:     obs.AcceptedAt,
 		IdempotencyKey: fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID),
@@ -374,7 +494,27 @@ func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignI
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
 		return ports.ErrInvalidArgument
 	}
-	return s.repo.ReopenScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason))
+	superseded, err := s.repo.ReopenScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason))
+	if err != nil {
+		return err
+	}
+	// The reopen withdrew the bucket's lump-sum submission. The verification items
+	// raised for those submissions must stop being decidable in the same breath:
+	// left pending, a verifier approves work the bucket no longer counts, the
+	// verdict lands on a superseded row, and the UI reports that non-decision as
+	// success. Weighing does not write verification_items -- it asks verification
+	// to retire them through verification's own port.
+	//
+	// This runs AFTER the reopen commits, exactly like the enqueue side of this
+	// module. A failure here must not un-reopen the bucket, so it surfaces as the
+	// call's error and the operator-visible remedy is a retry with the same
+	// idempotency key, which re-reports the same ids and re-runs the withdrawal.
+	if len(superseded) > 0 && s.verificationWithdrawer != nil {
+		if err := s.verificationWithdrawer.WithdrawWeighingVerification(ctx, actor.TenantID, domain.VerificationRefTypeShed, superseded); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CloseScope ends one weighing bucket (campaign shed). Same permission and
@@ -431,6 +571,9 @@ func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaig
 	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
 		return domain.CloseResult{}, ports.ErrInvalidArgument
 	}
+	// A client may send a reason CODE rather than author the sentence that is kept
+	// forever; the recorded copy is ours, not the phone's.
+	reason = domain.ResolveCloseReason(reason)
 	return s.repo.CloseCampaign(ctx, domain.CloseCommand{
 		TenantID:       actor.TenantID,
 		CampaignID:     campaignID,

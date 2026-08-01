@@ -187,6 +187,46 @@ completion is a broken database, not a warning. Do not report future drives from
 `vaccination_drive_assignments` alone; first audit missing required obligations
 against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
 
+Confirmed module ownership and weighing planning authority (maintainer decision
+2026-08-01): each operational module has ONE accountable director, and a module's
+verification notification must reach that director in that module's own wording -- never
+another module's recipients or copy. Vaccination -> `pc_director`. Weighing ->
+`growth_director`. Feed -> `feed_director`. Counts -> `health_director`, which is a DISTINCT
+role from `pc_director` (preventive care) and must not be merged with it. The verifier is
+TENANT-level: one verifier reviews proof videos across all parks and sheds. Feed ownership is
+documented (`wiki/Handbooks/Feed_Director.pdf`, Role Purpose + M1 daily video double
+verification). Counts ownership is a maintainer decision rather than a documented one: no
+counting department or counting handbook exists in any source (the live `Counting DB` records
+only a "Staff (Counted)" person with no role, no verifier and no approver, and
+`Health_Director.pdf` never mentions count, census, headcount or shifting). The routing SHAPE
+is well supported either way -- both handbooks carry the same "Meet verifier every day" /
+Video Verification Team duty the other directors have.
+
+COUNTS IS AN OFF FEATURE and stays that way. `health_director` is created and recorded as
+the counts owner so the module has a declared owner when it is switched on; the role exists
+ahead of the feature deliberately.
+
+Note precisely HOW counts is off, because it is easy to switch on by accident: the module is
+registered `moduleStatusAvailable` in `workforce/app/bootstrap_copy.go` and is held back only
+by `counts.read` / `counts.write`, which today only `ceo_internal` holds. Granting those to
+`health_director` would light up the Counts nav for him and thereby ENABLE the feature. So
+`health_director` gets counts OWNERSHIP (it is the leadership recipient for a counts/shifting
+proof, replacing the silent vaccination default) but NOT `counts.read`/`counts.write` until
+the feature is deliberately turned on. Ownership and access are separate decisions here.
+
+Separately: PLANNING a weighing task is CEO-only. `growth_director` monitors weighing across
+both parks, oversees the operators and may execute, but does not raise the task; the two
+planner reads that feed the create wizard (`/app/weighing/planner/catalog` and
+`.../parks/{park_id}/buckets`) are planning surfaces and carry `weighing.plan` despite being
+GETs.
+
+Enforcement note: a module that enqueues a verification item MUST have an entry in
+`pendingModuleProfiles` (`backend/internal/notificationbridge/verification_notify_consumer.go`)
+and at least one `verify` duty holder in `position_module_duties`. There is deliberately no
+fallback profile -- an unclaimed module notifies nobody loudly rather than the wrong people
+quietly, which is how weighing proofs reached the vaccination verifier and PC Director in
+vaccination wording. Both conditions are asserted by tests; neither is a comment.
+
 Confirmed movement rule (maintainer decision 2026-07-19): goats never move
 between parks — shed moves exist only within one park; leaving a park is a
 terminal transferred/sold exit, never a move. Initial placement is exempt. See

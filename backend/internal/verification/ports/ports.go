@@ -67,6 +67,12 @@ type Repository interface {
 	ListReadyVaccinationBatchClosures(ctx context.Context, params ListQueueParams) ([]domain.VaccinationBatchClosure, error)
 	// CloseVaccinationBatch closes a whole vaccination batch/drive, which may span multiple days.
 	CloseVaccinationBatch(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error)
+	// WithdrawItemsBySource retires the still-pending items raised for source records the producing
+	// module has superseded (e.g. a weighing bucket reopened for rework: the submission those items
+	// point at is no longer the bucket's work). Withdrawal is NOT a verdict — it decides nothing, it
+	// only stops an item being decidable, so a verifier can never approve superseded work and have
+	// the UI report that non-decision as success. Already-decided items are left untouched.
+	WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage

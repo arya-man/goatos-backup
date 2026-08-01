@@ -76,9 +76,9 @@ class AlertsViewModelWhileSubscribedTest {
         repo.emit(ControlTowerResponseDto(alerts = emptyList()))
         val viewModel = AlertsViewModel(repo)
 
-        val state = viewModel.state.first { it.emptyLabel == "No alerts" }
+        val state = viewModel.state.first { it.emptyLabel == "No vaccination alerts" }
 
-        assertEquals("No alerts", state.emptyLabel)
+        assertEquals("No vaccination alerts", state.emptyLabel)
         assertEquals(emptyList<Any>(), state.rows)
     }
 
@@ -89,9 +89,28 @@ class AlertsViewModelWhileSubscribedTest {
 
         val state = viewModel.state.first { it.isOffline }
 
-        assertEquals("No alerts", state.emptyLabel)
+        assertEquals("No vaccination alerts", state.emptyLabel)
         assertEquals(emptyList<Any>(), state.rows)
     }
+
+    /**
+     * Honest-scope regression: this surface's ONLY upstream is the vaccination control-tower
+     * summary, so it can never show a weighing/feed/counts alert. Every visible label must
+     * therefore name the vaccination scope rather than promise all-module alerts — an
+     * all-modules-promising screen that only ever shows vaccination is worse than a narrow
+     * one that tells the truth.
+     */
+    @Test
+    fun `every visible label names the vaccination scope, never a bare all-modules Alerts`() =
+        runTest(dispatcher) {
+            val repo = FakeControlTowerRepository()
+            repo.emit(ControlTowerResponseDto(alerts = emptyList()))
+            val viewModel = AlertsViewModel(repo)
+
+            val state = viewModel.state.first { it.emptyLabel == "No vaccination alerts" }
+
+            assertEquals("Vaccination alerts", state.title)
+        }
 
     /** Fake repo whose observe flow tracks how many collectors are currently active. */
     private class FakeControlTowerRepository(

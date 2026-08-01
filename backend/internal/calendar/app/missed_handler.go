@@ -20,12 +20,36 @@ type obligationMissedPayload struct {
 	Status       string `json:"status"`
 }
 
+// MissedWorkNotifier is the seam that turns a missed obligation into a message someone actually
+// receives. It is an interface here (implemented in internal/notificationbridge) because resolving
+// devices is workforce truth and calendar must not depend on the workforce module.
+//
+// Why it exists: a missed obligation is the exact failure the operational kernel is built to catch,
+// and until this seam it was the ONE lifecycle state that told nobody anything -- the handler's only
+// terminal action was opening an escalation row, which is a screen state, not a message. The work
+// went missed in silence.
+type MissedWorkNotifier interface {
+	// NotifyObligationMissed pushes the missed work DOWN to the operator whose work it was and UP to
+	// the park head and the owning module's director. Implementations must be idempotent: this
+	// handler is on an at-least-once durable bus.
+	NotifyObligationMissed(ctx context.Context, tenantID, obligationID string) error
+}
+
 type ObligationMissedHandler struct {
 	calendar *Service
+	notifier MissedWorkNotifier
 }
 
 func NewObligationMissedHandler(calendar *Service) *ObligationMissedHandler {
 	return &ObligationMissedHandler{calendar: calendar}
+}
+
+// WithNotifier attaches the missed-work notifier. The durable buses
+// (kernelstages.BuildDomainBus and cmd/domain-event-consumer) MUST pass one; without it a missed
+// obligation still escalates but nobody is told, which is the defect this seam closes.
+func (h *ObligationMissedHandler) WithNotifier(notifier MissedWorkNotifier) *ObligationMissedHandler {
+	h.notifier = notifier
+	return h
 }
 
 var _ eventbus.Handler = (*ObligationMissedHandler)(nil)
@@ -63,11 +87,19 @@ func (h *ObligationMissedHandler) HandleEvent(ctx context.Context, e eventbus.Ev
 	// canonical write, so the missed obligation is already visible to the escalation sweep below.
 	// A durable missed event is already overdue, so the first escalation opens
 	// immediately while later levels keep the service's configured thresholds.
-	_, err := h.calendar.SweepEscalations(ctx, ports.SweepEscalations{
+	if _, err := h.calendar.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:     tenantID,
 		ObligationID: obligationID,
 		Limit:        missedObligationEscalationLimit,
 		Now:          now,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	// Opening an escalation changes a screen; it does not tell anyone. Push the miss to the people
+	// who have to act on it. Returning the error keeps the event on the durable bus for redelivery;
+	// the notification write is idempotent per (event, device), so a retry never duplicates.
+	if h.notifier != nil {
+		return h.notifier.NotifyObligationMissed(ctx, tenantID, obligationID)
+	}
+	return nil
 }

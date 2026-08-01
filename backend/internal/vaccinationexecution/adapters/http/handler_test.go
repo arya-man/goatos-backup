@@ -53,9 +53,12 @@ type fakeReader struct {
 	lastShedAnim  domain.ShedAnimalQuery
 	capacityCfg   domain.CapacityConfig
 	optionValues  domain.TaskOptionValuesResponse
+
+	lastCommandBoard domain.CommandBoardQuery
 }
 
-func (f *fakeReader) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+func (f *fakeReader) VaccinationCommandBoard(_ context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	f.lastCommandBoard = q
 	return domain.CommandBoardResponse{}, nil
 }
 

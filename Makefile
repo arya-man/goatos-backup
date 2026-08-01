@@ -93,6 +93,7 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
 	$(MAKE) guardrail-registration-guard
 	$(MAKE) local-stack-service-guard
@@ -539,6 +540,10 @@ scale-guard:
 # calendar overview parsing events instead of day-markers, O(n^2) date scans). Diff-scoped:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
+.PHONY: design-system-guard
+design-system-guard: ## Fail if a screen invents its own colour or text style instead of using the central design system
+	node tools/agent-hooks/check-design-system-tokens.mjs
+
 mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
 	node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
@@ -551,6 +556,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
 	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
@@ -561,6 +568,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 # android-row-action-scope-guard: row actions in repeated Android cards must use

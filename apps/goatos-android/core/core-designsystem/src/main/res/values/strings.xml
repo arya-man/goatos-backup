@@ -39,6 +39,7 @@
     <string name="offline_title">You\'re offline</string>
     <string name="offline_subtitle">Records save on this phone and sync when you reconnect</string>
     <string name="offline_details">Details</string>
+    <string name="alert_unavailable_notice">That alert can\'t be opened. Showing your work instead.</string>
 
     <!-- Shared overlay bits. %1$s in ovl_error is a backend message (data). -->
     <string name="ovl_error_fmt">Error: %1$s</string>

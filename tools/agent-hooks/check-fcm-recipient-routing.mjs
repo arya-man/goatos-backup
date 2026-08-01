@@ -29,6 +29,23 @@ function findings({ rosterRepository, stgSeed }) {
   const single = /func \(r \*Repository\) ResolvePositionRecipients\([\s\S]*?func \(r \*Repository\) ResolvePositionRecipientsBatch/.exec(rosterRepository)?.[0] ?? "";
   const batch = /func \(r \*Repository\) ResolvePositionRecipientsBatch\([\s\S]*?func scanNotificationRecipients/.exec(rosterRepository)?.[0] ?? "";
 
+  // The reachability predicate used to be six hand-copied inline copies -- which is exactly how a
+  // condition went missing from all of them at once -- and is now spliced in from one
+  // `pushReachableDeviceSQL` constant. A guard that only greps each function body for the literal
+  // text therefore fails a refactor that STRENGTHENED the very thing it protects.
+  //
+  // So: verify the shared constant carries the conditions, then treat a function that splices it
+  // as satisfying them. Blind spot, stated plainly: this is still textual. It cannot tell whether
+  // the splice lands inside the right WHERE clause, only that the function references it.
+  const reachability = /const pushReachableDeviceSQL = `([\s\S]*?)`/.exec(rosterRepository)?.[1] ?? "";
+  const reachabilityDefinesDeviceFilter =
+    reachability.includes("d.status = 'active'") && reachability.includes("fcm_token IS NOT NULL");
+  if (reachability && !reachabilityDefinesDeviceFilter) {
+    out.push("pushReachableDeviceSQL must require an active device with a non-null fcm_token");
+  }
+  const usesSharedReachability = (source) =>
+    reachabilityDefinesDeviceFilter && source.includes("pushReachableDeviceSQL");
+
   for (const [name, source] of [["ResolvePositionRecipients", single], ["ResolvePositionRecipientsBatch", batch]]) {
     if (!source.includes("user_scope_grants")) {
       out.push(`${name}: tenant role push recipients must include user_scope_grants, not only workforce_positions`);
@@ -38,7 +55,9 @@ function findings({ rosterRepository, stgSeed }) {
         out.push(`${name}: missing tenant leadership role ${role}`);
       }
     }
-    if (!source.includes("workforce_member_devices") || !source.includes("fcm_token IS NOT NULL")) {
+    const hasDeviceFilter =
+      source.includes("fcm_token IS NOT NULL") || usesSharedReachability(source);
+    if (!source.includes("workforce_member_devices") || !hasDeviceFilter) {
       out.push(`${name}: must resolve active devices with non-null fcm_token`);
     }
   }
@@ -80,6 +99,39 @@ func scanNotificationRecipients() {}
   const noGrants = findings({ rosterRepository: goodRoster.replaceAll("user_scope_grants", "workforce_positions"), stgSeed: goodSeed });
   if (!noGrants.some((x) => x.includes("user_scope_grants"))) {
     throw new Error(`self-test: missed grants-only routing regression: ${JSON.stringify(noGrants)}`);
+  }
+
+  // The real repository splices its reachability predicate in from one constant instead of
+  // repeating it inline. That refactor STRENGTHENED the rule (the inline copies are how a
+  // condition once went missing from all six at once), so the guard must accept it -- and this
+  // fixture is what proves the accepting branch actually works.
+  const splicedRoster = `
+const pushReachableDeviceSQL = \`
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+ AND d.notifications_enabled IS DISTINCT FROM false\`
+
+func (r *Repository) ResolvePositionRecipients() {
+  SELECT * FROM user_scope_grants JOIN workforce_member_devices \`+pushReachableDeviceSQL+\`
+  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
+}
+func (r *Repository) ResolvePositionRecipientsBatch() {
+  SELECT * FROM user_scope_grants JOIN workforce_member_devices \`+pushReachableDeviceSQL+\`
+  WHERE g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
+}
+func scanNotificationRecipients() {}
+`;
+  const splicedFindings = findings({ rosterRepository: splicedRoster, stgSeed: goodSeed });
+  if (splicedFindings.length !== 0) {
+    throw new Error(`self-test: rejected the spliced reachability form: ${JSON.stringify(splicedFindings)}`);
+  }
+
+  // And the splice must not become a way to smuggle the requirement away: if the shared constant
+  // itself drops the token check, every function that splices it is unprotected at once.
+  const weakConstant = splicedRoster.replace(" AND d.fcm_token IS NOT NULL\n", "");
+  const weakFindings = findings({ rosterRepository: weakConstant, stgSeed: goodSeed });
+  if (!weakFindings.length) {
+    throw new Error("self-test: accepted a shared reachability constant with no fcm_token check");
   }
 
   const seedCoupling = findings({ rosterRepository: goodRoster, stgSeed: `ensureNotificationRouting proof.verify position_module_duties notify_routes` });

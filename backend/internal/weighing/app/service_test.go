@@ -40,8 +40,10 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
 		t.Fatalf("CEO create errored: %v", err)
 	}
-	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); err == nil {
-		t.Fatal("growth director created weighing campaign; want forbidden")
+	// Planning a weighing task is CEO-only (maintainer decision 2026-08-01). The Growth
+	// Director monitors and oversees, but does not raise the task.
+	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("growth director create err = %v, want forbidden", err)
 	}
 	if _, err := service.ListCampaigns(context.Background(), pcDirector, domain.CampaignListScopeAll, "", "", 20); err == nil {
 		t.Fatal("pc director monitored weighing; want forbidden")
@@ -58,10 +60,10 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
 		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
+	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 0); err != nil {
 		t.Fatalf("growth director leadership videos read errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err == nil {
+	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 0); err == nil {
 		t.Fatal("operator read leadership videos; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
@@ -529,6 +531,8 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if _, err := service.PublishCampaign(ctx, ceo, campaign.CampaignID, "weighing-seed:publish"); err != nil {
 		t.Fatalf("publish campaign: %v", err)
 	}
+	// Planning a weighing task is CEO-only (maintainer decision 2026-08-01), so the Growth
+	// Director cannot publish one even though he monitors every park's weighing.
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
@@ -657,22 +661,43 @@ func TestListCampaignsPassesParkFilterThroughAndRejectsAMalformedOne(t *testing.
 	}
 }
 
-// Availability is date-scoped, so the catalog needs a real business DATE, and the
-// "exclude the task being edited" id must be a real id.
-func TestPlannerCatalogRejectsANonBusinessDateOrMalformedExcludeID(t *testing.T) {
+// The existing-task decoration is date-scoped, so the park read needs a real business DATE.
+func TestPlannerCatalogRejectsANonBusinessDate(t *testing.T) {
 	service := NewService(&campaignListRepo{})
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
 
 	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
-		if _, err := service.PlannerCatalog(context.Background(), monitor, date, ""); !errors.Is(err, ports.ErrInvalidArgument) {
+		if _, err := service.PlannerCatalog(context.Background(), monitor, date); !errors.Is(err, ports.ErrInvalidArgument) {
 			t.Fatalf("planner catalog date %q err=%v, want invalid argument", date, err)
 		}
 	}
-	if _, err := service.PlannerCatalog(context.Background(), monitor, "2026-07-04", "not-a-uuid"); !errors.Is(err, ports.ErrInvalidArgument) {
+	if _, err := service.PlannerCatalog(context.Background(), monitor, "2026-07-04"); err != nil {
+		t.Fatalf("valid planner catalog request: %v", err)
+	}
+}
+
+// The bucket page is park-scoped and date-scoped, so it needs a real park id, a real
+// business DATE, and a real "exclude the task being edited" id when one is sent.
+func TestPlannerParkBucketsRejectsAMalformedParkDateOrExcludeID(t *testing.T) {
+	service := NewService(&campaignListRepo{})
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+	park := "00000000-0000-4000-8000-000000003001"
+
+	for _, parkID := range []string{"", "not-a-uuid"} {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, parkID, "2026-07-04", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("planner buckets park %q err=%v, want invalid argument", parkID, err)
+		}
+	}
+	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, date, "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("planner buckets date %q err=%v, want invalid argument", date, err)
+		}
+	}
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "not-a-uuid", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("malformed exclude id err=%v, want invalid argument", err)
 	}
-	if _, err := service.PlannerCatalog(context.Background(), monitor, "2026-07-04", ""); err != nil {
-		t.Fatalf("valid planner catalog request: %v", err)
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "", "", 0); err != nil {
+		t.Fatalf("valid planner bucket request: %v", err)
 	}
 }
 
@@ -749,8 +774,16 @@ func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (d
 func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
-func (f fakeRepo) PlannerCatalog(context.Context, string, string, string) (domain.PlannerCatalog, error) {
+func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+	return domain.CampaignShedPage{}, nil
+}
+
+func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
+}
+
+func (f fakeRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+	return domain.PlannerParkBuckets{}, nil
 }
 func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
@@ -758,7 +791,11 @@ func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, strin
 func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
-func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+func (f fakeRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+	return domain.LeadershipShedPage{}, nil
+}
+
+func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -772,8 +809,8 @@ func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObser
 func (f fakeRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
 }
-func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
-	return nil
+func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
+	return nil, nil
 }
 func (f fakeRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
@@ -782,6 +819,11 @@ func (f fakeRepo) CloseCampaign(context.Context, domain.CloseCommand) (domain.Cl
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+// CampaignParkID answers the park routing lookup the verification enqueue makes.
+func (f fakeRepo) CampaignParkID(context.Context, string, string) (string, error) {
+	return testPark, nil
+}
 
 type captureCreateRepo struct {
 	fakeRepo
@@ -910,8 +952,16 @@ func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, ope
 	return domain.CampaignPage{Items: []domain.Campaign{campaign}}, nil
 }
 
-func (r *scenarioRepo) PlannerCatalog(context.Context, string, string, string) (domain.PlannerCatalog, error) {
+func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+	return domain.CampaignShedPage{}, nil
+}
+
+func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
+}
+
+func (r *scenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+	return domain.PlannerParkBuckets{}, nil
 }
 
 func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int, _ bool) (domain.RosterPage, error) {
@@ -956,7 +1006,11 @@ func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID,
 	return domain.RosterPage{}, ports.ErrNotFound
 }
 
-func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+	return domain.LeadershipShedPage{}, nil
+}
+
+func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
@@ -1065,11 +1119,15 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 }
 
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+func (r *scenarioRepo) CampaignParkID(context.Context, string, string) (string, error) {
+	return testPark, nil
+}
 func (r *scenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
 }
-func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
-	return nil
+func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (r *scenarioRepo) CloseScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {

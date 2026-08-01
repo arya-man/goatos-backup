@@ -205,7 +205,14 @@
       "date": "2026-07-25",
       "change": "migration 000002 restores selected_operator_ids on already-migrated live databases whose 000001 baseline was applied before the column was added there.",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes, hashes, counts, or loader semantics: this is a live schema convergence migration for an admin-authored runtime preference. Existing rows backfill the selected set from their default operator so scheduler reads remain equivalent to the prior one-operator configuration until an admin saves a different selection."
+    },
+    {
+      "date": "2026-08-01",
+      "change": "seed-position-duties now emits a verify duty per notification module (derived from notificationbridge.PendingNotificationDutyModules) and skips the video_verifier seat before the module-prefix match, so -strict no longer aborts on it. seed-roster-real seats that verifier. Migration 000068 adds feed_director and health_director to org_role_catalog.",
+      "why_it_was_needed": "position_module_duties held ZERO rows, and ResolveModuleDutyRecipients joins duty_type='verify'. Every verifier pending-proof push for every module resolved to no devices, so notification_requests stayed empty and the notification path looked wired while delivering nothing.",
+      "vaccination_hrms_source_impact": "none: duty rows are derived at seed time from position codes and the notification module map. No source spreadsheet, raw fixture bytes, file hash, row count, vaccination schedule, capacity config or proof history changes."
     }
   ],
-  "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
+  "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",
+  "verify_duty_note": "Seed completeness now includes notification reachability: every module that enqueues a verification item must have at least one active verify-duty holder in scope, asserted by seed-position-duties' closeout. A seed that loads goats and roster correctly but leaves that empty is incomplete -- the verifier is never told a proof is waiting."
 }

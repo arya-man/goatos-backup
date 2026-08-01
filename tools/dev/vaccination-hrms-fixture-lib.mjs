@@ -617,3 +617,7 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-25: migration 000002 only restores that runtime
 // selected_operator_ids column on already-migrated DBs. It backfills from the
 // default operator and does not introduce a source fixture field.
+// 2026-08-01 verify-duty seeding: seed-position-duties now derives a verify duty per notification
+// module from notificationbridge.PendingNotificationDutyModules. Duty rows are generated from
+// position codes at seed time and are not an HRMS-source field, so no fixture bytes, hashes or
+// counts change here.

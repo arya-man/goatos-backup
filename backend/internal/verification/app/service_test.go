@@ -221,6 +221,25 @@ func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVacci
 	})
 }
 
+func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	withdrawn := 0
+	for _, refID := range sourceRefIDs {
+		for id, item := range r.items {
+			if item.TenantID != tenantID || item.Source.Module != sourceModule || item.Source.RefType != sourceRefType || item.Source.RefID != refID {
+				continue
+			}
+			if item.Status != domain.StatusPending {
+				continue
+			}
+			item.Status = "withdrawn"
+			item.RowVersion++
+			r.items[id] = item
+			withdrawn++
+		}
+	}
+	return withdrawn, nil
+}
+
 var _ ports.Repository = (*fakeRepo)(nil)
 
 type fakeMedia struct{}
@@ -423,12 +442,12 @@ func TestListQueueReturnsBackendLocationFilterOptions(t *testing.T) {
 	shedLabel := "Godel 1"
 	_, _ = svc.CreateItem(context.Background(), domain.CreateItem{
 		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
-		Source:        domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
-		MediaRefs:     []string{"proof-1"},
-		ParkID:        &parkID,
-		ShedID:        &shedID,
+		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+		MediaRefs:      []string{"proof-1"},
+		ParkID:         &parkID,
+		ShedID:         &shedID,
 		IdempotencyKey: "key-filter-options",
-		CapturedAt:    time.Now(),
+		CapturedAt:     time.Now(),
 	})
 	// The repository owns display labels; service/API must pass them through rather than making
 	// Android infer location names from ids.

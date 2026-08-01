@@ -2,6 +2,7 @@ package sg.mesha.goatos.feature.calendar
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -86,28 +87,77 @@ class DriveCardMetricsTest {
         assertTrue(driveCoverage(0, 0, 4, 8).usesAnimals)
     }
 
+    // Cross-surface parity. This fixture is asserted IDENTICALLY by the admin-web
+    // drive-card-metrics.test.mjs ("renders the backend progress contract verbatim"): both surfaces
+    // must show 46 / 77 animals and a 60% ring for this drive. This test replaces the old
+    // visibleProgressUsesSubmittedAnimalsWhileWaitingForVerification case, which asserted the
+    // client-side max(submitted, completed) rule -- that rule WAS the parity defect: the same drive
+    // read 60/77 (78%) here and 46/77 (60%) on the web card.
     @Test
-    fun visibleProgressUsesSubmittedAnimalsWhileWaitingForVerification() {
+    fun visibleProgressRendersTheBackendProgressContractVerbatim() {
         val summary = CalendarDriveSummary(
             parkName = "CBE",
             shedCount = 2,
-            shedsCompleted = 0,
-            totalAnimals = 5,
-            completedAnimals = 0,
-            submittedAnimals = 2,
-            completedCount = 0,
-            submittedCount = 2,
-            dueCount = 3,
-            totalCount = 5,
-            remainingCount = 5,
+            totalAnimals = 77,
+            completedAnimals = 46,
+            submittedAnimals = 60,
+            completedCount = 120,
+            submittedCount = 150,
+            totalCount = 200,
+            progressBasis = "animals",
+            progressCompleted = 46,
+            progressTotal = 77,
+            progressPct = 60,
         )
 
         val coverage = driveVisibleProgress(summary)
 
-        assertEquals(2, coverage.completed)
-        assertEquals(5, coverage.total)
+        assertEquals(46, coverage.completed)
+        assertEquals(77, coverage.total)
         assertTrue(coverage.usesAnimals)
-        assertEquals(40, driveCoveragePct(coverage.completed, coverage.total))
+        assertEquals(60, drivePctFor(summary, coverage))
+        // Submitted-but-unverified work never inflates progress on either surface.
+        assertNotEquals(summary.submittedAnimals, coverage.completed)
+    }
+
+    @Test
+    fun visibleProgressCarriesTheDoseBasisFromTheContract() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            completedCount = 3,
+            totalCount = 8,
+            progressBasis = "doses",
+            progressCompleted = 3,
+            progressTotal = 8,
+            progressPct = 38,
+        )
+
+        val coverage = driveVisibleProgress(summary)
+
+        assertEquals(3, coverage.completed)
+        assertEquals(8, coverage.total)
+        assertFalse(coverage.usesAnimals)
+        assertEquals(38, drivePctFor(summary, coverage))
+    }
+
+    // Legacy fallback: a Room row cached before the contract shipped, or an older backend.
+    @Test
+    fun visibleProgressFallsBackWhenTheContractIsAbsent() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            totalAnimals = 9,
+            completedAnimals = 5,
+            submittedAnimals = 7,
+            completedCount = 11,
+            totalCount = 20,
+        )
+
+        val coverage = driveVisibleProgress(summary)
+
+        assertEquals(5, coverage.completed)
+        assertEquals(9, coverage.total)
+        assertTrue(coverage.usesAnimals)
+        assertEquals(56, drivePctFor(summary, coverage))
     }
 
     // Redesigned status chips: returns ALL nonzero buckets in fixed order completed/due/overdue/deferred.

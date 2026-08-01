@@ -139,7 +139,7 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 		ctx = WithAuthGrants(ctx, grants)
 		roles := routeRoles(route, grants, tenantID)
-		if !permissions.RolesAuthorize(roles, route.Permissions, route.AdminOnly) {
+		if !permissions.AuthorizeRoute(route, roles) {
 			a.logAuthFailure(r, http.StatusForbidden, "permission_denied",
 				slog.String("route", route.OperationID),
 				slog.String("actor_id", userID),
@@ -428,7 +428,11 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, status int, code, me
 // which park the actor may see, or why access is denied. Handlers clamp their repository queries
 // to Decision.ParkID when Allowed, else return Status/Code/Message.
 type ParkScopeDecision struct {
-	ParkID  string
+	ParkID string
+	// Every park the actor may see. Populated whenever the actor is park-scoped, so a
+	// caller that can genuinely serve a multi-park view has the set rather than having to
+	// re-derive it from the grants.
+	ParkIDs []string
 	Allowed bool
 	Status  int
 	Code    string
@@ -466,7 +470,21 @@ func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID s
 			Message: "requested park is outside the actor's authorized scope",
 		}
 	}
-	return ParkScopeDecision{ParkID: parkIDs[0], Allowed: true}
+	if len(parkIDs) > 1 {
+		// Someone who covers more than one park without holding a tenant grant. Silently
+		// answering for parkIDs[0] would show a director half their herd and no error --
+		// the worst possible outcome, because a wrong number that looks right is acted on.
+		// Ask which park instead; the client already has a park selector on every one of
+		// these screens.
+		return ParkScopeDecision{
+			ParkIDs: parkIDs,
+			Allowed: false,
+			Status:  http.StatusBadRequest,
+			Code:    "park_selection_required",
+			Message: "choose a park to view",
+		}
+	}
+	return ParkScopeDecision{ParkID: parkIDs[0], ParkIDs: parkIDs, Allowed: true}
 }
 
 // HasTenantWideGrant reports whether any grant is scoped to the whole tenant.

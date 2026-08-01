@@ -25,6 +25,7 @@
     <string name="ovl_doses_subtitle">ఈ చక్రంలో పూర్తయిన డోసులు · టీకా వారీగా</string>
     <string name="offline_title">మీరు ఆఫ్‌లైన్‌లో ఉన్నారు</string>
     <string name="offline_details">వివరాలు</string>
+    <string name="alert_unavailable_notice">ఈ సూచనను తెరవలేము. మీ పనిని చూపిస్తున్నాము.</string>
     <string name="offline_subtitle">రికార్డులు ఈ ఫోన్‌లో సేవ్ అవుతాయి, మళ్లీ కనెక్ట్ అయినప్పుడు సింక్ అవుతాయి</string>
     <string name="ovl_error_fmt">లోపం: %1$s</string>
     <string name="sync_footer">ఆఫ్‌లైన్-మొదట: అవుట్‌బాక్స్ ముందు వీడియో ప్రూఫ్, ఆపై షెడ్ రికార్డును అప్‌లోడ్ చేస్తుంది, బ్యాకాఫ్‌తో మళ్లీ ప్రయత్నిస్తుంది, ఎప్పుడూ నకిలీ సృష్టించదు.</string>

@@ -271,10 +271,26 @@ type RosterRepository interface {
 	// positionCode) pairs in ONE set-based query -- the batched form of ResolvePositionRecipients.
 	// Used by cadence sweepers (e.g. the vaccination reminder cadence,
 	// vaccination-notification-rules.md §3/§4a) that need the same fixed position-code audience
-	// (operator, park_head, phc_manager) across many parks in a single tick, so recipient resolution
-	// never becomes a per-park N+1 fan-out. Returns a map keyed by "<scopeID>|<positionCode>"; a pair
+	// across many parks in a single tick, so recipient resolution never becomes a per-park N+1
+	// fan-out. Prefer ResolveModuleDutyRecipientsBatch below for an OPERATIONAL audience; a literal
+	// position-code list is only correct for role-grant audiences such as tenant leadership. Returns a map keyed by "<scopeID>|<positionCode>"; a pair
 	// with no active holder or no reachable device is simply absent from the map.
 	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]domain.NotificationRecipient, error)
+
+	// ResolveModuleDutyRecipientsBatch is the batched, DUTY-BASED form of the audience read: ONE
+	// set-based query returns active, reachable devices for every seat that carries (moduleCode,
+	// any of dutyTypes) at any of scopeIDs. It exists because a hardcoded position-code list is the
+	// defect class: the reminder ladder addressed a literal {"operator","park_head","phc_manager"}
+	// while the roster seeder emits "vaccination_operator_<name>" and "preventive_care_manager", so
+	// the only code that resolved was park_head and the operator who has to do the work was never
+	// notified. Membership is now the same duty truth the scheduler and the leave/coverage guard
+	// already use (position_module_duties, migration 000157), so a renamed seat that still holds the
+	// duty is still notified and a same-named seat without the duty is not.
+	//
+	// Returns a map keyed by "<scopeID>|<positionCode>" -- the SAME key shape as
+	// ResolvePositionRecipientsBatch, so callers fold/dedup identically and RoleLabel stays the
+	// holder's real seat code. A scope with no duty holder is simply absent from the map.
+	ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]domain.NotificationRecipient, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster

@@ -15,8 +15,11 @@ func TestWeighingRolePermissions(t *testing.T) {
 	if RolesAuthorize([]string{RolePCDirector}, []string{WeighingExecute}, false) {
 		t.Fatal("pc director must not execute weighing")
 	}
+	// Planning a weighing task is CEO-only (maintainer decision 2026-08-01). The Growth
+	// Director monitors weighing across both parks, oversees the operators and can
+	// execute, but the task itself is raised by the CEO.
 	if RolesAuthorize([]string{RoleGrowthDirector}, []string{WeighingPlan}, false) {
-		t.Fatal("growth director must not plan weighing")
+		t.Fatal("growth director must not plan weighing; planning is CEO-only")
 	}
 	if !RolesAuthorize([]string{RoleGrowthDirector}, []string{WeighingMonitor}, false) {
 		t.Fatal("growth director should monitor weighing")

@@ -741,3 +741,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // changes because seed still leaves selected_operator_ids at its DB default.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
+
+// 2026-08-01 verify-duty seeding: position_module_duties gains verify rows per notification module.
+// This is derived seed state, not source data -- no HRMS-source column, row count or hash changes.
+// Source validation is unaffected; notification reachability is asserted by seed-position-duties.

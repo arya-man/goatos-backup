@@ -7,7 +7,7 @@ import { Syringe } from "lucide-react";
 import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
-import { driveCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveVisibleProgress, drivePctFor, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
@@ -28,15 +28,14 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
     );
   }
 
-  // Coverage ring + the "N/N" headline prefer the DISTINCT-ANIMAL grain (total_animals /
-  // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
-  // "completed" once all its drive obligations are done. If a mixed-version response omits those
-  // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
-  // status chips below always stay obligation-grain (dose work items).
-  const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
+  // Coverage ring + the "N/N" headline render the BACKEND-OWNED progress numerator, denominator and
+  // grain verbatim (progress_completed / progress_total / progress_basis / progress_pct). The same
+  // contract drives the Android card, so both surfaces always show the same number and the same ring
+  // percentage. Do NOT re-derive a numerator here. The status chips below stay obligation-grain.
+  const coverage = driveVisibleProgress(summary);
   const submittedAnimals = "submitted_animals" in summary && typeof summary.submitted_animals === "number" ? summary.submitted_animals : 0;
   const hasSubmittedPending = submittedAnimals > coverage.completed;
-  const pct = driveCoveragePct(coverage.completed, coverage.total);
+  const pct = drivePctFor(summary, coverage);
   const chips = driveStatusChips(summary);
   const vaccineLabels = summary.vaccine_labels.filter((label) => label.trim().length > 0);
   const visibleVaccines = vaccineLabels.slice(0, 3);

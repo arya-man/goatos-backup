@@ -39,13 +39,8 @@
     <string name="proof_photo_take">फ़ोटो लें</string>
     <string name="proof_photo_cancel">फ़ोटो कैप्चर रद्द करें</string>
     <string name="submit_shed_success_toast">शेड प्रमाण समीक्षा के लिए जमा हुआ</string>
-    <string name="weighing_refresh">वज़न का काम रीफ़्रेश करें</string>
-    <string name="weighing_alerts">अलर्ट</string>
-    <string name="weighing_category_lumpsum">कुल वज़न</string>
-    <string name="weighing_category_individual">व्यक्तिगत</string>
     <string name="weighing_assignment_summary_lumpsum">%1$d बच्चे दायरे में · एक शेड वीडियो</string>
     <string name="weighing_assignment_summary_individual">%1$d बच्चे दायरे में · पशु वीडियो</string>
     <string name="weighing_action_view_result">नतीजा देखें →</string>
     <string name="weighing_action_record_shed">शेड नतीजा रिकॉर्ड करें →</string>
-    <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>
 </resources>

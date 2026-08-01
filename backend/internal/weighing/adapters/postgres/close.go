@@ -50,15 +50,15 @@ const (
 // this is not the banned N+1 shape.
 const readyToCloseCountsSQL = `(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id)
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
 ) AS submitted_count,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status <> 'verified')
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.verification_status <> 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status <> 'verified')
 ) AS pending_verification_count,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.verification_status = 'rework')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
 ) AS rework_count`
 
 // pendingVerificationCount counts submitted evidence in this bucket that still has
@@ -79,12 +79,12 @@ SELECT
   (SELECT count(*) FROM weighing_observations
      WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL)
   + (SELECT count(*) FROM weighing_shed_observations
-     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid),
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL),
   (SELECT count(*) FROM weighing_observations
      WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL
        AND verification_status <> 'verified')
   + (SELECT count(*) FROM weighing_shed_observations
-     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL
        AND verification_status <> 'verified')`,
 		tenantID, campaignShedID).Scan(&submitted, &pending); err != nil {
 		return 0, 0, err
@@ -324,6 +324,7 @@ WHERE cs.tenant_id=$1::uuid
     OR EXISTS (
       SELECT 1 FROM weighing_shed_observations so
       WHERE so.tenant_id=cs.tenant_id AND so.campaign_shed_id=cs.campaign_shed_id
+        AND so.withdrawn_at IS NULL
         AND so.verification_status <> 'verified'
     )
   )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
@@ -439,7 +440,7 @@ func (r *Repository) scopeNotAcceptedWork(ctx context.Context, tx pgx.Tx, cmd do
 		if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM weighing_shed_observations
-  WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+  WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL
 )`, cmd.TenantID, cmd.CampaignShedID).Scan(&accepted); err != nil {
 			return 0, nil, err
 		}

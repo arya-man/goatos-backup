@@ -165,7 +165,7 @@ func TestReopenScopeAllowsNewScanAgain(t *testing.T) {
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 
-	if err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:flow", "operator-requested-recheck"); err != nil {
+	if _, err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:flow", "operator-requested-recheck"); err != nil {
 		t.Fatalf("reopen scope: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusInProgress)
@@ -216,7 +216,7 @@ func TestDuplicateScanRejectedAfterSubmitAndReopen(t *testing.T) {
 	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:dup-flow", []string{scannedTag}); err != nil {
 		t.Fatalf("submit individual scope: %v", err)
 	}
-	if err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:dup-flow", "recheck"); err != nil {
+	if _, err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:dup-flow", "recheck"); err != nil {
 		t.Fatalf("reopen scope: %v", err)
 	}
 
@@ -278,7 +278,7 @@ func TestDuplicateScanRejectionIsCaseInsensitiveAndTrimmed(t *testing.T) {
 	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "submit:ci-flow", []string{"abc123"}); err != nil {
 		t.Fatalf("submit individual scope: %v", err)
 	}
-	if err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:ci-flow", "recheck"); err != nil {
+	if _, err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "reopen:ci-flow", "recheck"); err != nil {
 		t.Fatalf("reopen scope: %v", err)
 	}
 

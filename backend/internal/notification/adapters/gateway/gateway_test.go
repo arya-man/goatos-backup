@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
@@ -91,7 +92,7 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
 		FCMBearerToken: "fcm-token",
 	}, nil)
-	result, err := gateway.SendWithResult(context.Background(), request("push_fcm", "device-token-1"))
+	result, err := gateway.SendWithResult(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
 	if err != nil {
 		t.Fatalf("Send FCM: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		t.Fatalf("Authorization = %q", gotAuth)
 	}
 	message, _ := got["message"].(map[string]any)
-	if message["token"] != "device-token-1" {
+	if message["token"] != "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP" {
 		t.Fatalf("message target = %#v", message)
 	}
 	notification, _ := message["notification"].(map[string]any)
@@ -111,7 +112,59 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 	}
 }
 
-func TestSendFCMUsesDefaultTopic(t *testing.T) {
+func TestSendFCMWithoutRecipientFailsInsteadOfBroadcasting(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", ""))
+	// ErrRecipientUnusable, not ErrInvalidRecipient: no device was named, so nothing is known
+	// about any device. ErrInvalidRecipient additionally suppresses that recipient's other
+	// queued pushes, which would be wrong here -- and catastrophic on the calendar path, where
+	// recipient_ref carries a ROLE NAME and suppression would kill every queued push for that
+	// role tenant-wide, permanently.
+	if !errors.Is(err, ports.ErrRecipientUnusable) {
+		t.Fatalf("error=%v, want ErrRecipientUnusable", err)
+	}
+	if errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatal("a recipient-less request must not suppress the recipient's other pushes")
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls=%d, want 0 (a recipient-less reminder must never broadcast)", calls)
+	}
+}
+
+func TestSendFCMRejectsRoleNameRecipientWithoutSending(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	for _, roleName := range []string{"park_head", "pc_director", "vaccination_operator_amit"} {
+		err := gateway.Send(context.Background(), request("push_fcm", roleName))
+		if !errors.Is(err, ports.ErrRecipientUnusable) {
+			t.Fatalf("recipient %q error=%v, want ErrRecipientUnusable", roleName, err)
+		}
+		// Must NOT be ErrInvalidRecipient: that sentinel suppresses every other queued push for
+		// this recipient_ref. Since the ref IS the role name, one badly-addressed reminder would
+		// terminally silence that whole role across the tenant.
+		if errors.Is(err, ports.ErrInvalidRecipient) {
+			t.Fatalf("recipient %q must not trigger recipient suppression", roleName)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls=%d, want 0 (a role name must never be posted as a device token)", calls)
+	}
+}
+
+func TestSendFCMExplicitTopicRecipientStillWorks(t *testing.T) {
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
@@ -121,13 +174,8 @@ func TestSendFCMUsesDefaultTopic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	gateway := New(Config{
-		FCMEndpoint:     server.URL,
-		FCMBearerToken:  "fcm-token",
-		FCMDefaultTopic: "pc-dev",
-	}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", ""))
-	if err != nil {
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	if err := gateway.Send(context.Background(), request("push_fcm", "topic:pc-dev")); err != nil {
 		t.Fatalf("Send FCM: %v", err)
 	}
 	message, _ := got["message"].(map[string]any)
@@ -136,11 +184,31 @@ func TestSendFCMUsesDefaultTopic(t *testing.T) {
 	}
 }
 
-func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
-	gateway := New(Config{FCMEndpoint: "https://fcm.example/messages:send", FCMBearerToken: "token"}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", ""))
-	if err == nil || !strings.Contains(err.Error(), "push_fcm recipient") {
-		t.Fatalf("expected recipient error, got %v", err)
+func TestSendFCMSlowProviderTimesOutAsRetryableFailure(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer func() {
+		close(release)
+		server.Close()
+	}()
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL,
+		FCMBearerToken: "token",
+		HTTPTimeout:    50 * time.Millisecond,
+	}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "did not respond within") {
+		t.Fatalf("error=%v, want a provider timeout", err)
+	}
+	if errors.Is(err, ports.ErrChannelNotConfigured) || errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatalf("timeout must stay retryable, got %v", err)
 	}
 }
 
@@ -160,7 +228,7 @@ func TestSendFCMClassifiesNotRegisteredAsInvalidRecipient(t *testing.T) {
 	defer server.Close()
 
 	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "fcm-token"}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", "dead-device-token"))
+	err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
 	if !errors.Is(err, ports.ErrInvalidRecipient) {
 		t.Fatalf("error=%v, want ErrInvalidRecipient", err)
 	}
@@ -244,7 +312,7 @@ func TestSendFCMUsesCachedTokenSource(t *testing.T) {
 	gateway := New(Config{FCMEndpoint: server.URL}, nil)
 	gateway.fcmTokenSource = source
 	for i := 0; i < 2; i++ {
-		if err := gateway.Send(context.Background(), request("push_fcm", "device-token-1")); err != nil {
+		if err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")); err != nil {
 			t.Fatalf("Send FCM %d: %v", i, err)
 		}
 	}

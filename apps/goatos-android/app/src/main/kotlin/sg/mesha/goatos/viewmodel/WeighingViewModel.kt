@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
@@ -33,31 +34,35 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
+import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
-import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.weighingCacheAgeNotice
+import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
+import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingTask
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
-import sg.mesha.goatos.feature.weighing.WeighingDayTabUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
 import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailUiState
-import sg.mesha.goatos.feature.weighing.WeighingTaskOperatorGroupUiRow
+import sg.mesha.goatos.feature.weighing.WeighingFilterChipUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTasksTab
 import sg.mesha.goatos.feature.weighing.WeighingTasksUiState
 import sg.mesha.goatos.feature.weighing.WeighingUiState
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatBucket
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
@@ -84,6 +89,7 @@ class WeighingViewModel @Inject constructor(
     private val proofCaptureSource: ProofCaptureSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val repeatSeedStore: WeighingRepeatSeedStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
@@ -125,20 +131,32 @@ class WeighingViewModel @Inject constructor(
     private val appendingAssignments = MutableStateFlow(false)
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
-    private val plannerSelections = MutableStateFlow<Map<String, String>>(emptyMap())
+
     private val selectedAssignmentParkId = MutableStateFlow<String?>(null)
-    private val tasks = MutableStateFlow<List<WeighingTask>>(emptyList())
-    private val tasksNextCursor = MutableStateFlow<String?>(null)
     private val tasksLoading = MutableStateFlow(false)
     private val tasksAppending = MutableStateFlow(false)
 
-    /** True once the planner has paged past the first page, so a refresh must not rewind the cursor. */
-    private var tasksDeepPaged = false
+    /**
+     * How many cached tasks the list observes. Grows ONE page at a time on scroll, bounded by the
+     * cache's own ceiling, and drops back to one page on a refresh so the observed window and the
+     * cached rows always agree.
+     */
+    private val taskWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
+
+    /** How many cached buckets the task DETAIL observes, on the same page-at-a-time contract. */
+    private val taskBucketWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
 
     /** How many extra pages a tab switch may pull before the user's own scrolling takes over. */
     private var tabRefillBudget = 0
     private val tasksTab = MutableStateFlow(WeighingTasksTab.ACTIVE)
-    private val tasksCounts = MutableStateFlow(WeighingTaskTabCounts())
+
+    /**
+     * What the SIGNED-IN viewer may actually do to a task, as the backend states it.
+     *
+     * Publishing needs the planning permission and ending needs the monitoring one, and a real
+     * role (growth director) holds the second without the first -- so gating these on task status
+     * alone rendered a live button that came back refused.
+     */
     /**
      * Park chips are built from every park seen so far, not from the current page: filtering by
      * park re-queries the server, so deriving the chip list from the filtered rows would leave the
@@ -147,17 +165,73 @@ class WeighingViewModel @Inject constructor(
     private val knownTaskParks = MutableStateFlow<Map<String, String>>(emptyMap())
 
     /**
+     * The task list AS ROOM HOLDS IT: a bounded window of cached tasks plus the WHOLE-SCOPE tab
+     * tallies and capability flags the backend answered with. The screen renders this, so a failed
+     * refresh leaves the cached list up instead of blanking it, and re-entry is instant.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val taskCache: StateFlow<WeighingTaskListCache> =
+        if (scopeKey != null) {
+            flowOf(WeighingTaskListCache())
+        } else {
+            combine(selectedAssignmentParkId, taskWindow) { parkId, window -> parkId to window }
+                .flatMapLatest { (parkId, window) -> repository.observeTaskList(surface, parkId, window) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskListCache())
+
+    private val tasks: StateFlow<List<WeighingTask>> = taskCache
+        .map { it.items }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Quiet staleness note: the last task-list refresh did not land. Blank when the cache is current. */
+    private val tasksStale = MutableStateFlow("")
+
+    /**
      * Which task the detail screen is showing. The detail destination is always pushed from the
-     * task list and reads the list's ViewModel, so the task it needs is already loaded -- there is
+     * task list and reads the list's ViewModel, so the task it needs is already cached -- there is
      * no single-task endpoint, and paging the whole list looking for one campaign would be a drain
      * loop.
      */
     private val selectedTaskId = MutableStateFlow<String?>(null)
+
+    /**
+     * The last task the cache resolved for [selectedTaskId], kept so the detail screen survives a
+     * refresh that re-reads only page 1. Exactly ONE task, replaced not accumulated.
+     */
+    private val selectedTaskSnapshot = MutableStateFlow<WeighingTask?>(null)
+
+    /**
+     * ONE task's shed buckets AS ROOM HOLDS THEM: a bounded window of cached buckets plus the
+     * WHOLE-TASK bucket count, so the header does not move while the reader scrolls. The list the
+     * task read embeds is no longer what this screen pages through.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val taskBucketCache: StateFlow<WeighingTaskBucketCache> =
+        combine(selectedTaskId, taskBucketWindow) { taskId, window -> taskId to window }
+            .flatMapLatest { (taskId, window) ->
+                if (taskId.isNullOrBlank()) {
+                    flowOf(WeighingTaskBucketCache())
+                } else {
+                    repository.observeTaskBuckets(taskId, window)
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskBucketCache())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val loadingAssignments = MutableStateFlow(false)
+
+    // The task list and the planner catalog are two INDEPENDENT reads that both run on the planner
+    // surface. They used to share one in-flight flag, so whichever started first made the other
+    // return early and never refresh at all; and they shared one message slot, so a success from one
+    // wiped the failure of the other off the screen. Each read now owns its own flag and its own
+    // error, and the banner shows whichever error is still outstanding.
+    private val loadingPlanner = MutableStateFlow(false)
+    private val selectedOperatorFilter = MutableStateFlow<String?>(null)
+    private val assignmentsError = MutableStateFlow<String?>(null)
+    private val plannerError = MutableStateFlow<String?>(null)
     private val plannerWeek = WeighingWeek.current()
+
+    /** One collector for the cached planner catalog; started on first planner refresh. */
+    private var observePlannerJob: Job? = null
     private var readerRefreshJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -204,13 +278,11 @@ class WeighingViewModel @Inject constructor(
         combine(assignments, selectedAssignmentParkId, appendingAssignments) { availableAssignments, selectedParkId, appending ->
             AssignmentParkSelection(availableAssignments, selectedParkId, appending)
         }.let { assignmentSelection ->
-            combine(assignmentSelection, loadingAssignments, plannerMode, plannerCatalog, plannerSelections) { selection, loading, isPlanner, catalog, planner ->
+            combine(assignmentSelection, loadingAssignments, plannerMode) { selection, loading, isPlanner ->
                 WeighingRootState(
                     assignments = selection.assignments,
                     loading = loading,
                     plannerMode = isPlanner,
-                    catalog = catalog,
-                    selections = planner,
                     selectedParkId = selection.selectedParkId,
                     appendingAssignments = selection.appending,
                 )
@@ -233,20 +305,22 @@ class WeighingViewModel @Inject constructor(
      * screen's state machine is what produced the shed-grain task list in the first place.
      */
     val tasksState: StateFlow<WeighingTasksUiState> =
-        combine(tasks, tasksTab, tasksCounts, knownTaskParks, selectedAssignmentParkId) {
-                loadedTasks,
+        combine(taskCache, tasksTab, knownTaskParks, selectedAssignmentParkId) {
+                cached,
                 tab,
-                counts,
                 parks,
                 parkId,
             ->
+            val loadedTasks = cached.items
             WeighingTasksUiState(
                 tab = tab,
-                activeCount = counts.active,
-                completedCount = counts.completed,
+                // WHOLE-SCOPE tallies as the backend answered them, cached beside the rows. Never
+                // counted from the page on screen, or the tab numbers would move as pages land.
+                activeCount = cached.activeCount,
+                completedCount = cached.completedCount,
                 tasks = loadedTasks.filter { it.matchesTab(tab) }.map { it.toTaskUiRow() },
                 repeatCandidate = loadedTasks
-                    .lastOrNull { it.matchesTab(WeighingTasksTab.ACTIVE) }
+                    .lastOrNull { it.matchesTab(WeighingTasksTab.ACTIVE) && it.isRepeatable() }
                     ?.toTaskUiRow()
                     ?.takeIf { tab == WeighingTasksTab.ACTIVE },
                 parkFilters = parks.entries
@@ -255,10 +329,32 @@ class WeighingViewModel @Inject constructor(
                 todayLabel = LocalDate.now(ZoneId.of(WEIGHING_BUSINESS_ZONE)).format(weighingTodayFormatter),
             )
         }.let { base ->
-            combine(base, tasksLoading, tasksAppending) { current, loading, appending ->
-                current.copy(loading = loading, loadingMore = appending)
+            combine(base, tasksLoading, tasksAppending, tasksStale, taskCache) { current, loading, appending, stale, cached ->
+                // Two independent staleness signals: a refresh that failed in THIS session, and the
+                // AGE of the cached answer (an offline cold start has no failure to report).
+                current.copy(
+                    loading = loading,
+                    loadingMore = appending,
+                    staleNotice = listOf(stale, weighingCacheAgeNotice(cached.cachedAt))
+                        .filter { it.isNotBlank() }
+                        .joinToString(" "),
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTasksUiState())
+
+    /**
+     * The task the detail screen renders: the cached row when the window still holds it, otherwise
+     * the last one it resolved.
+     *
+     * A refresh re-reads only page 1, so a task the planner opened from page 3 would otherwise
+     * vanish out from under its own screen the moment that screen resumed. There is no single-task
+     * read to fall back on, and paging the list hunting for one campaign would be a drain loop.
+     */
+    private val activeTask: StateFlow<WeighingTask?> =
+        combine(tasks, selectedTaskId, selectedTaskSnapshot) { loadedTasks, taskId, snapshot ->
+            val id = taskId ?: return@combine null
+            loadedTasks.firstOrNull { it.campaignId == id } ?: snapshot?.takeIf { it.campaignId == id }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * The task DETAIL state: one task, its buckets grouped by the operator who owns them.
@@ -268,53 +364,202 @@ class WeighingViewModel @Inject constructor(
      */
     val taskDetailState: StateFlow<WeighingTaskDetailUiState> =
         combine(
-            tasks,
+            activeTask,
             selectedTaskId,
             plannerCatalog,
             tasksLoading,
             actionInFlight,
-        ) { loadedTasks, taskId, catalog, loading, busy ->
-            val task = taskId?.let { id -> loadedTasks.firstOrNull { it.campaignId == id } }
+        ) { task, taskId, catalog, loading, busy ->
             val operatorNames = catalog?.operators.orEmpty()
                 .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
                 .associate { it.userId to it.displayName }
-            task.toTaskDetailUiState(
-                campaignId = taskId.orEmpty(),
-                operatorNames = operatorNames,
-                loading = loading,
-                busy = busy,
-            )
+            TaskDetailInputs(task, taskId.orEmpty(), operatorNames, loading, busy)
+        }.let { base ->
+            combine(base, taskCache, taskBucketCache, tasksStale, selectedOperatorFilter) { inputs, listCache, buckets, stale, operatorFilter ->
+                inputs.task.toTaskDetailUiState(
+                    campaignId = inputs.campaignId,
+                    selectedOperatorId = operatorFilter,
+                    operatorNames = inputs.operatorNames,
+                    capabilities = listCache.capabilities,
+                    buckets = buckets,
+                    loading = inputs.loading,
+                    busy = inputs.busy,
+                    // Refresh failure in this session PLUS the age of the cached answer.
+                    staleNotice = listOf(stale, weighingCacheAgeNotice(buckets.cachedAt))
+                        .filter { it.isNotBlank() }
+                        .joinToString(" "),
+                )
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskDetailUiState())
+
+    init {
+        // Remember the task the cache just resolved for the detail screen. Exactly ONE task is
+        // held, replaced each time the cache answers, so a page-1 refresh cannot blank a detail
+        // screen opened from a deeper page.
+        viewModelScope.launch {
+            combine(tasks, selectedTaskId) { loadedTasks, taskId ->
+                taskId?.let { id -> loadedTasks.firstOrNull { it.campaignId == id } }
+            }.collect { resolved -> if (resolved != null) selectedTaskSnapshot.value = resolved }
+        }
+    }
+
+    /** The operator chip the detail screen is filtered by, or null for all operators. */
+    fun selectTaskOperator(operatorId: String?) {
+        selectedOperatorFilter.value = operatorId?.takeIf { it.isNotBlank() }
+    }
 
     /** Names the task the detail screen is on. Safe to call on every recomposition. */
     fun selectTask(campaignId: String) {
         val normalized = campaignId.takeIf { it.isNotBlank() }
         if (selectedTaskId.value == normalized) return
         selectedTaskId.value = normalized
+        selectedTaskSnapshot.value = null
+        taskBucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
+        refreshTaskBuckets(reset = true)
     }
 
     /**
-     * Leadership reopen for ONE bucket on the task detail screen.
-     *
-     * Same write as the assignment-row reopen; it takes the bucket identity directly because the
-     * detail screen renders task-grain rows, not assignment rows.
+     * Fetches ONE page of the selected task's buckets into Room. The cached buckets stay on screen
+     * while it runs and stay on screen if it fails.
      */
-    fun reopenTaskShed(row: WeighingTaskShedUiRow) {
-        if (scopeKey != null || actionInFlight.value || !row.canReopen) return
+    private fun refreshTaskBuckets(reset: Boolean) {
+        val campaignId = selectedTaskId.value?.takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch {
+            when (val loaded = repository.refreshTaskBuckets(campaignId, reset = reset)) {
+                is AppResult.Ok -> tasksStale.value = ""
+                is AppResult.Err -> tasksStale.value = STALE_NOTICE_PREFIX + loaded.message
+            }
+        }
+    }
+
+    /**
+     * Scroll-driven prefetch for the task detail's bucket list: one page per trigger, tail window
+     * only, and it grows the observed Room window with the network page.
+     */
+    fun onTaskBucketRowVisible(index: Int) {
+        val loaded = taskBucketCache.value.items.size
+        if (loaded == 0 || index < loaded - LIST_PREFETCH_DISTANCE) return
+        if (taskBucketWindow.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
+            taskBucketWindow.value =
+                (taskBucketWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
+        }
+        if (!taskBucketCache.value.canLoadMore) return
+        refreshTaskBuckets(reset = false)
+    }
+
+    /**
+     * Publishes the task the detail screen is on, when it is still a draft.
+     *
+     * This is the SAME publish call the authoring wizard runs; a draft left behind at step 5 is
+     * otherwise unreachable, because nothing else in the app can move it out of draft.
+     */
+    fun publishTask() {
+        val task = selectedTask() ?: return
+        if (actionInFlight.value) return
+        if (!task.status.equalsWeighingStatus("draft")) return
+        if (!taskCache.value.capabilities.canPublish) return
         actionInFlight.value = true
         viewModelScope.launch {
             try {
-                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, "Need to scan more animals")) {
+                when (val published = repository.publishCampaign(task.campaignId)) {
                     is AppResult.Ok -> {
-                        message.value = "${row.shedName} reopened."
+                        message.value = "Published for ${task.weighDateLabel()}."
+
                         refreshTasks()
                     }
-                    is AppResult.Err -> message.value = reopened.message
+                    is AppResult.Err -> message.value = published.message
                 }
             } finally {
                 actionInFlight.value = false
             }
         }
+    }
+
+    /**
+     * Ends the whole task and every bucket still open under it.
+     *
+     * There is ONE write here, not two: ending a task whose buckets were all accepted and ending
+     * one that still has open work are the same server operation, and the reason recorded is what
+     * distinguishes them. The screen names the button for the case it is in; it does not invent a
+     * second endpoint to match the two labels.
+     */
+    fun closeTask() {
+        val task = selectedTask() ?: return
+        if (actionInFlight.value) return
+        if (!taskCache.value.capabilities.canEnd) return
+        val normalized = task.status.trim().lowercase()
+        if (normalized == "draft" || normalized == "closed" || normalized == "completed") return
+        val openBuckets = task.sheds.count { !it.status.equalsWeighingStatus("closed") }
+        // A CODE, not a sentence. The reason is kept forever on the task, so the backend authors
+        // the wording; the phone only says which of the two cases this is.
+        val reason = if (openBuckets == 0) CLOSE_REASON_ALL_ACCEPTED else CLOSE_REASON_OPEN_BUCKETS
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val closed = repository.closeCampaign(task.campaignId, reason)) {
+                    is AppResult.Ok -> {
+                        message.value = if (openBuckets == 0) {
+                            "Task complete · every shed bucket accepted."
+                        } else {
+                            "Task closed · $openBuckets shed ${if (openBuckets == 1) "bucket" else "buckets"} " +
+                                "stayed not accepted."
+                        }
+                        refreshTasks()
+                    }
+                    is AppResult.Err -> message.value = closed.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    /**
+     * Hands the selected task's park, buckets, modes and operators to the authoring wizard.
+     *
+     * Nothing is written here and no campaign is copied: the wizard opens on its DATE step with
+     * these answers prefilled, and the ordinary create-then-publish path — with the server's own
+     * availability check on whichever date is chosen — decides what survives.
+     *
+     * Returns the source task id when a seed was staged, so the caller can navigate; null means
+     * there was nothing to carry over and the caller must not pretend otherwise.
+     */
+    fun stageRepeatOfTask(campaignId: String): String? {
+        val task = tasks.value.firstOrNull { it.campaignId == campaignId }
+            ?: selectedTaskSnapshot.value?.takeIf { it.campaignId == campaignId }
+            ?: return null
+        val buckets = task.sheds
+            .filter { it.locationId.isNotBlank() }
+            .map {
+                WeighingRepeatBucket(
+                    locationId = it.locationId,
+                    category = it.category,
+                    operatorUserId = it.operatorUserId,
+                )
+            }
+        if (task.parkId.isBlank() || buckets.isEmpty()) {
+            // Nothing to carry over. Say so rather than swallowing the tap: the caller navigates
+            // only on a non-null id, so a silent null is a dead button.
+            message.value = REPEAT_BLOCKED_REASON
+            return null
+        }
+        repeatSeedStore.stage(
+            sourceCampaignId = campaignId,
+            seed = WeighingRepeatSeed(
+                parkId = task.parkId,
+                parkName = task.parkName.ifBlank { task.parkId },
+                sourceDateLabel = runCatching {
+                    LocalDate.parse(task.weighDate, weighingIsoDateFormatter).format(weighingTodayFormatter)
+                }.getOrDefault(task.weighDate),
+                buckets = buckets,
+            ),
+        )
+        return campaignId
+    }
+
+    private fun selectedTask(): WeighingTask? {
+        if (scopeKey != null) return null
+        return activeTask.value
     }
 
     val state: StateFlow<WeighingUiState> =
@@ -333,8 +578,6 @@ class WeighingViewModel @Inject constructor(
                 loading = root.loading,
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
-                catalog = root.catalog,
-                selections = root.selections,
                 selectedParkId = root.selectedParkId,
                 localScans = capture.scans,
                 proofs = capture.proofs,
@@ -399,6 +642,7 @@ class WeighingViewModel @Inject constructor(
             if (plannerMode.value) {
                 refreshPlanner()
                 refreshTasks()
+                refreshTaskBuckets(reset = true)
             } else {
                 refreshAssignments()
             }
@@ -417,9 +661,14 @@ class WeighingViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
-                        message.value = null
+                        assignmentsError.value = null
+                        // Do not clear a failure the planner read is still reporting.
+                        message.value = plannerError.value
                     }
-                    is AppResult.Err -> reportReadFailure(loaded.message)
+                    is AppResult.Err -> {
+                        assignmentsError.value = loaded.message.toWeighingReadMessage()
+                        reportReadFailure(loaded.message)
+                    }
                 }
             } finally {
                 loadingAssignments.value = false
@@ -452,9 +701,13 @@ class WeighingViewModel @Inject constructor(
                         val known = assignments.value.map { it.campaignShedId }.toSet()
                         assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
                         assignmentsNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
-                        message.value = null
+                        assignmentsError.value = null
+                        message.value = plannerError.value
                     }
-                    is AppResult.Err -> reportReadFailure(loaded.message)
+                    is AppResult.Err -> {
+                        assignmentsError.value = loaded.message.toWeighingReadMessage()
+                        reportReadFailure(loaded.message)
+                    }
                 }
             } finally {
                 appendingAssignments.value = false
@@ -467,45 +720,29 @@ class WeighingViewModel @Inject constructor(
         if (scopeKey != null) return
         if (tasksLoading.value) return
         tasksLoading.value = true
+        // Back to ONE page: the refresh re-reads page 1 into Room and drops the filter's stale
+        // deeper pages, so the observed window must come back with it or the list would render a
+        // window larger than the rows behind it. Scrolling re-earns the deeper pages, and the task
+        // DETAIL is protected separately by its own snapshot rather than by keeping pages alive.
+        taskWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         viewModelScope.launch {
             try {
                 when (
-                    val loaded = repository.listTasks(
-                        cursor = null,
+                    val loaded = repository.refreshTaskList(
                         scope = surface,
                         parkId = selectedAssignmentParkId.value,
+                        reset = true,
                     )
                 ) {
-                    is AppResult.Ok -> {
-                        // MERGE, never replace.
-                        //
-                        // A refresh fires on every resume, including the resume that happens when
-                        // the user backs out of a task's own detail screen. Replacing the list with
-                        // the first page would throw away every page the planner had scrolled to --
-                        // and because the detail screen resolves its task out of this same loaded
-                        // list, a task from page 2 or beyond would vanish out from under its own
-                        // screen the moment that screen resumed.
-                        //
-                        // The fresh page wins per campaign id (it is the newer truth); accumulated
-                        // rows the fresh page does not mention keep their place behind it. The
-                        // cursor is only rewound when nothing had been paged past page 1, so deeper
-                        // pages are not re-fetched.
-                        val fresh = loaded.value.items
-                        val freshIds = fresh.map { it.campaignId }.toSet()
-                        tasks.value = fresh + tasks.value.filter { it.campaignId !in freshIds }
-                        if (!tasksDeepPaged) {
-                            tasksNextCursor.value = loaded.value.nextCursor
-                        }
-                        tasksCounts.value = WeighingTaskTabCounts(
-                            active = loaded.value.activeCount,
-                            completed = loaded.value.completedCount,
-                        )
-                        rememberTaskParks(loaded.value.items)
-                    }
-                    is AppResult.Err -> reportReadFailure(loaded.message)
+                    is AppResult.Ok -> tasksStale.value = ""
+                    // Room keeps what it had: the cached list stays on screen with a quiet note
+                    // rather than being cleared or replaced by an error page.
+                    is AppResult.Err -> tasksStale.value = STALE_NOTICE_PREFIX + loaded.message
                 }
             } finally {
                 tasksLoading.value = false
+                rememberTaskParks(tasks.value)
+                appendTasksIfTabUnderfilled()
             }
         }
     }
@@ -520,6 +757,18 @@ class WeighingViewModel @Inject constructor(
         if (loaded == 0) return
         if (index < loaded - LIST_PREFETCH_DISTANCE) return
         appendTasks()
+    }
+
+    /**
+     * Widens the observed Room window by ONE page, up to the cache's ceiling.
+     *
+     * Paging binds BOTH layers: the network page and the window the screen renders from grow
+     * together, so the over-fetch cannot move from the network into the database.
+     */
+    private fun growTaskWindow() {
+        if (taskWindow.value >= WEIGHING_LEADERSHIP_MAX_WINDOW) return
+        taskWindow.value =
+            (taskWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
     }
 
     fun selectTaskTab(tab: WeighingTasksTab) {
@@ -542,43 +791,33 @@ class WeighingViewModel @Inject constructor(
         val normalized = parkId?.takeIf { it.isNotBlank() }
         if (selectedAssignmentParkId.value == normalized) return
         selectedAssignmentParkId.value = normalized
-        // A different park is a different keyset: drop the accumulated pages rather than merging
-        // the new park's first page in front of the old park's tail.
-        tasks.value = emptyList()
-        tasksNextCursor.value = null
-        tasksDeepPaged = false
+        // A different park is a different keyset, and the cache keys on it -- the observed stream
+        // re-points at the new filter's own rows rather than merging them behind the old park's.
+        taskWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         refreshTasks()
     }
 
     private fun appendTasks() {
         if (scopeKey != null) return
-        val cursor = tasksNextCursor.value?.takeIf { it.isNotBlank() } ?: return
+        if (!taskCache.value.canLoadMore) return
         if (tasksLoading.value || tasksAppending.value) return
         tasksAppending.value = true
+        growTaskWindow()
         viewModelScope.launch {
             try {
                 when (
-                    val loaded = repository.listTasks(
-                        cursor = cursor,
+                    val loaded = repository.refreshTaskList(
                         scope = surface,
                         parkId = selectedAssignmentParkId.value,
+                        reset = false,
                     )
                 ) {
-                    is AppResult.Ok -> {
-                        val known = tasks.value.map { it.campaignId }.toSet()
-                        tasks.value = tasks.value + loaded.value.items.filter { it.campaignId !in known }
-                        tasksNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
-                        tasksDeepPaged = true
-                        tasksCounts.value = WeighingTaskTabCounts(
-                            active = loaded.value.activeCount,
-                            completed = loaded.value.completedCount,
-                        )
-                        rememberTaskParks(loaded.value.items)
-                    }
-                    is AppResult.Err -> reportReadFailure(loaded.message)
+                    is AppResult.Ok -> tasksStale.value = ""
+                    is AppResult.Err -> tasksStale.value = STALE_NOTICE_PREFIX + loaded.message
                 }
             } finally {
                 tasksAppending.value = false
+                rememberTaskParks(tasks.value)
                 appendTasksIfTabUnderfilled()
             }
         }
@@ -586,7 +825,7 @@ class WeighingViewModel @Inject constructor(
 
     private fun appendTasksIfTabUnderfilled() {
         if (tabRefillBudget <= 0) return
-        if (tasksNextCursor.value.isNullOrBlank()) return
+        if (!taskCache.value.canLoadMore) return
         val visible = tasks.value.count { it.matchesTab(tasksTab.value) }
         if (visible >= LIST_PREFETCH_DISTANCE) return
         tabRefillBudget -= 1
@@ -666,103 +905,41 @@ class WeighingViewModel @Inject constructor(
         selectedAssignmentParkId.value = parkId?.takeIf { it.isNotBlank() }
     }
 
-    fun createOrEditDefaultPlan() {
-        if (scopeKey != null || actionInFlight.value) return
-        val catalog = plannerCatalog.value
-        if (catalog == null) {
-            message.value = "Planner is still loading."
-            refreshPlanner()
-            return
-        }
-        val park = catalog.parks.firstOrNull()
-        if (park == null) {
-            message.value = "No kid parks are available for this week."
-            return
-        }
-        val operator = catalog.operators.firstOrNull()
-        if (operator == null) {
-            message.value = "No weighing operator is available to assign."
-            return
-        }
-        val selections = plannerSelections.value
-        val selectedSheds = park.sheds
-            .filter { selections.containsKey(it.locationId) }
-            .map { shed ->
-                shed.copy(category = selections[shed.locationId] ?: PER_SHED_PARTITION_CATEGORY)
-            }
-        if (selectedSheds.isEmpty()) {
-            message.value = "Select at least one kid shed."
-            return
-        }
-        actionInFlight.value = true
-        viewModelScope.launch {
-            try {
-                val draft = WeighingPlanDraft(
-                    parkId = park.parkId,
-                    periodStartDate = plannerWeek.startDate,
-                    periodEndDate = plannerWeek.endDate,
-                    startBusinessDate = plannerWeek.startDate,
-                    plannedCapPerDay = DEFAULT_PLANNED_CAP_PER_DAY,
-                    operatorUserId = operator.userId,
-                    sheds = selectedSheds,
-                )
-                val result = park.existingCampaign?.campaignId
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { repository.updatePlan(it, draft) }
-                    ?: repository.createAndPublishPlan(draft)
-                when (result) {
-                    is AppResult.Ok -> {
-                        message.value = if (park.existingCampaign == null) {
-                            "Published ${park.name}: ${selectedSheds.size} shed tasks assigned to ${operator.displayName}."
-                        } else {
-                            "Updated ${park.name}: same campaign, ${selectedSheds.size} shed tasks assigned to ${operator.displayName}."
-                        }
-                        refreshPlanner()
-                        refreshAssignments()
-                    }
-                    is AppResult.Err -> message.value = result.message
-                }
-            } finally {
-                actionInFlight.value = false
-            }
-        }
-    }
-
-    fun togglePlannerShed(locationId: String) {
-        if (scopeKey != null || locationId.isBlank()) return
-        plannerSelections.value = plannerSelections.value.toMutableMap().also { selections ->
-            if (selections.containsKey(locationId)) {
-                selections.remove(locationId)
-            } else {
-                selections[locationId] = PER_SHED_PARTITION_CATEGORY
-            }
-        }
-    }
-
-    fun setPlannerShedCategory(locationId: String, category: String) {
-        if (scopeKey != null || locationId.isBlank()) return
-        if (category != INDIVIDUAL_ANIMAL_CATEGORY && category != PER_SHED_PARTITION_CATEGORY) return
-        plannerSelections.value = plannerSelections.value.toMutableMap().also { selections ->
-            selections[locationId] = category
-        }
-    }
-
+    /**
+     * The planner catalog behind the operator NAMES this surface renders.
+     *
+     * Rendered from Room like every other leadership read: the observed window below feeds the
+     * catalog and the refresh only writes into it, so a failed refresh leaves the cached operator
+     * vocabulary in place instead of stripping names off the task detail.
+     */
     private fun refreshPlanner() {
         if (scopeKey != null) return
-        if (loadingAssignments.value) return
-        loadingAssignments.value = true
+        if (observePlannerJob == null) {
+            observePlannerJob = viewModelScope.launch {
+                repository.observePlannerCatalog(plannerWeek.startDate)
+                    .collect { cached ->
+                        if (!cached.hasCache && cached.catalog.parks.isEmpty()) return@collect
+                        plannerCatalog.value = cached.catalog
+                    }
+            }
+        }
+        if (loadingPlanner.value) return
+        loadingPlanner.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.plannerCatalog(plannerWeek.startDate)) {
+                when (val loaded = repository.refreshPlannerCatalog(plannerWeek.startDate)) {
                     is AppResult.Ok -> {
-                        plannerCatalog.value = loaded.value
-                        seedPlannerSelections(loaded.value)
-                        message.value = null
+                        plannerError.value = null
+                        // Do not clear a failure the task-list read is still reporting.
+                        message.value = assignmentsError.value
                     }
-                    is AppResult.Err -> reportReadFailure(loaded.message)
+                    is AppResult.Err -> {
+                        plannerError.value = loaded.message.toWeighingReadMessage()
+                        reportReadFailure(loaded.message)
+                    }
                 }
             } finally {
-                loadingAssignments.value = false
+                loadingPlanner.value = false
             }
         }
     }
@@ -1247,23 +1424,6 @@ class WeighingViewModel @Inject constructor(
         reader.setCaptureEnabled(false)
     }
 
-    private fun seedPlannerSelections(catalog: WeighingPlannerCatalog) {
-        val firstPark = catalog.parks.firstOrNull() ?: return
-        val validIds = firstPark.sheds.map { it.locationId }.toSet()
-        val preserved = plannerSelections.value.filterKeys { it in validIds }
-        if (preserved.isNotEmpty()) {
-            plannerSelections.value = preserved
-            return
-        }
-        plannerSelections.value = firstPark.sheds
-            .filter { it.kidCount > 0 }
-            .take(3)
-            .mapIndexed { index, shed ->
-                shed.locationId to if (index == 0) INDIVIDUAL_ANIMAL_CATEGORY else PER_SHED_PARTITION_CATEGORY
-            }
-            .toMap()
-    }
-
     private fun matchTag(tag: String) {
         val key = scopeKey ?: return
         val normalizedTag = normalizeFreeFlowTag(tag)
@@ -1430,8 +1590,6 @@ class WeighingViewModel @Inject constructor(
         loading: Boolean,
         appendingAssignments: Boolean,
         isPlanner: Boolean,
-        catalog: WeighingPlannerCatalog?,
-        selections: Map<String, String>,
         selectedParkId: String?,
         localScans: List<WeighingRosterRowEntity>,
         proofs: List<ProofCaptureRow>,
@@ -1474,37 +1632,8 @@ class WeighingViewModel @Inject constructor(
             assignmentsLoadingMore = appendingAssignments,
             category = category,
             plannerMode = isPlanner,
-            plannerWeekLabel = plannerWeek.label,
-            plannerPeriodLabel = plannerWeek.periodLabel,
-            plannerDayTabs = plannerWeek.dayTabs,
             readerConnection = readerConnection,
             shedProofs = proofs.toShedProofUiRows(),
-            plannerParks = catalog?.parks.orEmpty().map { park ->
-                WeighingPlannerParkUiRow(
-                    parkId = park.parkId,
-                    name = park.name,
-                    kidCount = park.kidCount,
-                    existingCampaignId = park.existingCampaign?.campaignId,
-                    existingCampaignStatus = park.existingCampaign?.status?.readableWeighingStatus(),
-                    existingCampaignShedCount = park.existingCampaign?.shedCount ?: 0,
-                    sheds = park.sheds.map { shed ->
-                        WeighingPlannerShedUiRow(
-                            locationId = shed.locationId,
-                            name = shed.name,
-                            kidCount = shed.kidCount,
-                            category = selections[shed.locationId] ?: shed.category,
-                            selected = selections.containsKey(shed.locationId),
-                        )
-                    },
-                )
-            },
-            plannerOperators = catalog?.operators.orEmpty().map { operator ->
-                WeighingPlannerOperatorUiRow(
-                    userId = operator.userId,
-                    displayName = operator.displayName,
-                    displayCode = operator.displayCode,
-                )
-            },
         )
         val effectiveScans = (
             localScans + scope.individualDrafts.map { draft ->
@@ -1857,8 +1986,6 @@ private data class WeighingRootState(
     val assignments: List<WeighingAssignment> = emptyList(),
     val loading: Boolean = false,
     val plannerMode: Boolean = false,
-    val catalog: WeighingPlannerCatalog? = null,
-    val selections: Map<String, String> = emptyMap(),
     val selectedParkId: String? = null,
     val appendingAssignments: Boolean = false,
 )
@@ -1899,36 +2026,21 @@ private data class LumpSumInputDraft(
 
 private val lumpSumDrafts = mutableMapOf<String, LumpSumInputDraft>()
 
+/**
+ * The business week the planner catalog is read for.
+ *
+ * Only the Monday start date survives: it is the key the catalog read is cached under. The week
+ * LABEL, period label and day tabs belonged to the old in-screen week strip, which the planner
+ * surface replaced -- nothing renders them, so nothing computes them.
+ */
 private data class WeighingWeek(
     val startDate: String,
-    val endDate: String,
-    val label: String,
-    val periodLabel: String,
-    val dayTabs: List<WeighingDayTabUiRow>,
 ) {
     companion object {
         private val isoFormatter = DateTimeFormatter.ISO_LOCAL_DATE
-        private val shortFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
 
-        fun current(today: LocalDate = LocalDate.now(ZoneId.of("Asia/Kolkata"))): WeighingWeek {
-            val start = today.with(DayOfWeek.MONDAY)
-            val end = start.plusDays(6)
-            val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
-            return WeighingWeek(
-                startDate = start.format(isoFormatter),
-                endDate = end.format(isoFormatter),
-                label = "Week $week",
-                periodLabel = "Week $week - ${start.format(shortFormatter)}-${end.format(shortFormatter)}",
-                dayTabs = (0L..6L).map { offset ->
-                    val date = start.plusDays(offset)
-                    WeighingDayTabUiRow(
-                        dayLabel = date.dayOfWeek.name.take(3),
-                        dateLabel = date.dayOfMonth.toString(),
-                        selected = date == today,
-                    )
-                },
-            )
-        }
+        fun current(today: LocalDate = LocalDate.now(ZoneId.of("Asia/Kolkata"))): WeighingWeek =
+            WeighingWeek(startDate = today.with(DayOfWeek.MONDAY).format(isoFormatter))
     }
 }
 
@@ -1957,37 +2069,65 @@ private fun WeighingTask.matchesTab(tab: WeighingTasksTab): Boolean {
     return if (tab == WeighingTasksTab.COMPLETED) completed else !completed
 }
 
+private fun String.equalsWeighingStatus(other: String): Boolean =
+    trim().equals(other, ignoreCase = true)
+
+/**
+ * Prefix for the quiet staleness note: cached rows stay on screen and this says the last refresh
+ * did not land, instead of clearing the list or throwing the reader to an error page.
+ */
+private const val STALE_NOTICE_PREFIX = "Showing the last saved list. "
+
 /** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
 private const val WEIGHING_GROUP_BUCKET_CAP = 20
 
 private fun WeighingTask?.toTaskDetailUiState(
     campaignId: String,
+    selectedOperatorId: String?,
     operatorNames: Map<String, String>,
+    capabilities: WeighingCapabilities,
+    buckets: WeighingTaskBucketCache,
     loading: Boolean,
     busy: Boolean,
+    staleNotice: String,
 ): WeighingTaskDetailUiState {
     if (this == null) {
         return WeighingTaskDetailUiState(campaignId = campaignId, found = false, loading = loading, busy = busy)
     }
     val date = runCatching { LocalDate.parse(weighDate, weighingIsoDateFormatter) }.getOrNull()
     val normalizedStatus = status.trim().lowercase()
-    // Grouping key is the operator's identity; the LABEL is the catalog's display name. An id the
-    // catalog cannot resolve is shown as a plain operator heading rather than as a raw id.
-    val groups = sheds
+    // The RENDERED buckets are the cached keyset page, not the whole set the task record embeds:
+    // one park can hold 76+ sheds, and the reader is shown a page at a time.
+    val pagedSheds = if (buckets.hasCache) buckets.items else sheds
+    // Operator is a FILTER, not a grouping. A sectioned list cannot paginate: a ~20-row keyset page
+    // splits mid-operator, so a header would show part of someone's sheds with the rest arriving
+    // pages later. One flat list behind a chip pages the same however many operators a task has.
+    //
+    // The chip LABEL is the name the bucket itself carries; the planner catalog is only a fallback
+    // for a bucket read that predates that field, because resolving from the catalog alone left
+    // every bucket past the catalog's first page nameless.
+    fun labelFor(operatorUserId: String, rows: List<WeighingTaskShed>): String = when {
+        operatorUserId.isBlank() -> "Not assigned yet"
+        else -> rows.firstNotNullOfOrNull { it.operatorDisplayName.ifBlank { null } }
+            ?: operatorNames[operatorUserId]
+            ?: "Operator"
+    }
+    // Chip counts range over the WHOLE task, not the cached page, so they do not move as the
+    // reader scrolls.
+    val operatorFilters = sheds
         .groupBy { it.operatorUserId }
-        .map { (operatorUserId, operatorSheds) ->
-            WeighingTaskOperatorGroupUiRow(
-                operatorUserId = operatorUserId.ifBlank { "unassigned" },
-                operatorLabel = when {
-                    operatorUserId.isBlank() -> "Not assigned yet"
-                    else -> operatorNames[operatorUserId] ?: "Operator"
-                },
-                shedCount = operatorSheds.size,
-                sheds = operatorSheds.take(WEIGHING_GROUP_BUCKET_CAP).map { it.toTaskShedUiRow(this) },
-                moreShedCount = (operatorSheds.size - WEIGHING_GROUP_BUCKET_CAP).coerceAtLeast(0),
+        .map { (operatorUserId, rows) ->
+            val id = operatorUserId.ifBlank { "unassigned" }
+            WeighingFilterChipUiRow(
+                id = id,
+                label = "${labelFor(operatorUserId, rows)} ${rows.size}",
+                selected = selectedOperatorId == id,
             )
         }
-        .sortedBy { it.operatorLabel }
+        .sortedBy { it.label }
+    val visibleSheds = pagedSheds
+        .filter { selectedOperatorId == null || it.operatorUserId.ifBlank { "unassigned" } == selectedOperatorId }
+        .map { it.toTaskShedUiRow(this, labelFor(it.operatorUserId, listOf(it))) }
     return WeighingTaskDetailUiState(
         campaignId = this.campaignId,
         found = true,
@@ -1995,17 +2135,40 @@ private fun WeighingTask?.toTaskDetailUiState(
         dateLabel = date?.format(weighingTodayFormatter) ?: weighDate,
         status = status,
         statusLabel = normalizedStatus.ifBlank { "scheduled" }.replace('_', ' '),
-        bucketCount = sheds.size,
+        // WHOLE-TASK bucket count as the backend answered it, so the header does not move while
+        // the reader scrolls the page. Falls back to the task record's own set before the bucket
+        // page has been cached.
+        bucketCount = if (buckets.hasCache) buckets.totalCount else sheds.size,
+        // Whole-task facts stay on the task record, which carries every bucket; only the rendered
+        // list is paged. Counting the page here would understate the task.
         operatorCount = sheds.map { it.operatorUserId }.filter { it.isNotBlank() }.distinct().size,
         isDraft = normalizedStatus == "draft",
         isClosed = normalizedStatus == "closed",
-        groups = groups,
+        isCompleted = normalizedStatus == "completed",
+        closedReason = closeReason,
+        // A bucket is settled once its work has been accepted; everything else is still open work
+        // this task is carrying.
+        openBucketCount = sheds.count { !it.status.equalsWeighingStatus("closed") },
+        // Status is only HALF the gate: the viewer must also hold the permission the write needs.
+        canPublish = normalizedStatus == "draft" && capabilities.canPublish,
+        canEnd = capabilities.canEnd &&
+            normalizedStatus != "draft" &&
+            normalizedStatus != "closed" &&
+            normalizedStatus != "completed" &&
+            normalizedStatus != "canceled" &&
+            normalizedStatus != "cancelled",
+        canRepeat = isRepeatable(),
+        repeatBlockedReason = REPEAT_BLOCKED_REASON,
+        operatorFilters = operatorFilters,
+        selectedOperatorId = selectedOperatorId,
+        sheds = visibleSheds,
         loading = loading,
         busy = busy,
+        staleNotice = staleNotice,
     )
 }
 
-private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask): WeighingTaskShedUiRow {
+private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask, operatorLabel: String): WeighingTaskShedUiRow {
     val normalized = status.trim().lowercase()
     val reworked = reworkCount > 0
     return WeighingTaskShedUiRow(
@@ -2015,6 +2178,7 @@ private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask): WeighingTaskSh
         locationId = locationId,
         shedName = displayName.ifBlank { locationId },
         category = category,
+        operatorLabel = operatorLabel,
         status = status,
         // The task payload carries bucket STATE, not a record count, so the line says what state
         // the bucket is in. It never guesses how many animals were captured.
@@ -2065,3 +2229,33 @@ private fun WeighingTask.toTaskUiRow(): WeighingTaskUiRow {
         acceptedCount = accepted,
     )
 }
+
+/** Inputs the task-detail state is derived from, so the capability stream can join them. */
+private data class TaskDetailInputs(
+    val task: WeighingTask?,
+    val campaignId: String,
+    val operatorNames: Map<String, String>,
+    val loading: Boolean,
+    val busy: Boolean,
+)
+
+/** The weigh date as a person reads it, never the machine form. */
+private fun WeighingTask.weighDateLabel(): String = runCatching {
+    LocalDate.parse(weighDate, weighingIsoDateFormatter).format(weighingTodayFormatter)
+}.getOrDefault(weighDate)
+
+/**
+ * Whether this task can be staged into the authoring wizard at all.
+ *
+ * It needs a park and at least one bucket that names a real shed; without those there is nothing
+ * to place on another date, so the action must render disabled rather than tap to nothing.
+ */
+internal fun WeighingTask.isRepeatable(): Boolean =
+    parkId.isNotBlank() && sheds.any { it.locationId.isNotBlank() }
+
+internal const val REPEAT_BLOCKED_REASON =
+    "This task has no shed bucket that can be placed on another date"
+
+/** Reason CODES for ending a task. The backend owns the sentence that is recorded. */
+private const val CLOSE_REASON_ALL_ACCEPTED = "all_buckets_accepted"
+private const val CLOSE_REASON_OPEN_BUCKETS = "open_buckets_closed"

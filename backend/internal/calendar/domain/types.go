@@ -77,7 +77,17 @@ type DriveSummary struct {
 	TotalAnimals     int                `json:"total_animals"`
 	CompletedAnimals int                `json:"completed_animals"`
 	SubmittedAnimals int                `json:"submitted_animals"`
-	OwnerLabel       string             `json:"owner_label"`
+	// Backend-owned, single cross-surface progress definition. Both Android and admin-web MUST
+	// render these verbatim instead of deriving their own numerator (the cross-surface parity
+	// defect: the same drive showed different completion numbers and ring percentages because
+	// each client picked its own fields). ProgressBasis is "animals" or "doses" and names the
+	// grain the numerator/denominator are counted on; ProgressCompleted counts verified
+	// completion only (submitted-but-unverified is reported separately, never as progress).
+	ProgressBasis     string `json:"progress_basis"`
+	ProgressCompleted int    `json:"progress_completed"`
+	ProgressTotal     int    `json:"progress_total"`
+	ProgressPct       int    `json:"progress_pct"`
+	OwnerLabel        string `json:"owner_label"`
 }
 
 type DriveShedSummary struct {

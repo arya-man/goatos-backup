@@ -58,6 +58,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -193,8 +194,7 @@ fun VerifyDetailScreen(
                                 Text(
                                     text = taskTitle,
                                     color = MeshaColors.Ink,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.W700,
+                                    style = MeshaType.cardTitle,
                                     modifier = Modifier.padding(bottom = if (recordedAnswer == null) 8.dp else 3.dp),
                                 )
                             }
@@ -202,7 +202,7 @@ fun VerifyDetailScreen(
                                 Text(
                                     text = stringResource(R.string.verify_detail_recorded_answer, answer),
                                     color = MeshaColors.Muted,
-                                    fontSize = 14.sp,
+                                    style = MeshaType.body,
                                     modifier = Modifier.padding(bottom = 8.dp),
                                 )
                             }
@@ -240,8 +240,7 @@ fun VerifyDetailScreen(
                         Text(
                             text = message,
                             color = MeshaColors.Danger,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.W600,
+                            style = MeshaType.cta,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
                         )
                     }
@@ -271,15 +270,13 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
             Text(
                 text = state.categoryLabel,
                 color = MeshaColors.Ink,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.headerTitle,
             )
             state.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
                 Text(
                     text = subject,
                     color = MeshaColors.Muted,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W600,
+                    style = MeshaType.listTitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
@@ -384,6 +381,14 @@ private fun VerifyVideoPlayer(
                     keepScreenOn = true
                 }
             },
+            // The factory runs ONCE. controlsEnabled comes from the bootstrap flag, which resolves
+            // asynchronously, so a player composed before the flag lands would keep whatever value
+            // it was built with for the rest of the session -- leaving leadership without the seek
+            // controls they are entitled to. Re-apply it on every recomposition.
+            //
+            // The verifier stays without a controller by design: they must WATCH the proof, not
+            // scrub it. Everyone else who may see the video may seek within it.
+            update = { view -> view.useController = controlsEnabled },
             modifier = Modifier.fillMaxSize(),
         )
         PlayPauseButton(
@@ -438,14 +443,15 @@ private fun RejectionReasonCard(reason: String) {
         Text(
             text = stringResource(R.string.verify_detail_rejection_reason_title),
             color = MeshaColors.Danger,
+            // design-system:ignore: 12sp/W800 has no close token — `cardSubtitle` is 12sp but W500,
+            // and the only W800 styles (`button` 15sp, `dayNumber` 15sp) are 3sp larger.
             fontSize = 12.sp,
             fontWeight = FontWeight.W800,
         )
         Text(
             text = reason,
             color = MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.listTitle,
             modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -553,6 +559,8 @@ private fun FullscreenVideoDialog(
                         keepScreenOn = true
                     }
                 },
+                // Same reason as the inline player: the factory runs once, the bootstrap flag lands later.
+                update = { view -> view.useController = controlsEnabled },
                 modifier = Modifier.fillMaxSize(),
             )
             PlayPauseButton(
@@ -711,9 +719,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
         Text(
             text = stringResource(R.string.verify_detail_context_title),
             color = MeshaColors.Faint,
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.W700,
-            letterSpacing = 0.6.sp,
+            style = MeshaType.overline,
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         rows.forEachIndexed { index, row ->
@@ -721,6 +727,8 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
             ) {
+                // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
                 Text(text = contextKindLabel(row.kind), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 val displayValue = remember(row.value, row.kind, locale) {
                     if (row.kind == VerifyContextKind.CAPTURED_AT) {
@@ -729,7 +737,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
                         row.value
                     }
                 }
-                Text(text = displayValue, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
             }
             if (index != rows.lastIndex) {
                 HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)
@@ -773,8 +781,7 @@ private fun DecisionRow(
             Text(
                 text = stringResource(R.string.verify_detail_submitting),
                 color = MeshaColors.Muted,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.listTitle,
             )
         }
         return
@@ -789,8 +796,7 @@ private fun DecisionRow(
         Text(
             text = message,
             color = MeshaColors.Muted,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.cta,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
         return
@@ -847,7 +853,7 @@ private fun DecisionButton(
         } else {
             Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
-            Text(text = label, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+            Text(text = label, color = fg, style = MeshaType.listTitle)
         }
     }
 }
@@ -864,12 +870,16 @@ private fun RejectReasonDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        // design-system:ignore: weight-only override on the Material dialog title style — applying a
+        // MeshaType style here would also replace the AlertDialog's own title size/line-height.
         title = { Text(stringResource(R.string.verify_reject_dialog_title), fontWeight = FontWeight.W700) },
         text = {
             Column {
                 Text(
                     text = stringResource(R.string.verify_reject_dialog_subtitle),
                     color = MeshaColors.Muted,
+                    // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
+                    // but is W700, which would visibly bold this dialog subtitle.
                     fontSize = 12.5.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
@@ -892,6 +902,8 @@ private fun RejectReasonDialog(
                     Text(
                         text = stringResource(R.string.verify_reject_dialog_error_required),
                         color = MeshaColors.Danger,
+                        // design-system:ignore: 11.5sp/W400 has no close token — `caption` matches the
+                        // size but is W600 and `eyebrow` is W700 with 1.6sp tracking.
                         fontSize = 11.5.sp,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -907,6 +919,8 @@ private fun RejectReasonDialog(
                     onConfirm(trimmed)
                 }
             }) {
+                // design-system:ignore: weight-only override on the Material TextButton label style —
+                // a MeshaType style would also replace the button's own size/line-height.
                 Text(stringResource(R.string.verify_reject_dialog_confirm), color = MeshaColors.Danger, fontWeight = FontWeight.W700)
             }
         },

@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -76,6 +77,11 @@ data class WeighingTasksUiState(
     val todayLabel: String = "",
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
+    /**
+     * Quiet staleness note: the last refresh did not land, so the cached list is what is on screen.
+     * Blank when the cache is current. It never clears the list.
+     */
+    val staleNotice: String = "",
 )
 
 /**
@@ -108,15 +114,15 @@ fun WeighingTasksScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             MeshaScreenHeader(
-                title = "Tasks",
-                eyebrow = "WEIGHING",
+                title = stringResource(R.string.weighing_tasks_title),
+                eyebrow = stringResource(R.string.weighing_eyebrow),
                 eyebrowColor = MeshaColors.BrandD,
                 subtitle = state.todayLabel.takeIf { it.isNotBlank() },
                 actions = {
                     SyncIconButton(
                         isSyncing = state.loading,
                         onSync = onRefresh,
-                        contentDescription = "Refresh weighing tasks",
+                        contentDescription = stringResource(R.string.weighing_tasks_refresh),
                     )
                 },
             )
@@ -125,12 +131,12 @@ fun WeighingTasksScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 WeighingFilterPill(
-                    label = "Active ${state.activeCount}",
+                    label = stringResource(R.string.weighing_tasks_tab_active_fmt, state.activeCount),
                     selected = state.tab == WeighingTasksTab.ACTIVE,
                     onClick = { onSelectTab(WeighingTasksTab.ACTIVE) },
                 )
                 WeighingFilterPill(
-                    label = "Completed ${state.completedCount}",
+                    label = stringResource(R.string.weighing_tasks_tab_completed_fmt, state.completedCount),
                     selected = state.tab == WeighingTasksTab.COMPLETED,
                     onClick = { onSelectTab(WeighingTasksTab.COMPLETED) },
                 )
@@ -148,6 +154,9 @@ fun WeighingTasksScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (state.staleNotice.isNotBlank()) {
+                    item(key = "tasks-stale") { WeighingTasksStaleBanner(state.staleNotice) }
+                }
                 val repeat = state.repeatCandidate
                 if (state.tab == WeighingTasksTab.ACTIVE && repeat != null) {
                     item(key = "repeat-last") {
@@ -162,9 +171,9 @@ fun WeighingTasksScreen(
                         WeighingReadOnlyEmptyCard(
                             loading = state.loading,
                             title = if (state.tab == WeighingTasksTab.COMPLETED) {
-                                "No completed tasks yet"
+                                stringResource(R.string.weighing_tasks_empty_completed)
                             } else {
-                                "No active tasks"
+                                stringResource(R.string.weighing_tasks_empty_active)
                             },
                         )
                     }
@@ -204,6 +213,24 @@ fun WeighingTasksScreen(
     }
 }
 
+/**
+ * The cached list is still on screen; this says the last refresh did not land. Same card shape and
+ * tokens as every other read-only notice on this surface.
+ */
+@Composable
+private fun WeighingTasksStaleBanner(text: String) {
+    Text(
+        text = text,
+        color = MeshaColors.Warn,
+        style = MeshaType.cardSubtitle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.WarnX)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+}
+
 @Composable
 private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
     Column(
@@ -227,11 +254,15 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
                 bg = taskStatusBg(row.status),
             )
             if (row.toVerifyCount > 0) {
-                TaskPill(label = "${row.toVerifyCount} to verify", fg = MeshaColors.Warn, bg = MeshaColors.WarnX)
+                TaskPill(
+                    label = stringResource(R.string.weighing_tasks_to_verify_fmt, row.toVerifyCount),
+                    fg = MeshaColors.Warn,
+                    bg = MeshaColors.WarnX,
+                )
             }
             if (row.reworkCount > 0) {
                 TaskPill(
-                    label = "${row.reworkCount} back with operator",
+                    label = stringResource(R.string.weighing_tasks_rework_fmt, row.reworkCount),
                     fg = MeshaColors.Danger,
                     bg = MeshaColors.DangerX,
                 )
@@ -240,7 +271,7 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
             TaskPill(label = row.dateLabel, fg = MeshaColors.Muted, bg = MeshaColors.Surf3)
         }
         Text(
-            text = "${row.parkName} · ${row.bucketCount} ${bucketWord(row.bucketCount)}",
+            text = stringResource(R.string.weighing_tasks_park_buckets_fmt, row.parkName, bucketWord(row.bucketCount)),
             color = MeshaColors.Ink,
             style = MeshaType.cardTitle,
             maxLines = 1,
@@ -249,7 +280,11 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
         if (row.shedNames.isNotEmpty()) {
             Text(
                 text = row.shedNames.joinToString(" · ") +
-                    if (row.moreShedCount > 0) " +${row.moreShedCount} more" else "",
+                    if (row.moreShedCount > 0) {
+                        stringResource(R.string.weighing_tasks_more_sheds_fmt, row.moreShedCount)
+                    } else {
+                        ""
+                    },
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
                 maxLines = 1,
@@ -258,14 +293,22 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (row.individualCount > 0) {
-                TaskPill(label = "${row.individualCount} individual", fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
+                TaskPill(
+                    label = stringResource(R.string.weighing_tasks_individual_fmt, row.individualCount),
+                    fg = MeshaColors.BrandD,
+                    bg = MeshaColors.Surf3,
+                )
             }
             if (row.lumpSumCount > 0) {
-                TaskPill(label = "${row.lumpSumCount} lump-sum", fg = MeshaColors.Purple, bg = MeshaColors.PurpleX)
+                TaskPill(
+                    label = stringResource(R.string.weighing_tasks_lump_sum_fmt, row.lumpSumCount),
+                    fg = MeshaColors.Purple,
+                    bg = MeshaColors.PurpleX,
+                )
             }
             if (row.operatorCount > 0) {
                 TaskPill(
-                    label = "${row.operatorCount} ${if (row.operatorCount == 1) "operator" else "operators"}",
+                    label = operatorWord(row.operatorCount),
                     fg = MeshaColors.Muted,
                     bg = MeshaColors.Surf3,
                 )
@@ -290,7 +333,7 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
             }
         }
         Text(
-            text = "${row.acceptedCount} of ${row.bucketCount} accepted →",
+            text = stringResource(R.string.weighing_tasks_accepted_fmt, row.acceptedCount, row.bucketCount),
             color = MeshaColors.BrandD,
             style = MeshaType.cta,
         )
@@ -312,7 +355,11 @@ private fun RepeatLastTaskButton(row: WeighingTaskUiRow, onClick: (() -> Unit)?)
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
-            text = "Repeat last task · ${row.parkName} · ${row.bucketCount} ${bucketWord(row.bucketCount)}",
+            text = stringResource(
+                R.string.weighing_tasks_repeat_last_fmt,
+                row.parkName,
+                bucketWord(row.bucketCount),
+            ),
             color = if (enabled) MeshaColors.Ink else MeshaColors.Muted,
             style = MeshaType.cta,
             maxLines = 1,
@@ -320,7 +367,7 @@ private fun RepeatLastTaskButton(row: WeighingTaskUiRow, onClick: (() -> Unit)?)
         )
         if (!enabled) {
             Text(
-                text = "Starting a task from an earlier one is not available yet",
+                text = stringResource(R.string.weighing_tasks_repeat_blocked),
                 color = MeshaColors.Muted,
                 style = MeshaType.caption,
                 maxLines = 1,
@@ -342,7 +389,7 @@ private fun NewTaskAction(onClick: () -> Unit, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "+ New task",
+            text = stringResource(R.string.weighing_tasks_new_task),
             color = MeshaColors.PageBg,
             fontSize = 13.sp,
             fontWeight = FontWeight.W800,
@@ -365,10 +412,23 @@ private fun TaskPill(label: String, fg: Color, bg: Color) {
     )
 }
 
-private fun bucketWord(count: Int): String = if (count == 1) "shed bucket" else "shed buckets"
+@Composable
+private fun bucketWord(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_bucket_one, count)
+} else {
+    stringResource(R.string.weighing_bucket_other, count)
+}
 
+@Composable
+private fun operatorWord(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_operator_one, count)
+} else {
+    stringResource(R.string.weighing_operator_other, count)
+}
+
+@Composable
 private fun taskStatusLabel(status: String): String = when (val normalized = status.trim().lowercase()) {
-    "" -> "scheduled"
+    "" -> stringResource(R.string.weighing_tasks_status_scheduled)
     else -> normalized.replace('_', ' ')
 }
 

@@ -40,6 +40,17 @@ var (
 	// date, and the planner must be told WHICH ones so it can render the reason.
 	// Carried to the client as 409 weighing_shed_already_scheduled.
 	ErrShedAlreadyScheduled = errors.New("weighing: shed already scheduled")
+
+	// ErrOperatorOutsidePark blocks assigning a weighing bucket to someone whose scope does not
+	// reach that park.
+	//
+	// Operators are park-scoped by invariant: an operator belongs to exactly ONE park. The planner
+	// happily accepted a CPT-scoped operator on a CBE shed, and nothing downstream re-checked it --
+	// the work list filters on operator_user_id alone and the write only requires the caller to be
+	// the assignee -- so that person would have seen and been able to weigh another park's shed.
+	// Leadership scoped to the whole tenant (the growth director) legitimately spans parks and is
+	// unaffected.
+	ErrOperatorOutsidePark = errors.New("weighing: operator is not scoped to this park")
 )
 
 // ShedScheduleConflict names the buckets that blocked a create/update/publish so
@@ -68,16 +79,39 @@ type Repository interface {
 	// scope and are deliberately NOT narrowed by it (see domain.CampaignCounts).
 	ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
 	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
-	// PlannerCatalog reports shed availability for ONE weigh date. excludeCampaignID
-	// is the task being edited, whose own buckets must not read back as "taken".
-	PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string, excludeCampaignID string) (domain.PlannerCatalog, error)
+	// PlannerCatalog is the PARK-grain planner read for ONE weigh date: EVERY park
+	// the planner may use, each with a park-grain shed COUNT (not shed rows), plus
+	// the operator picker. Bounded by domain.MaxPlannerParks; there is no park
+	// cursor, because a park step that pages cannot offer the parks it has not
+	// reached yet.
+	PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string) (domain.PlannerCatalog, error)
+	// PlannerParkBuckets is ONE keyset page of the sheds of ONE park on ONE weigh
+	// date, carrying that date's availability. excludeCampaignID is the task being
+	// edited, whose own buckets must not read back as "taken".
+	PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
+	// ListCampaignSheds is the task-DETAIL bucket page. The task list embeds a
+	// campaign's whole bucket set; the detail screen reads ~20 at a time instead.
+	ListCampaignSheds(ctx context.Context, tenantID, campaignID, operatorUserID, cursor string, limit int) (domain.CampaignShedPage, error)
 	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
-	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
+	// cursor/limit page the shed's INDIVIDUAL observations on (accepted_at,
+	// observation_id). The lump-sum row is a single latest read and is not paged.
+	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
+	// ListLeadershipSheds is the gallery read: ONE keyset page of buckets across
+	// tasks, each with its own first page of evidence. It replaces the client
+	// pattern of expanding a task page into buckets and calling the single-shed
+	// read once per bucket.
+	ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
-	ReopenScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey, reason string) error
+	// ReopenScope returns the shed-observation ids whose lump-sum submissions the
+	// reopen superseded (withdrawn_at stamped, never deleted -- a rejected proof
+	// attempt is immutable history). The app layer hands them to the verification
+	// module's own withdraw port so the items raised for them stop being decidable;
+	// weighing never writes verification's tables itself. A replay of the same key
+	// re-reports the same ids, so a retry heals a crash between commit and withdraw.
+	ReopenScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey, reason string) ([]string, error)
 	// CloseScope / CloseCampaign are the EXPLICIT terminal actions. Both are
 	// allowed while work is still not accepted, and neither may mark unaccepted
 	// work accepted. Both follow the ReopenScope transaction shape (fingerprint ->
@@ -90,6 +124,11 @@ type Repository interface {
 	AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error
+	// CampaignParkID resolves the park a campaign runs in. It exists because the park is the
+	// ROUTING key of a weighing verification item (the notification consumer resolves the park's
+	// verify-duty holders from it), while an observation row itself only knows its shed. One
+	// indexed primary-key lookup per observation write, never a scan.
+	CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error)
 }
 
 // VerificationVerdictStore is the narrow write side the weighing verdict consumer

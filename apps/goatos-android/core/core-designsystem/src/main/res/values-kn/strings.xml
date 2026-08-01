@@ -25,6 +25,7 @@
     <string name="ovl_doses_subtitle">ಈ ಚಕ್ರದಲ್ಲಿ ಪೂರ್ಣಗೊಂಡ ಡೋಸ್‌ಗಳು · ಲಸಿಕೆ ಪ್ರಕಾರ</string>
     <string name="offline_title">ನೀವು ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿದ್ದೀರಿ</string>
     <string name="offline_details">ವಿವರಗಳು</string>
+    <string name="alert_unavailable_notice">ಈ ಸೂಚನೆಯನ್ನು ತೆರೆಯಲು ಆಗುತ್ತಿಲ್ಲ. ನಿಮ್ಮ ಕೆಲಸವನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ.</string>
     <string name="offline_subtitle">ದಾಖಲೆಗಳು ಈ ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ ಮತ್ತು ಮರುಸಂಪರ್ಕಗೊಂಡಾಗ ಸಿಂಕ್ ಆಗುತ್ತವೆ</string>
     <string name="ovl_error_fmt">ದೋಷ: %1$s</string>
     <string name="sync_footer">ಆಫ್‌ಲೈನ್-ಮೊದಲು: ಔಟ್‌ಬಾಕ್ಸ್ ಮೊದಲು ವೀಡಿಯೊ ಪ್ರೂಫ್, ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನಿಸುತ್ತದೆ, ಮತ್ತು ಎಂದಿಗೂ ನಕಲು ರಚಿಸುವುದಿಲ್ಲ.</string>

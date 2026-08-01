@@ -1,5 +1,3 @@
-@file:androidx.media3.common.util.UnstableApi
-
 package sg.mesha.goatos.feature.weighing.leadership
 
 import android.net.Uri
@@ -52,10 +50,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.feature.weighing.R
 
 // telemetry:exempt Weighing leadership evidence gallery is read-only in V1; verifier decisions are tracked in the verification surface.
 
@@ -64,6 +66,12 @@ data class WeighingLeadershipVideosUiState(
     val loadingMore: Boolean = false,
     val sheds: List<WeighingLeadershipShedUi> = emptyList(),
     val error: String? = null,
+    /**
+     * Quiet staleness note shown ABOVE the cached gallery when the last refresh did not land. A
+     * failed refresh never clears the gallery, so this replaces the error page whenever there is
+     * still something cached to read.
+     */
+    val staleNotice: String = "",
 )
 
 data class WeighingLeadershipShedUi(
@@ -105,12 +113,19 @@ private data class SelectedLeadershipVideo(
     val video: WeighingLeadershipVideoUi,
 )
 
+// media3's player APIs are opt-in. Containing that here -- rather than at file scope -- keeps the
+// requirement from propagating to callers: with @file:UnstableApi the annotation rode out on this
+// screen's public signature, so AppNavHost had to opt in to a media concern just to navigate to it.
+// Moving weighing into its own module is what surfaced that leak.
+@OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun WeighingLeadershipVideosScreen(
     state: WeighingLeadershipVideosUiState,
     onShedVisible: (Int) -> Unit = {},
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onRefresh() }
     var selectedScope by remember { mutableStateOf(WeighingVideoScope.ALL) }
     var selectedShedId by remember { mutableStateOf<String?>(null) }
     var selectedVideo by remember { mutableStateOf<SelectedLeadershipVideo?>(null) }
@@ -141,13 +156,25 @@ fun WeighingLeadershipVideosScreen(
     val lumpVideoCount = state.sheds.filter { it.isLumpSum }.sumOf { it.videos.size }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
-        MeshaScreenHeader(eyebrow = "WEIGHING", title = "Videos")
+        MeshaScreenHeader(
+            eyebrow = stringResource(R.string.weighing_eyebrow),
+            title = stringResource(R.string.weighing_videos_title),
+            actions = {
+                SyncIconButton(
+                    isSyncing = state.loading,
+                    onSync = onRefresh,
+                    contentDescription = stringResource(R.string.weighing_videos_refresh),
+                )
+            },
+        )
         when {
-            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // A loading wall only when there is nothing cached to read. With a cached gallery the
+            // reader keeps it on screen and the refresh spins in the header instead.
+            state.loading && state.sheds.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MeshaColors.Brand)
             }
-            state.error != null -> EmptyMessage(state.error)
-            state.sheds.isEmpty() -> EmptyMessage("No weighing videos yet")
+            state.error != null && state.sheds.isEmpty() -> EmptyMessage(state.error)
+            state.sheds.isEmpty() -> EmptyMessage(stringResource(R.string.weighing_videos_empty))
             else -> Column(modifier = Modifier.fillMaxSize()) {
                 VideoFilters(
                     selectedScope = selectedScope,
@@ -163,19 +190,22 @@ fun WeighingLeadershipVideosScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (state.staleNotice.isNotBlank()) {
+                        item(key = "gallery-stale") { EmptySection(state.staleNotice) }
+                    }
                     if (selectedScope != WeighingVideoScope.LUMP_SUM) {
                         val individualSheds = filteredSheds.filter { it.animals.isNotEmpty() }
                         item(key = "individual-header") {
                             val animalTotal = individualSheds.sumOf { it.animals.size }
                             SectionHeader(
-                                title = "Individual animals",
-                                subtitle = "Shed-wise animal proof",
-                                meta = animalTotal.countLabel("animal"),
+                                title = stringResource(R.string.weighing_videos_individual_header),
+                                subtitle = stringResource(R.string.weighing_videos_individual_subtitle),
+                                meta = animalCountLabel(animalTotal),
                                 accent = MeshaColors.Brand,
                             )
                         }
                         if (individualSheds.isEmpty()) {
-                            item(key = "individual-empty") { EmptySection("No individual animal videos in this filter") }
+                            item(key = "individual-empty") { EmptySection(stringResource(R.string.weighing_videos_individual_empty)) }
                         } else {
                             items(individualSheds, key = { "individual-${it.id}" }) { shed ->
                                 // The gallery itself pulls the next page as the reader scrolls near the end.
@@ -193,14 +223,14 @@ fun WeighingLeadershipVideosScreen(
                         item(key = "lump-header") {
                             val videoTotal = lumpSheds.sumOf { it.videos.size }
                             SectionHeader(
-                                title = "Lump-sum shed evidence",
-                                subtitle = "Shed-level group proof",
-                                meta = videoTotal.countLabel("video"),
+                                title = stringResource(R.string.weighing_videos_lump_header),
+                                subtitle = stringResource(R.string.weighing_videos_lump_subtitle),
+                                meta = videoCountLabel(videoTotal),
                                 accent = MeshaColors.Purple,
                             )
                         }
                         if (lumpSheds.isEmpty()) {
-                            item(key = "lump-empty") { EmptySection("No lump-sum videos in this filter") }
+                            item(key = "lump-empty") { EmptySection(stringResource(R.string.weighing_videos_lump_empty)) }
                         } else {
                             items(lumpSheds, key = { "lump-${it.id}" }) { shed ->
                                 // The gallery itself pulls the next page as the reader scrolls near the end.
@@ -248,7 +278,7 @@ private fun VideoFilters(
         ) {
             item {
                 FilterChip(
-                    label = "All",
+                    label = stringResource(R.string.weighing_videos_filter_all),
                     count = (individualCount + lumpVideoCount).toString(),
                     selected = selectedScope == WeighingVideoScope.ALL,
                     accent = MeshaColors.Brand,
@@ -258,7 +288,7 @@ private fun VideoFilters(
             }
             item {
                 FilterChip(
-                    label = "Individual",
+                    label = stringResource(R.string.weighing_category_individual_title),
                     count = individualCount.toString(),
                     selected = selectedScope == WeighingVideoScope.INDIVIDUAL,
                     accent = MeshaColors.Brand,
@@ -268,7 +298,7 @@ private fun VideoFilters(
             }
             item {
                 FilterChip(
-                    label = "Lump-sum",
+                    label = stringResource(R.string.weighing_category_lump_sum_title),
                     count = lumpVideoCount.toString(),
                     selected = selectedScope == WeighingVideoScope.LUMP_SUM,
                     accent = MeshaColors.Purple,
@@ -283,7 +313,7 @@ private fun VideoFilters(
         ) {
             item {
                 FilterChip(
-                    label = "All sheds",
+                    label = stringResource(R.string.weighing_videos_filter_all_sheds),
                     count = sheds.size.toString(),
                     selected = selectedShedId == null,
                     accent = MeshaColors.Brand,
@@ -390,7 +420,7 @@ private fun IndividualShedCard(
     shed: WeighingLeadershipShedUi,
     onVideoSelected: (SelectedLeadershipVideo) -> Unit,
 ) {
-    ShedFrame(shed = shed, trailing = shed.animals.size.countLabel("animal")) {
+    ShedFrame(shed = shed, trailing = animalCountLabel(shed.animals.size)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             shed.animals.forEach { animal ->
                 IndividualAnimal(
@@ -408,7 +438,7 @@ private fun LumpSumShedCard(
     shed: WeighingLeadershipShedUi,
     onVideoSelected: (SelectedLeadershipVideo) -> Unit,
 ) {
-    ShedFrame(shed = shed, trailing = shed.videos.size.countLabel("video")) {
+    ShedFrame(shed = shed, trailing = videoCountLabel(shed.videos.size)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -421,7 +451,9 @@ private fun LumpSumShedCard(
             LumpSumSummary(shed)
             VideoActionRow(
                 title = shed.name,
-                subtitle = listOf(shed.periodLabel, "Lump-sum").filter { it.isNotBlank() }.joinToString(" · "),
+                subtitle = listOf(shed.periodLabel, stringResource(R.string.weighing_category_lump_sum_title))
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
                 videos = shed.videos,
                 onVideoSelected = onVideoSelected,
             )
@@ -494,7 +526,11 @@ private fun IndividualAnimal(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(animal.weight, color = MeshaColors.BrandD, style = MeshaType.listTitle)
-                Text(animal.videos.size.countLabel("video"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MeshaType.cardSubtitle)
+                Text(
+                    videoCountLabel(animal.videos.size),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MeshaType.cardSubtitle,
+                )
             }
         }
         VideoActionRow(
@@ -509,9 +545,9 @@ private fun IndividualAnimal(
 @Composable
 private fun LumpSumSummary(shed: WeighingLeadershipShedUi) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Metric("Animals", shed.animalCount.orEmpty())
-        Metric("Total", shed.totalWeight.orEmpty())
-        Metric("Average", shed.averageWeight.orEmpty())
+        Metric(stringResource(R.string.weighing_videos_metric_animals), shed.animalCount.orEmpty())
+        Metric(stringResource(R.string.weighing_videos_metric_total), shed.totalWeight.orEmpty())
+        Metric(stringResource(R.string.weighing_videos_metric_average), shed.averageWeight.orEmpty())
     }
 }
 
@@ -531,13 +567,17 @@ private fun VideoActionRow(
     onVideoSelected: (SelectedLeadershipVideo) -> Unit,
 ) {
     if (videos.isEmpty()) {
-        Text("No video attached", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MeshaType.cardSubtitle)
+        Text(
+            stringResource(R.string.weighing_videos_none_attached),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MeshaType.cardSubtitle,
+        )
         return
     }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(videos, key = { it.id }) { video ->
             Text(
-                text = video.label.ifBlank { "Play" },
+                text = video.label.ifBlank { stringResource(R.string.weighing_videos_play) },
                 color = MeshaColors.BrandD,
                 style = MeshaType.cta,
                 modifier = Modifier
@@ -627,12 +667,16 @@ private fun LeadershipVideoPlayer(video: SelectedLeadershipVideo, onDismiss: () 
                     IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
                         Icon(
                             imageVector = MeshaIcons.Expand,
-                            contentDescription = if (expanded) "Exit full screen" else "Full screen",
+                            contentDescription = if (expanded) {
+                                stringResource(R.string.weighing_videos_exit_full_screen)
+                            } else {
+                                stringResource(R.string.weighing_videos_full_screen)
+                            },
                             tint = Color.White,
                         )
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                        Icon(imageVector = MeshaIcons.Close, contentDescription = "Close", tint = Color.White)
+                        Icon(imageVector = MeshaIcons.Close, contentDescription = stringResource(R.string.weighing_videos_close), tint = Color.White)
                     }
                 }
             }
@@ -657,7 +701,7 @@ private fun LoadingMoreFooter() {
             strokeWidth = 2.dp,
         )
         Text(
-            text = "Loading more videos",
+            text = stringResource(R.string.weighing_videos_loading_more),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
             modifier = Modifier.padding(start = 8.dp),
@@ -692,5 +736,16 @@ private val WeighingLeadershipShedUi.isLumpSum: Boolean
 private val WeighingLeadershipShedUi.videoCountForChip: Int
     get() = if (isLumpSum) videos.size else animals.sumOf { it.videos.size }
 
-private fun Int.countLabel(noun: String): String =
-    "$this $noun" + if (this == 1) "" else "s"
+@Composable
+private fun animalCountLabel(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_videos_animal_one, count)
+} else {
+    stringResource(R.string.weighing_videos_animal_other, count)
+}
+
+@Composable
+private fun videoCountLabel(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_videos_video_one, count)
+} else {
+    stringResource(R.string.weighing_videos_video_other, count)
+}

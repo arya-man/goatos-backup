@@ -67,12 +67,20 @@ class RoleChromeScreenshotTest {
 
     // CEO/CXO strategic lens inside the Vaccination module. The old standalone
     // Leadership module is gone; Overview is the /vaccination tab inside Vaccination.
+    /**
+     * The bottom bar as the backend actually composes it for an EXPANDED-chrome principal.
+     *
+     * No "you" item: the backend strips it whenever a drawer exists, because the drawer footer
+     * already carries the account row above Sign out (workforce/app/service.go, NavChromeExpanded
+     * branch). Keeping it in this fixture made the golden show You in BOTH places at once -- a
+     * state that cannot ship, quietly baked into the screenshot everyone reviews against.
+     * A principal with no drawer keeps You on the bar; see [vaccinationCloserNavItems].
+     */
     private fun vaccinationCeoNavItems() = listOf(
         NavItem(key = "overview", label = "Overview", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
-        NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
     private fun vaccinationCloserNavItems() = listOf(

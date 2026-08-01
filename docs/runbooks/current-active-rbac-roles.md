@@ -12,6 +12,8 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | `operator` | Ground execution and scanning for the modules explicitly granted to that person | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
 | `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant |
 | `growth_director` | Growth Director; Weighing visibility/action across parks | `tenant` when both parks are needed | Dinakar |
+| `feed_director` | Feed Director; owns the FEED chain (config/ration grid, dispatch sheet, packing worklist, feed proof oversight) across parks | `tenant` when both parks are needed | Feed Director cohort |
+| `health_director` | Health Director; owns COUNTS (census / herd register) and health/tagging identity. DISTINCT from `pc_director` | `tenant` when both parks are needed | Health Director cohort |
 | `verifier` | Video verification review | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
 
 ## Dormant Catalog Roles
@@ -31,6 +33,49 @@ Those rows are **catalog scaffolding only right now**:
 `pc_director` is the current live role for Preventive Care Director. It can open
 Vaccination cards, scan/capture, submit, and use vaccination close flows. It must
 not get Weighing.
+
+`feed_director` is the current live role for Feed Director (live as of 2026-08-01: backend
+permissions, routes, notification routing, seed and tests shipped together). It holds
+`feed_config.read`/`feed_config.write` (the authored ration grid), `feed_direction.read`
+(today's dispatch sheet), `feed_packing.read` (the packing worklist), `feed_direction.oversee`
+(the projected-count exception verdicts) and `verification.act`. Scope: `tenant` when the
+director must see both parks. It must NOT get Vaccination, Weighing, or Counts. It also does
+NOT get `feed_direction.complete`: the handbook puts field execution with the Park Head and
+ground team ("All field execution happens through the Park Head"), and directing feeding is
+not performing it. It does not get `verification.review` either — Feed_Director.pdf M1 is
+double-verifying THE VERIFIER, not becoming one.
+
+`health_director` is the current live role for Health Director, and it is a **distinct role
+from `pc_director`**. Preventive Care and Health are separate departments in the org model
+(`wiki/Handbooks/Mesha-dept-directors.pdf` DEPARTMENTS grid; `COO.pdf` VERTICALS UNDER COO),
+so the two must never be merged or treated as synonyms. It holds `counts.read` (the census /
+herd-register surface it owns), `goat.write_identity` (Responsibility 6 Tagging: ear tag/RFID
+at birth, purchase and re-tag), `goat.write_health` (observations/diagnosis/treatment) and
+`verification.act`. Scope: `tenant` when both parks are needed. It must NOT get Vaccination,
+Weighing or Feed. It deliberately does NOT get `counts.write` (capture is ground work) or any
+`counts.approve_*` (birth/death admission sits with the CEO tier, shifting approval with the
+park head).
+
+**Counts ownership is a maintainer decision, not a documented handbook duty** (2026-08-01).
+No handbook assigns census, counting, headcount, roll call or reconciliation to anyone; a
+full-text search of `Health_Director.pdf`, `Feed_Director.pdf`, `Mesha-dept-directors.pdf` and
+`COO.pdf` returns zero matches, and every "count" token in them is an EOD tally field or a
+non-animal stock count. The nearest written anchors on the Health Director's desk are
+Responsibility 6 (Tagging, the identity substrate a census sits on) and Responsibility 9
+(assessing every death for insurance). Feed ownership, by contrast, IS documented
+(`Feed_Director.pdf` ROLE PURPOSE + M1 daily video double verification). Open questions that
+were NOT decided and must not be inferred: whether Counts includes shifting/animal movement
+(the handbooks give shifting to the BREEDING Director), who owns mortality reconciliation into
+the census, and whether the Health Director's tagging duty becomes part of the Counts module.
+
+Notification routing follows the same one-module-one-director rule: Feed proofs notify
+`feed_director` and Counts proofs notify `health_director`, each in that module's own wording
+and tap route (`pendingModuleProfiles` in
+`backend/internal/notificationbridge/verification_notify_consumer.go`). A module that enqueues
+a verification item MUST have a profile there AND at least one `verify` duty holder in
+`position_module_duties`; both are asserted by tests, and the verify duty rows are seeded by
+`backend/cmd/seed-position-duties` onto the tenant `video_verifier` seat that
+`backend/cmd/seed-roster-real` creates.
 
 `growth_director` is the current live role for Growth Director. It can open
 Weighing tasks across parks, scan/capture, submit, monitor videos, and reopen a

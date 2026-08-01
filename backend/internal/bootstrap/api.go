@@ -443,10 +443,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	).
 		WithIssueStore(feedDirectionRepo).
 		WithScheduleReader(feedDirectionRepo).
-		WithCompletionStore(feedDirectionRepo).
+		// The old instant completion store (feed_direction_session_completions) is deliberately NOT wired:
+		// with no CompletionStore, CompleteSession fails closed with ports.ErrCompletionUnavailable, so the
+		// pre-gate path cannot write 'completed' at operator submit and walk around the verification gate.
+		// Its route is unregistered too (feeddirection/adapters/http.Register).
 		// Feed DISTRIBUTION verification gate (maintainer decision, 2026-07-26): a SEPARATE store on a NEW
 		// table (feed_distribution_completions). The enqueue seam is wired below, once verificationService
-		// exists. The old instant WithCompletionStore path above is left inert.
+		// exists.
 		WithDistributionStore(feedDirectionRepo).
 		// Feed PACKING verification gate (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays
 		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
@@ -492,7 +495,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	weighingService.WithVerificationEnqueuer(weighingverificationbridge.New(verificationService))
+	weighingVerificationBridge := weighingverificationbridge.New(verificationService)
+	weighingService.WithVerificationEnqueuer(weighingVerificationBridge)
+	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
+	// submission, so the item raised for it must stop being decidable.
+	weighingService.WithVerificationWithdrawer(weighingVerificationBridge)
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now

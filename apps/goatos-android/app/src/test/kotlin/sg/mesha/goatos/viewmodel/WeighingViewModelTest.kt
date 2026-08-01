@@ -40,9 +40,12 @@ import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
 import sg.mesha.goatos.core.data.weighing.WeighingPage
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogCache
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkBucketsCache
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
@@ -50,12 +53,16 @@ import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -70,44 +77,6 @@ class WeighingViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
-
-    @Test
-    fun `planner create uses selected shed categories instead of first three defaults`() = runTest(dispatcher) {
-        val repository = FakeWeighingRepository()
-        val vm = weighingViewModel(repository = repository)
-        backgroundScope.launch(dispatcher) {
-            vm.state.collect {}
-        }
-
-        advanceUntilIdle()
-        val initial = vm.state.value.plannerParks.single().sheds
-        assertEquals(
-            listOf("shed-1", "shed-2", "shed-3"),
-            initial.filter { it.selected }.map { it.locationId },
-        )
-
-        vm.togglePlannerShed("shed-1")
-        vm.togglePlannerShed("shed-4")
-        vm.setPlannerShedCategory("shed-2", "individual_animal")
-        vm.setPlannerShedCategory("shed-3", "per_shed_partition")
-        vm.setPlannerShedCategory("shed-4", "individual_animal")
-        vm.createOrEditDefaultPlan()
-        advanceUntilIdle()
-
-        val draft = repository.createdDraft
-        requireNotNull(draft)
-        assertEquals("park-cpt", draft.parkId)
-        assertEquals("operator-amit", draft.operatorUserId)
-        assertEquals(
-            listOf("shed-2", "shed-3", "shed-4"),
-            draft.sheds.map { it.locationId },
-        )
-        assertEquals(
-            listOf("individual_animal", "per_shed_partition", "individual_animal"),
-            draft.sheds.map { it.category },
-        )
-        assertNull(repository.updatedDraft)
-    }
 
     @Test
     fun `individual submit ready survives navigation before accepted sync restores`() {
@@ -139,7 +108,7 @@ class WeighingViewModelTest {
         val repository = FakeWeighingRepository(
             plannerCatalogResult = AppResult.Err("Failed to connect to localhost/127.0.0.1:8080"),
         )
-        val vm = weighingViewModel(repository = repository)
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_ALL)
         backgroundScope.launch(dispatcher) {
             vm.state.collect {}
         }
@@ -530,6 +499,9 @@ class WeighingViewModelTest {
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
+        // Which weighing SURFACE this ViewModel is standing in for. Planning belongs to the planner
+        // surface, so a test exercising the planner has to say so -- the route declares it in the app.
+        surface: String? = null,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
         proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
@@ -545,6 +517,7 @@ class WeighingViewModelTest {
             proofCaptureSource = proofCaptureSource,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            repeatSeedStore = WeighingRepeatSeedStore(),
             savedStateHandle = SavedStateHandle(
                 if (scoped) {
                     mapOf(
@@ -557,7 +530,7 @@ class WeighingViewModelTest {
                         "expectedLocationLabel" to "Shed 1",
                     )
                 } else {
-                    emptyMap()
+                    surface?.let { mapOf("weighingSurface" to it) } ?: emptyMap()
                 },
             ),
         )
@@ -677,35 +650,89 @@ class WeighingViewModelTest {
         override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> =
             AppResult.Ok(WeighingPage(emptyList(), null))
 
-        override suspend fun listTasks(
-            cursor: String?,
+        // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
+        //
+        // The weighing leadership surfaces render from Room. These tests exercise the CAPTURE
+        // flow, which has no leadership cache, so the observed streams are empty and the refreshes
+        // are no-ops -- never network calls dressed up as a cache.
+
+        override fun observeTaskList(
             scope: String,
             parkId: String?,
-        ): AppResult<WeighingTaskPage> = AppResult.Ok(WeighingTaskPage())
+            windowSize: Int,
+        ): Flow<WeighingTaskListCache> = MutableStateFlow(WeighingTaskListCache())
 
-        override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> =
-            AppResult.Ok(WeighingPage(emptyList(), null))
+        override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
+            AppResult.Ok(0)
 
-        override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> =
-            plannerCatalogResult ?: AppResult.Ok(
+        override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> =
+            MutableStateFlow(WeighingTaskBucketCache())
+
+        override suspend fun refreshTaskBuckets(campaignId: String, reset: Boolean): AppResult<Int> =
+            AppResult.Ok(0)
+
+        override fun observeLeadershipShed(
+            campaignId: String,
+            campaignShedId: String,
+            windowSize: Int,
+        ): Flow<WeighingLeadershipShedCache> = MutableStateFlow(WeighingLeadershipShedCache())
+
+        override suspend fun refreshLeadershipShed(
+            campaignId: String,
+            campaignShedId: String,
+            reset: Boolean,
+        ): AppResult<Int> = AppResult.Ok(0)
+
+        override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> =
+            MutableStateFlow(emptyList())
+
+        override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = AppResult.Ok(0)
+
+        override fun observePlannerCatalog(
+            periodStartDate: String,
+        ): Flow<WeighingPlannerCatalogCache> = MutableStateFlow(
+            WeighingPlannerCatalogCache(catalog = cachedPlannerCatalog, hasCache = true),
+        )
+
+        /**
+         * A catalog refresh reports the seeded outcome, and the cache above holds whatever it
+         * produced — an Err seeds NOTHING, which is what a first read that never landed looks like.
+         */
+        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> =
+            when (val seeded = plannerCatalogResult) {
+                is AppResult.Err -> AppResult.Err(seeded.message)
+                else -> AppResult.Ok(cachedPlannerCatalog.parks.size)
+            }
+
+        /** The catalog this fake's cached planner stream answers with. */
+        private val cachedPlannerCatalog: WeighingPlannerCatalog =
+            (plannerCatalogResult as? AppResult.Ok)?.value ?: (
                 WeighingPlannerCatalog(
                     parks = listOf(
                         WeighingPlannerPark(
                             parkId = "park-cpt",
                             name = "CPT - Channapatna",
                             kidCount = 278,
-                            sheds = listOf(
-                                WeighingPlannerShed("shed-1", "Castro 1", 80),
-                                WeighingPlannerShed("shed-2", "Castro 2", 64),
-                                WeighingPlannerShed("shed-3", "Godel 2 - Part 1", 56),
-                                WeighingPlannerShed("shed-4", "Gandhi 1", 78),
-                            ),
+                            // Park grain: the catalog carries a shed COUNT; the rows page per park.
+                            shedCount = 4,
                             existingCampaign = null,
                         ),
                     ),
                     operators = listOf(WeighingPlannerOperator("operator-amit", "Amit Kumar", "AMIT")),
-                ),
+                ).takeIf { plannerCatalogResult == null } ?: WeighingPlannerCatalog(emptyList(), emptyList())
             )
+
+        override fun observePlannerParkBuckets(
+            periodStartDate: String,
+            parkId: String,
+            windowSize: Int,
+        ): Flow<WeighingPlannerParkBucketsCache> = MutableStateFlow(WeighingPlannerParkBucketsCache())
+
+        override suspend fun refreshPlannerParkBuckets(
+            periodStartDate: String,
+            parkId: String,
+            reset: Boolean,
+        ): AppResult<Int> = AppResult.Ok(0)
 
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             createdDraft = draft
@@ -720,6 +747,14 @@ class WeighingViewModelTest {
         override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             updatedDraft = draft
             return AppResult.Ok(null)
+        }
+
+        var publishedCampaignId: String? = null
+            private set
+
+        override suspend fun publishCampaign(campaignId: String): AppResult<Unit> {
+            publishedCampaignId = campaignId
+            return AppResult.Ok(Unit)
         }
 
         override suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int): AppResult<Int> =

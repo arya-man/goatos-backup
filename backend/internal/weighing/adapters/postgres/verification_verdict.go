@@ -252,6 +252,38 @@ RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdic
 		return time.Time{}, err
 	}
 
+	// Free the slot the rejected proof is holding, exactly as ReopenScope does.
+	//
+	// A rework verdict is the COMMON way a lump-sum shed proof comes back for a re-shoot -- far
+	// more common than a leadership reopen. Without this the rejected row keeps
+	// weighing_shed_observations_one_open_scope_uidx and its idempotency record, so the
+	// operator's resubmit trips 23505 and is mapped to a permanent 409: the operator is told to
+	// redo the work and then structurally prevented from filing it. Withdrawing preserves the
+	// rejected attempt as history (AGENTS.md requires rejected proof attempts stay immutable)
+	// while letting the next attempt take the open slot.
+	//
+	// Shed grain only: weighing_observations is per-animal and carries no open-scope index, so
+	// there is no slot to free there.
+	if verdict.RefType == domain.VerificationRefTypeShed {
+		if _, err := tx.Exec(ctx, `
+UPDATE weighing_shed_observations
+SET withdrawn_at=now()
+WHERE tenant_id=$1::uuid
+  AND shed_observation_id=$2::uuid
+  AND withdrawn_at IS NULL`, verdict.TenantID, verdict.ObservationID); err != nil {
+			return time.Time{}, err
+		}
+		// Same transaction: a surviving idempotency record would make the operator's replay
+		// return the withdrawn observation and report success over work that was never filed.
+		if _, err := tx.Exec(ctx, `
+DELETE FROM weighing_idempotency_records
+WHERE tenant_id=$1::uuid
+  AND event_type='weighing.shed_observation_accepted'
+  AND resource_id=$2::uuid`, verdict.TenantID, verdict.ObservationID); err != nil {
+			return time.Time{}, err
+		}
+	}
+
 	// Make the owning bucket operator-actionable again. This mirrors ReopenScope:
 	// the bucket leaves its terminal state so the operator's app shows it as work.
 	// A CLOSED bucket is a deliberate leadership decision and is NOT reopened by a

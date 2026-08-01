@@ -399,9 +399,16 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = int32(n)
 	}
-	parkID := r.URL.Query().Get("park_id")
-	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+	// projection-review: the queue is park-scoped by the caller's GRANTS, not by an optional
+	// client filter. It previously defaulted to tenant-wide, so a park-bound park head who omitted
+	// park_id reviewed the other park's completions; park_id may now only narrow inside the grant.
+	requestedPark := r.URL.Query().Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
 		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requestedPark)
+	if !ok {
 		return
 	}
 	var cursor *domain.RecordedCompletionCursor
@@ -502,6 +509,20 @@ func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Re
 func (h *Handler) conflict(w http.ResponseWriter, r *http.Request, code, message string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 		errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, nil)
+}
+
+// authorizedParkID clamps a requested park to the caller's grant scope, mirroring the
+// vaccination-execution handler: a tenant-wide (or grant-less internal) caller keeps the
+// verbatim request, a park-scoped caller defaults to their own park and is refused 403 for any
+// other. Writes the error response itself and reports ok=false when access is denied.
+func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
+	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	if decision.Allowed {
+		return decision.ParkID, true
+	}
+	httpresponse.WriteError(w, r, h.log, decision.Status,
+		errorEnvelope{Code: decision.Code, Message: decision.Message, TraceID: traceID(r)}, nil)
+	return "", false
 }
 
 func tenantID(r *http.Request) string {

@@ -101,6 +101,7 @@ import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
+import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
 import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
@@ -139,6 +140,7 @@ import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
 import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
+import sg.mesha.goatos.viewmodel.WeighingShedDetailViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -158,6 +160,14 @@ object Routes {
      * so it carries Up/Back and no root chrome.
      */
     const val WEIGHING_TASK = "/weighing/task"
+    /**
+     * ONE shed bucket, as leadership reads it. A hosted drill pushed from the task detail.
+     *
+     * Deliberately SEPARATE from [WEIGHING_SCAN]: that route is the operator's own capture screen,
+     * and dropping a planner into it handed them work that is not theirs. This destination is
+     * read-only -- no scan entry, no weight entry, no submit.
+     */
+    const val WEIGHING_SHED = "/weighing/shed"
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
     const val WEIGHING_VIDEOS = "/weighing/videos"
@@ -401,6 +411,13 @@ object Routes {
     const val WEIGHING_EXPECTED_LOCATION_ARG = "expectedLocationId"
     const val WEIGHING_EXPECTED_LOCATION_LABEL_ARG = "expectedLocationLabel"
 
+    /**
+     * Names the task whose answers the authoring wizard was started FROM. It is a handoff key, not
+     * a campaign being edited: the wizard still creates a NEW task through the ordinary
+     * create-then-publish path.
+     */
+    const val WEIGHING_REPEAT_OF_ARG = "repeatOfCampaignId"
+
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
     fun scanRoute(
@@ -426,6 +443,31 @@ object Routes {
     /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
     fun weighingTaskRoute(campaignId: String): String =
         "$WEIGHING_TASK?$WEIGHING_CAMPAIGN_ARG=${Uri.encode(campaignId)}"
+
+    /**
+     * Opens task authoring prefilled from an existing task. The seed itself is handed over
+     * in-process; only the source id travels in the route.
+     */
+    fun weighingTaskRepeatRoute(sourceCampaignId: String): String =
+        "$WEIGHING_TASK_NEW?$WEIGHING_REPEAT_OF_ARG=${Uri.encode(sourceCampaignId)}"
+
+    /**
+     * Leadership's read-only view of ONE shed bucket.
+     *
+     * ONLY the bucket's identity travels. The shed name, the task's park and weigh date, and the
+     * assignee name are the shed read's OWN answers and are cached with the bucket, so a cold deep
+     * link renders them from Room instead of arriving blank.
+     */
+    fun weighingShedRoute(
+        campaignId: String,
+        campaignShedId: String,
+    ): String {
+        val args = listOf(
+            WEIGHING_CAMPAIGN_ARG to campaignId,
+            WEIGHING_CAMPAIGN_SHED_ARG to campaignShedId,
+        )
+        return "$WEIGHING_SHED?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+    }
 
     fun weighingScanRoute(
         campaignId: String,
@@ -518,9 +560,10 @@ private fun String.isPerShedPartitionCategory(): Boolean =
  * drive child. A drill must never reuse a top-level route because that would
  * reactivate root navigation chrome inside the back stack.
  *
- * `internal` (not `private`): [sg.mesha.goatos.push.resolvePushRoute] reuses this SAME
- * backend-href -> route mapping for an FCM push carrying an explicit `target`/`href`, so a
- * notification tap opens exactly where a Calendar tap on the same backend item would.
+ * Shares its work-link parsing with [pushTargetRoute] via [workTargetRoute], so a notification tap
+ * opens exactly where a Calendar tap on the same backend item would — but the two differ where it
+ * matters: an unresolvable CALENDAR link belongs on the hosted drive child (this function), while
+ * an unresolvable NOTIFICATION belongs on the recipient's own landing (see [pushTargetRoute]).
  */
 internal fun calendarTargetRoute(
     target: String?,
@@ -532,11 +575,34 @@ internal fun calendarTargetRoute(
     val normalizedTarget = target.substringBefore('?').trimEnd('/')
     if (normalizedTarget == Routes.WEIGHING || normalizedTarget == Routes.WEIGHING_SCAN) return target
     if (normalizedTarget == Routes.VACCINATION) return fallbackDriveRoute
+    return workTargetRoute(target) ?: fallbackDriveRoute
+}
+
+/**
+ * The one place a backend deep-link naming a UNIT OF WORK (a shed's execute loop, a shed's
+ * read-only record, one verification item) becomes a route. Returns null — never a guessed
+ * destination — when the link names nothing this build can open, so each caller applies ITS OWN
+ * fallback: Calendar drills back to the hosted drive child, a push falls through to the
+ * principal's own landing.
+ */
+private fun workTargetRoute(target: String): String? {
+    val normalizedTarget = target.substringBefore('?').trimEnd('/')
+    // The verifier's own deep link: one item's video + approve/reject. Emitted verbatim by the
+    // pending-proof notification for EVERY module (vaccination, weighing, feed, counts), so
+    // without this shape a verifier's tap could never reach the video it was sent for.
+    if (normalizedTarget.startsWith(VERIFICATION_ITEM_TARGET_PREFIX)) {
+        val itemId = normalizedTarget.removePrefix(VERIFICATION_ITEM_TARGET_PREFIX).substringBefore('/')
+        if (itemId.isBlank()) return null
+        return Routes.verifyDetailRoute(
+            itemId = itemId,
+            category = Uri.parse(target).getQueryParameter("category"),
+        )
+    }
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
         val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
-        if (taskId.isNullOrBlank()) return fallbackDriveRoute
+        if (taskId.isNullOrBlank()) return null
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
@@ -557,8 +623,11 @@ internal fun calendarTargetRoute(
     val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
     return if (shedId != null && !taskId.isNullOrBlank()) {
         Routes.scanRoute(shedId, taskId = taskId)
-    } else fallbackDriveRoute
+    } else null
 }
+
+/** The verifier deep-link the pending-proof notification emits for every module. */
+private const val VERIFICATION_ITEM_TARGET_PREFIX = "/verification/items/"
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
 private fun shedIdFromTarget(target: String): String? {
@@ -794,10 +863,7 @@ fun AppNavHost(
                     onWeightChange = vm::onWeightInputChange,
                     onRecordIndividual = vm::recordIndividual,
                     onRecordShedPartition = vm::recordShedPartition,
-                    onCreateOrEditTask = vm::createOrEditDefaultPlan,
-                    onTogglePlannerShed = vm::togglePlannerShed,
-                    onPlannerShedCategory = vm::setPlannerShedCategory,
-                    onSelectPark = vm::selectAssignmentPark,
+                                onSelectPark = vm::selectAssignmentPark,
                     onRefresh = vm::refresh,
                     onOpenAssignment = { assignment ->
                         if (assignment.status.isClosedWeighingAssignmentStatus()) {
@@ -850,9 +916,14 @@ fun AppNavHost(
                 onSelectTab = vm::selectTaskTab,
                 onSelectPark = vm::selectTaskPark,
                 onOpenTask = { campaignId -> navController.navigate(Routes.weighingTaskRoute(campaignId)) },
-                // The repeat flow re-enters task authoring, which a later stage owns; until then
-                // the list must not pretend to open something.
-                onRepeatTask = null,
+                // Repeating opens task AUTHORING prefilled from that task, on its date step. It
+                // never clones the published row: the ordinary create-then-publish path runs, and
+                // the wizard's availability step surfaces any bucket already taken on the new date.
+                onRepeatTask = { campaignId ->
+                    vm.stageRepeatOfTask(campaignId)?.let { source ->
+                        navController.navigate(Routes.weighingTaskRepeatRoute(source))
+                    }
+                },
                 onNewTask = { navController.navigate(Routes.WEIGHING_TASK_NEW) },
                 onTaskRowVisible = vm::onTaskRowVisible,
             )
@@ -887,34 +958,44 @@ fun AppNavHost(
             WeighingTaskDetailScreen(
                 state = detailState,
                 onRefresh = vm::refresh,
+                onSelectOperator = vm::selectTaskOperator,
                 onBack = { navController.popBackStack() },
+                // Leadership reads the shed; it does NOT open the operator's capture screen. The
+                // scan route stays exactly as it is for the operator's own work.
                 onOpenShed = { shed ->
                     navController.navigate(
-                        Routes.weighingScanRoute(
+                        Routes.weighingShedRoute(
                             campaignId = shed.campaignId,
-                            workGroupId = shed.campaignShedId,
                             campaignShedId = shed.campaignShedId,
-                            category = shed.category,
-                            tenantId = shed.tenantId,
-                            expectedLocationId = shed.locationId,
-                            expectedLocationLabel = shed.shedName,
-                            scanTitle = shed.shedName,
                         ),
                     )
                 },
-                onReopenShed = vm::reopenTaskShed,
-                // Editing and repeating a task both re-enter task authoring, which a later stage
-                // owns. Passing null renders them disabled WITH the reason instead of dead-ending.
+                onBucketRowVisible = vm::onTaskBucketRowVisible,
+                // Re-editing the sheds or the assignment of a task that already exists is NOT
+                // wired: the update write replaces the whole shed set, which on a published task
+                // would drop buckets that already hold captured work. Disabled WITH the reason
+                // rather than offered and then half-honoured.
                 onEditTask = null,
-                onRepeatTask = null,
+                onRepeatTask = {
+                    vm.stageRepeatOfTask(campaignId)?.let { source ->
+                        navController.navigate(Routes.weighingTaskRepeatRoute(source))
+                    }
+                },
+                onPublishTask = vm::publishTask,
+                onEndTask = vm::closeTask,
             )
         }
 
         // Task authoring. Declares the planner surface like every other weighing destination so the
         // ViewModel is scoped to the planner list, never to an operator's own work.
         composable(
-            route = Routes.WEIGHING_TASK_NEW,
+            route = "${Routes.WEIGHING_TASK_NEW}?${Routes.WEIGHING_REPEAT_OF_ARG}={${Routes.WEIGHING_REPEAT_OF_ARG}}&${Routes.WEIGHING_SURFACE_ARG}={${Routes.WEIGHING_SURFACE_ARG}}",
             arguments = listOf(
+                navArgument(Routes.WEIGHING_REPEAT_OF_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument(Routes.WEIGHING_SURFACE_ARG) {
                     type = NavType.StringType
                     defaultValue = WEIGHING_SCOPE_ALL
@@ -983,10 +1064,47 @@ fun AppNavHost(
             )
         }
 
+        // ONE shed bucket, read-only, hosted: Up/Back and no root chrome. Its own destination and
+        // its own ViewModel scope, so a planner reading a shed can never inherit an operator's
+        // capture scope -- and there is no scan/weight/submit affordance anywhere on it.
+        composable(
+            route = "${Routes.WEIGHING_SHED}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_SURFACE_ARG}={${Routes.WEIGHING_SURFACE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_CAMPAIGN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_SURFACE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = WEIGHING_SCOPE_ALL
+                },
+            ),
+        ) { entry ->
+            val vm: WeighingShedDetailViewModel = hiltViewModel(entry)
+            val shedState by vm.state.collectAsStateWithLifecycle()
+            WeighingShedDetailScreen(
+                state = shedState,
+                onRefresh = vm::refresh,
+                onBack = { navController.popBackStack() },
+                onRecordRowVisible = vm::onRecordRowVisible,
+                onReopen = vm::reopen,
+            )
+        }
+
         composable(Routes.WEIGHING_VIDEOS) {
             val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            WeighingLeadershipVideosScreen(state = state, onShedVisible = vm::onShedVisible)
+            WeighingLeadershipVideosScreen(
+                state = state,
+                onShedVisible = vm::onShedVisible,
+                onRefresh = vm::refresh,
+            )
         }
 
         composable(
@@ -1255,6 +1373,9 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         RecordEvent.Close -> navController.popBackStack()
+                        // Refresh-on-open (RefreshOnResume) — background stale-while-revalidate,
+                        // owned by the ViewModel, not by navigation.
+                        RecordEvent.Refresh -> vm.onEvent(event)
                     }
                 },
             )
@@ -2130,6 +2251,56 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_DEATH,
     Routes.COUNTS_SHIFTING,
 )
+
+/**
+ * Every destination a backend `target`/`href` on a NOTIFICATION is allowed to name directly: the
+ * module landings the shell already treats as roots, plus the weighing drills that are real
+ * destinations in their own right (a task, one shed bucket, the operator's capture screen).
+ *
+ * Declared AFTER [supportedRootDestinations] on purpose — top-level properties initialise in
+ * declaration order, so reading it above its own declaration would see an empty set.
+ */
+private val pushTargetDestinations: Set<String> = supportedRootDestinations + setOf(
+    Routes.WEIGHING_TASKS,
+    Routes.WEIGHING_TASK,
+    Routes.WEIGHING_TASK_NEW,
+    Routes.WEIGHING_SHED,
+    Routes.WEIGHING_OPERATORS,
+    Routes.WEIGHING_VIDEOS,
+    Routes.WEIGHING_SCAN,
+)
+
+/**
+ * Maps a notification's explicit backend deep-link to a route, or null when the link names
+ * nothing this build hosts.
+ *
+ * Deliberately NOT [calendarTargetRoute]: a Calendar drill that cannot be resolved belongs on the
+ * hosted Calendar drive child, whereas an unresolvable PUSH belongs on the recipient's own landing
+ * — sending it to a Calendar drill (or to Vaccination) drops a weighing-only or feed-only person
+ * into somebody else's module.
+ */
+internal fun pushTargetRoute(target: String?): String? {
+    if (target.isNullOrBlank()) return null
+    if (target.substringBefore('?').trimEnd('/') in pushTargetDestinations) return target
+    return workTargetRoute(target)
+}
+
+/** True when [route] is a module landing the backend must have granted this person. */
+internal fun isRootDestination(route: String): Boolean =
+    route.substringBefore('?').trimEnd('/') in supportedRootDestinations
+
+/**
+ * Whether the backend actually gave this person the module landing [route] names. Only meaningful
+ * for a root ([isRootDestination]) — a drill such as a shed record or one verification item is not
+ * a navigation item and is authorised server-side on its own read.
+ */
+internal fun NavState.grantsRootDestination(route: String): Boolean {
+    val base = route.substringBefore('?').trimEnd('/')
+    if (items.any { it.href == base }) return true
+    return availableModules().any { module ->
+        module.href == base || module.navItems.any { it.href == base }
+    }
+}
 
 private fun executionRoutePattern(base: String): String =
     "$base?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}" +

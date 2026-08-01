@@ -209,6 +209,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:core-datastore"))
     implementation(project(":feature:feature-auth"))
+    // areNotificationsEnabled(): the OS's own answer to "will this phone show what we send it",
+    // reported to the backend on device register + heartbeat (AppModule/PushModule wiring) so a
+    // push-muted device is never counted as reached.
+    implementation(project(":core:core-permissions"))
     implementation(project(":core:core-analytics"))
 
     implementation(project(":feature:feature-calendar"))
@@ -221,6 +225,7 @@ dependencies {
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
     implementation(project(":feature:feature-verify"))
+    implementation(project(":feature:feature-weighing"))
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)

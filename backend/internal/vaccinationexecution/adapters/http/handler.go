@@ -754,19 +754,19 @@ func isAppExecutionRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
 }
 
-// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
-// execution on the app routes, rather than operator-assignment-scoped work.
-var leadershipExecutionRoles = map[string]bool{
-	permissions.RoleCEOInternal: true,
-	permissions.RolePCDirector:  true,
-	permissions.RoleParkHead:    true,
-}
-
-// isLeadershipExecutionActor reports whether any of the caller's active grants is a
-// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+// isLeadershipExecutionActor reports whether the caller holds the vaccination execution
+// OVERSIGHT capability, in which case the app execution read is NOT operator-assignment scoped
+// but park-scoped and read-only.
+//
+// This asks the permission model, not a role-name allowlist. The previous
+// {ceo_internal, pc_director, park_head} literal set excluded the org-role catalog's composed
+// preventive-care Director/Head -- the same authority under the tier x vertical model -- so they
+// fell into the operator-assignment branch, saw zero rows (they are assigned no drive), and got a
+// tappable shed whose every write is refused `task_not_assigned`. Granting the capability, not
+// renaming a role, is the lever for any future oversight tier.
 func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
 	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
-		if leadershipExecutionRoles[g.Role] {
+		if permissions.RoleHasPermission(g.Role, permissions.VaccinationOverseeExecution) {
 			return true
 		}
 	}
@@ -1642,14 +1642,23 @@ func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Requ
 		driveBatchIDPtr = &driveBatchID
 	}
 
-	parkID := r.URL.Query().Get("park_id")
+	// projection-review: park scope is BACKEND-owned here exactly as in
+	// ListVaccinationExecution/Schedule/Gaps/Coverage/ShedSummary. Reading park_id straight off
+	// the query string let a park-bound actor see the OTHER park's board by omitting it (and
+	// forbade nothing when they named it); authorizedParkID clamps the request to the actor's
+	// grants -- tenant-wide callers keep the verbatim (possibly empty) request.
+	requestedPark := r.URL.Query().Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requestedPark)
+	if !ok {
+		return
+	}
 	var parkIDPtr *string
 	if parkID != "" {
-		if !uuidutil.IsUUIDString(parkID) {
-			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
-				errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
-			return
-		}
 		parkIDPtr = &parkID
 	}
 

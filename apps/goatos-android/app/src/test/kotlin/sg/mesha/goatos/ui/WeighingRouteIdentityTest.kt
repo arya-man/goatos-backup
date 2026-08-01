@@ -87,7 +87,10 @@ class WeighingRouteIdentityTest {
 
     @Test
     fun `operator weighing work list does not render stale week strip`() {
-        val screen = Path.of("src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt").readText()
+        // Weighing now lives in its own feature module, so this guard reads across module
+        // boundaries. A NoSuchFileException here means the screen moved again -- update the path
+        // rather than deleting the guard, or the stale-week-strip regression silently returns.
+        val screen = Path.of("../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt").readText()
         val operatorListBlock = screen.substringAfter("if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty())")
             .substringBefore("if (state.assignmentsLoadingMore)")
 

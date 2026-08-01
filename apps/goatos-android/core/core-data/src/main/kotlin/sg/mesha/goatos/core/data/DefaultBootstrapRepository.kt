@@ -25,6 +25,12 @@ class DefaultBootstrapRepository(
     private val deviceStore: DeviceStore? = null,
     private val appVersion: String = "",
     private val osVersion: String = "",
+    /**
+     * Whether this phone will actually SHOW what we send it (the OS notification switch, supplied
+     * by :app). Reported on register AND on every heartbeat, so the backend can mark a device
+     * push-muted instead of counting an OS-dropped push as delivered. `null` = not reported.
+     */
+    private val notificationsEnabled: () -> Boolean? = { null },
 ) : BootstrapRepository {
     override suspend fun loadNavState(): NavState =
         try {
@@ -69,7 +75,11 @@ class DefaultBootstrapRepository(
                 runCatching {
                     api.heartbeatDevice(
                         id,
-                        HeartbeatDeviceRequestDto(appVersion = appVersion, osVersion = osVersion),
+                        HeartbeatDeviceRequestDto(
+                            appVersion = appVersion,
+                            osVersion = osVersion,
+                            notificationsEnabled = notificationsEnabled(),
+                        ),
                     )
                 }
             }
@@ -85,6 +95,7 @@ class DefaultBootstrapRepository(
                     appInstallId = store.appInstallId(),
                     appVersion = appVersion,
                     osVersion = osVersion,
+                    notificationsEnabled = notificationsEnabled(),
                 ),
             )
             store.setDeviceId(response.device.deviceId.ifBlank { null })

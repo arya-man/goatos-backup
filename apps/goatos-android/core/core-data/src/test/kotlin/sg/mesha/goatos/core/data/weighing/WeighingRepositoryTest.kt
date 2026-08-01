@@ -41,6 +41,7 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
@@ -113,78 +114,65 @@ class WeighingRepositoryTest {
 
     @Test
     fun `leadership videos map individual animals and lump sum summaries`() = runTest {
-        val campaigns = WeighingCampaignListResponseDto(
-            items = listOf(
-                WeighingCampaignDto(
-                    campaignId = "campaign",
-                    status = "completed",
-                    periodStartDate = "2026-07-27",
-                    periodEndDate = "2026-08-02",
-                    sheds = listOf(
-                        campaignShed("campaign", "individual", "Gandhi 1", "individual_animal"),
-                        campaignShed("campaign", "lump", "Castro 1", "per_shed_partition"),
-                    ),
-                ),
-            ),
-        )
+        // ONE request at BUCKET grain. The gallery used to build this page itself by expanding a
+        // task page and calling the single-bucket read once per bucket.
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?) = campaigns
-
-            override suspend fun getWeighingLeadershipShedVideos(
-                campaignId: String,
-                campaignShedId: String,
-            ) = WeighingLeadershipShedVideosResponseDto(
-                shed = if (campaignShedId == "individual") {
-                    WeighingLeadershipShedVideosDto(
-                        campaignId = campaignId,
-                        campaignShedId = campaignShedId,
-                        shedName = "Gandhi 1",
-                        weighingCategory = "individual_animal",
-                        status = "completed",
-                        individual = listOf(
-                            WeighingObservationDto(
-                                animalId = "RFID-000123",
-                                weightKg = 18.25,
-                                acceptedAt = "2026-07-29T06:00:00Z",
-                                media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
+            override suspend fun listWeighingLeadershipSheds(cursor: String?, limit: Int) =
+                WeighingLeadershipShedPageResponseDto(
+                    items = listOf(
+                        WeighingLeadershipShedVideosDto(
+                            campaignId = "campaign",
+                            campaignShedId = "individual",
+                            shedName = "Gandhi 1",
+                            weighingCategory = "individual_animal",
+                            status = "completed",
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            individual = listOf(
+                                WeighingObservationDto(
+                                    animalId = "RFID-000123",
+                                    weightKg = 18.25,
+                                    acceptedAt = "2026-07-29T06:00:00Z",
+                                    media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
+                                ),
                             ),
                         ),
-                    )
-                } else {
-                    WeighingLeadershipShedVideosDto(
-                        campaignId = campaignId,
-                        campaignShedId = campaignShedId,
-                        shedName = "Castro 1",
-                        weighingCategory = "per_shed_partition",
-                        status = "completed",
-                        lumpSum = WeighingObservationDto(
-                            weightKg = 250.0,
-                            averageWeightKg = 25.0,
-                            animalCount = 10,
-                            media = listOf(
-                                WeighingProofMediaDto("proof-2", "https://proof/2"),
-                                WeighingProofMediaDto("proof-3", "https://proof/3"),
+                        WeighingLeadershipShedVideosDto(
+                            campaignId = "campaign",
+                            campaignShedId = "lump",
+                            shedName = "Castro 1",
+                            weighingCategory = "per_shed_partition",
+                            status = "completed",
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            lumpSum = WeighingObservationDto(
+                                weightKg = 250.0,
+                                averageWeightKg = 25.0,
+                                animalCount = 10,
+                                media = listOf(
+                                    WeighingProofMediaDto("proof-2", "https://proof/2"),
+                                    WeighingProofMediaDto("proof-3", "https://proof/3"),
+                                ),
                             ),
                         ),
-                    )
-                },
-            )
+                    ),
+                )
         }
         val subject = DefaultWeighingRepository(
             api = api,
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val result = subject.listLeadershipVideos() as AppResult.Ok
+        subject.refreshLeadershipVideos()
+        val items = subject.observeLeadershipVideos().first()
 
-        assertEquals("RFID-000123", result.value.items[0].animals.single().rfid)
-        assertEquals(18.25, result.value.items[0].animals.single().weightKg, 0.0)
-        assertEquals(10, result.value.items[1].animalCount)
-        assertEquals(250.0, result.value.items[1].totalWeightKg!!, 0.0)
-        assertEquals(25.0, result.value.items[1].averageWeightKg!!, 0.0)
-        assertEquals(2, result.value.items[1].videos.size)
+        assertEquals("RFID-000123", items[0].animals.single().rfid)
+        assertEquals(18.25, items[0].animals.single().weightKg, 0.0)
+        assertEquals(10, items[1].animalCount)
+        assertEquals(250.0, items[1].totalWeightKg!!, 0.0)
+        assertEquals(25.0, items[1].averageWeightKg!!, 0.0)
+        assertEquals(2, items[1].videos.size)
     }
 
     @Test
@@ -458,19 +446,20 @@ class WeighingRepositoryTest {
     }
 
     @Test
-    fun `planner catalog maps parks sheds operators and existing campaign guard`() = runTest {
+    fun `planner catalog maps parks shed counts operators and existing campaign guard`() = runTest {
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
+            override suspend fun getWeighingPlannerCatalog(
+                periodStartDate: String,
+            ): WeighingPlannerCatalogResponseDto =
                 WeighingPlannerCatalogResponseDto(
                     parks = listOf(
                         WeighingPlannerParkDto(
                             parkId = "park-cpt",
                             name = "CPT - Channapatna",
                             kidCount = 144,
-                            sheds = listOf(
-                                WeighingPlannerShedDto(locationId = "shed-castro-1", name = "Castro 1", kidCount = 80),
-                                WeighingPlannerShedDto(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64),
-                            ),
+                            // Park grain: the catalog carries the park's shed COUNT. The shed rows
+                            // are a separate per-park keyset page.
+                            shedCount = 2,
                             existingCampaign = WeighingCampaignSummaryDto(
                                 campaignId = "campaign-existing",
                                 status = "in_progress",
@@ -490,14 +479,16 @@ class WeighingRepositoryTest {
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val result = repository.plannerCatalog("2026-07-27") as AppResult.Ok
+        repository.refreshPlannerCatalog("2026-07-27")
+        val catalog = repository.observePlannerCatalog("2026-07-27").first().catalog
 
-        assertEquals("CPT - Channapatna", result.value.parks.single().name)
-        assertEquals("campaign-existing", result.value.parks.single().existingCampaign?.campaignId)
-        assertEquals(listOf("Castro 1", "Castro 2"), result.value.parks.single().sheds.map { it.name })
-        assertEquals("Amit Kumar", result.value.operators.single().displayName)
+        assertEquals("CPT - Channapatna", catalog.parks.single().name)
+        assertEquals("campaign-existing", catalog.parks.single().existingCampaign?.campaignId)
+        assertEquals(2, catalog.parks.single().shedCount)
+        assertEquals("Amit Kumar", catalog.operators.single().displayName)
     }
 
     @Test
@@ -686,58 +677,51 @@ class WeighingRepositoryTest {
     fun `leadership video pages follow the backend cursor across two distinct pages`() = runTest {
         val requested = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingLeadershipSheds(
+                cursor: String?,
+                limit: Int,
+            ): WeighingLeadershipShedPageResponseDto {
                 requested += cursor
                 val suffix = if (cursor == null) "p1" else "p2"
-                return WeighingCampaignListResponseDto(
+                return WeighingLeadershipShedPageResponseDto(
                     items = listOf(
-                        WeighingCampaignDto(
+                        WeighingLeadershipShedVideosDto(
                             campaignId = "campaign",
+                            campaignShedId = "shed-$suffix",
+                            shedName = "Gandhi $suffix",
+                            weighingCategory = "individual_animal",
                             status = "completed",
-                            periodStartDate = "2026-07-27",
-                            periodEndDate = "2026-08-02",
-                            sheds = listOf(campaignShed("campaign", "shed-$suffix", "Gandhi $suffix", "individual_animal")),
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            individual = listOf(
+                                WeighingObservationDto(
+                                    animalId = "RFID-shed-$suffix",
+                                    weightKg = 18.25,
+                                    acceptedAt = "2026-07-29T06:00:00Z",
+                                    media = listOf(WeighingProofMediaDto("proof-$suffix", "https://proof/$suffix")),
+                                ),
+                            ),
                         ),
                     ),
                     nextCursor = if (cursor == null) "cursor-page-2" else null,
                 )
             }
-
-            override suspend fun getWeighingLeadershipShedVideos(
-                campaignId: String,
-                campaignShedId: String,
-            ) = WeighingLeadershipShedVideosResponseDto(
-                shed = WeighingLeadershipShedVideosDto(
-                    campaignId = campaignId,
-                    campaignShedId = campaignShedId,
-                    shedName = campaignShedId,
-                    weighingCategory = "individual_animal",
-                    status = "completed",
-                    individual = listOf(
-                        WeighingObservationDto(
-                            animalId = "RFID-$campaignShedId",
-                            weightKg = 18.25,
-                            acceptedAt = "2026-07-29T06:00:00Z",
-                            media = listOf(WeighingProofMediaDto("proof-$campaignShedId", "https://proof/$campaignShedId")),
-                        ),
-                    ),
-                ),
-            )
         }
         repository = DefaultWeighingRepository(
             api = api,
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val first = (repository.listLeadershipVideos() as AppResult.Ok).value
-        assertEquals(listOf("shed-p1"), first.items.map { it.campaignShedId })
-        assertEquals("cursor-page-2", first.nextCursor)
+        repository.refreshLeadershipVideos()
+        assertEquals(listOf("shed-p1"), repository.observeLeadershipVideos().first().map { it.campaignShedId })
 
-        val second = (repository.listLeadershipVideos(first.nextCursor) as AppResult.Ok).value
-        assertEquals(listOf("shed-p2"), second.items.map { it.campaignShedId })
-        assertEquals(null, second.nextCursor)
+        repository.refreshLeadershipVideos(reset = false)
+        assertEquals(
+            listOf("shed-p1", "shed-p2"),
+            repository.observeLeadershipVideos().first().map { it.campaignShedId },
+        )
         assertEquals(listOf(null, "cursor-page-2"), requested)
     }
 

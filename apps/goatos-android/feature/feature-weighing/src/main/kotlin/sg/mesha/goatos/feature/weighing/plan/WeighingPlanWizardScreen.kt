@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -46,6 +47,7 @@ import sg.mesha.goatos.feature.weighing.component.WeighingStepper
 import sg.mesha.goatos.feature.weighing.component.WeighingWizardActionBar
 import sg.mesha.goatos.feature.weighing.component.WeighingWizardGhostButton
 import sg.mesha.goatos.feature.weighing.component.WeighingWizardPrimaryButton
+import sg.mesha.goatos.feature.weighing.R
 
 // telemetry:exempt Task authoring is tracked by the weighing create/publish write, not by the
 // steps a planner walks through before committing to it.
@@ -91,8 +93,8 @@ fun WeighingPlanWizardScreen(
             .background(MeshaColors.PageBg),
     ) {
         MeshaScreenHeader(
-            title = "New weighing task",
-            eyebrow = "WEIGHING",
+            title = stringResource(R.string.weighing_wizard_title),
+            eyebrow = stringResource(R.string.weighing_eyebrow),
             eyebrowColor = MeshaColors.BrandD,
             subtitle = stepEyebrow(state.step),
             onBack = onBack,
@@ -111,6 +113,32 @@ fun WeighingPlanWizardScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "step-title") { StepTitle(state) }
+            state.repeatSourceLabel?.let { label ->
+                item(key = "repeat-source") {
+                    WizardBanner(text = label, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
+                }
+            }
+            if (state.repeatDroppedCount > 0) {
+                item(key = "repeat-dropped") {
+                    WizardBanner(
+                        text = if (state.repeatDroppedCount == 1) {
+                            stringResource(
+                                R.string.weighing_wizard_dropped_one,
+                                state.repeatDroppedCount,
+                                state.dateLabel,
+                            )
+                        } else {
+                            stringResource(
+                                R.string.weighing_wizard_dropped_other,
+                                state.repeatDroppedCount,
+                                state.dateLabel,
+                            )
+                        },
+                        fg = MeshaColors.Warn,
+                        bg = MeshaColors.WarnX,
+                    )
+                }
+            }
             state.message?.let { text ->
                 item(key = "step-message") { WizardBanner(text = text, fg = MeshaColors.Warn, bg = MeshaColors.WarnX) }
             }
@@ -146,27 +174,31 @@ fun WeighingPlanWizardScreen(
 
         WeighingWizardActionBar(contextLine = state.contextLine) {
             WeighingWizardGhostButton(
-                label = if (state.step == WeighingWizardStep.DATE) "Cancel" else "Back",
+                label = if (state.step == WeighingWizardStep.DATE) {
+                    stringResource(R.string.weighing_wizard_cancel)
+                } else {
+                    stringResource(R.string.weighing_wizard_back)
+                },
                 enabled = !state.busy,
                 onClick = onBack,
                 modifier = Modifier.weight(1f),
             )
             if (state.step == WeighingWizardStep.REVIEW) {
                 WeighingWizardGhostButton(
-                    label = "Save draft",
+                    label = stringResource(R.string.weighing_wizard_save_draft),
                     enabled = !state.busy,
                     onClick = { onCommit(false) },
                     modifier = Modifier.weight(1f),
                 )
                 WeighingWizardPrimaryButton(
-                    label = "Publish",
+                    label = stringResource(R.string.weighing_wizard_publish),
                     enabled = !state.busy,
                     onClick = { onCommit(true) },
                     modifier = Modifier.weight(1f),
                 )
             } else {
                 WeighingWizardPrimaryButton(
-                    label = "Continue",
+                    label = stringResource(R.string.weighing_wizard_continue),
                     enabled = state.canContinue && !state.busy,
                     onClick = onContinue,
                     modifier = Modifier.weight(1f),
@@ -176,29 +208,40 @@ fun WeighingPlanWizardScreen(
     }
 }
 
+@Composable
 private fun stepEyebrow(step: WeighingWizardStep): String = when (step) {
-    WeighingWizardStep.DATE -> "Step 1 of 5 · Date"
-    WeighingWizardStep.PARK -> "Step 2 of 5 · Park"
-    WeighingWizardStep.BUCKETS -> "Step 3 of 5 · Shed buckets"
-    WeighingWizardStep.CONFIGURE -> "Step 4 of 5 · Configure"
-    WeighingWizardStep.REVIEW -> "Step 5 of 5 · Review"
+    WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_step_date)
+    WeighingWizardStep.PARK -> stringResource(R.string.weighing_wizard_step_park)
+    WeighingWizardStep.BUCKETS -> stringResource(R.string.weighing_wizard_step_buckets)
+    WeighingWizardStep.CONFIGURE -> stringResource(R.string.weighing_wizard_step_configure)
+    WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_step_review)
 }
 
 @Composable
 private fun StepTitle(state: WeighingWizardUiState) {
     val title = when (state.step) {
-        WeighingWizardStep.DATE -> "Select date"
-        WeighingWizardStep.PARK -> "Select park"
-        WeighingWizardStep.BUCKETS -> "Select shed buckets"
-        WeighingWizardStep.CONFIGURE -> "Configure shed buckets"
-        WeighingWizardStep.REVIEW -> "Review & publish"
+        WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_title_date)
+        WeighingWizardStep.PARK -> stringResource(R.string.weighing_wizard_title_park)
+        WeighingWizardStep.BUCKETS -> stringResource(R.string.weighing_wizard_title_buckets)
+        WeighingWizardStep.CONFIGURE -> stringResource(R.string.weighing_wizard_title_configure)
+        WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_title_review)
     }
     val subtitle = when (state.step) {
-        WeighingWizardStep.DATE -> "Today or a future date."
-        WeighingWizardStep.PARK -> if (state.loading) "Loading parks for ${state.dateLabel}…" else state.dateLabel
+        WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_sub_date)
+        WeighingWizardStep.PARK -> if (state.loading) {
+            stringResource(R.string.weighing_wizard_loading_parks_fmt, state.dateLabel)
+        } else {
+            state.dateLabel
+        }
         WeighingWizardStep.BUCKETS ->
-            "${state.allCount} in ${state.parkName} · ${state.dateLabel}"
-        WeighingWizardStep.CONFIGURE -> "${state.addedCount} selected"
+            stringResource(
+                R.string.weighing_wizard_sub_buckets_fmt,
+                state.allCount,
+                state.parkName,
+                state.dateLabel,
+            )
+        WeighingWizardStep.CONFIGURE ->
+            stringResource(R.string.weighing_wizard_sub_configure_fmt, state.addedCount)
         WeighingWizardStep.REVIEW -> ""
     }
     Column(
@@ -239,9 +282,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.parkStep(
         item(key = "parks-empty") {
             WizardEmptyCard(
                 text = if (state.loading) {
-                    "Loading parks for ${state.dateLabel}…"
+                    stringResource(R.string.weighing_wizard_loading_parks_fmt, state.dateLabel)
                 } else {
-                    "No parks are available for ${state.dateLabel}."
+                    stringResource(R.string.weighing_wizard_no_parks_fmt, state.dateLabel)
                 },
             )
         }
@@ -273,42 +316,46 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             WeighingSearchField(
                 value = state.bucketQuery,
-                placeholder = "Search shed bucket",
+                placeholder = stringResource(R.string.weighing_wizard_search_bucket),
                 onValueChange = onBucketQuery,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 WizardChip(
-                    label = "Available ${state.availableCount}",
+                    label = stringResource(R.string.weighing_wizard_filter_available_fmt, state.availableCount),
                     selected = state.bucketFilter == WeighingBucketFilter.AVAILABLE,
                     onClick = { onBucketFilter(WeighingBucketFilter.AVAILABLE) },
                 )
                 WizardChip(
-                    label = "Already scheduled ${state.takenCount}",
+                    label = stringResource(R.string.weighing_wizard_filter_taken_fmt, state.takenCount),
                     selected = state.bucketFilter == WeighingBucketFilter.TAKEN,
                     onClick = { onBucketFilter(WeighingBucketFilter.TAKEN) },
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 WizardChip(
-                    label = "Added ${state.addedCount}",
+                    label = stringResource(R.string.weighing_wizard_filter_added_fmt, state.addedCount),
                     selected = state.bucketFilter == WeighingBucketFilter.ADDED,
                     onClick = { onBucketFilter(WeighingBucketFilter.ADDED) },
                 )
                 WizardChip(
-                    label = "All ${state.allCount}",
+                    label = stringResource(R.string.weighing_wizard_filter_all_fmt, state.allCount),
                     selected = state.bucketFilter == WeighingBucketFilter.ALL,
                     onClick = { onBucketFilter(WeighingBucketFilter.ALL) },
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 WeighingWizardGhostButton(
-                    label = if (state.bucketsAddable > 0) "Add all ${state.bucketsAddable}" else "Nothing to add",
+                    label = if (state.bucketsAddable > 0) {
+                        stringResource(R.string.weighing_wizard_add_all_fmt, state.bucketsAddable)
+                    } else {
+                        stringResource(R.string.weighing_wizard_nothing_to_add)
+                    },
                     enabled = state.bucketsAddable > 0,
                     onClick = onAddAllBuckets,
                     modifier = Modifier.weight(1f),
                 )
                 WeighingWizardGhostButton(
-                    label = "Clear all",
+                    label = stringResource(R.string.weighing_wizard_clear_all),
                     enabled = state.addedCount > 0,
                     onClick = onClearBuckets,
                     modifier = Modifier.weight(1f),
@@ -316,14 +363,24 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
             }
             if (state.addedTray.isNotEmpty()) {
                 Text(
-                    text = "Added: " + state.addedTray.joinToString(" · ") +
-                        if (state.addedTrayMore > 0) " +${state.addedTrayMore} more" else "",
+                    text = stringResource(
+                        R.string.weighing_wizard_added_tray_fmt,
+                        state.addedTray.joinToString(" · "),
+                    ) + if (state.addedTrayMore > 0) {
+                        stringResource(R.string.weighing_wizard_tray_more_fmt, state.addedTrayMore)
+                    } else {
+                        ""
+                    },
                     color = MeshaColors.BrandD,
                     style = MeshaType.cardSubtitle,
                 )
             }
             Text(
-                text = "${state.bucketShownCount} of ${state.bucketTotalCount}",
+                text = stringResource(
+                    R.string.weighing_wizard_shown_of_fmt,
+                    state.bucketShownCount,
+                    state.bucketTotalCount,
+                ),
                 color = MeshaColors.Muted,
                 style = MeshaType.sectionLabel,
             )
@@ -333,12 +390,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
         item(key = "buckets-empty") {
             WizardEmptyCard(
                 text = when {
-                    state.loading -> "Loading shed buckets…"
-                    state.bucketQuery.isNotBlank() -> "Nothing matches “${state.bucketQuery}”."
-                    state.bucketFilter == WeighingBucketFilter.ADDED -> "No shed buckets added yet."
+                    state.loading -> stringResource(R.string.weighing_wizard_loading_buckets)
+                    state.bucketQuery.isNotBlank() ->
+                        stringResource(R.string.weighing_wizard_no_match_fmt, state.bucketQuery)
+                    state.bucketFilter == WeighingBucketFilter.ADDED ->
+                        stringResource(R.string.weighing_wizard_no_buckets_added)
                     state.bucketFilter == WeighingBucketFilter.TAKEN ->
-                        "Nothing else is scheduled on ${state.dateLabel}."
-                    else -> "No available shed buckets left for ${state.dateLabel}."
+                        stringResource(R.string.weighing_wizard_nothing_else_scheduled_fmt, state.dateLabel)
+                    else ->
+                        stringResource(R.string.weighing_wizard_no_available_buckets_fmt, state.dateLabel)
                 },
             )
         }
@@ -355,8 +415,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
             radio = false,
             enabled = !row.taken,
             trailing = when {
-                row.taken -> "taken" to (MeshaColors.Warn to MeshaColors.WarnX)
-                row.added -> "added" to (MeshaColors.Ok to MeshaColors.OkX)
+                row.taken ->
+                    stringResource(R.string.weighing_wizard_state_taken) to
+                        (MeshaColors.Warn to MeshaColors.WarnX)
+                row.added ->
+                    stringResource(R.string.weighing_wizard_state_added) to
+                        (MeshaColors.Ok to MeshaColors.OkX)
                 else -> null
             },
             onClick = { onToggleBucket(row.locationId) },
@@ -392,15 +456,22 @@ private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
     }
     item(key = "configure-count") {
         Text(
-            text = "${state.configShownCount} of ${state.configTotalCount}" +
-                if (state.tickedCount > 0) " · ${state.tickedCount} ticked" else "",
+            text = stringResource(
+                R.string.weighing_wizard_shown_of_fmt,
+                state.configShownCount,
+                state.configTotalCount,
+            ) + if (state.tickedCount > 0) {
+                stringResource(R.string.weighing_wizard_ticked_suffix_fmt, state.tickedCount)
+            } else {
+                ""
+            },
             color = MeshaColors.Muted,
             style = MeshaType.sectionLabel,
         )
     }
     if (state.configRows.isEmpty()) {
         item(key = "configure-empty") {
-            WizardEmptyCard(text = "Nothing matches “${state.configQuery}”.")
+            WizardEmptyCard(text = stringResource(R.string.weighing_wizard_no_match_fmt, state.configQuery))
         }
         return
     }
@@ -441,43 +512,62 @@ private fun ConfigureBulkBar(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             WizardSelect(
-                label = bulkCategory?.let(::categoryLabel) ?: "Mode…",
-                options = listOf(INDIVIDUAL_CATEGORY to "Individual", LUMP_SUM_CATEGORY to "Lump-sum"),
+                label = bulkCategory?.let { categoryLabel(it) }
+                    ?: stringResource(R.string.weighing_wizard_mode_prompt),
+                options = categoryOptions(),
                 onSelect = { bulkCategory = it },
                 modifier = Modifier.weight(1f),
             )
             WizardSelect(
-                label = state.operators.firstOrNull { it.userId == bulkOperator }?.displayName ?: "Operator…",
+                label = state.operators.firstOrNull { it.userId == bulkOperator }?.displayName ?: stringResource(R.string.weighing_wizard_operator_prompt),
                 options = state.operators.map { it.userId to it.displayName },
                 onSelect = { bulkOperator = it },
                 modifier = Modifier.weight(1f),
             )
             WeighingWizardGhostButton(
-                label = "Apply",
+                label = stringResource(R.string.weighing_wizard_apply),
                 enabled = bulkCategory != null || bulkOperator != null,
                 onClick = { onApplyBulk(bulkCategory, bulkOperator) },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             WizardChip(
-                label = if (state.tickedCount > 0) "Untick ${state.tickedCount}" else "Select all ${state.configTotalCount}",
+                label = if (state.tickedCount > 0) {
+                    stringResource(R.string.weighing_wizard_untick_fmt, state.tickedCount)
+                } else {
+                    stringResource(R.string.weighing_wizard_select_all_fmt, state.configTotalCount)
+                },
                 selected = state.tickedCount > 0,
                 onClick = { if (state.tickedCount > 0) onClearPicks() else onPickAllShown() },
             )
-            WizardChip(label = "Split evenly", selected = false, onClick = onSplitEvenly)
-            WizardChip(label = "Search", selected = state.configSearchOpen, onClick = onToggleConfigSearch)
+            WizardChip(
+                label = stringResource(R.string.weighing_wizard_split_evenly),
+                selected = false,
+                onClick = onSplitEvenly,
+            )
+            WizardChip(
+                label = stringResource(R.string.weighing_wizard_search),
+                selected = state.configSearchOpen,
+                onClick = onToggleConfigSearch,
+            )
         }
         if (state.configSearchOpen) {
             WeighingSearchField(
                 value = state.configQuery,
-                placeholder = "Find a shed bucket",
+                placeholder = stringResource(R.string.weighing_wizard_find_bucket),
                 onValueChange = onConfigQuery,
             )
         }
         Text(
-            text = "Applies to " +
-                (if (state.tickedCount > 0) "the ${state.tickedCount} ticked" else "all ${state.configTotalCount} shown") +
-                " · " + state.configSummary,
+            text = stringResource(
+                R.string.weighing_wizard_applies_to_fmt,
+                if (state.tickedCount > 0) {
+                    stringResource(R.string.weighing_wizard_applies_to_ticked_fmt, state.tickedCount)
+                } else {
+                    stringResource(R.string.weighing_wizard_applies_to_all_fmt, state.configTotalCount)
+                },
+                state.configSummary,
+            ),
             color = MeshaColors.Muted,
             style = MeshaType.caption,
         )
@@ -529,12 +619,12 @@ private fun ConfigureRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             WizardSelect(
                 label = categoryLabel(row.category),
-                options = listOf(INDIVIDUAL_CATEGORY to "Individual", LUMP_SUM_CATEGORY to "Lump-sum"),
+                options = categoryOptions(),
                 onSelect = onCategory,
                 modifier = Modifier.weight(1f),
             )
             WizardSelect(
-                label = row.operatorLabel.ifBlank { "Choose operator" },
+                label = row.operatorLabel.ifBlank { stringResource(R.string.weighing_wizard_choose_operator) },
                 options = operators.map { it.userId to it.displayName },
                 onSelect = onOperator,
                 modifier = Modifier.weight(1f),
@@ -556,23 +646,33 @@ private fun androidx.compose.foundation.lazy.LazyListScope.reviewStep(state: Wei
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            WizardField(key = "Date", value = state.dateLabel)
-            WizardField(key = "Park", value = state.parkName)
-            WizardField(key = "Shed buckets", value = state.addedCount.toString())
-            WizardField(key = "Operators", value = state.reviewOperatorLabel)
+            WizardField(key = stringResource(R.string.weighing_wizard_field_date), value = state.dateLabel)
+            WizardField(key = stringResource(R.string.weighing_wizard_field_park), value = state.parkName)
+            WizardField(
+                key = stringResource(R.string.weighing_wizard_field_buckets),
+                value = state.addedCount.toString(),
+            )
+            WizardField(
+                key = stringResource(R.string.weighing_wizard_field_operators),
+                value = state.reviewOperatorLabel,
+            )
         }
     }
     state.lopsidedOperatorLabel?.let { operator ->
         item(key = "review-lopsided") {
             WizardBanner(
-                text = "All ${state.addedCount} shed buckets go to $operator.",
+                text = stringResource(R.string.weighing_wizard_lopsided_fmt, state.addedCount, operator),
                 fg = MeshaColors.Warn,
                 bg = MeshaColors.WarnX,
             )
         }
     }
     item(key = "review-heading") {
-        Text(text = "Per shed bucket", color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+        Text(
+            text = stringResource(R.string.weighing_wizard_per_bucket),
+            color = MeshaColors.Muted,
+            style = MeshaType.sectionLabel,
+        )
     }
     items(state.reviewRows, key = { it.locationId }) { row ->
         Row(
@@ -799,7 +899,7 @@ private fun WizardField(key: String, value: String) {
     ) {
         Text(text = key, color = MeshaColors.Muted, style = MeshaType.fieldLabel, modifier = Modifier.weight(1f))
         Text(
-            text = value.ifBlank { "—" },
+            text = value.ifBlank { stringResource(R.string.weighing_wizard_field_empty) },
             color = MeshaColors.Ink,
             style = MeshaType.bodyStrong,
             maxLines = 2,
@@ -823,8 +923,16 @@ private fun WizardEmptyCard(text: String) {
     }
 }
 
+@Composable
 private fun categoryLabel(category: String): String = when (category) {
-    INDIVIDUAL_CATEGORY -> "Individual"
-    LUMP_SUM_CATEGORY -> "Lump-sum"
-    else -> "Mode"
+    INDIVIDUAL_CATEGORY -> stringResource(R.string.weighing_category_individual_title)
+    LUMP_SUM_CATEGORY -> stringResource(R.string.weighing_category_lump_sum_title)
+    else -> stringResource(R.string.weighing_wizard_mode_fallback)
 }
+
+/** The two weighing modes, as the planner picks them. */
+@Composable
+private fun categoryOptions(): List<Pair<String, String>> = listOf(
+    INDIVIDUAL_CATEGORY to stringResource(R.string.weighing_category_individual_title),
+    LUMP_SUM_CATEGORY to stringResource(R.string.weighing_category_lump_sum_title),
+)

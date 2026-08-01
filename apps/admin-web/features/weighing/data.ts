@@ -3,11 +3,13 @@ import "server-only";
 import {
   getWeighingCampaigns,
   getWeighingPlannerCatalog,
+  getWeighingPlannerParkBuckets,
   type ApiResult,
   type WeighingCampaign as ApiWeighingCampaign,
   type WeighingCampaignShed as ApiWeighingCampaignShed,
   type WeighingPlannerCatalogResponse,
   type WeighingPlannerPark as ApiWeighingPlannerPark,
+  type WeighingPlannerShed as ApiWeighingPlannerShed,
 } from "@/lib/api/server";
 
 export type WeighingRole = "leadership" | "director" | "operator";
@@ -160,7 +162,22 @@ export async function getWeighingPageData(
   const plannerWeek = selectedWeek || campaign.weekStart || currentWeekStart();
   const catalogResult = await getWeighingPlannerCatalog(plannerWeek);
   if (!catalogResult.ok) return catalogResult;
-  const planner = plannerFromCatalog(catalogResult.data, plannerWeek, selectedItem, campaign, selectedCampaignId);
+  // The catalog is PARK grain and carries no sheds. The planner only ever renders the
+  // SELECTED park's buckets, so read exactly that park's page instead of every shed of
+  // every park (which is what the flattened catalog used to hand back).
+  const selectedPark = selectPlannerPark(catalogResult.data.parks, selectedItem);
+  const bucketsResult = selectedPark
+    ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek)
+    : ({ ok: true, data: [] } as ApiResult<ApiWeighingPlannerShed[]>);
+  if (!bucketsResult.ok) return bucketsResult;
+  const planner = plannerFromCatalog(
+    catalogResult.data,
+    bucketsResult.data,
+    plannerWeek,
+    selectedItem,
+    campaign,
+    selectedCampaignId,
+  );
   const weeks = weeksFromCampaigns(result.data.items, campaign);
   return {
     ok: true,
@@ -171,6 +188,25 @@ export async function getWeighingPageData(
       weeks,
     },
   };
+}
+
+// getSelectedParkBuckets reads ONE park's buckets. A real park holds 76+ sheds, so the
+// default 100-row page usually settles it in a single request; the loop exists only so a
+// larger park still resolves, and it is hard-capped.
+async function getSelectedParkBuckets(
+  parkId: string,
+  periodStartDate: string,
+): Promise<ApiResult<ApiWeighingPlannerShed[]>> {
+  const sheds: ApiWeighingPlannerShed[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 5; page += 1) { // scale-guard:ignore: bounded to ONE park's sheds (76+ in the real data) with a 5-page hard cap; this is the planner's selection list, not a KPI drained from a paginated endpoint; serial-await: allow cursor pagination must stay sequential
+    const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor);
+    if (!result.ok) return result;
+    sheds.push(...(result.data.sheds ?? []));
+    cursor = result.data.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  return { ok: true, data: sheds };
 }
 
 async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighingCampaign[] }>> {
@@ -241,6 +277,7 @@ function parseYmd(value: string): Date | null {
 
 function plannerFromCatalog(
   catalog: WeighingPlannerCatalogResponse,
+  parkSheds: ApiWeighingPlannerShed[],
   periodStartDate: string,
   selectedItem: ApiWeighingCampaign | undefined,
   campaign: WeighingCampaign,
@@ -249,20 +286,20 @@ function plannerFromCatalog(
   const selectedPark = selectPlannerPark(catalog.parks, selectedItem);
   const selectedShedIds = new Set((selectedItem?.sheds ?? []).map((shed) => shed.location_id));
   const selectedOperatorId = selectedItem?.operator_user_id || catalog.operators[0]?.user_id || "";
-  const sheds: WeighingPlannerShed[] = catalog.parks.flatMap((park) => park.sheds.map((shed) => {
+  // parkSheds are the SELECTED park's buckets only, so every row here belongs to it.
+  const sheds: WeighingPlannerShed[] = parkSheds.map((shed) => {
     const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
-    const isSelectedPark = park.park_id === selectedPark?.park_id;
     return {
       id: shed.location_id,
-      parkId: park.park_id,
+      parkId: selectedPark?.park_id ?? "",
       locationType: campaignShed?.location_type ?? "shed",
       label: shed.name,
-      subtitle: `${park.name} kid shed`,
+      subtitle: `${selectedPark?.name ?? ""} kid shed`,
       kidCount: shed.kid_count,
-      selected: isSelectedPark && (selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true),
+      selected: selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true,
       category: campaignShed?.weighing_category ?? "individual_animal",
     };
-  }));
+  });
   const selected = sheds.filter((shed) => shed.selected && shed.parkId === selectedPark?.park_id);
   const individual = selected.filter((shed) => shed.category === "individual_animal");
   const lumpsum = selected.filter((shed) => shed.category === "per_shed_partition");
@@ -287,10 +324,12 @@ function plannerFromCatalog(
     duplicateBlocked: !editingCampaignId && Boolean(existing || campaign.id !== "empty"),
     selectedParkId: selectedPark?.park_id ?? "",
     selectedOperatorId,
+    // EVERY park the catalog returned. The subtitle is the park-grain shed count the
+    // backend computed, never a join of the shed rows that happened to be fetched.
     parks: catalog.parks.map((park) => ({
       id: park.park_id,
       label: park.name,
-      subtitle: park.sheds.map((shed) => shed.name).join(", "),
+      subtitle: `${park.shed_count} kid sheds`,
       kidCount: park.kid_count,
       selected: park.park_id === selectedPark?.park_id,
     })),

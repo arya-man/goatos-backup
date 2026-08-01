@@ -1,0 +1,37 @@
+# Design-system debt: existing literal colours/type predating the central-token rule.
+# Shrink this list; never grow it. One entry per file:rule.
+#
+# The guard is diff-scoped, so this list grows when a file with OLD debt is touched for an
+# unrelated reason -- not when new literals are written. That is what happened on 2026-08-01:
+# ScanScreen/CalendarScreen/RecordScreen/MainActivity entered the diff for RefreshOnResume and
+# module-extraction edits, bringing their pre-existing literals with them. Newly authored code
+# in that change (UnavailableAlertNotice) was tokenised properly instead of baselined.
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-size
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-weight
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt:literal-font-size
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt:literal-font-weight
+apps/goatos-android/feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-record/src/main/kotlin/sg/mesha/goatos/feature/record/RecordScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-record/src/main/kotlin/sg/mesha/goatos/feature/record/RecordScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-scan/src/main/kotlin/sg/mesha/goatos/feature/scan/ScanScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-scan/src/main/kotlin/sg/mesha/goatos/feature/scan/ScanScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/feature/sheds/ShedsScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/feature/sheds/ShedsScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyDetailScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyDetailScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/LeadershipWeighingScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/LeadershipWeighingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTasksScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTasksScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingLeadershipVideosScreen.kt:named-compose-color
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingShedDetailScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingShedDetailScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/plan/WeighingPlanWizardScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/plan/WeighingPlanWizardScreen.kt:literal-font-weight

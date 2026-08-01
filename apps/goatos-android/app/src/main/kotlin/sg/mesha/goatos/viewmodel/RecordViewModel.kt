@@ -112,6 +112,7 @@ class RecordViewModel @Inject constructor(
     fun onEvent(event: RecordEvent) {
         when (event) {
             RecordEvent.Close -> Unit // navigation — handled by the nav host.
+            RecordEvent.Refresh -> refresh()
         }
     }
 

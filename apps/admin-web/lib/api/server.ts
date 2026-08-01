@@ -96,6 +96,8 @@ export type WeighingCampaign = AppApiComponents["schemas"]["WeighingCampaign"];
 export type WeighingCampaignShed = AppApiComponents["schemas"]["WeighingCampaignShed"];
 export type WeighingCampaignListResponse = AppApiComponents["schemas"]["WeighingCampaignListResponse"];
 export type WeighingPlannerCatalogResponse = AppApiComponents["schemas"]["WeighingPlannerCatalogResponse"];
+export type WeighingPlannerParkBucketsResponse = AppApiComponents["schemas"]["WeighingPlannerParkBucketsResponse"];
+export type WeighingPlannerShed = AppApiComponents["schemas"]["WeighingPlannerShed"];
 export type WeighingPlannerPark = AppApiComponents["schemas"]["WeighingPlannerPark"];
 export type CreateWeighingCampaignRequest = AppApiComponents["schemas"]["CreateWeighingCampaignRequest"];
 export type WeighingCampaignResponse = AppApiComponents["schemas"]["WeighingCampaignResponse"];
@@ -1094,6 +1096,32 @@ export async function getWeighingPlannerCatalog(
         signal,
         query: compactQuery({ period_start_date: periodStartDate }),
       }),
+    ),
+  );
+}
+
+export async function getWeighingPlannerParkBuckets(
+  parkId: string,
+  periodStartDate: string,
+  cursor?: string,
+  limit = 100,
+): Promise<ApiResult<WeighingPlannerParkBucketsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  // The generated path union carries the `{park_id}` template, so the interpolated
+  // concrete path is asserted back onto it -- same shape as reproductiveGoat above.
+  const path = `/app/weighing/planner/parks/${encodeURIComponent(parkId)}/buckets` as keyof AppApiPaths & string;
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<WeighingPlannerParkBucketsResponse>(
+        path,
+        {
+          cache: "no-store",
+          signal,
+          query: compactQuery({ period_start_date: periodStartDate, cursor, limit }),
+        },
+      ),
     ),
   );
 }

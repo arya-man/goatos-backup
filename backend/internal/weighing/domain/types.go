@@ -44,22 +44,25 @@ type Actor struct {
 }
 
 type Campaign struct {
-	CampaignID        string         `json:"campaign_id"`
-	TenantID          string         `json:"tenant_id"`
-	ParkID            string         `json:"park_id"`
-	ParkName          string         `json:"park_name"`
-	PeriodStartDate   string         `json:"period_start_date"`
-	PeriodEndDate     string         `json:"period_end_date"`
-	StartBusinessDate string         `json:"start_business_date"`
-	Status            string         `json:"status"`
-	PlannedCapPerDay  int            `json:"planned_cap_per_day"`
-	OperatorUserID    string         `json:"operator_user_id"`
-	CreatedBy         string         `json:"created_by"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	RowVersion        int            `json:"row_version"`
-	Sheds             []CampaignShed `json:"sheds,omitempty"`
-	Progress          Progress       `json:"progress"`
+	CampaignID        string    `json:"campaign_id"`
+	TenantID          string    `json:"tenant_id"`
+	ParkID            string    `json:"park_id"`
+	ParkName          string    `json:"park_name"`
+	PeriodStartDate   string    `json:"period_start_date"`
+	PeriodEndDate     string    `json:"period_end_date"`
+	StartBusinessDate string    `json:"start_business_date"`
+	Status            string    `json:"status"`
+	PlannedCapPerDay  int       `json:"planned_cap_per_day"`
+	OperatorUserID    string    `json:"operator_user_id"`
+	CreatedBy         string    `json:"created_by"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	RowVersion        int       `json:"row_version"`
+	// CloseReason is the backend-owned sentence recorded when the task was ended.
+	// Empty on a task that is still live. Clients RENDER it; they never author it.
+	CloseReason string         `json:"close_reason,omitempty"`
+	Sheds       []CampaignShed `json:"sheds,omitempty"`
+	Progress    Progress       `json:"progress"`
 }
 
 type CampaignPage struct {
@@ -117,17 +120,41 @@ func ParseCampaignListScope(raw string, fallback CampaignListScope) (CampaignLis
 	}
 }
 
+// PlannerCatalog is the PARK-GRAIN planner vocabulary for ONE weigh date: every
+// park the planner may pick, plus the operator picker. It carries NO shed rows.
+//
+// Parks and sheds are two different grains and used to share one flattened
+// keyset page. Because a real park holds 76+ sheds and the page was ~20 rows,
+// page one was entirely ONE park and the wizard's "Select park" step offered a
+// single park — the other parks were unreachable without paging through dozens
+// of shed rows. The park step needs ALL parks (there are a handful); the bucket
+// step is what pages, per park, through PlannerParkBuckets.
 type PlannerCatalog struct {
 	Parks     []PlannerPark     `json:"parks"`
 	Operators []PlannerOperator `json:"operators"`
 }
 
 type PlannerPark struct {
-	ParkID           string           `json:"park_id"`
-	Name             string           `json:"name"`
-	KidCount         int              `json:"kid_count"`
-	Sheds            []PlannerShed    `json:"sheds"`
+	ParkID   string `json:"park_id"`
+	Name     string `json:"name"`
+	KidCount int    `json:"kid_count"`
+	// ShedCount is a PARK-GRAIN count of the park's active sheds, computed by a
+	// scalar aggregate over that park's own children. It is deliberately NOT a
+	// count of shed rows returned on any page: the catalog returns no shed rows
+	// at all, and a bucket page carries only ~20 of them.
+	ShedCount        int              `json:"shed_count"`
 	ExistingCampaign *CampaignSummary `json:"existing_campaign,omitempty"`
+}
+
+// PlannerParkBuckets is ONE keyset page of the sheds of ONE park, with the same
+// date-scoped availability the planner renders. This is the many-side grain: it
+// pages, the park list does not.
+type PlannerParkBuckets struct {
+	ParkID string        `json:"park_id"`
+	Sheds  []PlannerShed `json:"sheds"`
+	// NextCursor is the keyset over (shed display_order, shed name, shed
+	// location_id) WITHIN this park. Empty means the last page.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 type PlannerShed struct {
@@ -164,6 +191,13 @@ type PlannerOperator struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
 	DisplayCode string `json:"display_code"`
+	// ParkIDs are the parks this person may be assigned weighing work in. EMPTY means every park
+	// (a tenant-scoped principal). Operators and park-scoped directors carry exactly their park.
+	//
+	// The planner used to receive a flat roster with no scope at all, so the wizard offered -- and
+	// DEFAULTED to -- someone from another park, and the write accepted it. The picker filters on
+	// this; the write re-checks it, because a client is not a permission boundary.
+	ParkIDs []string `json:"park_ids,omitempty"`
 }
 
 type CampaignShed struct {
@@ -175,6 +209,12 @@ type CampaignShed struct {
 	ExpectedAnimalCount int    `json:"expected_animal_count"`
 	WeighingCategory    string `json:"weighing_category"`
 	OperatorUserID      string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name of the bucket's assignee
+	// (active workforce member only). It travels WITH the bucket so a client never
+	// has to join the bucket against a separately paged operator vocabulary — doing
+	// that left buckets past the first catalog page rendering without a name.
+	// Empty WITH a non-empty OperatorUserID is a roster gap, not "not assigned".
+	OperatorDisplayName string `json:"operator_display_name"`
 	Status              string `json:"status"`
 	// PendingVerificationCount is the exact count of this bucket's SUBMITTED
 	// observations (weighing_observations with submitted_at set, plus any
@@ -195,6 +235,27 @@ type CampaignShed struct {
 	// rework request from leadership's view.
 	ReadyToClose bool `json:"ready_to_close"`
 }
+
+// CampaignShedPage is the task-detail (L1) bucket list as a keyset page.
+//
+// GRAIN: one weighing_campaign_sheds row = one bucket = one shed on this task.
+// It exists because the task LIST embeds every bucket of every campaign on the
+// page: a park holds 76+ sheds, so a 20-task page carried 1,500+ bucket rows for
+// cards that show a handful. The detail screen reads this instead, ~20 at a time.
+type CampaignShedPage struct {
+	CampaignID string         `json:"campaign_id"`
+	Items      []CampaignShed `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	// TotalCount is the WHOLE-TASK bucket count, not the page's length, so the
+	// detail header can say how big the task is without draining the pages.
+	TotalCount int `json:"total_count"`
+}
+
+// CampaignShedPageSize / MaxCampaignShedPageSize bound the task-detail bucket page.
+const (
+	CampaignShedPageSize    = 20
+	MaxCampaignShedPageSize = 100
+)
 
 type ExpectedAnimal struct {
 	CampaignID             string `json:"campaign_id"`
@@ -223,16 +284,130 @@ type RosterPage struct {
 	NextObservationsCursor string `json:"next_observations_cursor,omitempty"`
 }
 
+// MaxShedProofArtifacts is how many group videos ONE lump-sum shed submission may
+// carry. It is the proof policy, so it is also the denominator leadership reads
+// ("3 of 5"); clients must render it rather than hardcode a number of their own.
+const MaxShedProofArtifacts = 5
+
 // LeadershipShedVideos is the read-only, shed-grain weighing proof contract.
 // Exactly one observation collection is populated according to WeighingCategory.
 type LeadershipShedVideos struct {
-	CampaignID       string        `json:"campaign_id"`
-	CampaignShedID   string        `json:"campaign_shed_id"`
-	ShedName         string        `json:"shed_name"`
-	WeighingCategory string        `json:"weighing_category"`
-	Status           string        `json:"status"`
-	Individual       []Observation `json:"individual"`
-	LumpSum          *Observation  `json:"lump_sum,omitempty"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ShedName       string `json:"shed_name"`
+	// ParkName and WeighDate are the shed's OWN context, carried on the shed-grain
+	// read so a cold deep link into this surface renders a real eyebrow. They used
+	// to travel as client route args, which meant a link opened without the parent
+	// list showed a blank header. WeighDate is the Asia/Kolkata business DATE
+	// (YYYY-MM-DD) of the task this bucket belongs to — never a timestamp.
+	ParkName  string `json:"park_name"`
+	WeighDate string `json:"weigh_date"`
+	// OperatorUserID is who owns this bucket. Empty means nobody is assigned yet,
+	// which is the ONLY thing that entitles a client to say "not assigned".
+	OperatorUserID string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name of that assignee, resolved
+	// the same way the planner catalog resolves it (active workforce member only).
+	// Empty WITH a non-empty OperatorUserID means the assignee has no active
+	// workforce row — that is a roster gap, not "not assigned", and a client must
+	// not render it as unassigned.
+	OperatorDisplayName string `json:"operator_display_name"`
+	WeighingCategory    string `json:"weighing_category"`
+	Status              string `json:"status"`
+	// EstimatedAnimalCount is the shed's herd estimate captured when the bucket was
+	// planned. It is a coverage hint, NEVER a denominator for completeness: weighing
+	// is free-flow and has no expected roster.
+	EstimatedAnimalCount int `json:"estimated_animal_count"`
+	// MaxShedVideos is the lump-sum group-video allowance, so "N of MaxShedVideos"
+	// reads off the same policy the write path enforces.
+	MaxShedVideos int           `json:"max_shed_videos"`
+	Individual    []Observation `json:"individual"`
+	LumpSum       *Observation  `json:"lump_sum,omitempty"`
+	// NextIndividualCursor pages Individual on a keyset of
+	// (accepted_at, observation_id) scoped to this bucket. Empty means the last
+	// page. LumpSum is a single latest-row read and is never paged: a per-shed
+	// bucket has exactly one lump-sum submission.
+	NextIndividualCursor string `json:"next_individual_cursor,omitempty"`
+	// PeriodLabel is the backend-owned sentence for the weigh period this bucket
+	// belongs to. It travels with the bucket so a client reading a bucket page does
+	// not have to build the label by concatenating dates it happened to have.
+	PeriodLabel string `json:"period_label,omitempty"`
+}
+
+// LeadershipShedPage is ONE keyset page of shed buckets across tasks, each with
+// its own first page of captured evidence.
+//
+// GRAIN: one weighing_campaign_sheds row = one bucket = one shed on one task.
+// There is no denominator here: the page carries the buckets it returned, and
+// each bucket carries its own evidence cursor.
+type LeadershipShedPage struct {
+	Items      []LeadershipShedVideos `json:"items"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+}
+
+// LeadershipShedPageSize / MaxLeadershipShedPageSize bound the leadership gallery
+// bucket page — the same ~20-row page every mobile list uses.
+const (
+	LeadershipShedPageSize    = 20
+	MaxLeadershipShedPageSize = 100
+)
+
+// LeadershipShedVideosPageSize / MaxLeadershipShedVideosPageSize bound the
+// leadership shed evidence read. The default is the ~20-row page every mobile
+// list uses; the cap stops a client asking for the whole bucket in one request,
+// which is what this read used to do (it selected EVERY observation row for the
+// shed and let the screen page the display).
+const (
+	LeadershipShedVideosPageSize    = 20
+	MaxLeadershipShedVideosPageSize = 100
+)
+
+// The planner's two grains are bounded separately.
+//
+// MaxPlannerParks caps the PARK picker. Parks are few (a handful in the real
+// data), and the park step must show them ALL, so this is a sanity ceiling
+// rather than a page size — there is no park cursor.
+//
+// PlannerBucketPageSize / MaxPlannerBucketPageSize bound the per-park SHED page.
+// A real park holds 76+ sheds, so that list is a keyset page like any other.
+//
+// PlannerOperatorLimit caps the operator picker. The field-operator roster is
+// small, but "small today" is not a bound.
+const (
+	MaxPlannerParks          = 100
+	PlannerBucketPageSize    = 20
+	MaxPlannerBucketPageSize = 100
+	PlannerOperatorLimit     = 100
+)
+
+// WeighingAssignableRoles is WHO may be assigned a weighing shed bucket.
+//
+// Assignability follows the weighing.execute capability, not the word "operator": the growth
+// director weighs his own sheds alongside the field operators. Picking the picker's membership by
+// primary_role_hint='operator' hid him from it, so a director bucket could not be created through
+// the wizard and a bucket he already held rendered as a nameless "Operator".
+var WeighingAssignableRoles = []string{"operator", "growth_director"}
+
+// CloseReasonCode values are what a CLIENT may send instead of authoring the
+// sentence that is recorded forever. The backend owns the recorded copy.
+const (
+	CloseReasonCodeAllAccepted = "all_buckets_accepted"
+	CloseReasonCodeOpenBuckets = "open_buckets_closed"
+	closeReasonAllAcceptedText = "Every shed bucket was accepted."
+	closeReasonOpenBucketsText = "Closed while shed buckets were still not accepted."
+)
+
+// ResolveCloseReason maps a known client-sent reason CODE to the backend-owned
+// sentence. Anything else is passed through unchanged, so an operator/admin who
+// types a real reason still has their own words recorded.
+func ResolveCloseReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case CloseReasonCodeAllAccepted:
+		return closeReasonAllAcceptedText
+	case CloseReasonCodeOpenBuckets:
+		return closeReasonOpenBucketsText
+	default:
+		return reason
+	}
 }
 
 type ProofMedia struct {

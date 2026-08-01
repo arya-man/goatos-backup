@@ -1718,3 +1718,32 @@ func mapWriteErr(err error) error {
 	}
 	return err
 }
+
+// WithdrawItemsBySource retires the PENDING items raised for source records the
+// producing module has superseded. It is deliberately status='pending'-only and
+// verdict-free: an approved/rejected item is a decision that already happened and
+// stays exactly as it was, and a withdrawn item records no verdict, no verifier and
+// no verdict_reason because nobody decided anything.
+//
+// Every actionable path in this repository is already gated on status='pending'
+// (the RecordVerdict UPDATE, the queue's status filter, the pending/approved/
+// rejected roll-ups), so 'withdrawn' drops the item out of all of them at once.
+func (r *Repository) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	if len(sourceRefIDs) == 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE verification_items
+SET status = 'withdrawn', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = ANY($4::uuid[])
+  AND status = 'pending'`, tenantID, sourceModule, sourceRefType, sourceRefIDs)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return int(tag.RowsAffected()), nil
+}
