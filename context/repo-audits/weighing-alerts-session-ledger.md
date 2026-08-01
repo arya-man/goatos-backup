@@ -15,7 +15,8 @@
 
 ## 1. Repo state at write time
 
-- Repo root: `/Users/ravi/mesha/goatos-main-qa`
+- Repo root: this checkout (`git rev-parse --show-toplevel`). Paths below are repo-relative;
+  the throwaway QA database is the only absolute reference and it is a localhost port.
 - `git status --short`: 112 changed paths, all **uncommitted** (no commits made this
   session covering this work — `git log --oneline -15` shows only prior sessions' commits,
   the newest being `999b2c617 feat: weighing leadership surface`).
