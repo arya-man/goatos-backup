@@ -58,6 +58,9 @@
 //   - Detects only the Go field-literal/Sprintf shape used in this codebase today; a Title/Body
 //     built through a different construction (e.g. a template file, a JSON config-driven copy
 //     table) is invisible to it.
+//   - It cannot detect notifications that reference a farm entity through a variable (e.g.,
+//     `title := msg + parkName`) when the marker is in the variable name but not the literal;
+//     the detection relies on direct string content inspection (false negative).
 
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
@@ -121,6 +124,8 @@ export function findingsForSource(source) {
     const hasDate = DATE_MARKERS.test(window);
     const hasCount = COUNT_MARKERS.test(window);
     const looksAbstract = GENERIC_NOUN_ABSTRACT.test(text);
+    // Check for entity-free notifications (no farm entity markers at all)
+    const hasNoFarmEntity = !hasLocation && !hasName && !hasCount && !hasDate;
 
     if (looksAbstract && !(hasLocation && hasDate && (hasName || hasCount))) {
       findings.push({
@@ -128,6 +133,19 @@ export function findingsForSource(source) {
         rule: "abstract-notification-copy",
         message:
           "notification Title/Body reads as an abstract count/generic-noun sentence with no park/shed/date reference nearby; name the park, shed/partition, vaccine/work-item, and a farm-readable IST due date",
+      });
+    }
+
+    // Flag notifications that reference NO farm entity at all (e.g., "The proof is ready for
+    // operational closure" with no park/shed/vaccine/animal/operator/date). This catches generic
+    // prose that slipped past the count-only pattern. Escape hatch: use `notification-copy:ignore`
+    // for genuinely entity-free system messages (health check, etc.).
+    if (hasNoFarmEntity) {
+      findings.push({
+        line: i + 1,
+        rule: "entity-free-notification-copy",
+        message:
+          "notification Title/Body references NO farm entity (no park, shed, vaccine, animal, operator, or date); name at least one farm context element so the operator can act without opening the app",
       });
     }
 
@@ -175,7 +193,8 @@ function changedNotificationFiles() {
 }
 
 function selfTest() {
-  const bad = `
+  // Test 1: abstract count/generic-noun (existing pattern)
+  const badCount = `
 func x() {
 	push := notify.Message{
 		Title: "Vaccination(s) due soon",
@@ -183,6 +202,16 @@ func x() {
 	}
 }
 `;
+  // Test 2: entity-free generic prose (new pattern)
+  const badEntityFree = `
+func x() {
+	push := notify.Message{
+		Title: "Vaccination proof verified",
+		Body:  "The proof is ready for operational closure.",
+	}
+}
+`;
+  // Test 3: compliant with location + vaccine + count
   const good = `
 func x() {
 	push := notify.Message{
@@ -191,17 +220,41 @@ func x() {
 	}
 }
 `;
-  const badFindings = findingsForSource(bad);
-  if (!badFindings.some((f) => f.rule === "abstract-notification-copy")) {
-    throw new Error(`self-test: expected abstract-notification-copy on defective fixture, got: ${JSON.stringify(badFindings)}`);
+  // Test 4: compliant with park context (uses parkLabel variable)
+  const goodWithPark = `
+func x() {
+	push := notify.Message{
+		Title: fmt.Sprintf("%s: vaccination approval pending", parkLabel),
+		Body:  fmt.Sprintf("%d animals in %s need approval by %s", count, parkLabel, businessDate),
+	}
+}
+`;
+
+  const badCountFindings = findingsForSource(badCount);
+  if (!badCountFindings.some((f) => f.rule === "abstract-notification-copy")) {
+    throw new Error(`self-test: expected abstract-notification-copy on count-only fixture, got: ${JSON.stringify(badCountFindings)}`);
   }
+
+  const badEntityFreeFindings = findingsForSource(badEntityFree);
+  if (!badEntityFreeFindings.some((f) => f.rule === "entity-free-notification-copy")) {
+    throw new Error(`self-test: expected entity-free-notification-copy on generic prose fixture, got: ${JSON.stringify(badEntityFreeFindings)}`);
+  }
+
   const goodFindings = findingsForSource(good);
   if (goodFindings.length) {
     throw new Error(`self-test: false positive on compliant fixture: ${JSON.stringify(goodFindings)}`);
   }
+
+  const goodWithParkFindings = findingsForSource(goodWithPark);
+  if (goodWithParkFindings.length) {
+    throw new Error(`self-test: false positive on park-scoped fixture: ${JSON.stringify(goodWithParkFindings)}`);
+  }
+
   console.log("check-notification-specificity self-test: PASS");
-  console.log(`  defective fixture -> ${badFindings.length} finding(s): ${badFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  count-only defective fixture -> ${badCountFindings.length} finding(s): ${badCountFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  entity-free defective fixture -> ${badEntityFreeFindings.length} finding(s): ${badEntityFreeFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  compliant fixture -> ${goodFindings.length} finding(s)`);
+  console.log(`  park-scoped compliant fixture -> ${goodWithParkFindings.length} finding(s)`);
 }
 
 if (process.argv.includes("--self-test")) {

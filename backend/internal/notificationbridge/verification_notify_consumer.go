@@ -348,12 +348,32 @@ type VerificationEventConsumer struct {
 	recipients RecipientResolver
 	queue      NotificationQueue
 	logger     *slog.Logger
+	// locations is optional park/shed name enrichment (see location_names.go). Enriches approval
+	// copy to be meaningful: instead of abstract "The proof is ready for operational closure",
+	// an approval says "ET+TT vaccination proof for Shed A (Park Name) is verified." per
+	// docs/decisions/2026-08-02-meaningful-notification-copy.md.
+	locations *LocationNameResolver
+	// vaccineLabels is optional vaccine label enrichment (see vaccine_labels.go). Resolves
+	// vaccination_rules.vaccine_label for a bounded set of rule IDs per event.
+	vaccineLabels *VaccineLabelResolver
 }
 
 // NewVerificationEventConsumer constructs the consumer over the workforce recipient resolver and
 // the calendar notification queue (the same two seams the legacy VerificationNotifier uses).
 func NewVerificationEventConsumer(recipients RecipientResolver, queue NotificationQueue, logger *slog.Logger) *VerificationEventConsumer {
 	return &VerificationEventConsumer{recipients: recipients, queue: queue, logger: logger}
+}
+
+// WithLocationNames attaches park/shed name enrichment. Chainable at construction time.
+func (c *VerificationEventConsumer) WithLocationNames(resolver *LocationNameResolver) *VerificationEventConsumer {
+	c.locations = resolver
+	return c
+}
+
+// WithVaccineLabels attaches vaccine label enrichment. Chainable at construction time.
+func (c *VerificationEventConsumer) WithVaccineLabels(resolver *VaccineLabelResolver) *VerificationEventConsumer {
+	c.vaccineLabels = resolver
+	return c
 }
 
 var _ eventbus.Handler = (*VerificationEventConsumer)(nil)
@@ -433,6 +453,14 @@ func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Cont
 		return err
 	}
 	recipients = dedupeQueueRecipients(append(recipients, toQueueRecipients(ceoDevices, "ceo")...))
+	// Name the park: "all proof videos for this vaccination drive are verified" gives a
+	// director nothing to act on (2026-08-02 meaningful-notification rule).
+	readyPark := "this park"
+	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
+		if name := strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID]); name != "" {
+			readyPark = name
+		}
+	}
 	eventKey := EventVaccinationDriveReady + ":" + batchID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -443,7 +471,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Cont
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
 		Title:            "Vaccination drive ready to close",
-		Body:             "All proof videos for this vaccination drive are verified.",
+		Body:             "All proof videos for the vaccination drive at " + readyPark + " are verified. It is ready to close.", // notification-copy:ignore: body names the park via readyPark (resolved above)
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
@@ -473,6 +501,14 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 	if err != nil {
 		return err
 	}
+	// A close notice that says only "the Director closed a vaccination drive" tells a leader
+	// nothing they can act on (2026-08-02 meaningful-notification rule). Name the park.
+	closedPark := "this park"
+	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
+		if name := strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID]); name != "" {
+			closedPark = name
+		}
+	}
 	eventKey := EventVaccinationDriveClosed + ":" + batchID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -483,7 +519,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
 		Title:            "Vaccination drive closed",
-		Body:             "The Director closed a vaccination drive.",
+		Body:             "The vaccination drive at " + closedPark + " was closed by the Director.", // notification-copy:ignore: body names the park via closedPark (resolved above)
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
@@ -540,6 +576,19 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 			toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...),
 			toQueueRecipients(ceoDevices, "ceo")...),
 	)
+
+	// Enrich the approval body with specific, meaningful details: park, shed, vaccine/category, date.
+	// This closes defect 2026-08-02: abstract copy like "The proof is ready for operational closure"
+	// tells a director nothing they can act on. The enriched body names the exact park/shed/vaccine/date
+	// so they can correlate it to their work. Per docs/decisions/2026-08-02-meaningful-notification-copy.md.
+	approvedTitle := profile.approvedTitle
+	approvedBody := profile.approvedBody
+	approvedBodyEnriched := enrichApprovedNotificationCopy(c.locations, c.vaccineLabels, ctx, tenantID,
+		p.Module, parkID, p.ShedID, p.Category)
+	if approvedBodyEnriched != "" {
+		approvedBody = approvedBodyEnriched
+	}
+
 	eventKey := EventVerificationVerdictApproved + ":" + itemID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -549,8 +598,8 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 		NotificationType: "verification_approved",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            profile.approvedTitle,
-		Body:             profile.approvedBody,
+		Title:            approvedTitle,
+		Body:             approvedBody,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
@@ -619,6 +668,74 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 		Recipients: toQueueRecipients(operatorDevices, "operator"),
 	})
 	return err
+}
+
+// enrichApprovedNotificationCopy generates a specific, meaningful body for verification approval
+// notifications instead of abstract copy. Returns empty string if enrichment fails, signaling the
+// caller to use the fallback generic body.
+//
+// Example transformation for vaccination:
+//
+//	FROM: "The proof is ready for operational closure."
+//	TO:   "ET+TT vaccination proof for Shed A (Park Name) is verified."
+//
+// Example for weighing:
+//
+//	FROM: "The proof is ready for operational closure."
+//	TO:   "Weighing proof for Shed B (Park Name) is verified."
+//
+// Enrichment is optional: location / vaccine lookups are best-effort, and transient failures
+// gracefully degrade to the fallback copy rather than blocking notification delivery.
+func enrichApprovedNotificationCopy(locations *LocationNameResolver, vaccineLabels *VaccineLabelResolver,
+	ctx context.Context, tenantID, module, parkID, shedID, category string) string {
+	parkID = strings.TrimSpace(parkID)
+	shedID = strings.TrimSpace(shedID)
+	category = strings.TrimSpace(category)
+	module = strings.TrimSpace(module)
+
+	// Resolve park and shed names (ONE batched query, not one per name).
+	parkName, shedName := "", ""
+	if locations != nil {
+		locNames := locations.ResolveNames(ctx, tenantID, parkID, shedID)
+		parkName = locNames[parkID]
+		shedName = locNames[shedID]
+	}
+
+	// Build a farm-readable location phrase. "Shed A" or "Shed A (Park Name)".
+	location := ""
+	switch {
+	case shedName != "" && parkName != "":
+		location = shedName + " (" + parkName + ")"
+	case shedName != "":
+		location = shedName
+	case parkName != "":
+		location = parkName
+	default:
+		// Neither park nor shed resolved; fall back to generic copy.
+		return ""
+	}
+
+	// For vaccination module: append vaccine label (e.g., "ET+TT").
+	if strings.EqualFold(module, legacyVaccinationSourceModule) && vaccineLabels != nil && category != "" {
+		// category is a rule_id for vaccination. Resolve its vaccine_label.
+		labels := vaccineLabels.ResolveVaccineLabels(ctx, tenantID, category)
+		if label := labels[category]; label != "" {
+			return label + " vaccination proof for " + location + " is verified."
+		}
+	}
+
+	// For non-vaccination modules (weighing, feed, counts), use module-agnostic wording.
+	// Module names are internals; use the farm-readable gerund (weighing, feeding, etc).
+	moduleNoun := "work"
+	switch {
+	case strings.EqualFold(module, moduleWeighing):
+		moduleNoun = "weighing"
+	case strings.EqualFold(module, moduleFeed):
+		moduleNoun = "feeding"
+	case strings.EqualFold(module, moduleCounts):
+		moduleNoun = "counts"
+	}
+	return moduleNoun + " proof for " + location + " is verified."
 }
 
 // decodePayload parses the outbox payload. Returns an error only for genuinely corrupt JSON (the

@@ -657,3 +657,15 @@ kernel work terminal, so Calendar and Control Tower kept reporting finished
 work). It is a write-path state-transition helper called inside the owning
 transaction, not a read surface. Leadership continues to read weighing progress
 through `GET /weighing/campaigns` and the Control Tower process-state summary.
+
+**EXCLUDED — `func:NewVaccineLabelResolver`, `func:ResolveVaccineLabels`,
+`func:WithVaccineLabels`, `func:WithLocationNames`** (notificationbridge) —
+batched display-label lookups used only to render human vaccine names
+("ET+TT", "PPR · Booster") and park/shed names into push notification copy,
+per the 2026-08-02 meaningful-notification rule
+(`docs/decisions/2026-08-02-meaningful-notification-copy.md`) and the
+`ui-vaccine-labels-guard` ban on raw config tokens in user-facing text. They
+read existing label/location rows and return display strings to the
+notification builder — one batched query per event, never per recipient. No
+aggregate, no metric, no leadership-facing read: leadership sees the same
+vaccines and places through the existing vaccination and weighing read APIs.

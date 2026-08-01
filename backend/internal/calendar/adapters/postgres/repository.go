@@ -1397,6 +1397,19 @@ WHERE NOT EXISTS (
 	} else if channel == "local-stub" && level >= 2 {
 		channel = "slack"
 	}
+	// Derive module from event type for target routing per docs/decisions/2026-08-02-meaningful-notification-copy.md:
+	// vaccination events -> /vaccination, weighing -> /weighing, feed -> /feed, counts -> /counts.
+	module := escalationModule(target.EventType)
+	escalationTarget := "/vaccination" // default fallback
+	switch {
+	case strings.EqualFold(module, "weighing"):
+		escalationTarget = "/weighing"
+	case strings.EqualFold(module, "feed"):
+		escalationTarget = "/feed"
+	case strings.EqualFold(module, "counts"):
+		escalationTarget = "/counts"
+	}
+
 	contextJSON, err := marshalJSON("escalation context", map[string]any{
 		"calendar_event_id":        target.EventID,
 		"source_target_type":       target.SourceTargetType,
@@ -1406,10 +1419,20 @@ WHERE NOT EXISTS (
 		"obligation_escalation_id": escalationID,
 		"due_at":                   target.DueAt.UTC().Format(time.RFC3339Nano),
 		"sweeper":                  "calendar-escalation-sweeper",
+		// DEFECT 2 fix: add target field so client routing is non-empty
+		"target": escalationTarget,
 	})
 	if err != nil {
 		return false, err
 	}
+
+	// Build user-facing escalation copy per DEFECT 3 fix: no "Escalation L{n}" engineer language,
+	// no internal role slug in body ("Escalated to pc_director"). Instead, say the work is overdue
+	// and chain to the authoritative escalation state/module, which the director sees in the
+	// dedicated escalation screen (not a push body).
+	escalationTitle := escalationUserTitle(target.Title, level)
+	escalationBody := escalationUserBody(target.Title)
+
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -1422,8 +1445,8 @@ INSERT INTO notification_requests (
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING notification_request_id::text`,
 		tenantID, target.EventID, target.TargetType, target.TargetID, channel, role,
-		fmt.Sprintf("Escalation L%d: %s", level, target.Title),
-		fmt.Sprintf("%s is overdue. Escalated to %s.", target.Title, role),
+		escalationTitle,
+		escalationBody,
 		key, fingerprint, contextJSON, "calendar-escalation-sweeper:"+target.EventID).Scan(&requestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -1473,6 +1496,25 @@ RETURNING notification_request_id::text`,
 		return false, err
 	}
 	return true, nil
+}
+
+// escalationUserTitle generates farm-readable escalation notification title, fixing DEFECT 3.
+// Instead of engineer language like "Escalation L3: Vaccination drive", names the work
+// (e.g., "Vaccination drive is overdue").
+func escalationUserTitle(targetTitle string, level int) string {
+	return strings.TrimSpace(targetTitle) + " is overdue"
+}
+
+// escalationUserBody generates farm-readable escalation notification body, fixing DEFECT 3.
+// Omits internal wording like "Escalation L{n}" and "Escalated to pc_director".
+// The escalation routing and role/level are preserved in context for system/audit/UI;
+// the push body speaks only in farm terms about the work being past due.
+func escalationUserBody(targetTitle string) string {
+	title := strings.TrimSpace(targetTitle)
+	if title == "" {
+		return "This work is overdue. Please address it immediately."
+	}
+	return title + " is overdue. Please address it immediately."
 }
 
 // escalationModule derives the owning module from the canonical event type. Event types are
