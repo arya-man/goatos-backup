@@ -252,6 +252,16 @@ object AnalyticsEvents {
     const val SYNC_FOREGROUND_START_BLOCKED = "sync_foreground_start_blocked"
 
     /** Standard event parameter keys. */
+    /**
+     * The OS notification-permission prompt was shown. Until this existed, POST_NOTIFICATIONS was
+     * never requested at all: FCM accepted every push, reported it delivered, and Android dropped
+     * it silently. Whether operators actually see alerts is now measurable rather than assumed.
+     */
+    const val NOTIFICATION_PERMISSION_PROMPTED = "notification_permission_prompted"
+
+    /** The prompt was answered; [Params.REASON] is "granted" or "denied". */
+    const val NOTIFICATION_PERMISSION_RESULT = "notification_permission_result"
+
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"

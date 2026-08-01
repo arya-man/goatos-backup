@@ -107,6 +107,25 @@ class ShellModuleViewModel @Inject constructor(
 
     val selectedModuleKey: StateFlow<String?> = savedState.getStateFlow(KEY_SELECTED_MODULE, null)
 
+    /**
+     * Records that the OS notification prompt was shown, and what the person answered.
+     *
+     * Worth measuring precisely because the absence of it hid a total failure: POST_NOTIFICATIONS
+     * was never requested, so FCM accepted every push, reported it delivered, and Android dropped
+     * it. "Delivered" counted a notification nobody could see. A denial rate is now visible
+     * instead of inferred.
+     */
+    fun recordNotificationPrompt() {
+        analytics.track(AnalyticsEvents.NOTIFICATION_PERMISSION_PROMPTED, emptyMap())
+    }
+
+    fun recordNotificationPermissionAnswer(granted: Boolean) {
+        analytics.track(
+            AnalyticsEvents.NOTIFICATION_PERMISSION_RESULT,
+            mapOf(AnalyticsEvents.Params.REASON to if (granted) "granted" else "denied"),
+        )
+    }
+
     /** Records the operator switching modules. No-ops when the module is already open. */
     fun select(module: NavModule) {
         if (savedState.get<String?>(KEY_SELECTED_MODULE) == module.key) return
@@ -310,6 +329,8 @@ fun GoatOsShell(navState: NavState) {
             // Re-report this device the moment alerts come back on, so the backend stops treating
             // it as push-muted without waiting for the next app launch.
             onAlertsTurnedOn = pushStateVm::reportNow,
+            onPermissionPrompted = moduleVm::recordNotificationPrompt,
+            onPermissionAnswered = moduleVm::recordNotificationPermissionAnswer,
         )
         UnavailableAlertNotice(
             visible = showUnavailableAlertNotice,

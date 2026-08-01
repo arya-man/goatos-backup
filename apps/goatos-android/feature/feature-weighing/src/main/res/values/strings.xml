@@ -6,6 +6,9 @@
   the static chrome this app renders itself: headers, section labels, button labels,
   empty/loading/error states, confirm-sheet copy and disabled-with-reason text.
 -->
+<!-- telemetry:exempt string resources carry no behaviour to instrument. The weighing
+     screens that render them wire AnalyticsPort in their ViewModels, which is where a
+     user action can actually be observed. -->
 <resources>
 
     <!-- ===================== Shared weighing chrome ===================== -->

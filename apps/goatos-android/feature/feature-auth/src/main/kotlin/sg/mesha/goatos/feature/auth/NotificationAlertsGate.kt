@@ -1,3 +1,9 @@
+// telemetry:exempt stateless renderer with no analytics dependency of its own. It REPORTS the
+// two events that matter -- the prompt being shown and the OS answer -- through its
+// onPermissionPrompted/onPermissionAnswered callbacks, and GoatOsShell records them via
+// ShellModuleViewModel.recordNotificationPrompt / recordNotificationPermissionAnswer
+// (AnalyticsEvents.NOTIFICATION_PERMISSION_PROMPTED / _RESULT). Injecting AnalyticsPort here
+// would give this composable a dependency the rest of the feature layer deliberately avoids.
 package sg.mesha.goatos.feature.auth
 
 import android.app.Activity
@@ -61,6 +67,10 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
 fun NotificationAlertsGate(
     modifier: Modifier = Modifier,
     onAlertsTurnedOn: () -> Unit = {},
+    /** Called when the OS prompt is about to be shown. */
+    onPermissionPrompted: () -> Unit = {},
+    /** Called with the OS answer: true = alerts can now arrive, false = still muted. */
+    onPermissionAnswered: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -93,6 +103,10 @@ fun NotificationAlertsGate(
             hasRequestedOnce = true
             val now = areNotificationsEnabled(context)
             alertsOn = now
+            // Report the ANSWER, not just the happy path: a denial is the more useful signal.
+            // Whether operators can receive alerts at all was previously unmeasurable -- the
+            // permission was never requested, so every push was "delivered" and silently dropped.
+            onPermissionAnswered(now)
             if (now) onAlertsTurnedOn()
         }
     } else {
@@ -125,7 +139,10 @@ fun NotificationAlertsGate(
             MeshaPrimaryButton(
                 text = stringResource(R.string.alerts_off_turn_on),
                 enabled = true,
-                onClick = { launcher?.launch(permission.manifestPermission) },
+                onClick = {
+                    onPermissionPrompted()
+                    launcher?.launch(permission.manifestPermission)
+                },
             )
         } else {
             Text(

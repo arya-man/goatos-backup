@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- telemetry:exempt string resources carry no behaviour to instrument. The weighing
+     screens that render them wire AnalyticsPort in their ViewModels, which is where a
+     user action can actually be observed. -->
 <resources>
 
     <!-- Shared weighing chrome -->
