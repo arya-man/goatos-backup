@@ -1,3 +1,5 @@
+// telemetry:exempt pure state/step model for the create wizard — data classes and step ordering,
+// no user-facing surface and no I/O. AnalyticsPort wiring lives in the wizard's ViewModel.
 package sg.mesha.goatos.feature.weighing.plan
 
 /**

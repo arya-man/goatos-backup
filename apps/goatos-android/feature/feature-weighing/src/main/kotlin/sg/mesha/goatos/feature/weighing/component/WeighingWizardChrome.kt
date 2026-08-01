@@ -1,3 +1,6 @@
+// telemetry:exempt presentational wizard chrome (step rail, header, footer buttons) — it holds
+// no state and performs no action of its own; every step transition and submit it renders is
+// recorded by WeighingPlanWizardViewModel, which is where the action actually happens.
 package sg.mesha.goatos.feature.weighing.component
 
 import androidx.compose.foundation.background

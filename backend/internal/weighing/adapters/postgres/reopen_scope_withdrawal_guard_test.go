@@ -53,11 +53,22 @@ func TestReopenScopeWithdrawsSubmissionAndClearsItsIdempotencyRecord(t *testing.
 		"DELETE FROM weighing_idempotency_records",
 		"AND event_type='weighing.shed_observation_accepted'",
 		"AND resource_type='weighing_shed_observation'",
-		"AND resource_id=$2::uuid",
+		// Scoped to the observations this reopen actually superseded -- and batched, because a
+		// reopen supersedes every open submission in the scope and the per-row form was one round
+		// trip each (scale-guard: n-plus-one).
+		"AND resource_id = ANY($2::uuid[])",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("ReopenScope is missing %q.\nA reopen MUST withdraw the bucket's lump-sum submission AND delete that submission's weighing.shed_observation_accepted idempotency record in the same transaction, or an offline replay of the pre-reopen key returns a stale 200 and the operator's redone work is lost.", want)
 		}
+	}
+
+	// The clear must stay SCOPED to the ids this reopen withdrew. A DELETE that dropped the
+	// resource_id predicate would wipe the whole tenant's accepted-submission idempotency records
+	// and silently re-open every replay hole it was written to close.
+	if strings.Contains(body, "DELETE FROM weighing_idempotency_records") &&
+		!strings.Contains(body, "resource_id") {
+		t.Fatal("ReopenScope clears idempotency records without scoping them to the withdrawn observation ids")
 	}
 
 	if strings.Contains(body, "DELETE FROM weighing_shed_observations") {
@@ -70,11 +81,29 @@ func TestReopenScopeWithdrawsSubmissionAndClearsItsIdempotencyRecord(t *testing.
 		t.Fatal("ReopenScope writes outside its transaction; every state change here must go through tx")
 	}
 
-	// The idempotency delete must be keyed to the WITHDRAWN observation, not to the
-	// whole bucket: a bucket that was reopened, resubmitted and reopened again must
-	// not have the live submission's record swept away with the old one.
-	if !strings.Contains(body, "for _, observationID := range superseded {") {
-		t.Fatal("ReopenScope must clear the idempotency record per withdrawn observation id")
+	// The idempotency delete must be keyed to the WITHDRAWN observations, not to the whole
+	// bucket: a bucket that was reopened, resubmitted and reopened again must not have the LIVE
+	// submission's record swept away with the old one.
+	//
+	// Asserted on the id set rather than on a loop. The original per-row DELETE was one round trip
+	// per superseded observation (scale-guard: n-plus-one) and is now a single set-based statement
+	// bound to `superseded`; both are correctly scoped, and pinning the loop would have forced the
+	// slower shape back.
+	if !strings.Contains(body, "ANY($2::uuid[])`, tenantID, superseded)") {
+		t.Fatal("ReopenScope must clear the idempotency records for exactly the observation ids it withdrew (bound to `superseded`), never for the whole bucket")
+	}
+	// Scoped to the DELETE statement itself. Checking the whole function body would trip on the
+	// withdrawal UPDATE, which is CORRECTLY keyed by campaign_shed_id -- the bucket is the right
+	// scope for deciding WHAT to withdraw, and the wrong scope for deciding whose idempotency
+	// record to erase.
+	if idx := strings.Index(body, "DELETE FROM weighing_idempotency_records"); idx >= 0 {
+		stmt := body[idx:]
+		if end := strings.Index(stmt, "`"); end >= 0 {
+			stmt = stmt[:end]
+		}
+		if strings.Contains(stmt, "campaign_shed_id") {
+			t.Fatal("ReopenScope clears idempotency records by bucket; a later resubmission's live record would be swept away with the withdrawn one")
+		}
 	}
 }
 

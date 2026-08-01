@@ -30,6 +30,25 @@ const isMobileKt = (rel) =>
   !rel.includes("/build/");
 
 // Returns array of findings: { line, rule, message }. `line` is 1-indexed or null.
+
+/**
+ * A line that is prose, not code.
+ *
+ * Every rule here matches on source text, so a comment can trip it -- and the comments that trip
+ * it are usually the ones documenting the FIX: "Before this, the DAO window was a frozen
+ * `limit = 100`", or a KDoc promising "never a tappable Load more". Failing those files punishes
+ * the author for explaining the bug they removed, and pressures the next one to delete the
+ * explanation to get green.
+ *
+ * Blind spot, stated plainly: a genuine violation written on the same line as a trailing comment
+ * is still seen (only the line's LEADING token is inspected), but a violation inside a block
+ * comment is not -- commented-out code is not shipped code.
+ */
+function isProseLine(text) {
+  const trimmed = text.trim();
+  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
+}
+
 export function findingsForSource(source) {
   const findings = [];
   const lines = source.split("\n");
@@ -37,7 +56,7 @@ export function findingsForSource(source) {
   // 1) Oversized page/list fetch. A `limit = N` arg or a *_LIMIT / *_PAGE_LIMIT / *_PAGE_SIZE
   //    constant above one screen-page (MAX_PAGE) means the screen pulls more than it can show.
   lines.forEach((text, i) => {
-    if (/mobile-guard:ignore/.test(text)) return;
+    if (/mobile-guard:ignore/.test(text) || isProseLine(text)) return;
     const patterns = [
       /\blimit\s*=\s*(\d+)/,
       /\b[A-Za-z0-9_]*(?:PAGE_LIMIT|PAGE_SIZE|_LIMIT)\s*=\s*(\d+)/,
@@ -137,6 +156,22 @@ export function findingsForSource(source) {
   // when the first backend page contains rows filtered out by the selected day/status.
   lines.forEach((text, i) => {
     if (/mobile-guard:ignore/.test(text)) return;
+
+    // Comments are prose, not UI. The phrase appears most often in a KDoc PROMISING there is no
+    // tappable control ("never a tappable 'Load more'"), so matching them fails the very files
+    // that document compliance.
+    if (isProseLine(text)) return;
+
+    // A passive footer -- a spinner plus "Loading more..." shown while the next page is ALREADY in
+    // flight -- is explicitly allowed: the ban is on making the operator tap to continue their own
+    // work queue. Distinguish by what is actually there: a control (clickable/Button/onClick) near
+    // the label, not the label itself. Checked in a small window because the label and its
+    // modifier are usually a few lines apart in Compose.
+    const near = lines.slice(Math.max(0, i - 4), i + 5).join("\n");
+    const isPassiveIndicator =
+      /loading[_ ]more/i.test(text) && !/\b(?:clickable|Button|onClick|TextButton)\b/.test(near);
+    if (isPassiveIndicator) return;
+
     if (/(?:Load\s+more|load\s+more|(?:^|[^A-Za-z0-9])load_more\b|(?:^|[^A-Za-z0-9])loading_more\b)/i.test(text)) {
       findings.push({
         line: i + 1,
@@ -183,6 +218,8 @@ function changedMobileFiles() {
 function selfTest() {
   const bad = [
     ["private const val DAY_PAGE_LIMIT = 50", "oversized-page-fetch"],
+    // Trailing comments must not launder a real violation.
+    ["repo.observe(date, limit = 100) // grows on scroll", "oversized-page-fetch"],
     ["repo.observeEvents(dateFrom = k, dateTo = k, limit = 200)", "oversized-page-fetch"],
     ["private fun buildMonthDays(items: List<Dto>) {\n  items.mapNotNull { parseLocalDate(it.dueAt) }\n}\nprivate fun next() {}", "overview-parses-events"],
     ["val t = items.find { parseLocalDate(it.dueAt) == date }?.tone()", "on2-date-scan"],
@@ -192,12 +229,24 @@ function selfTest() {
     ["val merged = page.copy(rows = (current.rows + page.rows).distinctBy { it.id })", "unbounded-json-accumulation"],
     ["Text(\"Load more sheds\")", "manual-load-more-mobile-ui"],
     ["val label = stringResource(R.string.scan_load_more)", "manual-load-more-mobile-ui"],
+    // A "Loading more" label attached to a CONTROL is still a tappable load-more, however it is
+    // worded. This is the case the passive-footer allowance must not swallow.
+    ["TextButton(onClick = { next() }) {\n  Text(stringResource(R.string.videos_loading_more))\n}", "manual-load-more-mobile-ui"],
   ];
   for (const [src, rule] of bad) {
     const f = findingsForSource(src);
     if (!f.some((x) => x.rule === rule)) throw new Error(`self-test: '${rule}' not flagged for: ${src.slice(0, 60)}`);
   }
   const good = [
+    // A comment RECORDING a fixed over-fetch is not an over-fetch. Failing it would make the
+    // cheapest way to green be deleting the explanation of the bug.
+    "// Before this, the DAO window was a frozen `limit = 100` while hasMore came from the cursor",
+    // A passive footer: spinner + label, shown while the next page is already in flight. Allowed
+    // by docs/decisions/mobile-data-fetch-anti-patterns.md -- the ban is on making an operator tap
+    // to continue their own work queue, not on telling them a page is arriving.
+    "CircularProgressIndicator(modifier = Modifier.size(16.dp))\nText(stringResource(R.string.videos_loading_more))",
+    // Prose promising the absence of the control must not fail the file that documents it.
+    "/**\n * One page per trigger, never a tappable \"Load more\".\n */",
     "repo.observeEvents(dateFrom = k, dateTo = k, limit = 20)",
     "private const val DAY_PAGE_LIMIT = 20",
     "repo.markers(month = m) // dots only, no events fetched",
