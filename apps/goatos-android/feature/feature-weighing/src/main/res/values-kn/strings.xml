@@ -186,6 +186,8 @@
     <string name="weighing_leadership_refresh">ತೂಕ ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="weighing_leadership_tap_to_reopen">ಮತ್ತೆ ತೆರೆಯಲು ಒತ್ತಿ</string>
     <string name="weighing_leadership_close">ಮುಚ್ಚಿ</string>
+    <string name="weighing_leadership_awaiting_verification">ವಿಡಿಯೋ ಪರಿಶೀಲನೆ ಬಾಕಿ · %1$d</string>
+    <string name="weighing_leadership_close_pending">ಇನ್ನೂ ಮುಚ್ಚಲು ಸಿದ್ಧವಿಲ್ಲ</string>
     <string name="weighing_leadership_loading">ನಿಗದಿತ ಕೆಲಸ ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_leadership_empty_title">ನಿಗದಿತ ತೂಕದ ಕೆಲಸವಿಲ್ಲ</string>
     <string name="weighing_leadership_empty_body">ನಿಗದಿತ ಶೆಡ್ ಕೆಲಸಗಳು ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ.</string>

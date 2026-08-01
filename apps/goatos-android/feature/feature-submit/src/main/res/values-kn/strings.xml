@@ -40,4 +40,10 @@
     <string name="submit_sync_load_failed">ನಿಮ್ಮ ಕಾರ್ಯವನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ। ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
     <string name="submit_sync_queue_failed">ಸಲ್ಲಿಕೆಯನ್ನು ಸಾಲಿನಲ್ಲಿ ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
     <string name="submit_sync_retry_failed">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
+
+    <!-- Snackbar messages for submit outcomes -->
+    <string name="submit_snackbar_queued">ಸಲ್ಲಿಕೆ ಸಾಲಿನಲ್ಲಿದೆ — ಆನ್‌ಲೈನ್‌ನಲ್ಲಿರುವಾಗ ಸಿಂಕ್ ಆಗುತ್ತದೆ</string>
+    <string name="submit_snackbar_succeeded">ಸಲ್ಲಿಕೆ ಸಿಂಕ್ ಆಯಿತು · ಫೈಲ್‌ನಲ್ಲಿ ರೆಕಾರ್ಡ್</string>
+    <string name="submit_snackbar_conflict">ಸರ್ವರ್ ಸಲ್ಲಿಕೆಯನ್ನು ನಿರಾಕರಿಸಿದೆ</string>
+    <string name="submit_snackbar_dead_letter">ಸಲ್ಲಿಕೆ ವಿಫಲ ಆಯಿತು — ಆನ್‌ಲೈನ್‌ನಲ್ಲಿರುವಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸುತ್ತದೆ</string>
 </resources>

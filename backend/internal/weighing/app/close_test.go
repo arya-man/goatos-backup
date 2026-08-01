@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -108,4 +109,237 @@ func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 	if campaignCall.Reason != "park shut" || campaignCall.IdempotencyKey != "close-2" {
 		t.Fatalf("campaign close reason=%q key=%q, want trimmed values", campaignCall.Reason, campaignCall.IdempotencyKey)
 	}
+}
+
+// Test P0 authorization hole: park-scoped WeighingMonitor must NOT be able to close
+// campaigns from parks outside their scope. This is a CONFIRMED defect — park scope
+// enforcement is missing from CloseScope, AbandonScope, CloseCampaign, ReopenScope.
+// All four mutations must deny cross-park access with ErrNotFound (not leaking existence).
+func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
+	const (
+		parkCBE     = "00000000-0000-4000-8000-000000000210" // CBE park
+		parkCPT     = "00000000-0000-4000-8000-000000000211" // CPT park
+		campaignCBE = "00000000-0000-4000-8000-000000000510" // campaign in CBE
+		campaignCPT = "00000000-0000-4000-8000-000000000511" // campaign in CPT
+		shedCBE     = "00000000-0000-4000-8000-000000000810" // shed in CBE campaign
+		shedCPT     = "00000000-0000-4000-8000-000000000811" // shed in CPT campaign
+	)
+
+	repo := &multiParkScenarioRepo{
+		campaigns: map[string]domain.Campaign{
+			campaignCBE: {
+				CampaignID: campaignCBE,
+				TenantID:   testTenant,
+				ParkID:     parkCBE,
+				Status:     domain.StatusPublished,
+			},
+			campaignCPT: {
+				CampaignID: campaignCPT,
+				TenantID:   testTenant,
+				ParkID:     parkCPT,
+				Status:     domain.StatusPublished,
+			},
+		},
+	}
+	service := NewService(repo)
+
+	// WeighingMonitor scoped to CBE only
+	// Growth Director has WeighingMonitor permission
+	cbeMonitor := domain.Actor{
+		TenantID: testTenant,
+		UserID:   testActor,
+		Roles:    []string{permissions.RoleGrowthDirector},
+	}
+
+	// Create context with CBE-scoped grant (park scope restriction)
+	cbeGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleGrowthDirector,
+		ScopeType: "park",
+		ScopeID:   parkCBE,
+	}
+	ctxWithCBEGrant := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{cbeGrant})
+
+	// BEFORE FIX: This should FAIL but currently succeeds (the bug).
+	// AFTER FIX: This should return ErrNotFound (not ErrForbidden, to hide existence).
+
+	// Try to close a CPT campaign with CBE-only access
+	if _, err := service.CloseScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "close-cpt", "test"); err != ports.ErrNotFound {
+		t.Errorf("CloseScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
+	}
+
+	// Try to abandon a CPT campaign with CBE-only access
+	if _, err := service.AbandonScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "abandon-cpt", "test"); err != ports.ErrNotFound {
+		t.Errorf("AbandonScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
+	}
+
+	// Try to reopen a CPT campaign with CBE-only access
+	if err := service.ReopenScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "reopen-cpt", "test"); err != ports.ErrNotFound {
+		t.Errorf("ReopenScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
+	}
+
+	// Try to close a CPT campaign entirely with CBE-only access
+	if _, err := service.CloseCampaign(ctxWithCBEGrant, cbeMonitor, campaignCPT, "close-cpt-campaign", "test"); err != ports.ErrNotFound {
+		t.Errorf("CloseCampaign CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
+	}
+
+	// Verify CBE operations still work (same actor, same role, same grant, CBE campaign)
+	if _, err := service.CloseScope(ctxWithCBEGrant, cbeMonitor, campaignCBE, shedCBE, "close-cbe", "test"); err != nil {
+		t.Errorf("CloseScope CBE campaign: err=%v, want success (same park)", err)
+	}
+}
+
+// Tenant-wide WeighingMonitor (leadership) should still work across all parks
+func TestTenantWideParkScopeAllowsAllParks(t *testing.T) {
+	const (
+		parkCBE     = "00000000-0000-4000-8000-000000000220" // CBE park
+		parkCPT     = "00000000-0000-4000-8000-000000000221" // CPT park
+		campaignCBE = "00000000-0000-4000-8000-000000000520" // campaign in CBE
+		campaignCPT = "00000000-0000-4000-8000-000000000521" // campaign in CPT
+		shedCBE     = "00000000-0000-4000-8000-000000000820" // shed in CBE campaign
+		shedCPT     = "00000000-0000-4000-8000-000000000821" // shed in CPT campaign
+	)
+
+	repo := &multiParkScenarioRepo{
+		campaigns: map[string]domain.Campaign{
+			campaignCBE: {
+				CampaignID: campaignCBE,
+				TenantID:   testTenant,
+				ParkID:     parkCBE,
+				Status:     domain.StatusPublished,
+			},
+			campaignCPT: {
+				CampaignID: campaignCPT,
+				TenantID:   testTenant,
+				ParkID:     parkCPT,
+				Status:     domain.StatusPublished,
+			},
+		},
+	}
+	service := NewService(repo)
+
+	// Tenant-wide WeighingMonitor (leadership with no park restriction)
+	// Tenant-scoped grant = can access any park
+	// Growth Director has WeighingMonitor permission
+	tenantMonitor := domain.Actor{
+		TenantID: testTenant,
+		UserID:   testActor,
+		Roles:    []string{permissions.RoleGrowthDirector},
+	}
+
+	// Create context with tenant-scoped grant (no park restriction)
+	tenantGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleGrowthDirector,
+		ScopeType: "tenant",
+		ScopeID:   testTenant,
+	}
+	ctxWithTenantGrant := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{tenantGrant})
+
+	// Should be able to close both parks
+	if _, err := service.CloseScope(ctxWithTenantGrant, tenantMonitor, campaignCBE, shedCBE, "close-cbe", "test"); err != nil {
+		t.Errorf("CloseScope CBE campaign (tenant-wide): err=%v, want success", err)
+	}
+
+	if _, err := service.CloseScope(ctxWithTenantGrant, tenantMonitor, campaignCPT, shedCPT, "close-cpt", "test"); err != nil {
+		t.Errorf("CloseScope CPT campaign (tenant-wide): err=%v, want success", err)
+	}
+}
+
+// Fake multi-park repository for testing authorization
+type multiParkScenarioRepo struct {
+	campaigns       map[string]domain.Campaign
+	closeScopeCalls []domain.CloseCommand
+}
+
+func (r *multiParkScenarioRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *multiParkScenarioRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *multiParkScenarioRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
+	return domain.CampaignPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
+	return domain.CampaignPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+	return domain.CampaignShedPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+	return domain.LeadershipShedVideos{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+	return domain.LeadershipShedPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
+	return domain.PlannerCatalog{}, nil
+}
+
+func (r *multiParkScenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+	return domain.PlannerParkBuckets{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListScopeRoster(context.Context, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
+	return domain.RosterPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
+	return domain.RosterPage{}, nil
+}
+
+func (r *multiParkScenarioRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
+	return domain.Observation{}, nil
+}
+
+func (r *multiParkScenarioRepo) RecordShedObservation(context.Context, domain.RecordShedObservation) (domain.Observation, error) {
+	return domain.Observation{}, nil
+}
+
+func (r *multiParkScenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
+	return nil
+}
+
+func (r *multiParkScenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *multiParkScenarioRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
+	r.closeScopeCalls = append(r.closeScopeCalls, domain.CloseCommand{})
+	return domain.CloseResult{Status: domain.StatusClosed}, nil
+}
+
+func (r *multiParkScenarioRepo) AbandonScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
+	return domain.CloseResult{Status: domain.StatusClosed}, nil
+}
+
+func (r *multiParkScenarioRepo) CloseCampaign(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
+	return domain.CloseResult{Status: domain.StatusClosed}, nil
+}
+
+func (r *multiParkScenarioRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
+	if campaign, ok := r.campaigns[campaignID]; ok {
+		if campaign.TenantID == tenantID {
+			return campaign.ParkID, nil
+		}
+	}
+	return "", ports.ErrNotFound
+}
+
+func (r *multiParkScenarioRepo) RefreshAvailability(context.Context, string, string) error {
+	return nil
+}
+
+func (r *multiParkScenarioRepo) WeighingProcessState(context.Context, string, string, string, string) (domain.ProcessState, error) {
+	return domain.ProcessState{}, nil
 }

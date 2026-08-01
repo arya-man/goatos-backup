@@ -639,3 +639,21 @@ A future Phase 2 Calendar/Control Tower binding may add leadership views; that
 will graduate some surfaces from excluded to covered. For now, the weighing write
 path and verification consumer are Phase 1 operational internals covered only by
 their existing operational surface read APIs (`GET /weighing/campaigns`).
+
+**EXCLUDED — `func:NewLocationNameResolver`, `func:ResolveNames`,
+`func:WithLocationNames`** (notificationbridge) — a batched park/shed
+name lookup used only to render human place names into push notification copy
+(2026-08-02 maintainer rule: a push must name the park, shed, vaccine and date,
+never a bare count — see
+`docs/decisions/2026-08-02-meaningful-notification-copy.md`). It reads
+`locations.name` and returns display strings to the notification builder; it
+exposes no aggregate, no metric, and no leadership-facing read. Leadership sees
+the same places through the existing operational read APIs.
+
+**EXCLUDED — `func:ReactivateWorkItemsForBucket`** (weighing kernel) — a
+single indexed UPDATE that returns a weighing work item to `scheduled` when its
+bucket leaves a terminal status via rework or reopen (defect B09: reopen left
+kernel work terminal, so Calendar and Control Tower kept reporting finished
+work). It is a write-path state-transition helper called inside the owning
+transaction, not a read surface. Leadership continues to read weighing progress
+through `GET /weighing/campaigns` and the Control Tower process-state summary.

@@ -352,11 +352,7 @@ object Routes {
     // approve/reject, threading both the item id AND its category (the detail VM re-observes
     // that SAME category's Room cache scope rather than adding a second network call).
     const val VERIFY = "/verify"
-    const val VERIFY_VACCINATION = "/verify/vaccination"
-    const val VERIFY_WEIGHING = "/verify/weighing"
     const val VERIFY_ACTION = "/verify/action"
-    const val VERIFY_ACTION_VACCINATION = "/verify/action/vaccination"
-    const val VERIFY_ACTION_WEIGHING = "/verify/action/weighing"
     const val VERIFY_DETAIL = "/verify/item"
     const val VERIFY_ACTION_DETAIL = "/verify/action/item"
     const val VERIFY_ITEM_ARG = "itemId"
@@ -1948,125 +1944,9 @@ fun AppNavHost(
         }
 
         composable(
-            route = "${Routes.VERIFY_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = state.isActionQueue,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = state.isActionQueue,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
             route = "${Routes.VERIFY_ACTION}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
             arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true }),
         ) { entry ->
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = true,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_ACTION_VACCINATION}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "vaccination" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
-            ),
-        ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = true,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        composable(
-            route = "${Routes.VERIFY_ACTION_WEIGHING}?${Routes.VERIFY_MODULE_ARG}={${Routes.VERIFY_MODULE_ARG}}&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.VERIFY_MODULE_ARG) { type = NavType.StringType; defaultValue = "weighing" },
-                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
-            ),
-        ) {
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             VerifyQueueScreen(
@@ -2230,11 +2110,7 @@ private val supportedRootDestinations = setOf(
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,
-    Routes.VERIFY_VACCINATION,
-    Routes.VERIFY_WEIGHING,
     Routes.VERIFY_ACTION,
-    Routes.VERIFY_ACTION_VACCINATION,
-    Routes.VERIFY_ACTION_WEIGHING,
     Routes.YOU,
     Routes.ALERTS,
     Routes.TIMETABLE,

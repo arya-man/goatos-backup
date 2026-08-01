@@ -234,7 +234,6 @@ fun GoatOsShell(navState: NavState) {
     val moduleVm: ShellModuleViewModel = hiltViewModel()
     val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val visibleNavState = navState
-        .withVerifierVideoNavigation()
     val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
     // Backend-owned, never inferred. `weighing_execute` is compiled by the backend from
     // the real grant + module truth (workforce/app/bootstrap_copy.go canExecuteWeighing:
@@ -365,50 +364,6 @@ fun GoatOsShell(navState: NavState) {
             onDismiss = { showLanguage = false },
         )
     }
-}
-
-internal fun NavState.withVerifierVideoNavigation(): NavState {
-    val verificationModule = modules.firstOrNull { it.key.equals("verification", ignoreCase = true) } ?: return this
-    val isAction = verificationModule.href == Routes.VERIFY_ACTION ||
-        verificationModule.navItems.any { it.href == Routes.VERIFY_ACTION }
-    val vaccinationHref = if (isAction) Routes.VERIFY_ACTION_VACCINATION else Routes.VERIFY_VACCINATION
-    val weighingHref = if (isAction) Routes.VERIFY_ACTION_WEIGHING else Routes.VERIFY_WEIGHING
-    val youItem = verificationModule.navItems.firstOrNull { item ->
-        item.key.equals("you", ignoreCase = true) || item.href == Routes.YOU
-    } ?: NavItem(key = "you", label = "You", href = Routes.YOU)
-    val vaccinationItems = listOf(
-        NavItem(key = "videos", label = "Video", href = vaccinationHref),
-        youItem,
-    )
-    val weighingItems = listOf(
-        NavItem(key = "videos", label = "Video", href = weighingHref),
-        youItem,
-    )
-    val verifierModules = listOf(
-        NavModule(
-            key = "vaccination",
-            label = "Vaccination",
-            href = vaccinationHref,
-            status = NavModuleStatus.AVAILABLE,
-            navItems = vaccinationItems,
-        ),
-        NavModule(
-            key = "weighing",
-            label = "Weighing",
-            href = weighingHref,
-            status = NavModuleStatus.AVAILABLE,
-            navItems = weighingItems,
-        ),
-    )
-    return copy(
-        chrome = NavChrome.EXPANDED,
-        items = if (items == verificationModule.navItems) vaccinationItems else items,
-        modules = verifierModules + modules.filterNot { module ->
-            module.key.equals("verification", ignoreCase = true) ||
-                module.key.equals("vaccination", ignoreCase = true) ||
-                module.key.equals("weighing", ignoreCase = true)
-        },
-    )
 }
 
 /**

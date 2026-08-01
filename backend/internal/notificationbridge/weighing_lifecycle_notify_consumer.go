@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -250,6 +251,9 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 			Context: map[string]string{
 				"type":         "weighing_campaign_published",
 				"screen":       "weighing",
+				"target":       "/weighing",
+				"message_key":  "weighing.assigned_operator",
+				"shed_labels":  strings.Join(labels, ", "),
 				"campaign_id":  campaignID,
 				"park_id":      payload.ParkID,
 				"start_date":   payload.StartBusinessDate,
@@ -269,6 +273,16 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 	}
 	c.warnIfNoRecipients(ctx, leadership, "weighing_publish_notification_no_leadership_recipients", tenantID, campaignID)
 	eventKey := EventWeighingCampaignPublished + ":" + campaignID
+	// Leadership needs to know WHICH sheds and WHEN, not just how many: a bare count
+	// ("a weighing plan with 4 sheds is now live") tells a director nothing they can act on.
+	// The shed list is capped so the push stays readable; the full set is on the overview.
+	allShedLabels := make([]string, 0, len(payload.Buckets))
+	for _, bucket := range payload.Buckets {
+		if label := strings.TrimSpace(bucket.ShedLabel); label != "" {
+			allShedLabels = append(allShedLabels, label)
+		}
+	}
+	sort.Strings(allShedLabels)
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  "weighing:" + campaignID,
@@ -278,12 +292,15 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
 		Title:            "Weighing plan published",
-		Body:             fmt.Sprintf("A weighing plan with %d sheds is now live.", len(payload.Buckets)),
+		Body:             weighingPlanPublishedBody(allShedLabels, payload.StartBusinessDate),
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
 			"type":         "weighing_campaign_published",
 			"screen":       "weighing_overview",
+			"target":       "/weighing",
+			"message_key":  "weighing.plan_published",
+			"shed_count":   strconv.Itoa(len(payload.Buckets)),
 			"campaign_id":  campaignID,
 			"park_id":      payload.ParkID,
 			"start_date":   payload.StartBusinessDate,
@@ -349,15 +366,19 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 	notificationType := "verification_approved"
 	screen := "weighing_overview"
 	priority := priorityNormal
+	messageKey := "weighing.verdict.approved"
+	reworkReason := ""
 	if rework {
 		title = "Weighing proof needs redo"
 		body = shedLabel + " weighing proof was sent back. Please capture it again."
 		if reason := strings.TrimSpace(payload.Reason); reason != "" {
 			body = shedLabel + " weighing proof was sent back: " + reason
+			reworkReason = reason
 		}
 		notificationType = NotificationTypeRework
 		screen = "weighing"
 		priority = priorityHigh
+		messageKey = "weighing.verdict.rework"
 	}
 	eventKey := event.Type + ":" + observationID
 	_, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
@@ -375,6 +396,10 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 		Context: map[string]string{
 			"type":             "weighing_" + payload.VerificationStatus,
 			"screen":           screen,
+			"target":           "/weighing",
+			"message_key":      messageKey,
+			"shed_label":       shedLabel,
+			"rework_reason":    reworkReason,
 			"campaign_id":      payload.CampaignID,
 			"campaign_shed_id": payload.CampaignShedID,
 			"observation_id":   observationID,
@@ -434,9 +459,11 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 	abandoned := event.Type == EventWeighingShedAbandoned
 	title := "Weighing shed closed"
 	contextType := "weighing_shed_closed"
+	messageKey := "weighing.shed_closed"
 	if abandoned {
 		title = "Weighing shed ended early"
 		contextType = "weighing_shed_abandoned"
+		messageKey = "weighing.shed_abandoned"
 	}
 	// Keyed on the ACTUAL event type: a close and an abandon for the same bucket
 	// are different facts and must not collapse onto one notification key.
@@ -456,6 +483,10 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 		Context: map[string]string{
 			"type":               contextType,
 			"screen":             "weighing_overview",
+			"target":             "/weighing",
+			"message_key":        messageKey,
+			"shed_label":         shedLabel,
+			"reason":             strings.TrimSpace(payload.Reason),
 			"campaign_id":        payload.CampaignID,
 			"campaign_shed_id":   campaignShedID,
 			"park_id":            payload.ParkID,
@@ -523,6 +554,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 			Context: map[string]string{
 				"type":         "weighing_campaign_closed",
 				"screen":       "weighing",
+				"target":       "/weighing",
 				"campaign_id":  campaignID,
 				"park_id":      payload.ParkID,
 				"closed_at":    payload.ClosedAt,
@@ -564,6 +596,8 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 		Context: map[string]string{
 			"type":               "weighing_campaign_closed",
 			"screen":             "weighing_overview",
+			"target":             "/weighing",
+			"message_key":        "weighing.campaign_closed",
 			"campaign_id":        campaignID,
 			"park_id":            payload.ParkID,
 			"not_accepted_count": fmt.Sprintf("%d", payload.NotAcceptedCount),
@@ -709,6 +743,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 	screen := "weighing"
 	priority := priorityNormal
 	contextType := "weighing_work_item_day_start"
+	messageKey := "weighing.work_item.due_today"
 	switch event.Type {
 	case EventWeighingWorkItemRolledForward:
 		title = "Weighing moved to today"
@@ -718,6 +753,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		}
 		notificationType = "reminder"
 		contextType = "weighing_work_item_rolled_forward"
+		messageKey = "weighing.work_item.rolled_forward"
 	case EventWeighingWorkItemDelayed:
 		title = "Weighing is running late"
 		body = "Weighing is past its planned day: " + shedList + "."
@@ -728,6 +764,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		screen = "weighing_overview"
 		priority = priorityHigh
 		contextType = "weighing_work_item_delayed"
+		messageKey = "weighing.work_item.delayed"
 	}
 
 	// One durable request per (event type, campaign, operator, business date): the
@@ -749,6 +786,9 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		Context: map[string]string{
 			"type":              contextType,
 			"screen":            screen,
+			"target":            "/weighing",
+			"message_key":       messageKey,
+			"shed_list":         shedList,
 			"campaign_id":       campaignID,
 			"campaign_shed_ids": strings.Join(shedScopeIDs, ","),
 			"park_id":           payload.ParkID,
@@ -764,4 +804,25 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		Recipients: recipients,
 	})
 	return err
+}
+
+// weighingPlanPublishedBody names the sheds and the start date so a director can act on the
+// push itself. A bare count is not actionable; see docs/decisions/2026-08-02-meaningful-notification-copy.md.
+func weighingPlanPublishedBody(shedLabels []string, startBusinessDate string) string {
+	const maxNamedSheds = 4
+	when := strings.TrimSpace(startBusinessDate)
+	if when == "" {
+		when = "the planned start date"
+	}
+	if len(shedLabels) == 0 {
+		return "Weighing starts " + when + "."
+	}
+	named := shedLabels
+	suffix := ""
+	if len(named) > maxNamedSheds {
+		remaining := len(named) - maxNamedSheds
+		named = named[:maxNamedSheds]
+		suffix = fmt.Sprintf(" and %d more", remaining)
+	}
+	return fmt.Sprintf("Weighing starts %s: %s%s.", when, strings.Join(named, ", "), suffix)
 }

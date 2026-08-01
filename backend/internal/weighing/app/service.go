@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -69,6 +70,42 @@ func (s *Service) WithVerificationWithdrawer(withdrawer VerificationWithdrawer) 
 func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader) *Service {
 	s.processState = reader
 	return s
+}
+
+// checkParkScope enforces park-scoped access control for mutation operations.
+// It resolves the campaign's park and verifies the actor is authorized to access it.
+//
+// Authorization semantics:
+// - Empty authorizedParkIDs = tenant-wide grant (leadership/CEO) = access all parks
+// - Non-empty authorizedParkIDs = operator/park-scoped grant = must match campaign park
+// - Campaign not found or unauthorized park = ErrNotFound (not leaking existence)
+func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID string) error {
+	// Get the campaign's park
+	parkID, err := s.repo.CampaignParkID(ctx, tenantID, campaignID)
+	if err != nil {
+		return err // ErrNotFound if campaign doesn't exist
+	}
+
+	// Get actor's authorized park scope from context (set by HTTP middleware)
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+
+	// Empty grants or tenant-wide grant = authorized for all parks
+	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID) {
+		return nil
+	}
+
+	// Get park-scoped grant IDs
+	authorizedParkIDs := httpmiddleware.AuthorizedParkIDs(grants)
+
+	// Check if campaign's park is in the authorized list
+	for _, id := range authorizedParkIDs {
+		if id == parkID {
+			return nil
+		}
+	}
+
+	// Park is outside authorized scope - return not found to hide existence
+	return ports.ErrNotFound
 }
 
 // WeighingProcessState serves the shared command surfaces: Calendar day markers
@@ -382,6 +419,9 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	if err := s.reviseVerificationRound(ctx, cmd.TenantID, obs); err != nil {
+		return domain.Observation{}, err
+	}
 	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
 		return domain.Observation{}, err
 	}
@@ -437,6 +477,38 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	return obs, nil
 }
 
+// reviseVerificationRound is the B06 root-cause fix.
+//
+// enqueueVerification fires on EVERY capture, including an edit of a
+// not-yet-submitted (or verifier-reworked) observation
+// (recordUnknownAnimalObservationTx's `updated` branch). The verification
+// idempotency key used to be `weighing:<category>:<observation_id>` --
+// content-blind, keyed only on the observation's identity. verification's
+// CreateItem is `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`, so an
+// edit's re-enqueue silently no-opped and left the SAME verification_items row
+// bound to the OLD weight/proof, including a stale 'verified' decision if a
+// verifier had already approved it before the operator touched the draft
+// again.
+//
+// obs.Superseded (set by the repository's updated-vs-inserted CTE branch)
+// marks an edit. On that same write the observation's OWN
+// verification_status already resets to 'pending' (see
+// recordUnknownAnimalObservationTx's `updated` CTE) -- but weighing does not
+// own verification_items and must not write it directly, so that reset never
+// reached the separate module's row. This closes the gap the same way
+// ReopenScope closes it for superseded lump-sum submissions: withdraw the
+// stale item through verification's own port BEFORE a new one is raised for
+// the new evidence round. enqueueVerification below then keys the new item on
+// the capture's AcceptedAt so the withdrawn item's idempotency key is never
+// reused (a reused key would just collide with the withdrawn row, DO NOTHING,
+// and stay withdrawn instead of raising fresh 'pending' work).
+func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, obs domain.Observation) error {
+	if !obs.Superseded || s.verificationWithdrawer == nil {
+		return nil
+	}
+	return s.verificationWithdrawer.WithdrawWeighingVerification(ctx, tenantID, domain.VerificationRefTypeAnimal, []string{obs.ObservationID})
+}
+
 func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
 	if s.enqueuer == nil {
 		return nil
@@ -457,7 +529,15 @@ func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, cam
 		ParkID:         parkID,
 		SubjectLabel:   label,
 		CapturedAt:     obs.AcceptedAt,
-		IdempotencyKey: fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID),
+		// Versioned on AcceptedAt (the evidence round), not just the observation
+		// identity -- see reviseVerificationRound above. AcceptedAt only advances on
+		// a genuine new/edited capture (an exact client retry replays the SAME
+		// cached observation row via the repo's own idempotency lookup and never
+		// reaches the write that stamps a fresh AcceptedAt), so a real retry still
+		// re-derives the SAME key here and stays a safe no-op; an edit derives a
+		// NEW key so it cannot collide with -- and silently no-op against -- the
+		// item just withdrawn for the prior round.
+		IdempotencyKey: fmt.Sprintf("weighing:%s:%s:%d", category, obs.ObservationID, obs.AcceptedAt.UTC().UnixNano()),
 	})
 }
 
@@ -493,6 +573,11 @@ func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignI
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
 		return ports.ErrInvalidArgument
+	}
+	// Enforce park-scoped authorization. Actor must have a grant that covers the campaign's park.
+	// Returns ErrNotFound (not ErrForbidden) to hide existence of cross-park campaigns.
+	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		return err
 	}
 	superseded, err := s.repo.ReopenScope(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason))
 	if err != nil {
@@ -530,6 +615,11 @@ func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
 		return domain.CloseResult{}, ports.ErrInvalidArgument
 	}
+	// Enforce park-scoped authorization. Actor must have a grant that covers the campaign's park.
+	// Returns ErrNotFound (not ErrForbidden) to hide existence of cross-park campaigns.
+	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		return domain.CloseResult{}, err
+	}
 	return s.repo.CloseScope(ctx, domain.CloseCommand{
 		TenantID:       actor.TenantID,
 		CampaignID:     campaignID,
@@ -551,6 +641,11 @@ func (s *Service) AbandonScope(ctx context.Context, actor domain.Actor, campaign
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
 		return domain.CloseResult{}, ports.ErrInvalidArgument
 	}
+	// Enforce park-scoped authorization. Actor must have a grant that covers the campaign's park.
+	// Returns ErrNotFound (not ErrForbidden) to hide existence of cross-park campaigns.
+	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		return domain.CloseResult{}, err
+	}
 	return s.repo.AbandonScope(ctx, domain.CloseCommand{
 		TenantID:       actor.TenantID,
 		CampaignID:     campaignID,
@@ -570,6 +665,11 @@ func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaig
 	reason = strings.TrimSpace(reason)
 	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
 		return domain.CloseResult{}, ports.ErrInvalidArgument
+	}
+	// Enforce park-scoped authorization. Actor must have a grant that covers the campaign's park.
+	// Returns ErrNotFound (not ErrForbidden) to hide existence of cross-park campaigns.
+	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		return domain.CloseResult{}, err
 	}
 	// A client may send a reason CODE rather than author the sentence that is kept
 	// forever; the recorded copy is ours, not the phone's.

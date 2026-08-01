@@ -59,7 +59,7 @@ export const DURABLE_BUS_EXEMPTIONS = {
   VerificationNotifier: {
     registeredIn: "backend/internal/bootstrap/api.go",
     reason:
-      "legacy in-API notifier for vaccination.verify.accepted/rejected. Its durable-path replacement, " +
+      "legacy in-process notifier for vaccination.verify.accepted/rejected. Its durable-path replacement, " +
       "notificationbridge.VerificationEventConsumer, IS registered on both durable buses and covers the same " +
       "two event seams; this one stays on the API process's own bus for the synchronous in-request " +
       "notification path only. Retiring it is a separate cutover — until then it must NOT be double-registered " +

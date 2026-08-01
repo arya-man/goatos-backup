@@ -692,7 +692,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
-	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
+	// Push copy needs a human park name, not a bare UUID (confirmed maintainer defect: pushes are
+	// too abstract to act on). locationNames is a tiny, dependency-free lookup owned entirely by
+	// notificationbridge (see location_names.go) -- no other module's port changes.
+	locationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
 			WithVerificationProducer(verificationService)).

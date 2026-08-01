@@ -130,20 +130,37 @@ private fun LeadershipAssignmentCard(
                             ),
                     )
                 } else {
-                    Text(
-                        text = stringResource(R.string.weighing_leadership_close),
-                        color = MeshaColors.BrandD,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .minimumInteractiveComponentSize()
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable(
-                                role = Role.Button,
-                                onClick = { onClose("closed from mobile leadership") },
-                            ),
-                    )
+                    if (row.canClose) {
+                        Text(
+                            text = stringResource(R.string.weighing_leadership_close),
+                            color = MeshaColors.BrandD,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(
+                                    role = Role.Button,
+                                    onClick = { onClose("closed from mobile leadership") },
+                                ),
+                        )
+                    } else {
+                        Text(
+                            text = if (row.pendingVerificationCount > 0) {
+                                stringResource(
+                                    R.string.weighing_leadership_awaiting_verification,
+                                    row.pendingVerificationCount,
+                                )
+                            } else {
+                                stringResource(R.string.weighing_leadership_close_pending)
+                            },
+                            color = MeshaColors.Muted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
             Text(

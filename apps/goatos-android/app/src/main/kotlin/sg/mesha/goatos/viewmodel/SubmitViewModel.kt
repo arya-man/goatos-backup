@@ -57,6 +57,7 @@ import sg.mesha.goatos.feature.submit.FormRunnerState
 import sg.mesha.goatos.feature.submit.ProofItemUi
 import sg.mesha.goatos.feature.submit.ShedCompletionSummary
 import sg.mesha.goatos.feature.submit.SubmitEvent
+import sg.mesha.goatos.feature.submit.SubmitSnackbarMessage
 import sg.mesha.goatos.feature.submit.SubmitSummaryItem
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
@@ -148,6 +149,10 @@ class SubmitViewModel @Inject constructor(
 
     // Guards a double-tap firing two concurrent video captures for the same field.
     private var captureInFlightKey: String? = null
+
+    // Guards concurrent submit() invocations — true while a submission is in flight.
+    // Prevents multi-tap duplicate submissions by returning early on concurrent calls.
+    private var submitInFlight = false
 
     // Role gate (§5): null = not yet resolved; true = has an operator profile (ground
     // ground operator, capture allowed); false = viewer/verifier/leadership.
@@ -542,6 +547,9 @@ class SubmitViewModel @Inject constructor(
     private fun submit() {
         val current = currentTask ?: return
         if (captureAllowed == false) return
+        // Guard against concurrent submit() calls (double-tap or rapid re-entry).
+        // State-based in-flight check prevents duplicate submissions at the ViewModel level.
+        if (submitInFlight) return
         // Already enqueued (e.g. a double tap, or a recreation that raced load()) — never enqueue
         // a second time; just follow the existing row. The outbox is also key-idempotent, so this
         // is belt-and-suspenders on top of the persisted key.
@@ -584,10 +592,13 @@ class SubmitViewModel @Inject constructor(
             }
             return
         }
+        submitInFlight = true
         val activeShedId = activeShedScopeId(current)
         val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId).also { idempotencyKey = it }
         statusJob?.cancel()
         viewModelScope.launch {
+            // State update clears snackbar before enqueuing; snackbar will be shown when
+            // outbox item status changes to QUEUED/SUCCEEDED/CONFLICT/DEAD_LETTER
             _state.update {
                 it.copy(
                     syncState = SyncState.QUEUED,
@@ -599,6 +610,7 @@ class SubmitViewModel @Inject constructor(
                     lastError = null,
                     isQueueFailed = false,
                     isRetryFailed = false,
+                    snackbarMessage = null,
                 )
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
@@ -723,34 +735,42 @@ class SubmitViewModel @Inject constructor(
     private fun applyItemStatus(item: SyncQueueItem) {
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
-                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.QUEUED)
             }
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
-                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false, snackbarMessage = null)
             }
             item.status == SyncItemStatus.SUCCEEDED -> {
                 val task = currentTask
+                submitInFlight = false
                 if (task != null) {
-                    _state.value = terminalAckState(task, currentForm)
+                    _state.value = terminalAckState(task, currentForm).copy(snackbarMessage = SubmitSnackbarMessage.SUCCEEDED)
                 } else {
                     outboxItemId = null
                     renderDraft()
                 }
             }
-            item.conflict -> _state.update {
-                it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false)
+            item.conflict -> {
+                submitInFlight = false
+                _state.update {
+                    it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.CONFLICT)
+                }
             }
-            item.isDeadLetter -> _state.update {
-                it.copy(
-                    syncState = SyncState.DEAD_LETTER,
-                    syncLabel = "",
-                    canSubmit = false,
-                    attemptCount = item.attemptCount,
-                    maxAttempts = item.maxAttempts,
-                    lastError = item.lastError,
-                    isQueueFailed = false,
-                    isRetryFailed = false,
-                )
+            item.isDeadLetter -> {
+                submitInFlight = false
+                _state.update {
+                    it.copy(
+                        syncState = SyncState.DEAD_LETTER,
+                        syncLabel = "",
+                        canSubmit = false,
+                        attemptCount = item.attemptCount,
+                        maxAttempts = item.maxAttempts,
+                        lastError = item.lastError,
+                        isQueueFailed = false,
+                        isRetryFailed = false,
+                        snackbarMessage = SubmitSnackbarMessage.DEAD_LETTER,
+                    )
+                }
             }
             else -> _state.update {
                 // FAILED but still inside its retry budget — SyncEngine will auto-retry with
@@ -765,6 +785,7 @@ class SubmitViewModel @Inject constructor(
                     lastError = item.lastError,
                     isQueueFailed = false,
                     isRetryFailed = false,
+                    snackbarMessage = null,
                 )
             }
         }

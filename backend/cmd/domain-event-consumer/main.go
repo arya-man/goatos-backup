@@ -153,8 +153,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
-	// operator, UP to the park head and the owning module's director.
-	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)
+	// operator, UP to the park head and the owning module's director. locationNames enriches the
+	// push with the park's human name (confirmed maintainer defect: pushes were too abstract to
+	// act on) -- a tiny, dependency-free lookup owned entirely by notificationbridge.
+	locationNames := notificationbridge.NewLocationNameResolver(pool)
+	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger).WithLocationNames(locationNames)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
 	// guard compares this list with kernelstages.BuildDomainBus so a wrapper cannot hide bus drift.

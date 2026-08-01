@@ -132,10 +132,15 @@ install_all() {
     log "installing on $role ($serial)"
     adb -s "$serial" install -r -g "$apk" >/dev/null
     adb -s "$serial" reverse tcp:8080 tcp:8080 >/dev/null 2>&1 || true
-    # Clear app data so the previous role's cached session cannot survive on this device --
-    # a stale DataStore token silently outranks the newly baked one (SessionStore.cachedToken
-    # is preferred over BuildConfig in AppModule.kt:278), which would sign this emulator in as
-    # the wrong person and quietly invalidate the whole exercise.
+    # Wipe the previous role's session BEFORE anything can re-persist it. A stale DataStore token
+    # silently outranks the freshly baked one (AppModule prefers SessionStore.cachedToken over
+    # BuildConfig.DEV_BEARER_TOKEN), so a device that already had the app stays signed in as the
+    # PREVIOUS person -- verified on a real phone: an operator build showed "CEO QA / CXO" until
+    # this ran. Every role would appear to test correctly while actually testing one identity.
+    #
+    # force-stop FIRST: clearing a running app races with the process writing its session back,
+    # and `pm clear` alone did not stick.
+    adb -s "$serial" shell am force-stop sg.mesha.goatos.dev >/dev/null 2>&1 || true
     adb -s "$serial" shell pm clear sg.mesha.goatos.dev >/dev/null 2>&1 || true
     adb -s "$serial" shell monkey -p sg.mesha.goatos.dev -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
     log "$role signed in"

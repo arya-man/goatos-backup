@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -251,6 +252,116 @@ func TestRecordAnimalObservationEnqueuesVerifierItem(t *testing.T) {
 	}
 	if enqueuer.received.OperatorID != testOp || enqueuer.received.ShedID != testShed {
 		t.Fatalf("operator/shed=%q/%q, want %q/%q", enqueuer.received.OperatorID, enqueuer.received.ShedID, testOp, testShed)
+	}
+}
+
+// TestRecordAnimalObservationFirstCaptureNeverWithdraws proves the "first
+// capture" branch (obs.Superseded=false, the CTE's `inserted` arm) never calls
+// the verification withdrawer -- there is no stale item to retire yet.
+func TestRecordAnimalObservationFirstCaptureNeverWithdraws(t *testing.T) {
+	repo := &animalObservationRepo{acceptedAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)}
+	enqueuer := &captureVerificationEnqueuer{}
+	withdrawer := &captureVerificationWithdrawer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-first-capture",
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+
+	if withdrawer.calls != 0 {
+		t.Fatalf("withdraw calls=%d, want 0 on a first capture", withdrawer.calls)
+	}
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+}
+
+// TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOne
+// is the B06 regression. Root cause: enqueueVerification fires on EVERY
+// capture, including an edit of a not-yet-submitted/reworked observation
+// (recordUnknownAnimalObservationTx's `updated` CTE branch). The old
+// idempotency key was `weighing:<category>:<observation_id>` -- content-blind
+// -- so CreateItem's `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`
+// silently no-opped on the edit and left the SAME verification_items row bound
+// to the OLD weight/proof, including a stale 'verified' decision if a verifier
+// had already approved it before the operator touched the draft again.
+//
+// FAILING evidence (pre-fix, reproduced by temporarily reverting
+// reviseVerificationRound to a no-op and reusing the old
+// `fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID)` key): this test
+// asserted withdrawer.calls==1 and got withdrawer.calls==0, and the second
+// enqueue's IdempotencyKey was IDENTICAL to the first -- proving the second
+// capture would have silently collided with (and never displaced) the first
+// verification item.
+//
+// PASSING evidence (current code): obs.Superseded=true on the edit triggers
+// reviseVerificationRound, which withdraws the prior item for this
+// observation_id BEFORE the new item is raised, and the two enqueue calls
+// carry DIFFERENT (AcceptedAt-versioned) idempotency keys, so the edit's item
+// is a fresh 'pending' row rather than a no-op against stale evidence.
+func TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOne(t *testing.T) {
+	repo := &animalObservationRepo{
+		superseded: false,
+		acceptedAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+	}
+	enqueuer := &captureVerificationEnqueuer{}
+	withdrawer := &captureVerificationWithdrawer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	cmd := domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-first",
+	}
+	// First capture: a brand-new row (the CTE's `inserted` branch). No prior
+	// evidence exists, so nothing should be withdrawn.
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, cmd); err != nil {
+		t.Fatalf("first capture: %v", err)
+	}
+	if withdrawer.calls != 0 {
+		t.Fatalf("withdraw calls after first capture=%d, want 0", withdrawer.calls)
+	}
+	firstKey := enqueuer.received.IdempotencyKey
+
+	// Operator edits the draft (a verifier may already have APPROVED the first
+	// capture at this point -- that is exactly the scenario the fix must
+	// close). The repo now reports Superseded=true (the CTE's `updated`
+	// branch) with an advanced AcceptedAt (a new evidence round).
+	repo.superseded = true
+	repo.acceptedAt = time.Date(2026, 8, 1, 9, 5, 0, 0, time.UTC)
+	cmd.WeightKg = 13.1
+	cmd.IdempotencyKey = "scan-edit"
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, cmd); err != nil {
+		t.Fatalf("edit capture: %v", err)
+	}
+
+	if withdrawer.calls != 1 {
+		t.Fatalf("withdraw calls after edit=%d, want 1 -- the stale verification item must be retired before the new one is raised", withdrawer.calls)
+	}
+	if withdrawer.refType != domain.VerificationRefTypeAnimal {
+		t.Fatalf("withdraw ref_type=%q, want %q", withdrawer.refType, domain.VerificationRefTypeAnimal)
+	}
+	if len(withdrawer.observationIDs) != 1 || withdrawer.observationIDs[0] != "00000000-0000-4000-8000-000000000901" {
+		t.Fatalf("withdraw observation ids=%v, want the edited observation's id", withdrawer.observationIDs)
+	}
+	if enqueuer.calls != 2 {
+		t.Fatalf("verification enqueue calls=%d, want 2 (one per capture)", enqueuer.calls)
+	}
+	secondKey := enqueuer.received.IdempotencyKey
+	if secondKey == firstKey {
+		t.Fatalf("edit re-enqueue reused the SAME idempotency key %q as the first capture -- it would silently no-op against the just-withdrawn item instead of raising fresh pending work", secondKey)
 	}
 }
 
@@ -729,6 +840,11 @@ func (e *captureVerificationEnqueuer) EnqueueWeighingVerification(_ context.Cont
 
 type animalObservationRepo struct {
 	fakeRepo
+	// superseded makes RecordAnimalObservation report that the write updated an
+	// existing not-yet-submitted (or reworked) row in place, exactly like
+	// recordUnknownAnimalObservationTx's `updated` CTE branch does on a real edit.
+	superseded bool
+	acceptedAt time.Time
 }
 
 func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -739,7 +855,27 @@ func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd d
 		WeightKg:           cmd.WeightKg,
 		ProofArtifactID:    cmd.ProofArtifactID,
 		ExpectedLocationID: testShed,
+		Superseded:         r.superseded,
+		AcceptedAt:         r.acceptedAt,
 	}, nil
+}
+
+// captureVerificationWithdrawer records every withdraw call the service makes,
+// so a test can assert whether reviseVerificationRound fired (edit) or stayed
+// silent (first capture).
+type captureVerificationWithdrawer struct {
+	calls          int
+	tenantID       string
+	refType        string
+	observationIDs []string
+}
+
+func (w *captureVerificationWithdrawer) WithdrawWeighingVerification(_ context.Context, tenantID, refType string, observationIDs []string) error {
+	w.calls++
+	w.tenantID = tenantID
+	w.refType = refType
+	w.observationIDs = append([]string(nil), observationIDs...)
+	return nil
 }
 
 type shedObservationRepo struct {

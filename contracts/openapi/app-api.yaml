@@ -14515,10 +14515,10 @@ components:
             $ref: "#/components/schemas/VaccinationDriveAssignmentRow"
     WeighingCampaignStatus:
       type: string
-      enum: [draft, published, in_progress, delayed, completed, canceled]
+      enum: [draft, published, in_progress, delayed, completed, closed, canceled]
     WeighingCampaignShedStatus:
       type: string
-      enum: [pending, in_progress, completed, canceled]
+      enum: [pending, in_progress, completed, closed, canceled]
     WeighingCategory:
       type: string
       enum: [individual_animal, per_shed_partition]

@@ -72,6 +72,10 @@ type ObligationMissedNotifier struct {
 	recipients      RecipientResolver
 	queue           NotificationQueue
 	logger          *slog.Logger
+	// locations is optional park name enrichment (see location_names.go). ShedLabel already comes
+	// through human-readable from calendarports.MissedObligationContext; this adds the park it sits
+	// in, since a shed name alone ("Godel 1 - Part 8") does not say which park to go to.
+	locations *LocationNameResolver
 }
 
 func NewObligationMissedNotifier(
@@ -86,6 +90,12 @@ func NewObligationMissedNotifier(
 		queue:           queue,
 		logger:          logger,
 	}
+}
+
+// WithLocationNames attaches park name enrichment. Chainable at construction time.
+func (n *ObligationMissedNotifier) WithLocationNames(resolver *LocationNameResolver) *ObligationMissedNotifier {
+	n.locations = resolver
+	return n
 }
 
 // NotifyObligationMissed resolves the missed obligation's module/park/shed/operator and queues the
@@ -121,14 +131,29 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 
 	eventKey := "obligation.missed:" + obligationID
 	businessDate := biztime.BusinessDate(missed.DueAt)
+
+	// Name the park the shed sits in: a shed name alone ("Godel 1 - Part 8") does not tell an
+	// operator working across several parks which one to go to. ONE lookup per missed-work event
+	// (not per recipient), so this stays a bounded, per-business-event read, never a fanout.
+	parkName := ""
+	if n.locations != nil {
+		parkName = n.locations.ResolveNames(ctx, tenantID, missed.ParkID)[missed.ParkID]
+	}
+
 	where := profile.workNoun + " work"
-	if missed.ShedLabel != "" {
+	switch {
+	case missed.ShedLabel != "" && parkName != "":
+		where = profile.workNoun + " work for " + missed.ShedLabel + " (" + parkName + ")"
+	case missed.ShedLabel != "":
 		where = profile.workNoun + " work for " + missed.ShedLabel
+	case parkName != "":
+		where = profile.workNoun + " work at " + parkName
 	}
 	baseContext := map[string]string{
 		"type":          "obligation_missed",
 		"obligation_id": obligationID,
 		"park_id":       missed.ParkID,
+		"park_name":     parkName,
 		"shed_id":       missed.ShedID,
 		"due_date":      businessDate,
 		"priority":      priorityHigh,
@@ -145,6 +170,12 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 		n.warnIfEmpty(ctx, devices, "obligation_missed_notification_no_operator_devices", tenantID, obligationID)
 		operatorContext := copyContext(baseContext)
 		operatorContext["screen"] = profile.operatorScreen
+		// message_key is the localization-stable identifier: the Android client renders its own
+		// locale string from this key + the structured context fields (never from Title/Body,
+		// which stay English-only fallbacks for a pre-locale-aware app build). See issue #27.
+		operatorContext["message_key"] = "obligation.missed.operator"
+		operatorContext["work_noun"] = profile.workNoun
+		operatorContext["shed_label"] = missed.ShedLabel
 		if _, err := n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 			TenantID:         tenantID,
 			CalendarEventID:  "obligation:" + obligationID,
@@ -174,6 +205,9 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 	n.warnIfEmpty(ctx, leadership, "obligation_missed_notification_no_leadership_devices", tenantID, obligationID)
 	leadershipContext := copyContext(baseContext)
 	leadershipContext["screen"] = profile.leadershipScreen
+	leadershipContext["message_key"] = "obligation.missed.leadership"
+	leadershipContext["work_noun"] = profile.workNoun
+	leadershipContext["shed_label"] = missed.ShedLabel
 	if _, err := n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  "obligation:" + obligationID,

@@ -51,6 +51,7 @@ func TestListCampaignsOneToManyShedFanOutDoesNotMultiplyCampaignRows(t *testing.
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -65,11 +66,20 @@ func TestListCampaignsOneToManyShedFanOutDoesNotMultiplyCampaignRows(t *testing.
 	lcpInsertBucket(t, ctx, pool, bucketThree, wide, lcpShedThree, domain.CategoryIndividualAnimal, repoOperator, 4, "pending")
 	lcpInsertBucket(t, ctx, pool, bucketScope, wide, lcpShedFour, domain.CategoryPerShedPartition, repoOperator, 0, "pending")
 
-	// Three real roster rows spread over two of the three individual buckets, two of
-	// them weighed. Any fan-out over the 4 buckets or the park row would inflate these.
-	lcpInsertExpectedAnimal(t, ctx, pool, wide, lcpUUID(11101), bucketOne, lcpShedOne, "weighed")
+	// Three real roster rows spread over two of the three individual buckets. The
+	// expected-animal status column is roster/availability bookkeeping only --
+	// IndividualCompletedCount is sourced from weighing_observations (see the
+	// progressStats projection-review marker in repository.go), so "weighed" here
+	// is left at its default and the two real captures below are what the count
+	// actually measures. Any fan-out over the 4 buckets or the park row would
+	// inflate the capture count.
+	lcpInsertExpectedAnimal(t, ctx, pool, wide, lcpUUID(11101), bucketOne, lcpShedOne, "pending")
 	lcpInsertExpectedAnimal(t, ctx, pool, wide, lcpUUID(11102), bucketOne, lcpShedOne, "pending")
-	lcpInsertExpectedAnimal(t, ctx, pool, wide, lcpUUID(11103), bucketTwo, lcpShedTwo, "weighed")
+	lcpInsertExpectedAnimal(t, ctx, pool, wide, lcpUUID(11103), bucketTwo, lcpShedTwo, "pending")
+	lcpInsertProof(t, ctx, pool, lcpUUID(11401), lcpShedOne)
+	lcpCapture(t, ctx, pool, repo, wide, bucketOne, lcpUUID(11401), "lcp-wide-bucket-one-capture", "lcp:wide:bucket-one:capture")
+	lcpInsertProof(t, ctx, pool, lcpUUID(11402), lcpShedTwo)
+	lcpCapture(t, ctx, pool, repo, wide, bucketTwo, lcpUUID(11402), "lcp-wide-bucket-two-capture", "lcp:wide:bucket-two:capture")
 
 	// Sibling campaign in a SECOND park, same operator: proves the park label is
 	// resolved per campaign and that two parks do not cross-multiply.
@@ -142,6 +152,7 @@ func TestListCampaignsPageBoundaryTotalsIdenticalAcrossPageSizes(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -237,6 +248,7 @@ func TestListCampaignsParkScopeHierarchyOperatorSeesOnlyOwnBuckets(t *testing.T)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -246,14 +258,19 @@ func TestListCampaignsParkScopeHierarchyOperatorSeesOnlyOwnBuckets(t *testing.T)
 	theirs := lcpUUID(13012)
 	lcpInsertBucket(t, ctx, pool, mine, shared, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 2, "pending")
 	lcpInsertBucket(t, ctx, pool, theirs, shared, lcpShedTwo, domain.CategoryIndividualAnimal, repoOtherOp, 5, "pending")
-	lcpInsertExpectedAnimal(t, ctx, pool, shared, lcpUUID(13101), mine, lcpShedOne, "weighed")
+	lcpInsertExpectedAnimal(t, ctx, pool, shared, lcpUUID(13101), mine, lcpShedOne, "pending")
 	lcpInsertExpectedAnimal(t, ctx, pool, shared, lcpUUID(13102), mine, lcpShedOne, "pending")
 	for n := 0; n < 5; n++ {
-		status := "weighed"
-		if n == 4 {
-			status = "pending"
-		}
-		lcpInsertExpectedAnimal(t, ctx, pool, shared, lcpUUID(13201+n), theirs, lcpShedTwo, status)
+		lcpInsertExpectedAnimal(t, ctx, pool, shared, lcpUUID(13201+n), theirs, lcpShedTwo, "pending")
+	}
+	// IndividualCompletedCount is sourced from weighing_observations, not the
+	// expected-animal status column (see progressStats' projection-review marker) --
+	// 1 real capture in "mine", 4 real captures in "theirs".
+	lcpInsertProof(t, ctx, pool, lcpUUID(13401), lcpShedOne)
+	lcpCapture(t, ctx, pool, repo, shared, mine, lcpUUID(13401), "lcp-shared-mine-capture", "lcp:shared:mine:capture")
+	lcpInsertProof(t, ctx, pool, lcpUUID(13402), lcpShedTwo)
+	for n := 0; n < 4; n++ {
+		lcpCaptureAs(t, ctx, pool, repo, shared, theirs, lcpUUID(13402), fmt.Sprintf("lcp-shared-theirs-capture-%d", n), fmt.Sprintf("lcp:shared:theirs:capture:%d", n), repoOtherOp)
 	}
 
 	// A campaign whose only bucket for this operator is canceled: park-level work
@@ -334,6 +351,7 @@ func TestListCampaignsStatusMatrixCoversEveryStatusBucket(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -453,6 +471,41 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, (SELECT name FROM locations WHER
 		campaignID, repoTenant, animalID, locationID, bucketID, status)
 }
 
+// lcpInsertProof seeds a completed shed-scoped video proof, the only proof
+// shape RecordAnimalObservation's free-flow write path accepts.
+func lcpInsertProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proofID, locationID string) {
+	t.Helper()
+	insertProof(t, ctx, pool, proofID, "video", "completed", "shed", locationID, "shed", locationID)
+}
+
+// lcpCapture drives a REAL free-flow capture through the repository (not a
+// hand-set weighing_expected_animals.status column) so
+// Progress.IndividualCompletedCount -- sourced from weighing_observations, see
+// progressStats' projection-review marker -- reflects an actual scan.
+func lcpCapture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, campaignID, bucketID, proofID, scannedIdentifier, idempotencyKey string) {
+	t.Helper()
+	lcpCaptureAs(t, ctx, pool, repo, campaignID, bucketID, proofID, scannedIdentifier, idempotencyKey, repoOperator)
+}
+
+// lcpCaptureAs is lcpCapture with an explicit RecordedBy, for buckets owned by
+// an operator other than repoOperator (RecordAnimalObservation requires the
+// caller to be the bucket's assignee).
+func lcpCaptureAs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, campaignID, bucketID, proofID, scannedIdentifier, idempotencyKey, recordedBy string) {
+	t.Helper()
+	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID:          repoTenant,
+		CampaignID:        campaignID,
+		CampaignShedID:    bucketID,
+		ScannedIdentifier: scannedIdentifier,
+		WeightKg:          10,
+		ProofArtifactID:   proofID,
+		RecordedBy:        recordedBy,
+		IdempotencyKey:    idempotencyKey,
+	}); err != nil {
+		t.Fatalf("lcpCapture %s/%s: %v", campaignID, scannedIdentifier, err)
+	}
+}
+
 func lcpFind(t *testing.T, items []domain.Campaign, campaignID string) domain.Campaign {
 	t.Helper()
 	for _, item := range items {
@@ -505,4 +558,130 @@ WHERE conname=$1`, constraintName).Scan(&definition); err != nil {
 		t.Fatalf("parsed %d statuses from %s definition %q", len(statuses), constraintName, definition)
 	}
 	return statuses
+}
+
+// TestWeighingObservationsCompletedCountMultipleDimensions exercises the
+// weighing_observations aggregate grain for IndividualCompletedCount:
+// count(DISTINCT lower(btrim(...scanned_identifier))) across individual_animal
+// buckets. Two separate dimension rows (sheds) with captures must not multiply
+// the animal count.
+func TestWeighingObservationsCompletedCountMultipleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	campaign := lcpUUID(20001)
+	lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", domain.StatusPublished, repoOperator)
+	bucket1 := lcpUUID(20011)
+	bucket2 := lcpUUID(20012)
+	lcpInsertBucket(t, ctx, pool, bucket1, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+	lcpInsertBucket(t, ctx, pool, bucket2, campaign, lcpShedTwo, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+	// Two captures in bucket1, two in bucket2 - total should be 4, not 8
+	lcpInsertProof(t, ctx, pool, lcpUUID(20401), lcpShedOne)
+	lcpCapture(t, ctx, pool, repo, campaign, bucket1, lcpUUID(20401), "tag1", "idem1")
+	lcpCapture(t, ctx, pool, repo, campaign, bucket1, lcpUUID(20401), "tag2", "idem2")
+	lcpInsertProof(t, ctx, pool, lcpUUID(20402), lcpShedTwo)
+	lcpCapture(t, ctx, pool, repo, campaign, bucket2, lcpUUID(20402), "tag3", "idem3")
+	lcpCapture(t, ctx, pool, repo, campaign, bucket2, lcpUUID(20402), "tag4", "idem4")
+
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaigns: %v", err)
+	}
+	campaigns := page.Items
+	if len(campaigns) != 1 {
+		t.Fatalf("expected 1 campaign, got %d", len(campaigns))
+	}
+	if campaigns[0].Progress.IndividualCompletedCount != 4 {
+		t.Fatalf("IndividualCompletedCount: expected 4, got %d", campaigns[0].Progress.IndividualCompletedCount)
+	}
+}
+
+// TestWeighingObservationsCompletedCountPaginationBoundary exercises the
+// weighing_observations aggregate across a paginated list. The completed count
+// must remain the same regardless of page size.
+func TestWeighingObservationsCompletedCountPaginationBoundary(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Create 3 campaigns with captures
+	for i := 0; i < 3; i++ {
+		campaign := lcpUUID(30000 + i)
+		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", domain.StatusPublished, repoOperator)
+		bucket := lcpUUID(30100 + i)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+		lcpInsertProof(t, ctx, pool, lcpUUID(30500+i), lcpShedOne)
+		lcpCapture(t, ctx, pool, repo, campaign, bucket, lcpUUID(30500+i), fmt.Sprintf("tag%d", i), fmt.Sprintf("idem%d", i))
+	}
+
+	// List with page size 2
+	page1, err := repo.ListCampaigns(ctx, repoTenant, "", "", 2)
+	if err != nil {
+		t.Fatalf("ListCampaigns page 1: %v", err)
+	}
+	if len(page1.Items) != 2 {
+		t.Fatalf("page 1: expected 2 items, got %d", len(page1.Items))
+	}
+	if page1.Items[0].Progress.IndividualCompletedCount != 1 || page1.Items[1].Progress.IndividualCompletedCount != 1 {
+		t.Fatalf("page 1 counts wrong: %d, %d", page1.Items[0].Progress.IndividualCompletedCount, page1.Items[1].Progress.IndividualCompletedCount)
+	}
+
+	// List with page size 3 (everything in one page)
+	page2, err := repo.ListCampaigns(ctx, repoTenant, "", "", 3)
+	if err != nil {
+		t.Fatalf("ListCampaigns page 2: %v", err)
+	}
+	if len(page2.Items) != 3 {
+		t.Fatalf("page 2: expected 3 items, got %d", len(page2.Items))
+	}
+	for i, item := range page2.Items {
+		if item.Progress.IndividualCompletedCount != 1 {
+			t.Fatalf("page 2 item %d: expected count 1, got %d", i, item.Progress.IndividualCompletedCount)
+		}
+	}
+}
+
+// TestWeighingObservationsCompletedCountEveryStatus exercises the
+// weighing_observations aggregate across all campaign statuses. The completed
+// count must be computed regardless of campaign status (published/canceled/etc).
+func TestWeighingObservationsCompletedCountEveryStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	statuses := []string{domain.StatusPublished, domain.StatusClosed, domain.StatusCompleted}
+	for i, status := range statuses {
+		campaign := lcpUUID(40000 + i)
+		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", status, repoOperator)
+		bucket := lcpUUID(40100 + i)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+		lcpInsertProof(t, ctx, pool, lcpUUID(40500+i), lcpShedOne)
+		lcpCapture(t, ctx, pool, repo, campaign, bucket, lcpUUID(40500+i), fmt.Sprintf("tag%d", i), fmt.Sprintf("idem%d", i))
+	}
+
+	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaigns: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("expected 3 campaigns, got %d", len(page.Items))
+	}
+	for i, campaign := range page.Items {
+		if campaign.Progress.IndividualCompletedCount != 1 {
+			t.Fatalf("campaign %d: expected count 1, got %d", i, campaign.Progress.IndividualCompletedCount)
+		}
+	}
 }

@@ -339,6 +339,21 @@ WHERE cs.tenant_id=$1::uuid
 		return domain.CloseResult{}, err
 	}
 
+	// The audit/idempotency snapshot uses the capped `buckets` sample above (see
+	// campaignNotAcceptedBuckets) — that is a display/audit sample and is allowed
+	// to be bounded. Operator notification fanout is a DIFFERENT concern: every
+	// affected operator must be told, not just the first
+	// domain.CloseNotAcceptedSampleLimit alphabetically. This query is the SAME
+	// filter with NO LIMIT. That is safe at the 5k-50k animal envelope because
+	// weighing_campaign_sheds rows are SHEDS assigned to one campaign (a physical,
+	// small-cardinality entity — tens to low hundreds per campaign), not animals;
+	// there is no per-animal fan-out here, so an uncapped read of this table
+	// cannot blow up the way an uncapped animal-level query would.
+	notifyBuckets, err := r.campaignNotAcceptedBucketsUncapped(ctx, tx, cmd)
+	if err != nil {
+		return domain.CloseResult{}, err
+	}
+
 	// One set-based cascade. Buckets that already reached 'completed' keep that
 	// status: a completed bucket is accepted work and close must not rewrite it.
 	// Buckets whose work was never accepted go to 'closed' and STAY not accepted.
@@ -395,7 +410,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventTypeCampaignClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign", cmd.CampaignID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, buckets); err != nil {
+	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, notifyBuckets); err != nil {
 		return domain.CloseResult{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -525,6 +540,40 @@ LIMIT $3`, cmd.TenantID, cmd.CampaignID, domain.CloseNotAcceptedSampleLimit)
 		return nil, 0, err
 	}
 	return buckets, total, nil
+}
+
+// campaignNotAcceptedBucketsUncapped returns EVERY not-accepted bucket in the
+// campaign (same predicate as campaignNotAcceptedBuckets, no LIMIT). It exists
+// ONLY to build the notification-fanout event payload (see enqueueCampaignClosed
+// call site in CloseCampaign): campaignNotAcceptedBuckets's LIMIT
+// domain.CloseNotAcceptedSampleLimit is a display/audit sample, and reusing that
+// capped list for notification silently dropped operators whose only buckets
+// sorted past the cap (B13). Bounded by shed cardinality, not animal
+// cardinality — see the call-site comment in CloseCampaign.
+func (r *Repository) campaignNotAcceptedBucketsUncapped(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand) ([]closedBucket, error) {
+	rows, err := tx.Query(ctx, `
+SELECT cs.campaign_shed_id::text, cs.location_id::text, cs.display_name, cs.operator_user_id::text, cs.status
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.status NOT IN ('completed','closed','canceled')
+ORDER BY cs.display_name, cs.campaign_shed_id`, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	buckets := make([]closedBucket, 0, 8)
+	for rows.Next() {
+		var bucket closedBucket
+		if err := rows.Scan(&bucket.CampaignShedID, &bucket.ShedID, &bucket.ShedLabel, &bucket.OperatorID, &bucket.Status); err != nil {
+			return nil, err
+		}
+		buckets = append(buckets, bucket)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buckets, nil
 }
 
 func (r *Repository) auditClose(

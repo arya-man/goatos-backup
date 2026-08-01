@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -369,6 +371,79 @@ RETURNING wi.work_item_id::text, wi.campaign_id::text, wi.campaign_shed_id::text
 	return total, true, nil
 }
 
+// ReactivateWorkItemsForBucket is the write side of B09 (reopen/rework must
+// not leave the kernel work item permanently terminal). It is the exact
+// reverse of reconcileTerminalWorkItems for ONE bucket: that pass moves a work
+// item from `scheduled`/`delayed` to a terminal state the moment its bucket's
+// `weighing_campaign_sheds.status` becomes `completed`/`closed`/`canceled`;
+// this undoes that the moment the bucket LEAVES a terminal status, by resetting
+// work_state back to `scheduled` and clearing terminal_at.
+//
+// MUST be called inside the SAME transaction as the bucket-status UPDATE that
+// takes weighing_campaign_sheds out of a terminal status — AGENTS.md requires
+// a state transition and the read model/kernel item it owns to commit or roll
+// back together, and this is a single-tenant, single-bucket lookup keyed on
+// the (tenant_id, campaign_shed_id) unique index (see createWorkItemsForPublishTx's
+// ON CONFLICT target), so it is O(1), never a scan.
+//
+// Call sites this repo does NOT own (verification_verdict.go, repository.go) —
+// call this function immediately after, in the same tx, passing scope.CampaignShedID
+// / campaignShedID:
+//
+//  1. verification_verdict.go markObservationRework, right after the existing
+//     `if scope.CampaignShedID != "" { UPDATE weighing_campaign_sheds SET
+//     status='in_progress' ... WHERE status='completed' }` block (around line
+//     291-300): add `if _, err := r.ReactivateWorkItemsForBucket(ctx, tx,
+//     verdict.TenantID, scope.CampaignShedID); err != nil { return time.Time{}, err }`
+//     inside that same `if scope.CampaignShedID != ""` guard, right after the
+//     UPDATE. Call unconditionally (not gated on RowsAffected) — the WHERE
+//     clause below only matches a work item that is actually terminal, so a
+//     no-op bucket costs one indexed no-match UPDATE.
+//
+//  2. repository.go ReopenScope, right after the existing
+//     `UPDATE weighing_campaign_sheds cs SET status='in_progress' ... WHERE
+//     cs.status IN ('completed','closed')` (around line 1935-1944) and its
+//     `if result.RowsAffected() == 0 { return nil, ports.ErrNotFound }` check
+//     (line 1948-1950): add `if _, err := r.ReactivateWorkItemsForBucket(ctx,
+//     tx, tenantID, campaignShedID); err != nil { return nil, err }` right
+//     after that RowsAffected check, before the `weighing_shed_observations`
+//     withdrawal block.
+//
+// Deliberately NOT a periodic sweep-pass reconcile: a sweep-based fix would
+// leave Calendar/Control Tower reporting the reopened item as finished for up
+// to one full sweep interval after the rework/reopen transaction already
+// committed, and that same transaction already holds the row lock on the
+// bucket — a reconcile pass here would be lossy by construction, not merely
+// delayed. This function resets ONLY work_state and terminal_at, never
+// due_business_date/planned_business_date/rolled_forward_count/
+// delayed_since_business_date: the next SweepWorkItems tick re-derives
+// roll-forward/delayed/day-start cadence for the reopened item from its
+// existing dates exactly as it would for any other open item, so reactivation
+// only needs to take the item out of the terminal predicate every sweep pass
+// and every "open work" read already filters on
+// (`work_state IN ('scheduled','delayed')`). This keeps the seam narrow even
+// if a future rework adds a round/version concept: this function only ever
+// reads tenant_id + campaign_shed_id, never campaign-shed history.
+func (r *Repository) ReactivateWorkItemsForBucket(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	campaignShedID = strings.TrimSpace(campaignShedID)
+	if tenantID == "" || campaignShedID == "" {
+		return 0, nil
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE weighing_work_items
+SET work_state = 'scheduled',
+    terminal_at = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND campaign_shed_id = $2::uuid
+  AND work_state IN ('completed','closed','canceled')`, tenantID, campaignShedID)
+	if err != nil {
+		return 0, fmt.Errorf("weighing kernel: reactivate work item for bucket: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // cadencePass describes one claim-and-notify sweep pass. It is claimed with a
 // composite (date, work_item_id) keyset cursor (expressed as an OR-decomposed
 // date/work_item_id predicate) so the cursor's sort
@@ -549,10 +624,38 @@ func (r *Repository) claimChunkRows(
 // one per work item, so a 200-row chunk on one park's sheds produces a handful of
 // events instead of 200 pushes.
 //
-// The idempotency key is (event type, tenant, campaign, operator, business date).
-// The outbox event id is derived from it, so a redelivered/retried tick collapses
-// on ON CONFLICT DO NOTHING and the operator is not pushed twice for the same
-// business day.
+// The idempotency key is (event type, tenant, campaign, operator, business
+// date, bucket-set digest). The bucket-set digest — a stable hash of THIS
+// group's sorted campaign_shed_ids — is required, not cosmetic (B10): every
+// pass claims and enqueues per CHUNK (defaultKernelChunkSize=200), each chunk
+// committing its own transaction, and a single operator's open buckets on one
+// business date can legitimately span multiple chunks. Without the digest, two
+// chunks for the SAME (event type, tenant, campaign, operator, date) computed
+// the IDENTICAL key, so the outbox's `ON CONFLICT DO NOTHING` silently dropped
+// every chunk after the first — even though every chunk's own UPDATE had
+// already marked its rows surfaced/rolled/delayed. Folding in the digest keeps
+// exact-replay dedup intact (a genuine retry re-claims the identical row set
+// via the same predicate, so it hashes to the same digest and still
+// collapses) while giving two DIFFERENT bucket sets for the same operator/day
+// two DIFFERENT keys, so neither is dropped.
+// The outbox event id is derived from the full idempotency key, so a
+// redelivered/retried tick still collapses on ON CONFLICT DO NOTHING and the
+// operator is not pushed twice for the same set of buckets.
+// bucketSetDigest is a deterministic identity for a claimed chunk's bucket
+// set: the sorted campaign_shed_ids, hashed. Callers must sort payload.Buckets
+// (by CampaignShedID) before calling this, which enqueueCadenceEvents already
+// does — so the SAME set of buckets always produces the SAME digest regardless
+// of claim/scan order, and a DIFFERENT set (a different chunk, even for the
+// same operator/campaign/day) always produces a different one.
+func bucketSetDigest(buckets []domain.WorkItemBucket) string {
+	ids := make([]string, len(buckets))
+	for i, b := range buckets {
+		ids[i] = b.CampaignShedID
+	}
+	sum := sha256.Sum256([]byte(strings.Join(ids, ",")))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 func (r *Repository) enqueueCadenceEvents(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -598,7 +701,7 @@ func (r *Repository) enqueueCadenceEvents(
 		sort.Slice(payload.Buckets, func(i, j int) bool {
 			return payload.Buckets[i].CampaignShedID < payload.Buckets[j].CampaignShedID
 		})
-		idem := strings.Join([]string{eventType, tenantID, key.campaignID, key.operatorID, businessDate}, ":")
+		idem := strings.Join([]string{eventType, tenantID, key.campaignID, key.operatorID, businessDate, bucketSetDigest(payload.Buckets)}, ":")
 		// scale-guard:ignore: bounded fan-out over the DISTINCT (campaign, operator) groups inside ONE claimed chunk (a park's sheds, tens at most). Each event carries a DIFFERENT operator's own buckets and a DIFFERENT idempotency key, so it cannot be collapsed into one batched write without leaking another operator's buckets.
 		if err := r.enqueue(ctx, tx, tenantID, eventType, key.campaignID, idem, "", payload); err != nil {
 			return 0, err

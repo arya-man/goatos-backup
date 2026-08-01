@@ -188,6 +188,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
 }
 
 dependencies {
@@ -291,6 +292,7 @@ dependencies {
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }
 
 configurations.matching { configuration ->

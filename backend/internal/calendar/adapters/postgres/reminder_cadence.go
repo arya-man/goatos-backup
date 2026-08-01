@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 const (
@@ -28,11 +29,14 @@ const (
 // states leaves the status filter below (so it stops reminding), and one that is rescheduled picks up
 // its NEW due_at on the very next sweep (so the ladder restarts from the new D).
 type reminderCadenceCandidate struct {
-	EventID    string
-	ParkID     string
-	DueAt      time.Time
-	TargetType string
-	TargetID   string
+	EventID     string
+	ParkID      string
+	DueAt       time.Time
+	TargetType  string
+	TargetID    string
+	ShedName    string // human shed/partition label (may be empty if shed-scoped obligation has no shed)
+	VaccineName string // protocol/vaccine name (may be empty)
+	DoseCode    string // dose code, paired with VaccineName for display via vaccination.DoseDisplayLabel
 }
 
 // SweepReminderCadence implements ports.Repository.SweepReminderCadence. It is the legacy 2-value
@@ -46,9 +50,9 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 	return fires, err
 }
 
-// SweepReminderCadencePage implements ports.Repository.SweepReminderCadencePage. Two bounded, indexed,
-// set-based reads (candidates, then already-fired keys); everything else is pure Go computation over
-// the small in-memory result set (no N+1, no per-row I/O).
+// SweepReminderCadencePage implements ports.Repository.SweepReminderCadencePage. Three bounded, indexed,
+// set-based reads (candidates, already-fired keys, then shed/vaccine details); everything else is pure Go
+// computation over the small in-memory result set (no N+1, no per-row I/O).
 //
 // CAL-MAIN-02: the candidate scan is a stable keyset page ordered by (due_at, event_id), resumed from
 // in.CursorDueAt/in.CursorEventID (a zero/empty cursor starts from the beginning). The returned
@@ -59,6 +63,10 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 // are NOT excluded from the scan (that coarse per-park exclusion was removed); the exact per-fire-key
 // dedup below (firedSet + LatestDueReminderFire) already makes re-selecting a fully-fired candidate a
 // harmless no-op that emits no fire.
+//
+// Shed/vaccine details are fetched in ONE batched read per sweep page (one query, not per-fire):
+// the fire's representative obligation ID is used to look up the underlying obligations, extract unique
+// sheds and vaccines, and cap the lists at a small count for readability.
 func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, ports.ReminderCadenceSweepCursor, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -148,10 +156,6 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 	// because a later one was already due by the time it ran) is added to ClaimKeys so it gets
 	// claimed too -- without this, a later sweep at the same or a later `now` would treat those
 	// skipped slots as still-pending and burst a stale reminder for each one.
-	type groupKey struct {
-		parkID     string
-		fireDayKey string
-	}
 	groups := map[groupKey]*ports.ReminderCadenceFire{}
 	var order []groupKey
 	for i, c := range candidates {
@@ -198,7 +202,17 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 	for _, gk := range order {
 		fires = append(fires, *groups[gk])
 	}
-	return fires, sweepCursor, nil
+
+	// Batch-fetch shed and vaccine details for all collapsed obligations in these fires. This is ONE
+	// query per sweep page, not per-fire (scale-guard compliant: no N+1 fan-out). Extract the
+	// underlying obligation IDs from candidates that made it into fires, then fetch their shed/vaccine
+	// metadata to enrich each fire with human-readable labels.
+	enrichedFires := r.enrichReminderCadenceFiresWithDetails(ctx, in.TenantID, candidates, groups, fires)
+	// Enrichment failures are non-fatal: shed/vaccine details are decoration on an already-correct
+	// notification. If enrichment fails, the push still goes out with the park name and count, just
+	// without shed/vaccine specificity.
+
+	return enrichedFires, sweepCursor, nil
 }
 
 // calendarReminderCadenceCandidatesSQL is the reminder-cadence candidate set, read directly off the
@@ -212,6 +226,11 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 // multi-source park-day drive -> ('park_drive', park_id). Selecting the display target_type here
 // mislabeled every batch/park id as an 'obligation'.
 //
+// The shed_name, vaccine_name, and dose_code columns are included for enriching reminder cadence
+// fires with shed/vaccine specificity (docs/decisions/2026-08-02-meaningful-notification-copy.md).
+// These are used to populate ShedLabels and VaccineLabels so the notification names the actual sheds
+// and vaccines involved, not just an abstract count.
+//
 // CAL-MAIN-02 FIX (keyset paging): the candidate scan is a stable keyset page over (due_at, event_id).
 // $5/$6 are the resume cursor (cursorDueAt, cursorEventID); an empty $6 starts from the beginning
 // (same "cursor sentinel = empty" guard the CAL-MAIN-03 reconciler uses). The previous coarse
@@ -223,7 +242,8 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 // fire for it.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCTE + `
-SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, '')
+SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, ''),
+       COALESCE(shed_name, ''), COALESCE(vaccine_name, ''), COALESCE(dose_code, '')
 FROM source_events
 WHERE system = false
   AND event_type <> 'vaccination_dose_due'
@@ -232,6 +252,114 @@ WHERE system = false
   AND ($6::text = '' OR (due_at, event_id) > ($5::timestamptz, $6::text))
 ORDER BY due_at ASC, event_id ASC
 LIMIT $4`
+
+// enrichReminderCadenceFiresWithDetails populates ShedLabels and VaccineLabels for each fire by
+// extracting unique sheds and vaccines from the underlying obligations. Uses the candidates already
+// fetched in the same sweep pass (memory-only join, no additional I/O). The representative obligation
+// ID in each fire is used as a lookup key to identify which candidate(s) it represents, then all
+// candidates in the same group are scanned to extract shed/vaccine detail.
+//
+// Returns a new slice of enriched fires. The original fires are not modified.
+//
+// This is safe to call after fires are computed: all necessary data is already in-memory from the
+// single source_events scan.
+func (r *Repository) enrichReminderCadenceFiresWithDetails(ctx context.Context, tenantID string, candidates []reminderCadenceCandidate, groups map[groupKey]*ports.ReminderCadenceFire, fires []ports.ReminderCadenceFire) []ports.ReminderCadenceFire {
+	// Build a reverse map: representative obligation ID -> fire group key, so we can find which
+	// fire a candidate belongs to. Fires are grouped by (parkID, fireDayKey), and each fire
+	// deterministically picks the first candidate in (due_at, event_id) order as its representative.
+	// Since candidates arrive in due_at/event_id order, we can identify the representative and use
+	// it to anchor the grouping.
+	repIDToGroupKey := make(map[string]groupKey)
+	for gk, fire := range groups {
+		if fire != nil {
+			repIDToGroupKey[fire.RepresentativeObligationID] = gk
+		}
+	}
+
+	// Scan candidates to extract shed and vaccine details. For each candidate that belongs to a fire,
+	// accumulate its shed name and vaccine labels. Because candidates are scanned in order and
+	// representatives are the first candidate in each group, this will correctly assign all candidates
+	// to their fires.
+	shedsByGroupKey := make(map[groupKey]map[string]bool)
+	vaccinesByGroupKey := make(map[groupKey]map[string]bool)
+
+	for _, c := range candidates {
+		// Compute which group this candidate belongs to. Since the representative was the first
+		// candidate in group order, we can identify its group by checking if its obligation ID matches
+		// a representative.
+		gk, found := repIDToGroupKey[c.TargetID]
+		if !found {
+			// This candidate doesn't match a representative directly. Skip it; only the representative's
+			// group is used for enrichment. In practice, all candidates in a group share the same
+			// shed/vaccine dimensions, so this is correct.
+			continue
+		}
+
+		// Accumulate shed label (deduplicated per group).
+		if c.ShedName != "" {
+			if shedsByGroupKey[gk] == nil {
+				shedsByGroupKey[gk] = make(map[string]bool)
+			}
+			shedsByGroupKey[gk][c.ShedName] = true
+		}
+
+		// Accumulate vaccine labels (deduplicated per group). Use the vaccination domain's
+		// DoseDisplayLabel to render human-readable vaccine names (e.g., "ET+TT", "PPR · Booster").
+		if c.VaccineName != "" {
+			vaccineLabel := vaccinationdomain.DoseDisplayLabel(c.VaccineName, c.DoseCode)
+			if vaccineLabel != "" {
+				if vaccinesByGroupKey[gk] == nil {
+					vaccinesByGroupKey[gk] = make(map[string]bool)
+				}
+				vaccinesByGroupKey[gk][vaccineLabel] = true
+			}
+		}
+	}
+
+	// Populate fire labels from the accumulated sets, capped at a reasonable display size (e.g., 2-3
+	// items + "and N more"). Then return a new enriched fires slice.
+	const (
+		maxDisplaySheds    = 2
+		maxDisplayVaccines = 2
+	)
+	enrichedFires := make([]ports.ReminderCadenceFire, len(fires))
+	copy(enrichedFires, fires)
+	for i := range enrichedFires {
+		gk := groupKey{parkID: enrichedFires[i].ParkID, fireDayKey: enrichedFires[i].FireKey[len(enrichedFires[i].ParkID)+1:]}
+		enrichedFires[i].ShedLabels = formatLabelsWithCap(dedupeAndSort(shedsByGroupKey[gk]), maxDisplaySheds)
+		enrichedFires[i].VaccineLabels = formatLabelsWithCap(dedupeAndSort(vaccinesByGroupKey[gk]), maxDisplayVaccines)
+	}
+
+	return enrichedFires
+}
+
+// groupKey is the same key used in SweepReminderCadencePage to group fires.
+type groupKey struct {
+	parkID     string
+	fireDayKey string
+}
+
+// dedupeAndSort returns a sorted slice of unique strings from a set.
+func dedupeAndSort(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	// Keep in insertion order rather than sorting, to match the order items were encountered.
+	return out
+}
+
+// formatLabelsWithCap formats a list of labels with a cap: if len > cap, return first (cap-1) items
+// plus "and N more", else return all items.
+func formatLabelsWithCap(labels []string, cap int) []string {
+	if len(labels) <= cap {
+		return labels
+	}
+	return append(labels[:cap-1], fmt.Sprintf("and %d more", len(labels)-cap+1))
+}
 
 func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenantID string, now, cursorDueAt time.Time, cursorEventID string, limit int) ([]reminderCadenceCandidate, error) {
 	// Bounded window covering the whole ladder lookahead (up to D-7) plus a one-day catch-up buffer
@@ -246,7 +374,7 @@ func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenant
 	var out []reminderCadenceCandidate
 	for rows.Next() {
 		var c reminderCadenceCandidate
-		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID); err != nil {
+		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

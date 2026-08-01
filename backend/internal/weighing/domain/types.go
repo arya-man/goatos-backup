@@ -431,6 +431,14 @@ type Observation struct {
 	ActualLocationID    string       `json:"actual_location_id,omitempty"`
 	ActualLocationLabel string       `json:"actual_location_label,omitempty"`
 	AcceptedAt          time.Time    `json:"accepted_at"`
+	// Superseded is true when this capture UPDATED an existing, not-yet-submitted
+	// (or verifier-reworked) evidence row in place, rather than inserting a fresh
+	// one. It is the signal the service layer uses to advance the observation's
+	// verification round: the previous verification item (which may already carry
+	// a stale 'verified' decision against the OLD weight/proof) must be withdrawn
+	// before a new one is raised for the edited evidence. See
+	// app.Service.enqueueVerification and the B06 root-cause note there.
+	Superseded bool `json:"-"`
 }
 
 type Progress struct {

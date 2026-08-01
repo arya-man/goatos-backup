@@ -81,6 +81,13 @@ const (
 // director, so a weighing proof reached the vaccination verifier and the PC director with
 // vaccination wording, while the growth director -- who owns weighing -- was never told.
 type pendingModuleProfile struct {
+	// messageKeyPrefix is the stable, locale-independent notification identifier the Android
+	// client uses to look up its own localized string for this module's pushes (issue #27:
+	// Title/Body stay English-only fallbacks; message_key + structured context fields are the
+	// real localization contract). Never reuse dutyModule for this — dutyModule is a
+	// position_module_duties.module_code ("feed.direction") that has drifted from the
+	// human-readable module name ("feed") and is not meant to be a translation-catalog key.
+	messageKeyPrefix string
 	// dutyModule is the position_module_duties.module_code whose 'verify' duty holders review this
 	// module's proofs at the park.
 	dutyModule string
@@ -125,6 +132,7 @@ type pendingModuleProfile struct {
 // weighingdomain.VerificationModuleWeighing = "weighing" for weighing).
 var pendingModuleProfiles = map[string]pendingModuleProfile{
 	legacyVaccinationSourceModule: {
+		messageKeyPrefix:     "vaccination",
 		dutyModule:           moduleVaccination,
 		leadershipPosition:   positionPCDirector,
 		leadershipRoleLabel:  "pc_director",
@@ -151,6 +159,7 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		closedTarget:       "/vaccination",
 	},
 	moduleWeighing: {
+		messageKeyPrefix:     "weighing",
 		dutyModule:           moduleWeighing,
 		leadershipPosition:   positionGrowthDirector,
 		leadershipRoleLabel:  roleLabelGrowthDirector,
@@ -182,6 +191,7 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 	// tap route is the feed surface. Feed_Director.pdf M1 makes the Feed Director the person who
 	// confirms daily that feeding SOP videos are actually being reviewed.
 	moduleFeed: {
+		messageKeyPrefix:     "feed",
 		dutyModule:           dutyModuleFeed,
 		leadershipPosition:   positionFeedDirector,
 		leadershipRoleLabel:  positionFeedDirector,
@@ -210,6 +220,7 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 	// Counts proofs (the shifting/movement completion video) route to the Health Director, who
 	// owns Counts per the 2026-08-01 maintainer decision. Deliberately NOT pc_director.
 	moduleCounts: {
+		messageKeyPrefix:     "counts",
 		dutyModule:           dutyModuleCounts,
 		leadershipPosition:   positionHealthDirector,
 		leadershipRoleLabel:  positionHealthDirector,
@@ -438,6 +449,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Cont
 		Context: map[string]string{
 			"type":         "verification_approved",
 			"screen":       "leadership_close",
+			"message_key":  "vaccination.drive.ready_to_close",
 			"batch_id":     batchID,
 			"park_id":      p.ParkID,
 			"group_key":    "verification:" + tenantID + ":vaccination_drive",
@@ -483,6 +495,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 			// record for that shed. An absent category now means "not vaccination", so omitting it
 			// here would silently strand this drive-closed notice on the recipient's home screen.
 			"category":     "vaccination",
+			"message_key":  "vaccination.drive.closed",
 			"batch_id":     batchID,
 			"group_key":    "verification:" + tenantID + ":vaccination_drive",
 			"collapse_key": "verification:" + tenantID + ":vaccination_drive",
@@ -544,6 +557,7 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 			"type":         "verification_approved",
 			"screen":       profile.approvedScreen,
 			"target":       profile.approvedTarget,
+			"message_key":  profile.messageKeyPrefix + ".proof.approved",
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,
@@ -593,6 +607,7 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 			"type":         "verification_closed",
 			"screen":       profile.closedScreen,
 			"target":       profile.closedTarget,
+			"message_key":  profile.messageKeyPrefix + ".record.closed",
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,
@@ -712,6 +727,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		verifierContext := cloneContext(baseContext)
 		verifierContext["screen"] = "verification"
 		verifierContext["target"] = "/verification/items/" + itemID
+		verifierContext["message_key"] = profile.messageKeyPrefix + ".proof.pending.verifier"
 		_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 			TenantID:         tenantID,
 			CalendarEventID:  verificationCalendarEventID(itemID),
@@ -737,6 +753,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	leadershipContext := cloneContext(baseContext)
 	leadershipContext["screen"] = profile.leadershipScreen
 	leadershipContext["target"] = profile.leadershipTarget
+	leadershipContext["message_key"] = profile.messageKeyPrefix + ".proof.pending.leadership"
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  verificationCalendarEventID(itemID),
@@ -856,6 +873,8 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 			"type":         NotificationTypeRework,
 			"screen":       profile.reworkScreen,
 			"target":       profile.reworkTarget,
+			"message_key":  profile.messageKeyPrefix + ".proof.rework",
+			"reason":       p.Reason,
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,
