@@ -330,6 +330,14 @@ type ReminderCadenceFire struct {
 	// later sweep does NOT "catch up" on the superseded slots and burst multiple stale reminders --
 	// only the single latest (FireKey) ever produces a notification.
 	ClaimKeys []string
+	// ShedLabels are the human-readable shed/partition names for the obligations collapsed into this fire.
+	// Unique sheds within the fire, capped at a small count so the notification stays readable. Empty when
+	// the fire has no shed scope (e.g., park-wide obligations). Fetched in one batched read per sweep page.
+	ShedLabels []string
+	// VaccineLabels are the human-readable vaccine names (e.g., "ET+TT", "PPR · Booster") for the
+	// obligations collapsed into this fire. Unique vaccines, capped at a small count. Empty when no
+	// vaccine is specified. Fetched in one batched read per sweep page.
+	VaccineLabels []string
 }
 
 // ReminderCadenceFireInput pairs an already-collapsed ReminderCadenceFire with its rendered

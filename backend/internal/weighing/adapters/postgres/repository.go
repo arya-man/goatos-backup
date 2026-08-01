@@ -198,8 +198,7 @@ SET park_id=$3::uuid,
     row_version=row_version+1
 WHERE weighing_campaigns.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
-  AND status <> 'completed'
-  AND status <> 'canceled'`,
+  AND status NOT IN ('completed','closed','canceled')`,
 		cmd.TenantID, campaignID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID)
 	if err != nil {
 		return domain.Campaign{}, err
@@ -216,7 +215,7 @@ UPDATE weighing_campaign_sheds
 SET status='canceled', updated_at=now()
 WHERE weighing_campaigns.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
-  AND status NOT IN ('completed', 'canceled')
+  AND status NOT IN ('completed', 'closed', 'canceled')
   AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
 		return domain.Campaign{}, err
 	}
@@ -270,7 +269,7 @@ WITH upserted AS (
     expected_animal_count=EXCLUDED.expected_animal_count,
     status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
     updated_at=now()
-  WHERE weighing_campaign_sheds.status <> 'completed'
+  WHERE weighing_campaign_sheds.status NOT IN ('completed','closed','canceled')
   RETURNING campaign_shed_id
 )
 INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
@@ -1448,7 +1447,8 @@ WITH campaign AS (
     observation.scanned_identifier AS animal_id_text, observation.weight_kg::float8,
     observation.proof_artifact_id::text,
     COALESCE(observation.expected_location_id::text,'') AS expected_location_id_text,
-    '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at
+    '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at,
+    TRUE AS is_update
 ), inserted AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier,
@@ -1470,13 +1470,13 @@ WITH campaign AS (
   WHERE NOT EXISTS (SELECT 1 FROM updated)
     AND NOT EXISTS (SELECT 1 FROM submitted_duplicate)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at
+  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, COALESCE(animal_id::text, scanned_identifier) AS animal_id_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update
 )
-SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM updated
+SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM updated
 UNION ALL
-SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at FROM inserted`,
+SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM inserted`,
 		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.AnimalID, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
@@ -1720,7 +1720,7 @@ WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
   AND cs.campaign_shed_id=$3::uuid
   AND cs.weighing_category='individual_animal'
-  AND cs.status <> 'completed'
+  AND cs.status NOT IN ('completed','closed','canceled')
   AND NOT EXISTS (
     SELECT 1
     FROM weighing_expected_animals ea
@@ -1935,12 +1935,12 @@ func (r *Repository) ReopenScope(ctx context.Context, tenantID, campaignID, camp
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
-SET status='in_progress', completed_at=NULL, updated_at=now()
+SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, updated_at=now()
 FROM weighing_campaigns campaign
 WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
   AND cs.campaign_shed_id=$3::uuid
-  AND cs.status='completed'
+  AND cs.status IN ('completed','closed')
   AND campaign.tenant_id=cs.tenant_id
   AND campaign.campaign_id=cs.campaign_id`, tenantID, campaignID, campaignShedID)
 	if err != nil {
@@ -1948,6 +1948,15 @@ WHERE cs.tenant_id=$1::uuid
 	}
 	if result.RowsAffected() == 0 {
 		return nil, ports.ErrNotFound
+	}
+	// B09: the bucket just left its terminal status (completed/closed), so the
+	// kernel work item the sweeper terminalized for it must be reactivated in the
+	// SAME transaction -- reconcileTerminalWorkItems only drives work items TOWARD
+	// terminal, nothing moves one back on its own. Without this, a reopened bucket
+	// stays outside every sweep's claimable predicate and Calendar/Control Tower
+	// keep reporting it as finished.
+	if _, err := r.ReactivateWorkItemsForBucket(ctx, tx, tenantID, campaignShedID); err != nil {
+		return nil, err
 	}
 	// Withdraw the bucket's lump-sum submission so the reopened bucket can be
 	// submitted AGAIN. weighing_shed_observations carries at most one OPEN row per
@@ -2209,7 +2218,7 @@ FROM weighing_campaign_sheds
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND weighing_category='individual_animal'
-  AND status <> 'completed'`, tenantID, campaignID)
+  AND status NOT IN ('completed','closed','canceled')`, tenantID, campaignID)
 	if err != nil {
 		return err
 	}
@@ -2468,6 +2477,11 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	}, len(campaigns))
 	// projection-review: membership=weighing_expected_animals rows belonging to the operator-visible campaign_shed buckets of the listed campaigns; group_key=campaign_id, joined back to the campaign row in Go by campaign_id; join_cardinality=one expected-animal row per (campaign_id,animal_id) primary key and the operator bucket check is an EXISTS semijoin on the weighing_campaign_sheds primary key so it adds no rows; pagination=one bounded set-based aggregate over the campaign ids of the current page (never per row and never per page-loop iteration); scope=tenant_id=$1 plus the same optional operator bucket predicate $3 used for the bucket rows above.
 	//
+	// completed_animals is NOT read from this table (see the dedicated weighing_observations
+	// query below) -- wea.status is never set to 'weighed' by the free-flow write path, so it
+	// always undercounts to zero. wrong_shed/missing stay sourced here; they are roster-derived
+	// facts (a real goat moved shed or died/sold), not captures.
+	//
 	// Grain proof (a) producer unique columns vs consumer match/group columns:
 	//   producer weighing_expected_animals unique: (campaign_id, animal_id) PK, bucket column campaign_shed_id
 	//   consumer rollup                    group:  (campaign_id); bucket filter matches (tenant_id, campaign_id, campaign_shed_id)
@@ -2477,7 +2491,6 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	//   range over (tenant_id, campaign_id, campaign_shed_id IN the operator-visible bucket set) - identical on both sides.
 	rows, err = r.pool.Query(ctx, `
 SELECT wea.campaign_id::text,
-  count(*) FILTER (WHERE wea.status = 'weighed')::int AS completed_animals,
   count(*) FILTER (WHERE wea.availability_status = 'moved_other_shed')::int AS wrong_shed,
   count(*) FILTER (
     WHERE wea.availability_status IN ('dead', 'sold_transferred')
@@ -2509,10 +2522,49 @@ GROUP BY wea.campaign_id`, tenantID, ids, nullableString(operatorFilter))
 			wrongShed        int
 			missing          int
 		}
-		if err := rows.Scan(&id, &row.completedAnimals, &row.wrongShed, &row.missing); err != nil {
+		if err := rows.Scan(&id, &row.wrongShed, &row.missing); err != nil {
 			rows.Close()
 			return err
 		}
+		stats[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	// projection-review: membership=weighing_observations rows captured against the operator-visible individual_animal buckets of the listed campaigns; group_key=campaign_id, measure=count(DISTINCT lower(btrim(COALESCE(animal_id::text, scanned_identifier)))); join_cardinality=weighing_campaign_sheds cs is exactly 1 row per campaign_shed_id (primary key) restricted to individual_animal buckets, so the join adds no rows and the count stays scan-grain by construction; pagination=one bounded set-based aggregate over the campaign ids of the current page; scope=tenant_id=$1 plus the same optional operator bucket predicate $3 used for the bucket rows above.
+	//
+	// This is the SAME canonical source (weighing_observations, animal_id NULL / scanned_identifier carries the RFID under free-flow) the bucket/roster screens already read -- fixes the cross-surface count-parity defect where campaign "captured" totals read a column (weighing_expected_animals.status='weighed') the write path never sets.
+	//
+	// Grain proof (a) producer unique columns vs consumer match/group columns: producer weighing_observations has no per-tag uniqueness -- a rescan before submission updates the SAME row in place (recordUnknownAnimalObservationTx), so re-capturing a tag does not inflate the count; consumer group=campaign_id, measure=count(DISTINCT normalized identifier).
+	// Grain proof (b) row multiplicity: cs is 1:1 with campaign_shed_id; restricted to individual_animal buckets, matching IndividualExpectedCount's own bucket set.
+	// Grain proof (c) ratio key sets: numerator and IndividualExpectedCount (summed in `progress()` from the same individual_animal buckets) both range over (tenant_id, campaign_id, campaign_shed_id IN individual_animal buckets of this campaign, operator-visible set).
+	rows, err = r.pool.Query(ctx, `
+SELECT o.campaign_id::text,
+  count(DISTINCT lower(btrim(COALESCE(o.animal_id::text, o.scanned_identifier))))::int AS completed_animals
+FROM weighing_observations o
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=o.tenant_id
+ AND cs.campaign_id=o.campaign_id
+ AND cs.campaign_shed_id=o.campaign_shed_id
+ AND cs.weighing_category='individual_animal'
+WHERE o.tenant_id=$1::uuid
+  AND o.campaign_id = ANY($2::uuid[])
+  AND ($3::uuid IS NULL OR cs.operator_user_id=$3::uuid)
+GROUP BY o.campaign_id`, tenantID, ids, nullableString(operatorFilter))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var completedAnimals int
+		if err := rows.Scan(&id, &completedAnimals); err != nil {
+			rows.Close()
+			return err
+		}
+		row := stats[id]
+		row.completedAnimals = completedAnimals
 		stats[id] = row
 	}
 	if err := rows.Err(); err != nil {
@@ -2571,10 +2623,29 @@ GROUP BY wso.campaign_id`, tenantID, ids, nullableString(operatorFilter))
 	return nil
 }
 
+// projection-review: membership=weighing_observations rows captured against the campaign's individual_animal buckets (free-flow write path: animal_id is always NULL, scanned_identifier carries the raw RFID); group_key=campaign_id, measure=count(DISTINCT lower(btrim(COALESCE(animal_id::text, scanned_identifier)))); join_cardinality=weighing_campaign_sheds cs is exactly 1 row per campaign_shed_id (primary key) restricted to individual_animal buckets, so the join adds no rows and the count stays scan-grain by construction; pagination=one bounded aggregate per campaign (not paginated, whole-filter); scope=tenant_id=$1, campaign_id=$2.
+//
+// This REPLACES the old `weighing_expected_animals.status='weighed'` read: nothing in the free-flow write path ever sets that column (animal_id is NULL on every insert), so it always read zero while this bucket's own captured rows were nonzero -- the cross-surface count-parity defect AGENTS.md names (the 200-vs-400 incident). The canonical source for "how many animals were captured" is the same weighing_observations table the roster/bucket screens already read; this is that same grain, not a new estimate.
+//
+// Grain proof (a) producer unique columns vs consumer match/group columns: producer weighing_observations has no uniqueness constraint on scanned_identifier, so a rescan (edit before submission) updates the SAME row in place (recordUnknownAnimalObservationTx) and is not duplicated per edit; consumer group=campaign_id, measure=count(DISTINCT normalized identifier), so two rows for the same tag (extra_scan mismatch path) still count the animal once.
+// Grain proof (b) row multiplicity: cs is 1:1 with campaign_shed_id (primary key); the predicate restricts to individual_animal buckets only, matching the IndividualCompletedCount denominator built from those same buckets' ExpectedAnimalCount.
+// Grain proof (c) ratio key sets: numerator (captured animals) and IndividualExpectedCount (summed from the same individual_animal buckets in `progress()`) both range over (tenant_id, campaign_id, campaign_shed_id IN individual_animal buckets of this campaign).
 func (r *Repository) progressStats(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (completedAnimals int, completedScopes int, wrongShed int, missing int, err error) {
 	err = tx.QueryRow(ctx, `
+SELECT count(DISTINCT lower(btrim(COALESCE(o.animal_id::text, o.scanned_identifier))))::int
+FROM weighing_observations o
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=o.tenant_id
+ AND cs.campaign_id=o.campaign_id
+ AND cs.campaign_shed_id=o.campaign_shed_id
+ AND cs.weighing_category='individual_animal'
+WHERE o.tenant_id=$1::uuid AND o.campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&completedAnimals)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	err = tx.QueryRow(ctx, `
 SELECT
-  count(*) FILTER (WHERE status = 'weighed')::int AS completed_animals,
   count(*) FILTER (WHERE availability_status = 'moved_other_shed')::int AS wrong_shed,
   count(*) FILTER (
     WHERE availability_status IN ('dead', 'sold_transferred')
@@ -2582,7 +2653,7 @@ SELECT
   )::int AS missing
 FROM weighing_expected_animals
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).
-		Scan(&completedAnimals, &wrongShed, &missing)
+		Scan(&wrongShed, &missing)
 	if err != nil {
 		return 0, 0, 0, 0, err
 	}

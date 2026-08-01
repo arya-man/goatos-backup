@@ -195,6 +195,8 @@ data class WeighingAssignmentUiRow(
     val status: String,
     val expectedCount: Int,
     val periodLabel: String,
+    val readyToClose: Boolean = false,
+    val pendingVerificationCount: Int = 0,
 ) {
     // After operator submits, bucket is non-clickable until reopened or verifier sends rework
     val isSubmittedAndWaitingVerification: Boolean
@@ -205,6 +207,9 @@ data class WeighingAssignmentUiRow(
 
     val isClickable: Boolean
         get() = !isSubmittedAndWaitingVerification && !isClosed
+
+    val canClose: Boolean
+        get() = readyToClose && isSubmittedAndWaitingVerification
 }
 
 /** One filter chip: a stable id, its label, and whether it is the active filter. */

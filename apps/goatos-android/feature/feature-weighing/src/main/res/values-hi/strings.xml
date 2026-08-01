@@ -186,6 +186,8 @@
     <string name="weighing_leadership_refresh">वज़न रीफ़्रेश करें</string>
     <string name="weighing_leadership_tap_to_reopen">फिर खोलने के लिए टैप करें</string>
     <string name="weighing_leadership_close">बंद करें</string>
+    <string name="weighing_leadership_awaiting_verification">वीडियो जाँच बाकी · %1$d</string>
+    <string name="weighing_leadership_close_pending">अभी बंद करने के लिए तैयार नहीं</string>
     <string name="weighing_leadership_loading">निर्धारित काम लोड हो रहा है</string>
     <string name="weighing_leadership_empty_title">कोई निर्धारित वज़न काम नहीं</string>
     <string name="weighing_leadership_empty_body">निर्धारित शेड काम यहाँ दिखेंगे।</string>

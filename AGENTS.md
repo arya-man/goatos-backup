@@ -984,6 +984,18 @@ Do:
   `Blue Tongue`, and `Goat Pox`.
   `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
   path and must fail any direct UI leak.
+- **Maintainer decision, 2026-08-02:** every user-facing notification (push,
+  in-app, banner, or leadership escalation — vaccination, weighing, feed, and
+  counts alike) must be MEANINGFUL, never abstract. It must carry park name,
+  shed/partition label, vaccine/work-item name in human form, animal/shed
+  counts, and a farm-readable due date in IST; a leadership escalation must
+  name which sheds are outstanding, not just report a count. Prevents the
+  count-only-abstract-notification defect (e.g. "Vaccination(s) due soon · 3"
+  telling nobody which park/shed/vaccine/date). Enforced by
+  `make notification-specificity-guard`
+  (`tools/agent-hooks/check-notification-specificity.mjs`), which composes
+  with — and does not duplicate — `ui-vaccine-labels-guard`. See
+  `docs/decisions/2026-08-02-meaningful-notification-copy.md`.
 - Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
   "shed level", "camera only", or "gallery allowed" in admin-web or Android.
   Backend SOP/form DSL/proof policy decides the proof mode, subject scope,

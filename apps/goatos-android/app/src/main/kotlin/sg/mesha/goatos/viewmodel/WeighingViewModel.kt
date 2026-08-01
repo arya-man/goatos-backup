@@ -683,9 +683,13 @@ class WeighingViewModel @Inject constructor(
      */
     fun onAssignmentRowVisible(index: Int) {
         if (scopeKey != null) return
-        val loaded = assignments.value.size
-        if (loaded == 0) return
-        if (index < loaded - LIST_PREFETCH_DISTANCE) return
+        val unfiltered = assignments.value
+        if (unfiltered.isEmpty()) return
+        // Apply the same park filter as the UI does, so prefetch is based on filtered list size
+        val filtered = unfiltered.filter { selectedAssignmentParkId.value == null || it.parkId == selectedAssignmentParkId.value }
+        if (filtered.isEmpty()) return
+        val filteredSize = filtered.size
+        if (index < filteredSize - LIST_PREFETCH_DISTANCE) return
         appendAssignments()
     }
 
@@ -1904,6 +1908,8 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         status = status.readableWeighingStatus(),
         expectedCount = expectedCount,
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
+        readyToClose = readyToClose,
+        pendingVerificationCount = pendingVerificationCount,
     )
 
 private fun List<WeighingAssignment>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =

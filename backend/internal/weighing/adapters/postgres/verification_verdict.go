@@ -297,6 +297,15 @@ WHERE tenant_id=$1::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignShedID); err != nil {
 			return time.Time{}, err
 		}
+		// B09: the bucket just left its terminal status, so the kernel work item the
+		// sweeper terminalized for it must be reactivated in the SAME transaction --
+		// reconcileTerminalWorkItems only drives work items TOWARD terminal, nothing
+		// moves one back on its own, so without this call the work item stays
+		// terminal forever and Calendar/Control Tower keep reporting the bucket as
+		// finished even though the operator has real rework to do again.
+		if _, err := r.ReactivateWorkItemsForBucket(ctx, tx, verdict.TenantID, scope.CampaignShedID); err != nil {
+			return time.Time{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaigns

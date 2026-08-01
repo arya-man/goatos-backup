@@ -5508,9 +5508,9 @@ export interface components {
             rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
         /** @enum {string} */
-        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "canceled";
+        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "closed" | "canceled";
         /** @enum {string} */
-        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "canceled";
+        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "closed" | "canceled";
         /** @enum {string} */
         WeighingCategory: "individual_animal" | "per_shed_partition";
         /** @enum {string} */

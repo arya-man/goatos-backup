@@ -129,6 +129,9 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 		Context: map[string]string{
 			"type":             "weighing_shed_submitted",
 			"screen":           "weighing_overview",
+			"target":           "/weighing",
+			"message_key":      "weighing.shed_submitted",
+			"shed_label":       payload.ShedLabel,
 			"campaign_id":      payload.CampaignID,
 			"campaign_shed_id": campaignShedID,
 			"park_id":          payload.ParkID,
@@ -192,6 +195,9 @@ func (c *WeighingSubmissionEventConsumer) handleReopened(ctx context.Context, ev
 		Context: map[string]string{
 			"type":             "weighing_shed_reopened",
 			"screen":           "weighing",
+			"target":           "/weighing",
+			"message_key":      "weighing.shed_reopened",
+			"shed_label":       payload.ShedLabel,
 			"campaign_id":      payload.CampaignID,
 			"campaign_shed_id": campaignShedID,
 			"park_id":          payload.ParkID,

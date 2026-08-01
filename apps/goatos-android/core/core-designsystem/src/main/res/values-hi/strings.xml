@@ -84,4 +84,41 @@
     <string name="force_update_installed">इंस्टॉल किया गया वर्शन %1$s</string>
     <string name="force_update_cta">अभी अपडेट करें</string>
     <string name="force_update_no_link">अपडेट लिंक अभी उपलब्ध नहीं है। नवीनतम बिल्ड के लिए अपने Mesha एडमिन से संपर्क करें।</string>
+
+    <!-- Key + client-translation push contract (issue #27). See values/strings.xml for context. -->
+    <string name="push_title_vaccination">टीकाकरण</string>
+    <string name="push_title_weighing">वज़न</string>
+    <string name="push_title_feed">चारा</string>
+    <string name="push_title_counts">गिनती</string>
+
+    <string name="push_fallback_vaccination">आपके लिए टीकाकरण अपडेट है। विवरण के लिए ऐप खोलें।</string>
+    <string name="push_fallback_weighing">आपके लिए वज़न अपडेट है। विवरण के लिए ऐप खोलें।</string>
+    <string name="push_fallback_feed">आपके लिए चारा अपडेट है। विवरण के लिए ऐप खोलें।</string>
+    <string name="push_fallback_counts">आपके लिए गिनती अपडेट है। विवरण के लिए ऐप खोलें।</string>
+    <string name="push_fallback_generic">आपके लिए एक नया अपडेट है। विवरण के लिए ऐप खोलें।</string>
+
+    <string name="push_msg_vaccination_reminder_advance_notice">%1$s: %2$s टीकाकरण कार्य %3$s के आसपास आने वाले हैं। ड्राइव की योजना बनाएं।</string>
+    <string name="push_msg_vaccination_reminder_reminder">%1$s: %2$s टीकाकरण कार्य %3$s तक देय हैं।</string>
+    <string name="push_msg_vaccination_reminder_due_today">%1$s: %2$s टीकाकरण कार्य आज (%3$s) देय हैं।</string>
+    <string name="push_msg_vaccination_reminder_overdue">%1$s: %2$s टीकाकरण कार्य %3$s से बकाया हैं।</string>
+
+    <string name="push_msg_vaccination_reminder_advance_notice_named">%1$s: %2$s %3$s के आसपास आने वाला है। ड्राइव की योजना बनाएं।</string>
+    <string name="push_msg_vaccination_reminder_reminder_named">%1$s: %2$s %3$s तक देय है।</string>
+    <string name="push_msg_vaccination_reminder_due_today_named">%1$s: %2$s आज (%3$s) देय है।</string>
+    <string name="push_msg_vaccination_reminder_overdue_named">%1$s: %2$s %3$s से बकाया है।</string>
+
+    <string name="push_msg_obligation_missed_operator">%1$s: %2$s के लिए टीकाकरण कार्य समय पर पूरा नहीं हुआ। कृपया आज इसे पूरा करें।</string>
+    <string name="push_msg_obligation_missed_leadership">%1$s: %2$s के लिए टीकाकरण कार्य छूट गया। कृपया फॉलो-अप करें।</string>
+
+    <string name="push_msg_vaccination_verify_rework">सत्यापनकर्ता ने %1$s पर टीकाकरण प्रूफ़ को अस्वीकार कर दिया। इस ड्राइव को दोबारा करना होगा।</string>
+
+    <string name="push_msg_weighing_shed_submitted">%1$s का वज़न सत्यापन के लिए भेजा गया।</string>
+    <string name="push_msg_weighing_shed_reopened">%1$s का वज़न फिर से खोला गया। कृपया इसे दोबारा जांचें।</string>
+    <string name="push_msg_weighing_verdict_approved">%1$s वज़न प्रूफ़ स्वीकृत हुआ।</string>
+    <string name="push_msg_weighing_verdict_rework">%1$s वज़न प्रूफ़ को दोबारा करना होगा। कृपया फिर से रिकॉर्ड करें।</string>
+    <string name="push_msg_weighing_shed_closed">%1$s का वज़न बंद कर दिया गया।</string>
+    <string name="push_msg_weighing_shed_abandoned">%1$s का वज़न रद्द कर दिया गया।</string>
+    <string name="push_msg_weighing_work_item_due_today">%1$s पर वज़न आज देय है।</string>
+    <string name="push_msg_weighing_work_item_rolled_forward">%1$s पर वज़न अगले कार्य दिवस के लिए टाल दिया गया।</string>
+    <string name="push_msg_weighing_work_item_delayed">%1$s पर वज़न में देरी हो रही है। कृपया इसे जल्द पूरा करें।</string>
 </resources>

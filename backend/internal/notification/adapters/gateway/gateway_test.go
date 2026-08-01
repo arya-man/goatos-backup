@@ -184,6 +184,117 @@ func TestSendFCMExplicitTopicRecipientStillWorks(t *testing.T) {
 	}
 }
 
+// TestSendFCMWithMessageKeyGoesDataOnly asserts the key+client-translation contract (issue #27):
+// a push whose context carries message_key must NOT include a `notification` block (so the OS
+// never auto-displays the untranslated English fallback in background/killed states), must carry
+// message_key + its structured params in `data` for the client to render locally, must force
+// Android high priority so onMessageReceived is reachable while backgrounded/killed, and must
+// preserve the `target` tap-routing field byte-for-byte.
+func TestSendFCMWithMessageKeyGoesDataOnly(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Context = []byte(`{"message_key":"vaccination.reminder.overdue","park_name":"Gandhi Park","obligation_count":"3","target":"/vaccination"}`)
+	if err := gateway.Send(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	if _, hasNotification := message["notification"]; hasNotification {
+		t.Fatalf("message-key push must be data-only, got notification block: %#v", message["notification"])
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["message_key"] != "vaccination.reminder.overdue" {
+		t.Fatalf("data.message_key = %#v, want vaccination.reminder.overdue", data["message_key"])
+	}
+	if data["park_name"] != "Gandhi Park" || data["obligation_count"] != "3" {
+		t.Fatalf("structured params missing from data: %#v", data)
+	}
+	if data["target"] != "/vaccination" {
+		t.Fatalf("target field not preserved: %#v", data["target"])
+	}
+	android, _ := message["android"].(map[string]any)
+	if android["priority"] != "high" {
+		t.Fatalf("android.priority = %#v, want high", android["priority"])
+	}
+}
+
+// TestSendFCMWithoutMessageKeyKeepsServerRenderedNotification is the hybrid safety net: a caller
+// that has not migrated to message_key (no message_key in context) still gets the legacy
+// server-rendered notification block from Title/Body, so it is never silently dropped.
+func TestSendFCMWithoutMessageKeyKeepsServerRenderedNotification(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	if err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+	message, _ := got["message"].(map[string]any)
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Vaccination overdue" || notification["body"] != "Shed A vaccination is overdue." {
+		t.Fatalf("legacy notification block missing/altered: %#v", notification)
+	}
+	android, _ := message["android"].(map[string]any)
+	if android["priority"] != "high" {
+		t.Fatalf("android.priority = %#v, want high even for legacy sends", android["priority"])
+	}
+}
+
+// TestSendFCMWithRecipientLocaleAddsLocalizedGenericNotification covers the forward-compatible
+// hybrid branch: once a producer supplies `recipient_locale` (not populated by anything today --
+// see the DDL/locale-persistence note in the localization-decision comment), the gateway must ALSO
+// send a locale-correct, category-generic `notification` block alongside the client-render data
+// payload, so a killed app that can't run onMessageReceived still shows something in the
+// recipient's language instead of nothing.
+func TestSendFCMWithRecipientLocaleAddsLocalizedGenericNotification(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Context = []byte(`{"message_key":"vaccination.reminder.overdue","recipient_locale":"hi","category":"vaccination","target":"/vaccination"}`)
+	if err := gateway.Send(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	notification, _ := message["notification"].(map[string]any)
+	if notification == nil {
+		t.Fatalf("expected a locale-aware notification block when recipient_locale is known, got none: %#v", message)
+	}
+	if notification["title"] != "टीकाकरण" {
+		t.Fatalf("notification.title = %#v, want the Hindi vaccination title", notification["title"])
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["message_key"] != "vaccination.reminder.overdue" {
+		t.Fatalf("data.message_key missing/altered: %#v", data)
+	}
+	if data["target"] != "/vaccination" {
+		t.Fatalf("target field not preserved: %#v", data["target"])
+	}
+}
+
 func TestSendFCMSlowProviderTimesOutAsRetryableFailure(t *testing.T) {
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

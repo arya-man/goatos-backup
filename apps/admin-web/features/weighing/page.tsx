@@ -69,6 +69,7 @@ const statusTone: Record<WeighingCampaignState | WeighingScopeStatus | "no_task"
   in_progress: "info",
   delayed: "warn",
   completed: "ok",
+  closed: "ok",
   pending: "mut",
   needs_review: "warn",
 };
@@ -85,6 +86,7 @@ const statusLabel: Record<WeighingCampaignState | WeighingScopeStatus | "no_task
   in_progress: "In progress",
   delayed: "Delayed",
   completed: "Completed",
+  closed: "Closed",
   pending: "Pending",
   needs_review: "Needs review",
 };
@@ -309,7 +311,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   <td>
                     <b>{row.completedCount}</b> captured
                   </td>
-                  <td><Tag tone={row.proofPendingCount > 0 ? "warn" : "ok"}><Video className="ic" aria-hidden="true" />{row.proofPendingCount > 0 ? `${row.proofPendingCount} pending` : "linked"}</Tag></td>
+                  <td><Tag tone={!row.readyToClose && row.proofPendingCount > 0 ? "warn" : "ok"}><Video className="ic" aria-hidden="true" />{!row.readyToClose && row.proofPendingCount > 0 ? `${row.proofPendingCount} pending` : "linked"}</Tag></td>
                   <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>
                   <td>{fmtDate(row.plannedDate)}</td>
                   <td>{fmtDate(row.effectiveDate)}</td>

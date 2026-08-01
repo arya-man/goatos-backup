@@ -14,10 +14,10 @@ import {
 
 export type WeighingRole = "leadership" | "director" | "operator";
 export type WeighingCampaignState =
-  "draft" | "published" | "in_progress" | "delayed" | "completed";
+  "draft" | "published" | "in_progress" | "delayed" | "completed" | "closed";
 export type WeighingCategory = "individual_animal" | "per_shed_partition";
 export type WeighingScopeStatus =
-  "pending" | "in_progress" | "needs_review" | "completed" | "delayed";
+  "pending" | "in_progress" | "needs_review" | "completed" | "closed" | "delayed";
 
 export type WeighingScopeRow = {
   id: string;
@@ -28,6 +28,7 @@ export type WeighingScopeRow = {
   completedCount: number;
   wrongShedCount: number;
   proofPendingCount: number;
+  readyToClose: boolean;
   status: WeighingScopeStatus;
   operatorName: string;
   plannedDate: string;
@@ -392,6 +393,8 @@ function campaignFromApi(
   const scopes = (item.sheds ?? []).map((shed) => scopeFromApi(item, shed));
   const individualCompleted = progress.individual_completed_count;
   const shedPartitionCompleted = progress.per_scope_completed_count;
+  // Aggregate campaign-level attention state from real bucket values.
+  const proofPending = scopes.reduce((sum, scope) => sum + scope.proofPendingCount, 0);
 
   return {
     id: item.campaign_id,
@@ -406,7 +409,7 @@ function campaignFromApi(
     individualCompleted,
     shedPartitionCompleted,
     wrongShedScans: progress.wrong_shed_count,
-    proofPending: 0,
+    proofPending,
     canCreate: leadership,
     canEdit: leadership,
     canPublish: leadership && item.status === "draft",
@@ -433,7 +436,8 @@ function scopeFromApi(
     category: shed.weighing_category,
     completedCount,
     wrongShedCount: 0,
-    proofPendingCount: 0,
+    proofPendingCount: shed.pending_verification_count,
+    readyToClose: shed.ready_to_close,
     status:
       shed.status === "pending"
         ? "pending"

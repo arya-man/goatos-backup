@@ -310,6 +310,104 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
+// B04: a delayed OLDER upload completing AFTER a newer replacement must never
+// supersede the newer one. This models the exact interleave from the bug
+// report: operator uploads original video A, then re-shoots and uploads
+// replacement B; B's upload finishes first (A is still retrying), and A
+// finally completes LAST. The old completion-ordered predicate let A (older)
+// supersede B (newer) simply because A completed second. The fix orders by
+// `created_at` (authorship/upload-intent time, stamped at CreateProof), so:
+//   - completing B (authorship-newest, completes first here) must not
+//     mark anything superseded yet (A isn't completed yet);
+//   - completing A afterwards must NOT supersede B; A is authorship-older, so
+//     the fix marks A ITSELF as superseded by B instead.
+//
+// TestCompletingReplacementTaskGoatVideoKeepsSupersededProofAuditable above is
+// the reverse (normal) order -- newer completes second -- and already asserts
+// that direction still works (older gets superseded by the newer one).
+func TestCompletingOlderDelayedTaskGoatVideoDoesNotSupersedeNewerReplacement(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	taskID := "20000000-0000-4000-8000-000000000002"
+	goatID := "30000000-0000-4000-8000-000000000002"
+	create := domain.CreateUpload{
+		TenantID:    tenantID,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     taskID,
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+	}
+
+	// A is authored (uploaded) FIRST -- the original video.
+	older, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("older CreateProof() error = %v", err)
+	}
+	// B is authored SECOND -- the operator's re-shoot/replacement.
+	newer, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("newer CreateProof() error = %v", err)
+	}
+	// Force a deterministic, unambiguous authorship gap between the two
+	// upload-intent timestamps (real requests would naturally differ by the
+	// re-shoot time, but pin it explicitly so the test cannot flake on clock
+	// resolution).
+	olderCreatedAt := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	newerCreatedAt := time.Date(2026, 7, 1, 8, 5, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `UPDATE proof_artifacts SET created_at=$2 WHERE tenant_id=$1::uuid AND proof_id=$3::uuid`,
+		tenantID, olderCreatedAt, older.ProofID); err != nil {
+		t.Fatalf("pin older created_at: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE proof_artifacts SET created_at=$2 WHERE tenant_id=$1::uuid AND proof_id=$3::uuid`,
+		tenantID, newerCreatedAt, newer.ProofID); err != nil {
+		t.Fatalf("pin newer created_at: %v", err)
+	}
+
+	// INTERLEAVE: the newer (B) upload's proof-processing finishes FIRST.
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     newer.ProofID,
+		ContentHash: "sha256:newer",
+		MimeType:    "video/mp4",
+		SizeBytes:   456,
+	}); err != nil {
+		t.Fatalf("complete newer (B) error = %v", err)
+	}
+	// The delayed older (A) upload finally completes SECOND.
+	if _, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+		TenantID:    tenantID,
+		ProofID:     older.ProofID,
+		ContentHash: "sha256:older",
+		MimeType:    "video/mp4",
+		SizeBytes:   123,
+	}); err != nil {
+		t.Fatalf("complete older (A), delayed = %v", err)
+	}
+
+	newerAfter, err := repo.GetProof(ctx, tenantID, newer.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(newer) error = %v", err)
+	}
+	if newerAfter.Metadata["superseded_by_proof_id"] != nil {
+		t.Fatalf("newer (authorship-current) proof was superseded by the older, delayed upload: metadata=%#v", newerAfter.Metadata)
+	}
+
+	olderAfter, err := repo.GetProof(ctx, tenantID, older.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(older) error = %v", err)
+	}
+	if olderAfter.Metadata["superseded_by_proof_id"] != newer.ProofID {
+		t.Fatalf("older proof superseded_by = %#v, want %q (the authorship-newer replacement)", olderAfter.Metadata["superseded_by_proof_id"], newer.ProofID)
+	}
+}
+
 func TestBackfillSubmissionRetentionAppliesCommittedSOPPolicy(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

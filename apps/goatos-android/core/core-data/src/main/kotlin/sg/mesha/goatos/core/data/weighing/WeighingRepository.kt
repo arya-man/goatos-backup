@@ -103,6 +103,8 @@ data class WeighingAssignment(
     val status: String,
     val expectedCount: Int,
     val periodLabel: String,
+    val readyToClose: Boolean = false,
+    val pendingVerificationCount: Int = 0,
 )
 
 /**
@@ -1966,6 +1968,8 @@ private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
                 periodLabel = listOf(periodStartDate, periodEndDate)
                     .filter { it.isNotBlank() }
                     .joinToString(" - "),
+                readyToClose = shed.readyToClose,
+                pendingVerificationCount = shed.pendingVerificationCount,
             )
         }
 

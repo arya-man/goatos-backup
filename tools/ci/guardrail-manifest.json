@@ -750,6 +750,17 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "domain-event-envelope-enum-guard"
+    },
+    {
+      "id": "notification-specificity",
+      "script": "tools/agent-hooks/check-notification-specificity.mjs",
+      "makeTarget": "notification-specificity-guard",
+      "realCheck": "node tools/agent-hooks/check-notification-specificity.mjs",
+      "selfTest": "node tools/agent-hooks/check-notification-specificity.mjs --self-test",
+      "owningDoc": "docs/decisions/2026-08-02-meaningful-notification-copy.md",
+      "requiredInCI": true,
+      "ciStep": "notification-specificity-guard",
+      "notes": "Maintainer decision 2026-08-02: blocks abstract count-only notification copy (e.g. \"Vaccination(s) due soon - 3\") in backend/internal/notificationbridge/**. Requires park/shed/vaccine-name/date specificity in Title/Body. Composes with ui-vaccine-labels (raw-token humanization) rather than duplicating it."
     }
   ]
 }

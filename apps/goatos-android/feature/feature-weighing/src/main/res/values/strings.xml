@@ -193,6 +193,8 @@
     <string name="weighing_leadership_refresh">Refresh weighing</string>
     <string name="weighing_leadership_tap_to_reopen">Tap to reopen</string>
     <string name="weighing_leadership_close">Close</string>
+    <string name="weighing_leadership_awaiting_verification">Waiting for video check · %1$d</string>
+    <string name="weighing_leadership_close_pending">Not ready to close yet</string>
     <string name="weighing_leadership_loading">Loading scheduled work</string>
     <string name="weighing_leadership_empty_title">No scheduled weighing work</string>
     <string name="weighing_leadership_empty_body">Scheduled shed tasks will appear here.</string>

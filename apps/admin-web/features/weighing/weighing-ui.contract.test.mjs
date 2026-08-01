@@ -104,3 +104,32 @@ test("weighing week strip is derived from campaign response", () => {
   assert.doesNotMatch(data, /key: "2026-07-19"/);
   assert.doesNotMatch(data, /key: "2026-08-02"/);
 });
+
+test("DEFECT B14 FIX: weighing UI reads real pending_verification_count and ready_to_close from backend", () => {
+  const data = source("data.ts");
+  const page = source("page.tsx");
+
+  // Verify that pending_verification_count is read from the API instead of hardcoded
+  assert.match(data, /proofPendingCount: shed\.pending_verification_count/);
+  // Verify that ready_to_close is read from the API
+  assert.match(data, /readyToClose: shed\.ready_to_close/);
+  // Verify that campaign-level proofPending aggregates from scopes, not hardcoded
+  assert.match(data, /const proofPending = scopes\.reduce\(\(sum, scope\) => sum \+ scope\.proofPendingCount/);
+  // Verify that UI gates "linked" label on readyToClose, not just proofPendingCount === 0
+  assert.match(page, /!row\.readyToClose && row\.proofPendingCount > 0/);
+  assert.doesNotMatch(data, /proofPendingCount: 0[,\n]/);
+});
+
+test("DEFECT B18 FIX: weighing UI supports closed status in both campaign and shed states", () => {
+  const data = source("data.ts");
+  const page = source("page.tsx");
+
+  // Verify that closed status is in the WeighingCampaignState union
+  assert.match(data, /"draft" \| "published" \| "in_progress" \| "delayed" \| "completed" \| "closed"/);
+  // Verify that closed status is in the WeighingScopeStatus union
+  assert.match(data, /"pending" \| "in_progress" \| "needs_review" \| "completed" \| "closed" \| "delayed"/);
+  // Verify that closed status has a statusTone mapping
+  assert.match(page, /closed: "ok"/);
+  // Verify that closed status has a statusLabel mapping
+  assert.match(page, /closed: "Closed"/);
+});
