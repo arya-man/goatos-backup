@@ -337,12 +337,33 @@ class VerifyQueueViewModel @Inject constructor(
         return options
     }
 
+    private fun VerifyQueueViewModel.formatCapturedAtIST(raw: String): String {
+        if (raw.isBlank()) return ""
+        return runCatching {
+            val instant = java.time.Instant.parse(raw)
+            val locale = java.util.Locale.getDefault()
+            java.time.format.DateTimeFormatter
+                .ofLocalizedDateTime(
+                    java.time.format.FormatStyle.MEDIUM,
+                    java.time.format.FormatStyle.SHORT
+                )
+                .withLocale(locale)
+                .withZone(java.time.ZoneId.systemDefault())
+                .format(instant)
+        }.getOrDefault(raw)
+    }
+
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
         // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
         // category-humanized name is the last-resort fallback so a non-vaccination row never
         // mislabels as "Vaccination proof".
-        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { humanizeCategory(category) }
-        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
+        // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
+        // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
+        val title = listOfNotNull(
+            subjectLabel,
+            shedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
+        ).joinToString(" · ").ifBlank { humanizeCategory(category) }
+        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
             .joinToString(" · ")
         val mediaCount = media.size
         val firstMedia = media.firstOrNull()

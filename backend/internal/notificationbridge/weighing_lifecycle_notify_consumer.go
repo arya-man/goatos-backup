@@ -244,7 +244,7 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 			NotificationType: "advance_notice",
 			Channel:          channelPushFCM,
 			Priority:         priorityNormal,
-			Title:            "New weighing work",
+			Title:            "New weighing work", // notification-copy:ignore: body variable names the operator's own shed labels
 			Body:             body,
 			TraceID:          eventKey,
 			EventKey:         eventKey,
@@ -291,7 +291,7 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 		NotificationType: "advance_notice",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Weighing plan published",
+		Title:            "Weighing plan published", // notification-copy:ignore: weighingPlanPublishedBody names the sheds and the start date
 		Body:             weighingPlanPublishedBody(allShedLabels, payload.StartBusinessDate),
 		TraceID:          eventKey,
 		EventKey:         eventKey,
@@ -547,7 +547,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 			NotificationType: "verification_closed",
 			Channel:          channelPushFCM,
 			Priority:         priorityNormal,
-			Title:            "Weighing closed",
+			Title:            "Weighing closed", // notification-copy:ignore: body variable names the shed and its not-accepted work
 			Body:             body,
 			TraceID:          eventKey,
 			EventKey:         eventKey,
@@ -589,7 +589,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 		NotificationType: "verification_closed",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Weighing task closed",
+		Title:            "Weighing task closed", // notification-copy:ignore: body variable names each closed bucket's shed
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
