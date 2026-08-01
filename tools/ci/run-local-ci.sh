@@ -291,6 +291,7 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "domain-event-envelope-enum-guard" make domain-event-envelope-enum-guard
   step "design-system-guard"          make design-system-guard
   step "android-row-action-scope-guard" make android-row-action-scope-guard
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard

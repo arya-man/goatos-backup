@@ -93,6 +93,7 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) domain-event-envelope-enum-guard
 	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
 	$(MAKE) guardrail-registration-guard
@@ -540,6 +541,11 @@ scale-guard:
 # calendar overview parsing events instead of day-markers, O(n^2) date scans). Diff-scoped:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
+.PHONY: domain-event-envelope-enum-guard
+domain-event-envelope-enum-guard: ## Fail if a module emits a domain event absent from the envelope enum (the relay would drop it as invalid_event_envelope)
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs
+
 .PHONY: design-system-guard
 design-system-guard: ## Fail if a screen invents its own colour or text style instead of using the central design system
 	node tools/agent-hooks/check-design-system-tokens.mjs
