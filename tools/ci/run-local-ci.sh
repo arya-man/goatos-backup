@@ -33,6 +33,16 @@ receipt_mode=""
 receipt_base=""
 receipt_jobs=""
 declare -a RESULTS
+# FAILURES mirrors every blocking failure so the RED verdict can name the failing
+# steps immediately above the exit line. The summary can run 130+ rows, so a FAIL
+# buried at row 10 is invisible to anyone reading the tail of the output — a gate
+# that says RED without saying why costs more time than one that fails loudly.
+declare -a FAILURES
+
+record_failure() { # name
+  FAILURES+=("$1")
+  fail=1
+}
 
 fast_local_ci_enabled() {
   case "${GOATOS_FAST_LOCAL_CI:-0}" in
@@ -48,7 +58,7 @@ step() { # name, command...
     RESULTS+=("PASS  ${name}")
   else
     RESULTS+=("FAIL  ${name}")
-    fail=1
+    record_failure "${name}"
     echo "!! ci-local step FAILED: ${name}"
   fi
 }
@@ -303,7 +313,7 @@ run_android() {
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   if [ ! -x "$jdk/bin/java" ] || [ ! -d "$sdk" ]; then
     RESULTS+=("FAIL  android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)")
-    fail=1
+    record_failure "android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)"
     return
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
@@ -406,6 +416,18 @@ if [ "$fail" -eq 0 ]; then
     echo "ci-local: explicit partial run ('${only}') — no main-push evidence receipt written."
   fi
 else
-  echo "ci-local: RED @ ${sha}"
+  echo ""
+  echo "──────── ci-local FAILING STEPS @ ${sha} ────────"
+  if [ "${#FAILURES[@]}" -eq 0 ]; then
+    # Should be unreachable: every `fail=1` goes through record_failure. If it is
+    # ever reached, a new failure site skipped the recorder — say so instead of
+    # emitting a cause-free RED.
+    echo "  (none recorded — BUG in run-local-ci.sh: a failure site set fail=1 without record_failure)"
+  else
+    for f in "${FAILURES[@]}"; do echo "  FAIL  ${f}"; done
+    echo ""
+    echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
+  fi
+  echo "ci-local: RED @ ${sha} (${#FAILURES[@]} failing step(s) named above)"
 fi
 exit "$fail"
